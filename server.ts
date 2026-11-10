@@ -931,8 +931,61 @@ export const loadDatabase = () => {
   }
 };
 
+// Sinkronisasi data dari Cloud Database Supabase (Production)
+export const syncFromSupabase = async () => {
+  if (!supabase) return;
+  try {
+    const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+    if (!errM && dbMitras && dbMitras.length > 0) {
+      mitras = dbMitras;
+      console.log(`[Supabase Cloud] Dimuat ${dbMitras.length} mitra dari Supabase`);
+    }
+
+    const { data: dbServices, error: errS } = await supabase.from('services').select('*');
+    if (!errS && dbServices && dbServices.length > 0) {
+      services = dbServices;
+      console.log(`[Supabase Cloud] Dimuat ${dbServices.length} layanan dari Supabase`);
+    }
+
+    const { data: dbDeals, error: errD } = await supabase.from('client_deals').select('*');
+    if (!errD && dbDeals && dbDeals.length > 0) {
+      clientDeals = dbDeals;
+      console.log(`[Supabase Cloud] Dimuat ${dbDeals.length} deal klien dari Supabase`);
+    }
+
+    const { data: dbCommissions, error: errC } = await supabase.from('commissions').select('*');
+    if (!errC && dbCommissions && dbCommissions.length > 0) {
+      commissions = dbCommissions;
+      console.log(`[Supabase Cloud] Dimuat ${dbCommissions.length} komisi dari Supabase`);
+    }
+
+    const { data: dbTools, error: errT } = await supabase.from('marketing_tools').select('*');
+    if (!errT && dbTools && dbTools.length > 0) {
+      marketingTools = dbTools;
+      console.log(`[Supabase Cloud] Dimuat ${dbTools.length} tools marketing dari Supabase`);
+    }
+
+    const { data: dbNotifs, error: errN } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
+    if (!errN && dbNotifs && dbNotifs.length > 0) {
+      notifications = dbNotifs;
+    }
+
+    const { data: dbPasswords, error: errP } = await supabase.from('user_passwords').select('*');
+    if (!errP && dbPasswords && dbPasswords.length > 0) {
+      for (const row of dbPasswords) {
+        if (row.email && row.password) {
+          userPasswords.set(row.email.toLowerCase(), row.password);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Supabase Cloud Warning] Gagal sinkronisasi data dari Supabase saat startup:', err);
+  }
+};
+
 // Muat database yang tersimpan di disk pada startup server
 loadDatabase();
+syncFromSupabase();
 
 app.post('/api/auth/login', (req: Request, res: Response) => {
   const { email, password } = req.body;
@@ -1041,7 +1094,7 @@ app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/auth/reset-password', (req: Request, res: Response) => {
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   const { email, newPassword } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
 
@@ -1052,6 +1105,14 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
   userPasswords.set(normalizedEmail, newPassword);
   saveDatabase();
 
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: newPassword }]);
+    } catch (e) {
+      console.warn('Supabase password reset update error', e);
+    }
+  }
+
   res.json({
     success: true,
     message: 'Kata sandi Anda telah berhasil diubah. Silakan masuk menggunakan kata sandi baru.',
@@ -1059,7 +1120,7 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
 });
 
 // Endpoint: Verifikasi Email Mitra Baru (Token 6-Digit)
-app.post('/api/auth/verify-email', (req: Request, res: Response) => {
+app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
   const { email, token } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
   const inputToken = (token || '').trim();
@@ -1085,6 +1146,17 @@ app.post('/api/auth/verify-email', (req: Request, res: Response) => {
   mitra.verificationTokenExpiry = undefined;
 
   saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('mitras').update({
+        emailVerified: true,
+        verificationToken: null,
+      }).eq('email', normalizedEmail);
+    } catch (e) {
+      console.warn('Supabase verify-email update error', e);
+    }
+  }
 
   res.json({
     success: true,
@@ -1206,6 +1278,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('mitras').insert([newMitra]);
+      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: password || 'mitraND2026!' }]);
     } catch (e) {
       console.warn('Supabase insert error for new mitra', e);
     }
@@ -1468,7 +1541,7 @@ app.get('/api/services', (req: Request, res: Response) => {
   return res.json({ success: true, data: services.filter((s) => s.isActive) });
 });
 
-app.post('/api/services', (req: Request, res: Response) => {
+app.post('/api/services', async (req: Request, res: Response) => {
   const { name, category, defaultPrice, pricingType, commissionRate, description } = req.body;
   if (!name || !category || !defaultPrice) {
     return res.status(400).json({ success: false, message: 'Nama, kategori, dan nominal default wajib diisi.' });
@@ -1499,10 +1572,18 @@ app.post('/api/services', (req: Request, res: Response) => {
 
   saveDatabase();
 
+  if (supabase) {
+    try {
+      await supabase.from('services').insert([newService]);
+    } catch (e) {
+      console.warn('Supabase insert service error', e);
+    }
+  }
+
   res.status(201).json({ success: true, data: newService });
 });
 
-app.put('/api/services/:id', (req: Request, res: Response) => {
+app.put('/api/services/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, category, defaultPrice, pricingType, commissionRate, description, isActive } = req.body;
   const service = services.find((s) => s.id === id);
@@ -1521,14 +1602,30 @@ app.put('/api/services/:id', (req: Request, res: Response) => {
 
   saveDatabase();
 
+  if (supabase) {
+    try {
+      await supabase.from('services').upsert([service]);
+    } catch (e) {
+      console.warn('Supabase upsert service error', e);
+    }
+  }
+
   res.json({ success: true, data: service });
 });
 
-app.delete('/api/services/:id', (req: Request, res: Response) => {
+app.delete('/api/services/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   services = services.filter((s) => s.id !== id);
 
   saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('services').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Supabase delete service error', e);
+    }
+  }
 
   res.json({ success: true, message: 'Layanan berhasil dihapus' });
 });
@@ -1546,7 +1643,7 @@ app.get('/api/clients', (req: Request, res: Response) => {
   res.json({ success: true, data: filtered });
 });
 
-app.post('/api/clients', (req: Request, res: Response) => {
+app.post('/api/clients', async (req: Request, res: Response) => {
   const {
     mitraId,
     companyName,
@@ -1646,11 +1743,39 @@ app.post('/api/clients', (req: Request, res: Response) => {
 
   saveDatabase();
 
+  if (supabase) {
+    try {
+      await supabase.from('client_deals').insert([newDeal]);
+      if (!isPendingAcc && mitra) {
+        await supabase.from('commissions').insert([{
+          id: `trx-${Date.now()}`,
+          mitraId: newDeal.mitraId,
+          mitraName: newDeal.mitraName,
+          serviceName: newDeal.serviceName,
+          clientName: newDeal.companyName,
+          dealValue: newDeal.dealValue,
+          commissionAmount: newDeal.commissionAmount,
+          bonusAmount: 0,
+          status: 'pending',
+          date: newDeal.date,
+        }]);
+        await supabase.from('mitras').update({
+          referredClientsCount: mitra.referredClientsCount,
+          activeSubscribersCount: mitra.activeSubscribersCount,
+          totalCommission: mitra.totalCommission,
+          pendingPayout: mitra.pendingPayout,
+        }).eq('id', mitra.id);
+      }
+    } catch (e) {
+      console.warn('Supabase client deal insert error', e);
+    }
+  }
+
   res.status(201).json({ success: true, data: newDeal });
 });
 
 // Admin ACCs client deal & triggers commission
-app.put('/api/clients/:id/acc', (req: Request, res: Response) => {
+app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
   const { id } = req.params;
   const deal = clientDeals.find((d) => d.id === id);
 
@@ -1721,6 +1846,29 @@ app.put('/api/clients/:id/acc', (req: Request, res: Response) => {
   }
 
   saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('client_deals').update({
+        status: approvedStatus,
+        recurringPaidMonths: deal.recurringPaidMonths,
+        recurringPaidYears: deal.recurringPaidYears,
+      }).eq('id', id);
+
+      await supabase.from('commissions').insert([newCommTrx]);
+
+      if (mitra) {
+        await supabase.from('mitras').update({
+          referredClientsCount: mitra.referredClientsCount,
+          activeSubscribersCount: mitra.activeSubscribersCount,
+          totalCommission: mitra.totalCommission,
+          pendingPayout: mitra.pendingPayout,
+        }).eq('id', deal.mitraId);
+      }
+    } catch (e) {
+      console.warn('Supabase client ACC update error', e);
+    }
+  }
 
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
@@ -1821,7 +1969,7 @@ app.get('/api/commissions/payout-requests', (req: Request, res: Response) => {
   return res.json({ success: true, data: payoutRequests });
 });
 
-app.put('/api/commissions/payout-requests/:id/approve', (req: Request, res: Response) => {
+app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res: Response) => {
   const { id } = req.params;
   const {
     pph21Deduction,
@@ -1893,6 +2041,23 @@ app.put('/api/commissions/payout-requests/:id/approve', (req: Request, res: Resp
   }
 
   saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('payout_requests').upsert([payout]);
+      if (mitra) {
+        await supabase.from('mitras').update({
+          pendingPayout: mitra.pendingPayout,
+          paidPayout: mitra.paidPayout,
+        }).eq('id', payout.mitraId);
+      }
+      if (commTrx) {
+        await supabase.from('commissions').update({ status: 'paid' }).eq('id', commTrx.id);
+      }
+    } catch (e) {
+      console.warn('Supabase payout approve error', e);
+    }
+  }
 
   res.json({ success: true, data: payout });
 });
