@@ -6,9 +6,10 @@ import {
   ArrowLeftRight, 
   Sparkles,
   CheckCircle2,
-  Lock
+  Lock,
+  LogOut
 } from 'lucide-react';
-import { Mitra } from '../types';
+import { Mitra, AuthUser } from '../types';
 
 interface NavbarProps {
   currentRole: 'admin' | 'mitra';
@@ -22,6 +23,8 @@ interface NavbarProps {
   onOpenNotifications: () => void;
   onOpenProfile: () => void;
   onOpenRegister: () => void;
+  onLogout: () => void;
+  currentUser?: AuthUser | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,6 +39,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNotifications,
   onOpenProfile,
   onOpenRegister,
+  onLogout,
+  currentUser,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
@@ -203,6 +208,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 + Daftarkan Mitra
               </button>
             )}
+
+            {/* Logout Button */}
+            <button
+              onClick={onLogout}
+              className="p-1.5 sm:px-2.5 sm:py-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1.5 border border-slate-200"
+              title="Keluar dari Akun (Logout)"
+            >
+              <LogOut className="w-4 h-4 text-slate-500 hover:text-red-600" />
+              <span className="hidden sm:inline text-xs font-semibold">Keluar</span>
+            </button>
           </div>
         </div>
       </div>

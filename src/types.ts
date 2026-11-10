@@ -65,3 +65,12 @@ export interface SalesHistoryMonth {
   mitraCount: number;
   dealsClosed: number;
 }
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'mitra';
+  mitraId?: string;
+  avatarUrl?: string;
+}

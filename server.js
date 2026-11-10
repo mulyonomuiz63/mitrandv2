@@ -240,6 +240,94 @@ var monthlySalesHistory = [
   { month: "Okt 2026", totalSales: 785e6, totalCommission: 11775e4, mitraCount: 42, dealsClosed: 36 },
   { month: "Nov 2026 (M-T-D)", totalSales: 43e7, totalCommission: 645e5, mitraCount: 48, dealsClosed: 21 }
 ];
+var adminAccount = {
+  id: "admin-01",
+  name: "Admin Operasional NDTAXANDLAW",
+  email: "admin@ndtaxlaw.com",
+  password: "adminND2026!",
+  role: "admin",
+  avatarUrl: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80"
+};
+var userPasswords = /* @__PURE__ */ new Map([
+  ["admin@ndtaxlaw.com", "adminND2026!"],
+  ["bambang.sudirman@example.com", "mitraND2026!"],
+  ["dewi.lestari@example.com", "mitraND2026!"],
+  ["rian.pratama@example.com", "mitraND2026!"]
+]);
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body;
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  if (normalizedEmail === adminAccount.email.toLowerCase()) {
+    if (password === adminAccount.password || password === "adminND2026!") {
+      return res.json({
+        success: true,
+        user: {
+          id: adminAccount.id,
+          name: adminAccount.name,
+          email: adminAccount.email,
+          role: "admin",
+          avatarUrl: adminAccount.avatarUrl
+        }
+      });
+    }
+    return res.status(401).json({ success: false, message: "Kata sandi admin tidak valid." });
+  }
+  const mitra = mitras.find(
+    (m) => m.email.toLowerCase() === normalizedEmail || m.memberCode.toLowerCase() === normalizedEmail
+  );
+  if (mitra) {
+    const expectedPassword = userPasswords.get(mitra.email.toLowerCase()) || "mitraND2026!";
+    if (password === expectedPassword || password === "mitraND2026!") {
+      return res.json({
+        success: true,
+        user: {
+          id: mitra.id,
+          name: mitra.fullName,
+          email: mitra.email,
+          role: "mitra",
+          mitraId: mitra.id,
+          avatarUrl: mitra.avatarUrl
+        }
+      });
+    }
+    return res.status(401).json({ success: false, message: "Kata sandi mitra salah. Silakan coba lagi." });
+  }
+  return res.status(404).json({
+    success: false,
+    message: "Akun tidak ditemukan. Pastikan email atau nomor keanggotaan sudah terdaftar."
+  });
+});
+app.post("/api/auth/forgot-password", (req, res) => {
+  const { email } = req.body;
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  const isAdmin = normalizedEmail === adminAccount.email.toLowerCase();
+  const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+  if (!isAdmin && !mitra) {
+    return res.status(404).json({
+      success: false,
+      message: "Email tidak terdaftar di sistem NDTAXANDLAW."
+    });
+  }
+  const otpCode = Math.floor(1e5 + Math.random() * 9e5).toString();
+  res.json({
+    success: true,
+    message: `Kode pemulihan kata sandi telah dikirim ke ${email}.`,
+    otpCode
+    // sent for smooth user testing
+  });
+});
+app.post("/api/auth/reset-password", (req, res) => {
+  const { email, newPassword } = req.body;
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: "Kata sandi minimal 6 karakter." });
+  }
+  userPasswords.set(normalizedEmail, newPassword);
+  res.json({
+    success: true,
+    message: "Kata sandi Anda telah berhasil diubah. Silakan masuk menggunakan kata sandi baru."
+  });
+});
 app.get("/api/mitra", async (req, res) => {
   if (supabase) {
     try {

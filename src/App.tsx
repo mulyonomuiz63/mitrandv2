@@ -13,7 +13,8 @@ import { MitraVerificationPanel } from './components/MitraVerificationPanel';
 import { RegistrationModal } from './components/RegistrationModal';
 import { ProfileEditModal } from './components/ProfileEditModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails } from './types';
+import { AuthView } from './components/AuthView';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser } from './types';
 import { 
   ShieldCheck, 
   Sparkles, 
@@ -28,6 +29,15 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('nd_auth_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>('mitra');
   const [activeTab, setActiveTab] = useState<string>('idcard');
   
@@ -210,6 +220,31 @@ export default function App() {
     }
   };
 
+  const handleLoginSuccess = (user: AuthUser) => {
+    setCurrentUser(user);
+    try {
+      localStorage.setItem('nd_auth_user', JSON.stringify(user));
+    } catch {}
+
+    if (user.role === 'admin') {
+      setCurrentRole('admin');
+      setActiveTab('verification');
+    } else {
+      setCurrentRole('mitra');
+      setActiveTab('idcard');
+      if (user.mitraId) {
+        setActiveMitraId(user.mitraId);
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('nd_auth_user');
+    } catch {}
+  };
+
   // If role changes, ensure activeTab is valid
   const handleRoleChange = (newRole: 'admin' | 'mitra') => {
     setCurrentRole(newRole);
@@ -219,6 +254,18 @@ export default function App() {
       setActiveTab('idcard');
     }
   };
+
+  // Render Auth View if not logged in
+  if (!currentUser) {
+    return (
+      <AuthView
+        onLoginSuccess={handleLoginSuccess}
+        onRegisterSubmit={async (formData) => {
+          await handleRegisterMitra(formData);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900">
@@ -236,6 +283,8 @@ export default function App() {
           onOpenNotifications={() => setIsNotifDrawerOpen(true)}
           onOpenProfile={() => setIsProfileOpen(true)}
           onOpenRegister={() => setIsRegisterOpen(true)}
+          onLogout={handleLogout}
+          currentUser={currentUser}
         />
 
         {/* Executive Sub-Header / Persona Context Bar */}
