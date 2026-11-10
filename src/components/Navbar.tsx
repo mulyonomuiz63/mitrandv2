@@ -7,7 +7,8 @@ import {
   Sparkles,
   CheckCircle2,
   Lock,
-  LogOut
+  LogOut,
+  Settings
 } from 'lucide-react';
 import { Mitra, AuthUser } from '../types';
 
@@ -25,6 +26,10 @@ interface NavbarProps {
   onOpenRegister: () => void;
   onLogout: () => void;
   currentUser?: AuthUser | null;
+  onViewLandingPage?: () => void;
+  onOpenServicesModal?: () => void;
+  onOpenClientInput?: () => void;
+  onOpenSettingsModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -41,6 +46,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenRegister,
   onLogout,
   currentUser,
+  onViewLandingPage,
+  onOpenServicesModal,
+  onOpenClientInput,
+  onOpenSettingsModal,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
@@ -122,15 +131,57 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {currentRole === 'admin' && (
+              <>
+                <button
+                  onClick={() => onTabChange('admin-operations')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                    activeTab === 'admin-operations'
+                      ? 'bg-blue-800 text-white shadow-xs'
+                      : 'text-slate-700 bg-blue-50/80 hover:bg-blue-100 hover:text-blue-900 border border-blue-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Validasi Klien &amp; Payout</span>
+                </button>
+
+                <button
+                  onClick={() => onTabChange('verification')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    activeTab === 'verification'
+                      ? 'bg-blue-50 text-blue-800'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  Verifikasi Mitra
+                </button>
+              </>
+            )}
+
+            {currentRole === 'admin' && onOpenServicesModal && (
               <button
-                onClick={() => onTabChange('verification')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                  activeTab === 'verification'
-                    ? 'bg-blue-50 text-blue-800'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
+                onClick={onOpenServicesModal}
+                className="px-3 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors whitespace-nowrap shrink-0 border border-amber-200"
               >
-                Verifikasi &amp; Data Mitra
+                Kelola Layanan Pajak
+              </button>
+            )}
+
+            {currentRole === 'mitra' && onOpenClientInput && (
+              <button
+                onClick={onOpenClientInput}
+                className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-md transition-colors whitespace-nowrap shrink-0 shadow-xs"
+              >
+                + Input Klien
+              </button>
+            )}
+
+            {onViewLandingPage && (
+              <button
+                onClick={onViewLandingPage}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-slate-100 rounded-md transition-colors whitespace-nowrap shrink-0 border border-slate-300"
+                title="Buka Landing Page Publik Jasa Keuangan & Pajak"
+              >
+                Web Layanan ↗
               </button>
             )}
           </nav>
@@ -163,6 +214,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Admin</span>
               </button>
             </div>
+
+            {/* System Settings Button (Admin or Config) */}
+            {onOpenSettingsModal && (
+              <button
+                onClick={onOpenSettingsModal}
+                className="p-2 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Pengaturan Sistem &amp; Integrasi (Google Login, Gemini AI, Layanan)"
+                aria-label="Buka Pengaturan"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            )}
 
             {/* Notification Bell */}
             <button

@@ -14,7 +14,13 @@ import { RegistrationModal } from './components/RegistrationModal';
 import { ProfileEditModal } from './components/ProfileEditModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { AuthView } from './components/AuthView';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser } from './types';
+import { LandingPage } from './components/LandingPage';
+import { ClientInputModal } from './components/ClientInputModal';
+import { ServicesManagementModal } from './components/ServicesManagementModal';
+import { AdminOperationsHub } from './components/AdminOperationsHub';
+import { AppSettingsModal } from './components/AppSettingsModal';
+import { ClientSelfRegistration } from './components/ClientSelfRegistration';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal } from './types';
 import { 
   ShieldCheck, 
   Sparkles, 
@@ -25,7 +31,8 @@ import {
   Lock,
   Building2,
   FileCheck2,
-  Award
+  Award,
+  Globe
 } from 'lucide-react';
 
 export default function App() {
@@ -38,6 +45,8 @@ export default function App() {
     }
   });
 
+  const [viewMode, setViewMode] = useState<'landing' | 'portal' | 'auth' | 'client_register'>('landing');
+  const [clientRefCode, setClientRefCode] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>('mitra');
   const [activeTab, setActiveTab] = useState<string>('idcard');
   
@@ -46,6 +55,7 @@ export default function App() {
   const [activeMitraId, setActiveMitraId] = useState<string>('mitra-01');
   const [marketingTools, setMarketingTools] = useState<MarketingTool[]>([]);
   const [commissions, setCommissions] = useState<CommissionTransaction[]>([]);
+  const [clientDeals, setClientDeals] = useState<ClientDeal[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [salesHistory, setSalesHistory] = useState<SalesHistoryMonth[]>([]);
 
@@ -53,14 +63,18 @@ export default function App() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotifDrawerOpen, setIsNotifDrawerOpen] = useState(false);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [isServicesModalOpen, setIsServicesModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Fetch initial data
   const fetchData = async () => {
     try {
-      const [resMitra, resTools, resComm, resNotif, resAnalytics] = await Promise.allSettled([
+      const [resMitra, resTools, resComm, resClients, resNotif, resAnalytics] = await Promise.allSettled([
         fetch('/api/mitra').then((r) => r.json()),
         fetch('/api/marketing-tools').then((r) => r.json()),
         fetch('/api/commissions').then((r) => r.json()),
+        fetch('/api/clients').then((r) => r.json()),
         fetch('/api/notifications').then((r) => r.json()),
         fetch('/api/analytics/monthly').then((r) => r.json()),
       ]);
@@ -73,6 +87,9 @@ export default function App() {
       }
       if (resComm.status === 'fulfilled' && resComm.value?.data) {
         setCommissions(resComm.value.data);
+      }
+      if (resClients.status === 'fulfilled' && resClients.value?.data) {
+        setClientDeals(resClients.value.data);
       }
       if (resNotif.status === 'fulfilled' && resNotif.value?.data) {
         setNotifications(resNotif.value.data);
@@ -87,6 +104,14 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const ref = urlParams.get('ref');
+      if (ref) {
+        setClientRefCode(ref);
+        setViewMode('client_register');
+      }
+    }
   }, []);
 
   const activeMitra = mitras.find((m) => m.id === activeMitraId) || mitras[0] || {
@@ -236,10 +261,12 @@ export default function App() {
         setActiveMitraId(user.mitraId);
       }
     }
+    setViewMode('portal');
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setViewMode('landing');
     try {
       localStorage.removeItem('nd_auth_user');
     } catch {}
@@ -248,25 +275,104 @@ export default function App() {
   // If role changes, ensure activeTab is valid
   const handleRoleChange = (newRole: 'admin' | 'mitra') => {
     setCurrentRole(newRole);
-    if (newRole === 'admin' && activeTab === 'idcard') {
-      setActiveTab('verification');
-    } else if (newRole === 'mitra' && activeTab === 'verification') {
+    if (newRole === 'admin' && (activeTab === 'idcard')) {
+      setActiveTab('admin-operations');
+    } else if (newRole === 'mitra' && (activeTab === 'verification' || activeTab === 'admin-operations')) {
       setActiveTab('idcard');
     }
   };
 
-  // Render Auth View if not logged in
-  if (!currentUser) {
+  // 1. Landing Page View (Public Facing for Financial Services & Tax Reports)
+  if (viewMode === 'landing') {
     return (
-      <AuthView
-        onLoginSuccess={handleLoginSuccess}
-        onRegisterSubmit={async (formData) => {
-          await handleRegisterMitra(formData);
-        }}
-      />
+      <div className="relative">
+        {currentUser && (
+          <div className="sticky top-0 z-50 bg-blue-900 text-white text-xs px-4 py-2 flex items-center justify-between border-b border-blue-800 shadow-md">
+            <span className="font-medium">
+              Anda sedang login sebagai <strong>{currentUser.name}</strong> ({currentUser.role === 'admin' ? 'Admin' : 'Mitra'}).
+            </span>
+            <button
+              onClick={() => setViewMode('portal')}
+              className="px-3 py-1 bg-amber-400 text-slate-950 font-bold rounded-md hover:bg-amber-300 transition-colors shadow-xs"
+            >
+              Kembali ke Portal Kemitraan →
+            </button>
+          </div>
+        )}
+
+        <LandingPage
+          onEnterPortal={() => {
+            if (currentUser) {
+              setViewMode('portal');
+            } else {
+              setViewMode('auth');
+            }
+          }}
+          onOpenRegister={() => setIsRegisterOpen(true)}
+          onOpenClientRegister={() => setViewMode('client_register')}
+        />
+
+        {/* Global Modals available from Landing Page */}
+        <RegistrationModal
+          isOpen={isRegisterOpen}
+          onClose={() => setIsRegisterOpen(false)}
+          onRegister={handleRegisterMitra}
+        />
+      </div>
     );
   }
 
+  // 1.5 Client Self Registration View (Via Mitra Referral Link)
+  if (viewMode === 'client_register') {
+    return (
+      <div className="relative">
+        <ClientSelfRegistration
+          referralCode={clientRefCode || (activeMitra?.referralCode || 'ND-REF-0042')}
+          onBackToHome={() => setViewMode('landing')}
+          onSuccess={() => {
+            fetchData();
+            if (currentUser) {
+              setViewMode('portal');
+            } else {
+              setViewMode('landing');
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  // 2. Auth View (Login / Register / Forgot Password)
+  if (viewMode === 'auth' || !currentUser) {
+    return (
+      <div className="relative">
+        <div className="bg-slate-900 text-slate-300 px-4 py-2.5 text-xs flex items-center justify-between border-b border-slate-800">
+          <button
+            onClick={() => setViewMode('landing')}
+            className="text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1.5"
+          >
+            ← Kembali ke Landing Page Jasa Keuangan &amp; Pajak
+          </button>
+          <span className="text-slate-400">NDTAXANDLAW Partner Security Gateway</span>
+        </div>
+
+        <AuthView
+          onLoginSuccess={handleLoginSuccess}
+          onRegisterSubmit={async (formData) => {
+            await handleRegisterMitra(formData);
+          }}
+        />
+
+        <RegistrationModal
+          isOpen={isRegisterOpen}
+          onClose={() => setIsRegisterOpen(false)}
+          onRegister={handleRegisterMitra}
+        />
+      </div>
+    );
+  }
+
+  // 3. Portal View (Mitra & Admin Operations)
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900">
       <div>
@@ -285,6 +391,10 @@ export default function App() {
           onOpenRegister={() => setIsRegisterOpen(true)}
           onLogout={handleLogout}
           currentUser={currentUser}
+          onViewLandingPage={() => setViewMode('landing')}
+          onOpenServicesModal={() => setIsServicesModalOpen(true)}
+          onOpenClientInput={() => setIsClientModalOpen(true)}
+          onOpenSettingsModal={() => setIsSettingsOpen(true)}
         />
 
         {/* Executive Sub-Header / Persona Context Bar */}
@@ -304,25 +414,41 @@ export default function App() {
 
             {/* Quick Mitra Switcher (Useful for demo & testing different states) */}
             {currentRole === 'mitra' ? (
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <span className="text-slate-400">Pilih Mitra Preview:</span>
-                <select
-                  value={activeMitra.id}
-                  onChange={(e) => setActiveMitraId(e.target.value)}
-                  className="bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded-md text-xs font-medium border border-white/20 focus:outline-hidden cursor-pointer"
+              <div className="flex items-center gap-3 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsClientModalOpen(true)}
+                  className="px-3 py-1 bg-amber-400 text-slate-950 font-bold rounded-md hover:bg-amber-300 transition-colors shadow-xs flex items-center gap-1.5"
                 >
-                  {mitras.map((m) => (
-                    <option key={m.id} value={m.id} className="bg-slate-900 text-white">
-                      {m.fullName.split(',')[0]} ({m.status === 'verified' ? 'Terverifikasi' : 'Pending'})
-                    </option>
-                  ))}
-                </select>
+                  <span>+ Input Klien Baru</span>
+                </button>
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <span className="text-slate-400 hidden sm:inline">Mitra:</span>
+                  <select
+                    value={activeMitra.id}
+                    onChange={(e) => setActiveMitraId(e.target.value)}
+                    className="bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded-md text-xs font-medium border border-white/20 focus:outline-hidden cursor-pointer"
+                  >
+                    {mitras.map((m) => (
+                      <option key={m.id} value={m.id} className="bg-slate-900 text-white">
+                        {m.fullName.split(',')[0]} ({m.status === 'verified' ? 'Verified' : 'Pending'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-slate-300 font-mono text-[11px]">
-                <span>Status Sistem: Siap Operasi</span>
-                <span>·</span>
-                <span className="text-emerald-400">Database &amp; AI Aktif</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsServicesModalOpen(true)}
+                  className="px-3 py-1 bg-blue-700 text-white font-bold rounded-md hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs"
+                >
+                  Kelola Layanan Pajak
+                </button>
+                <div className="text-slate-300 font-mono text-[11px] hidden sm:block">
+                  <span className="text-emerald-400">Database &amp; AI Aktif</span>
+                </div>
               </div>
             )}
           </div>
@@ -343,6 +469,10 @@ export default function App() {
             <ExclusiveIdCard
               mitra={activeMitra}
               onEditProfile={() => setIsProfileOpen(true)}
+              onOpenClientSelfRegister={(refCode) => {
+                setClientRefCode(refCode);
+                setViewMode('client_register');
+              }}
             />
           )}
 
@@ -360,8 +490,10 @@ export default function App() {
               mitra={activeMitra}
               userRole={currentRole}
               transactions={commissions}
+              clientDeals={clientDeals}
               onRequestPayout={handleRequestPayout}
               onEditBankDetails={() => setIsProfileOpen(true)}
+              onOpenClientInput={() => setIsClientModalOpen(true)}
             />
           )}
 
@@ -371,6 +503,15 @@ export default function App() {
               userRole={currentRole}
               activeMitra={activeMitra}
               onNavigateTab={setActiveTab}
+            />
+          )}
+
+          {activeTab === 'admin-operations' && currentRole === 'admin' && (
+            <AdminOperationsHub
+              mitras={mitras}
+              clientDeals={clientDeals}
+              commissions={commissions}
+              onRefreshData={fetchData}
             />
           )}
 
@@ -388,7 +529,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* Corporate Modern Footer (Strict Anti-Slop: Quiet Copyright & Trust Badges Only) */}
+      {/* Corporate Modern Footer */}
       <footer className="bg-white border-t border-slate-200 py-6 px-4 sm:px-8 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -404,14 +545,16 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 text-slate-600">
+            <button
+              onClick={() => setViewMode('landing')}
+              className="text-blue-700 hover:underline font-semibold"
+            >
+              Lihat Web Layanan Publik
+            </button>
+            <span>·</span>
             <span className="flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
               Sistem Kemitraan Resmi
-            </span>
-            <span>·</span>
-            <span className="flex items-center gap-1">
-              <FileCheck2 className="w-3.5 h-3.5 text-emerald-600" />
-              Verifikasi Rekening Bank Terenkripsi
             </span>
           </div>
         </div>
@@ -437,6 +580,31 @@ export default function App() {
         notifications={notifications}
         onMarkAllAsRead={handleMarkAllNotificationsAsRead}
         onSelectAction={(tab) => setActiveTab(tab)}
+      />
+
+      <ClientInputModal
+        isOpen={isClientModalOpen}
+        onClose={() => setIsClientModalOpen(false)}
+        currentMitra={activeMitra}
+        onDealAdded={() => {
+          fetchData();
+        }}
+      />
+
+      <ServicesManagementModal
+        isOpen={isServicesModalOpen}
+        onClose={() => setIsServicesModalOpen(false)}
+        onServiceUpdated={() => {
+          fetchData();
+        }}
+      />
+
+      <AppSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSettingsSaved={() => {
+          fetchData();
+        }}
       />
     </div>
   );

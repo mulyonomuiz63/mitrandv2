@@ -10,27 +10,45 @@ import {
   AlertCircle,
   Building2,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  X,
+  Check
 } from 'lucide-react';
 import { Mitra } from '../types';
 
 interface ExclusiveIdCardProps {
   mitra: Mitra;
   onEditProfile: () => void;
+  onOpenClientSelfRegister?: (refCode: string) => void;
 }
 
-export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({ mitra, onEditProfile }) => {
+export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
+  mitra,
+  onEditProfile,
+  onOpenClientSelfRegister,
+}) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showDualSidedModal, setShowDualSidedModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
 
   const handleDownload = () => {
-    setDownloadSuccess(true);
-    setTimeout(() => setDownloadSuccess(false), 3000);
+    setShowDualSidedModal(true);
   };
 
   const handlePrint = () => {
-    window.print();
+    setShowDualSidedModal(true);
+  };
+
+  const clientSelfRegisterLink = typeof window !== 'undefined'
+    ? `${window.location.origin}/?ref=${mitra.referralCode || 'ND-REF-0042'}`
+    : `https://ndtaxlaw.com/?ref=${mitra.referralCode || 'ND-REF-0042'}`;
+
+  const handleCopyClientLink = () => {
+    navigator.clipboard.writeText(clientSelfRegisterLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 3000);
   };
 
   const isVerified = mitra.status === 'verified';
@@ -62,24 +80,17 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({ mitra, onEditP
             <span>{isFlipped ? 'Lihat Sisi Depan' : 'Lihat Sisi Belakang'}</span>
           </button>
           <button
-            onClick={handleDownload}
+            onClick={() => setShowDualSidedModal(true)}
             disabled={!isVerified}
-            className={`px-3.5 py-2 text-xs font-semibold text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-xs ${
+            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs ${
               isVerified
-                ? 'bg-blue-700 hover:bg-blue-800'
-                : 'bg-slate-400 cursor-not-allowed'
+                ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
             }`}
+            title="Download / Cetak Kartu Tampak Depan & Belakang Sekaligus"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>{downloadSuccess ? 'Tersimpan!' : 'Unduh Kartu (HD)'}</span>
-          </button>
-          <button
-            onClick={handlePrint}
-            disabled={!isVerified}
-            className="p-2 text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-40"
-            title="Cetak Kartu"
-          >
-            <Printer className="w-4 h-4" />
+            <Printer className="w-3.5 h-3.5" />
+            <span>Cetak Depan &amp; Belakang</span>
           </button>
         </div>
       </div>
@@ -102,6 +113,108 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({ mitra, onEditP
           </div>
         </div>
       )}
+
+      {/* Referral Code & Dual Earning Showcase Banner */}
+      <div className="mb-6 p-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl border border-blue-700/60 shadow-lg space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-400 text-slate-950 rounded uppercase tracking-wider">
+                KODE REFERRAL MITRA RESMI
+              </span>
+              <span className="text-xs text-blue-200">
+                Gunakan saat mereferensikan calon klien
+              </span>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <span className="font-mono text-2xl font-black text-amber-300 tracking-wider bg-white/10 px-3.5 py-1 rounded-xl border border-white/15">
+                {mitra.referralCode || 'ND-REF-0042'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(mitra.referralCode || 'ND-REF-0042');
+                  alert(`Kode referral ${mitra.referralCode || 'ND-REF-0042'} berhasil disalin ke clipboard!`);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors border border-white/20"
+              >
+                Salin Kode
+              </button>
+              <a
+                href={`https://wa.me/?text=Halo,%20saya%20merekomendasikan%20layanan%20jasa%20keuangan%20dan%20laporan%20pajak%20terpercaya%20dari%20NDTAXANDLAW.%20Gunakan%20kode%20referral%20saya%20${mitra.referralCode || 'ND-REF-0042'}%20untuk%20konsultasi%20resmi.`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
+              >
+                Bagikan via WA
+              </a>
+            </div>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="flex items-center gap-3 pt-2 md:pt-0 border-t md:border-t-0 md:border-l border-white/10 md:pl-5">
+            <div className="text-center px-2">
+              <div className="text-xl font-bold font-mono text-white">
+                {mitra.referredClientsCount ?? 8}
+              </div>
+              <div className="text-[10px] text-blue-200 uppercase font-semibold">
+                Klien Terdaftar
+              </div>
+            </div>
+            <div className="h-8 w-px bg-white/15"></div>
+            <div className="text-center px-2">
+              <div className="text-xl font-bold font-mono text-emerald-400">
+                {mitra.activeSubscribersCount ?? 3}
+              </div>
+              <div className="text-[10px] text-emerald-200 uppercase font-semibold">
+                Langganan Aktif
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Client Self-Registration Direct Link (Update 2) */}
+        <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="text-xs">
+            <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
+            <span className="font-mono text-slate-300 text-[11px] break-all">
+              {clientSelfRegisterLink}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleCopyClientLink}
+              className="px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all"
+            >
+              {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
+            </button>
+            {onOpenClientSelfRegister && (
+              <button
+                type="button"
+                onClick={() => onOpenClientSelfRegister(mitra.referralCode || 'ND-REF-0042')}
+                className="px-2.5 py-1.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-lg border border-white/20 transition-colors"
+                title="Pratinjau formulir yang akan dilihat calon klien"
+              >
+                Buka Form (Tes)
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Earning Rules Explain */}
+        <div className="mt-4 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-400 font-bold shrink-0">⚡ Case-by-case:</span>
+            <span>Mitra menerima komisi 1x penuh saat deal proyek closing (SP2DK, PT PMA, Audit).</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-emerald-400 font-bold shrink-0">🔄 Langganan Bulanan:</span>
+            <span>Mitra menerima komisi pasif rutin setiap bulan selama klien tetap aktif berlangganan jasa akuntansi & pajak.</span>
+          </div>
+        </div>
+      </div>
 
       {/* ID Card Presentation Area */}
       <div className="flex flex-col items-center justify-center py-4">
@@ -356,6 +469,164 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({ mitra, onEditP
             >
               Tutup Jendela
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* DUAL-SIDED PRINTABLE MODAL (Update 1: Download & Cetak Depan Belakang) */}
+      {showDualSidedModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-auto animate-in fade-in zoom-in-95">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <div>
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded uppercase tracking-wider">
+                  HIGH-DEFINITION PRINT READY
+                </span>
+                <h3 className="text-xl font-bold text-slate-900 mt-1">
+                  Format Cetak Kartu Mitra (Depan &amp; Belakang)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Standar dimensi ISO/IEC 7810 ID-1 (85.60 mm &times; 53.98 mm) siap dicetak pada PVC Card atau kertas foto ganda.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-md transition-all"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Cetak / Simpan PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDualSidedModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-700 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Print Sheet Canvas with Cut Marks */}
+            <div className="bg-slate-100 p-6 sm:p-8 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col md:flex-row items-center justify-center gap-8">
+              
+              {/* SIDE 1: FRONT */}
+              <div className="space-y-2 text-center">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  [ SISI DEPAN (FRONT) ]
+                </div>
+                <div 
+                  className="w-[340px] sm:w-[380px] aspect-[1.586/1] rounded-xl p-5 relative overflow-hidden shadow-lg text-white text-left select-none border border-amber-400/50"
+                  style={{
+                    background: 'linear-gradient(135deg, #092147 0%, #113872 45%, #061835 100%)',
+                  }}
+                >
+                  <div className="h-full flex flex-col justify-between">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src="/assets/aistudio/logo_kotak_5ecb05e4.png"
+                          alt="Logo ND"
+                          className="w-7 h-7 object-contain"
+                        />
+                        <div>
+                          <img
+                            src="/assets/aistudio/logo_c3fdb6de.png"
+                            alt="ND TAX AND LAW"
+                            className="h-4 w-auto object-contain brightness-110"
+                          />
+                          <p className="text-[7px] text-amber-300 font-semibold tracking-wider uppercase">
+                            Tax &amp; Legal Consulting Partner
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[8px] font-bold text-amber-200 bg-white/10 px-1.5 py-0.5 rounded border border-amber-300/30">
+                          VERIFIED PARTNER
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="my-auto py-1 flex items-center gap-3">
+                      <img
+                        src={mitra.avatarUrl}
+                        alt={mitra.fullName}
+                        className="w-13 h-13 rounded-lg object-cover ring-1 ring-amber-400 shrink-0"
+                      />
+                      <div>
+                        <h4 className="text-xs font-bold text-white line-clamp-1">{mitra.fullName}</h4>
+                        <p className="text-[9px] text-amber-300 font-medium line-clamp-1">{mitra.specialization}</p>
+                        <p className="font-mono text-[9px] font-bold text-white mt-1 bg-white/10 px-1.5 py-0.5 rounded inline-block">
+                          {mitra.memberCode}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[7px] text-slate-300">
+                      <span>Kredensial Resmi NDTAXANDLAW</span>
+                      <span className="font-mono">EXP: 12/2028</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SIDE 2: BACK */}
+              <div className="space-y-2 text-center">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  [ SISI BELAKANG (BACK) ]
+                </div>
+                <div 
+                  className="w-[340px] sm:w-[380px] aspect-[1.586/1] rounded-xl p-5 relative overflow-hidden shadow-lg text-white text-left select-none border border-amber-400/50"
+                  style={{
+                    background: 'linear-gradient(135deg, #07162c 0%, #0d274c 50%, #041020 100%)',
+                  }}
+                >
+                  <div className="h-full flex flex-col justify-between text-[8px]">
+                    <div className="w-full h-6 bg-black/80 -mx-5 -mt-2 px-5 flex items-center justify-between text-[7px] font-mono text-slate-400">
+                      <span>ND-TAX-LEGAL-ENCRYPTED-ID</span>
+                      <span className="text-amber-400">2026.11</span>
+                    </div>
+
+                    <div className="p-2 rounded bg-white/5 border border-white/10 space-y-0.5 mt-2">
+                      <span className="text-[7px] text-amber-300 uppercase font-semibold">Rekening Pencairan Terdaftar:</span>
+                      <p className="text-[9px] font-bold text-white">{mitra.bankDetails.bankName}</p>
+                      <p className="font-mono text-[9px] text-amber-200">{mitra.bankDetails.accountNumber} - a.n. {mitra.bankDetails.accountHolder}</p>
+                    </div>
+
+                    <p className="text-[7px] text-slate-400 leading-tight">
+                      1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW.<br/>
+                      2. Pindai QR Code untuk memvalidasi keabsahan mandat pendampingan.
+                    </p>
+
+                    <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[7px] text-slate-400">
+                      <span>Menara Kadin Indonesia, Jakarta Selatan</span>
+                      <span className="font-mono text-slate-300">||| | |||| | |||||</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Print Guide Tips */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span>Tip: Pada dialog cetak, pilih <strong>Orientation: Landscape</strong> dan <strong>Scale: 100%</strong> untuk hasil ukuran ID Card presisi.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDualSidedModal(false)}
+                className="text-xs font-semibold text-slate-700 hover:text-slate-900"
+              >
+                Tutup
+              </button>
+            </div>
+
           </div>
         </div>
       )}

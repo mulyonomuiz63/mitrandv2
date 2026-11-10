@@ -32,6 +32,7 @@ var mitras = [
   {
     id: "mitra-01",
     memberCode: "ND-2026-LAW-0042",
+    referralCode: "ND-REF-0042",
     fullName: "Bambang Sudirman, S.H., M.Kn.",
     email: "bambang.sudirman@example.com",
     phone: "0812-8899-7711",
@@ -48,11 +49,14 @@ var mitras = [
     totalCommission: 345e5,
     totalBonus: 75e5,
     pendingPayout: 62e5,
-    paidPayout: 358e5
+    paidPayout: 358e5,
+    referredClientsCount: 8,
+    activeSubscribersCount: 3
   },
   {
     id: "mitra-02",
     memberCode: "ND-2026-TAX-0077",
+    referralCode: "ND-REF-0077",
     fullName: "Dewi Lestari, S.E., B.K.P.",
     email: "dewi.lestari@example.com",
     phone: "0813-2211-4455",
@@ -69,11 +73,14 @@ var mitras = [
     totalCommission: 482e5,
     totalBonus: 12e6,
     pendingPayout: 0,
-    paidPayout: 602e5
+    paidPayout: 602e5,
+    referredClientsCount: 12,
+    activeSubscribersCount: 5
   },
   {
     id: "mitra-03",
     memberCode: "ND-2026-LAW-0089",
+    referralCode: "ND-REF-0089",
     fullName: "Rian Pratama, S.H.",
     email: "rian.pratama@example.com",
     phone: "0857-4433-2211",
@@ -90,7 +97,9 @@ var mitras = [
     totalCommission: 0,
     totalBonus: 0,
     pendingPayout: 0,
-    paidPayout: 0
+    paidPayout: 0,
+    referredClientsCount: 0,
+    activeSubscribersCount: 0
   }
 ];
 var marketingTools = [
@@ -156,6 +165,226 @@ var marketingTools = [
     targetProduct: "Legal Due Diligence & M&A"
   }
 ];
+var services = [
+  {
+    id: "srv-01",
+    name: "Penyusunan Laporan Keuangan Bulanan & Tahunan (Komersial & Fiskal)",
+    category: "Laporan Keuangan",
+    defaultPrice: 75e5,
+    pricingType: "monthly_subscription",
+    commissionRate: 15,
+    description: "Penyusunan Neraca, Laba Rugi, Cashflow, Jurnal Penyesuaian, Buku Besar, dan Rekonsiliasi Bank berkala sesuai PSAK.",
+    isActive: true
+  },
+  {
+    id: "srv-02",
+    name: "Kepatuhan & Pelaporan SPT Tahunan Badan (PPh Badan 1771)",
+    category: "Kepatuhan Pajak",
+    defaultPrice: 15e6,
+    pricingType: "case_by_case",
+    commissionRate: 15,
+    description: "Kalkulasi kredit pajak, koreksi fiskal positif/negatif, lampiran khusus, dan e-filing resmi DJP dengan garansi nihil teguran formil.",
+    isActive: true
+  },
+  {
+    id: "srv-03",
+    name: "Paket Kepatuhan Pajak Bulanan (SPT Masa PPh 21/23/25/4(2) & PPN 1111)",
+    category: "Kepatuhan Pajak",
+    defaultPrice: 45e5,
+    pricingType: "monthly_subscription",
+    commissionRate: 12,
+    description: "Pembuatan bukti potong Unifikasi, rekonsiliasi faktur pajak keluaran/masukan, dan pelaporan tepat waktu setiap bulan.",
+    isActive: true
+  },
+  {
+    id: "srv-04",
+    name: "Pendampingan SP2DK, Pemeriksaan Pajak, & Keberatan DJP",
+    category: "Pendampingan Audit",
+    defaultPrice: 35e6,
+    pricingType: "case_by_case",
+    commissionRate: 20,
+    description: "Penyusunan tanggapan tertulis resmi SP2DK, rekonsiliasi data pengujian silang, dan pendampingan tatap muka dengan Account Representative DJP.",
+    isActive: true
+  },
+  {
+    id: "srv-05",
+    name: "Tax Planning, Restrukturisasi Bisnis & Dokumentasi Transfer Pricing (TP Doc)",
+    category: "Konsultasi Finansial",
+    defaultPrice: 5e7,
+    pricingType: "case_by_case",
+    commissionRate: 18,
+    description: "Optimasi beban pajak korporasi secara legal (tax avoidance vs evasion compliant), skema holding, dan Master/Local File TP Doc.",
+    isActive: true
+  },
+  {
+    id: "srv-06",
+    name: "Pendirian Legalitas PT / PMA, Perizinan OSS-RBA & NIB Berbasis Risiko",
+    category: "Legalitas Korporasi",
+    defaultPrice: 18e6,
+    pricingType: "case_by_case",
+    commissionRate: 15,
+    description: "Akta Notaris, SK Kemenkumham, NPWP Badan, NIB Berbasis Risiko OSS-RBA, dan sertifikat standar operasional.",
+    isActive: true
+  }
+];
+var clientDeals = [
+  {
+    id: "deal-01",
+    mitraId: "mitra-01",
+    mitraName: "Bambang Sudirman, S.H., M.Kn.",
+    referralCode: "ND-REF-0042",
+    companyName: "PT Nusantara Energi Makmur",
+    picName: "Hendra Wijaya (Direktur Keuangan)",
+    picPhone: "0811-2233-4455",
+    picEmail: "hendra.wijaya@nusantaraenergi.co.id",
+    serviceId: "srv-01",
+    serviceName: "Penyusunan Laporan Keuangan Bulanan & Tahunan (Komersial & Fiskal)",
+    pricingType: "monthly_subscription",
+    dealValue: 12e6,
+    commissionAmount: 18e5,
+    status: "active_subscription",
+    date: "2026-08-10",
+    recurringPaidMonths: 4,
+    notes: "Klien berlangganan retainer laporan keuangan bulanan & review pajak sejak Agustus 2026."
+  },
+  {
+    id: "deal-02",
+    mitraId: "mitra-01",
+    mitraName: "Bambang Sudirman, S.H., M.Kn.",
+    referralCode: "ND-REF-0042",
+    companyName: "PT Sinar Logistik Samudra",
+    picName: "Ibu Ratna Dewi (Komisaris)",
+    picPhone: "0812-9988-7766",
+    picEmail: "ratna@sinarlogistik.com",
+    serviceId: "srv-04",
+    serviceName: "Pendampingan SP2DK, Pemeriksaan Pajak, & Keberatan DJP",
+    pricingType: "case_by_case",
+    dealValue: 45e6,
+    commissionAmount: 9e6,
+    status: "deal_closed",
+    date: "2026-10-15",
+    notes: "Kasus SP2DK ketidaksesuaian omset PPN telah selesai diselesaikan dengan DJP, komisi 1x bayar cair."
+  },
+  {
+    id: "deal-03",
+    mitraId: "mitra-02",
+    mitraName: "Dewi Lestari, S.E., B.K.P.",
+    referralCode: "ND-REF-0077",
+    companyName: "CV Berkah Manunggal Pangan",
+    picName: "Budi Santoso (Founder & CEO)",
+    picPhone: "0813-5566-7788",
+    picEmail: "budi@berkahpangan.co.id",
+    serviceId: "srv-03",
+    serviceName: "Paket Kepatuhan Pajak Bulanan (SPT Masa PPh 21/23/25/4(2) & PPN 1111)",
+    pricingType: "monthly_subscription",
+    dealValue: 5e6,
+    commissionAmount: 6e5,
+    status: "active_subscription",
+    date: "2026-09-01",
+    recurringPaidMonths: 3,
+    notes: "Pelaporan SPT Masa rutin setiap bulan."
+  },
+  {
+    id: "deal-04",
+    mitraId: "mitra-01",
+    mitraName: "Bambang Sudirman, S.H., M.Kn.",
+    referralCode: "ND-REF-0042",
+    companyName: "PT Bahari Mandiri Nusantara",
+    picName: "Ahmad Fauzi (Direktur Operasional)",
+    picPhone: "0812-3344-5566",
+    picEmail: "fauzi@baharimandiri.com",
+    serviceId: "srv-01",
+    serviceName: "Penyusunan Laporan Keuangan Bulanan & Tahunan (Komersial & Fiskal)",
+    pricingType: "monthly_subscription",
+    dealValue: 1e7,
+    commissionAmount: 15e5,
+    status: "pending_acc",
+    date: "2026-11-09",
+    notes: "Klien mengisi formulir registrasi mandiri via tautan referral Mitra Bambang Sudirman.",
+    submittedBy: "client_self"
+  },
+  {
+    id: "deal-05",
+    mitraId: "mitra-02",
+    mitraName: "Dewi Lestari, S.E., B.K.P.",
+    referralCode: "ND-REF-0077",
+    companyName: "PT Cipta Kreasi Sejahtera",
+    picName: "Maya Indah (General Manager)",
+    picPhone: "0813-9900-1122",
+    picEmail: "maya@ciptakreasi.co.id",
+    serviceId: "srv-04",
+    serviceName: "Pendampingan SP2DK, Pemeriksaan Pajak, & Keberatan DJP",
+    pricingType: "case_by_case",
+    dealValue: 35e6,
+    commissionAmount: 7e6,
+    status: "pending_acc",
+    date: "2026-11-08",
+    notes: "Kebutuhan mendesak tanggapan SP2DK KPP Pratama Tebet.",
+    submittedBy: "client_self"
+  }
+];
+var payoutRequests = [
+  {
+    id: "pay-001",
+    mitraId: "mitra-01",
+    mitraName: "Bambang Sudirman, S.H., M.Kn.",
+    memberCode: "ND-2026-LAW-0042",
+    amount: 62e5,
+    bankDetails: {
+      bankName: "Bank Central Asia (BCA)",
+      accountNumber: "8830192837",
+      accountHolder: "Bambang Sudirman"
+    },
+    requestDate: "2026-11-08",
+    status: "pending",
+    notes: "Pengajuan pencairan komisi closing kuartal berjalan."
+  },
+  {
+    id: "pay-002",
+    mitraId: "mitra-02",
+    mitraName: "Dewi Lestari, S.E., B.K.P.",
+    memberCode: "ND-2026-TAX-0077",
+    amount: 18e6,
+    bankDetails: {
+      bankName: "Bank Mandiri",
+      accountNumber: "1370019283741",
+      accountHolder: "Dewi Lestari"
+    },
+    requestDate: "2026-10-26",
+    processedDate: "2026-10-26",
+    status: "approved",
+    notes: "Pencairan komisi PT Global Indo Logistik - Sukses ditransfer via BI-FAST."
+  },
+  {
+    id: "pay-003",
+    mitraId: "mitra-01",
+    mitraName: "Bambang Sudirman, S.H., M.Kn.",
+    memberCode: "ND-2026-LAW-0042",
+    amount: 1125e4,
+    bankDetails: {
+      bankName: "Bank Central Asia (BCA)",
+      accountNumber: "8830192837",
+      accountHolder: "Bambang Sudirman"
+    },
+    requestDate: "2026-10-15",
+    processedDate: "2026-10-15",
+    status: "approved",
+    notes: "Pencairan komisi PT Nusantara Megah Resources - Sukses."
+  }
+];
+var appSettings = {
+  firmName: "NDTAXANDLAW",
+  tagline: "Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi",
+  supportPhone: "0812-8899-7711",
+  supportEmail: "advisory@ndtaxlaw.com",
+  officeAddress: "Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950",
+  defaultCommissionRate: 15,
+  allowClientSelfRegister: true,
+  googleOAuthEnabled: false,
+  googleClientId: "",
+  geminiApiEnabled: true,
+  geminiModel: "gemini-3.8-flash"
+};
 var commissions = [
   {
     id: "trx-101",
@@ -286,6 +515,7 @@ app.post("/api/auth/login", (req, res) => {
           email: mitra.email,
           role: "mitra",
           mitraId: mitra.id,
+          referralCode: mitra.referralCode,
           avatarUrl: mitra.avatarUrl
         }
       });
@@ -346,9 +576,11 @@ app.post("/api/mitra/register", async (req, res) => {
   if (!fullName || !email || !phone) {
     return res.status(400).json({ success: false, message: "Nama, Email, dan No HP wajib diisi." });
   }
+  const generatedReferralCode = `ND-REF-${Math.floor(1e3 + Math.random() * 9e3)}`;
   const newMitra = {
     id: `mitra-${Date.now()}`,
     memberCode: `ND-${(/* @__PURE__ */ new Date()).getFullYear()}-PEN-${Math.floor(1e3 + Math.random() * 9e3)}`,
+    referralCode: generatedReferralCode,
     fullName,
     email,
     phone,
@@ -365,7 +597,9 @@ app.post("/api/mitra/register", async (req, res) => {
     totalCommission: 0,
     totalBonus: 0,
     pendingPayout: 0,
-    paidPayout: 0
+    paidPayout: 0,
+    referredClientsCount: 0,
+    activeSubscribersCount: 0
   };
   mitras.unshift(newMitra);
   if (supabase) {
@@ -567,6 +801,294 @@ app.post("/api/commissions/payout", async (req, res) => {
   }
   res.json({ success: true, message: "Pengajuan pencairan berhasil dikirim" });
 });
+app.get("/api/services", (req, res) => {
+  const { all } = req.query;
+  if (all === "true") {
+    return res.json({ success: true, data: services });
+  }
+  return res.json({ success: true, data: services.filter((s) => s.isActive) });
+});
+app.post("/api/services", (req, res) => {
+  const { name, category, defaultPrice, pricingType, commissionRate, description } = req.body;
+  if (!name || !category || !defaultPrice) {
+    return res.status(400).json({ success: false, message: "Nama, kategori, dan nominal default wajib diisi." });
+  }
+  const newService = {
+    id: `srv-${Date.now()}`,
+    name,
+    category: category || "Laporan Keuangan",
+    defaultPrice: Number(defaultPrice) || 5e6,
+    pricingType: pricingType === "monthly_subscription" ? "monthly_subscription" : "case_by_case",
+    commissionRate: Number(commissionRate) || 15,
+    description: description || "Layanan profesional NDTAXANDLAW.",
+    isActive: true
+  };
+  services.unshift(newService);
+  const notif = {
+    id: `notif-${Date.now()}`,
+    title: "Katalog Layanan Diperbarui",
+    message: `Admin menambahkan layanan baru: "${name}" (${newService.pricingType === "monthly_subscription" ? "Langganan Bulanan" : "Case by Case"}). Mitra dapat mulai menawarkan ke klien.`,
+    type: "tools_update",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isRead: false
+  };
+  notifications.unshift(notif);
+  res.status(201).json({ success: true, data: newService });
+});
+app.put("/api/services/:id", (req, res) => {
+  const { id } = req.params;
+  const { name, category, defaultPrice, pricingType, commissionRate, description, isActive } = req.body;
+  const service = services.find((s) => s.id === id);
+  if (!service) {
+    return res.status(404).json({ success: false, message: "Layanan tidak ditemukan" });
+  }
+  if (name !== void 0) service.name = name;
+  if (category !== void 0) service.category = category;
+  if (defaultPrice !== void 0) service.defaultPrice = Number(defaultPrice);
+  if (pricingType !== void 0) service.pricingType = pricingType;
+  if (commissionRate !== void 0) service.commissionRate = Number(commissionRate);
+  if (description !== void 0) service.description = description;
+  if (isActive !== void 0) service.isActive = Boolean(isActive);
+  res.json({ success: true, data: service });
+});
+app.delete("/api/services/:id", (req, res) => {
+  const { id } = req.params;
+  services = services.filter((s) => s.id !== id);
+  res.json({ success: true, message: "Layanan berhasil dihapus" });
+});
+app.get("/api/clients", (req, res) => {
+  const { mitraId, referralCode } = req.query;
+  let filtered = [...clientDeals];
+  if (mitraId) {
+    filtered = filtered.filter((d) => d.mitraId === mitraId);
+  }
+  if (referralCode) {
+    filtered = filtered.filter((d) => d.referralCode === referralCode);
+  }
+  res.json({ success: true, data: filtered });
+});
+app.post("/api/clients", (req, res) => {
+  const {
+    mitraId,
+    companyName,
+    picName,
+    picPhone,
+    picEmail,
+    serviceId,
+    dealValue,
+    pricingType,
+    notes
+  } = req.body;
+  if (!companyName || !picName || !serviceId) {
+    return res.status(400).json({ success: false, message: "Nama perusahaan klien, PIC, dan layanan wajib diisi." });
+  }
+  const mitra = mitras.find((m) => m.id === mitraId);
+  const service = services.find((s) => s.id === serviceId);
+  const selectedPricingType = pricingType || (service ? service.pricingType : "case_by_case");
+  const nominalValue = Number(dealValue) || (service ? service.defaultPrice : 1e7);
+  const rate = service ? service.commissionRate : 15;
+  const commissionCalc = Math.round(nominalValue * rate / 100);
+  const isPendingAcc = req.body.status === "pending_acc" || req.body.submittedBy === "client_self";
+  const targetStatus = isPendingAcc ? "pending_acc" : selectedPricingType === "monthly_subscription" ? "active_subscription" : "deal_closed";
+  const newDeal = {
+    id: `deal-${Date.now()}`,
+    mitraId: mitra ? mitra.id : "mitra-01",
+    mitraName: mitra ? mitra.fullName : "Mitra Terdaftar",
+    referralCode: mitra ? mitra.referralCode : req.body.referralCode || "ND-REF-0000",
+    companyName,
+    picName,
+    picPhone: picPhone || "-",
+    picEmail: picEmail || "-",
+    serviceId,
+    serviceName: service ? service.name : "Layanan Konsultasi Pajak & Keuangan",
+    pricingType: selectedPricingType,
+    dealValue: nominalValue,
+    commissionAmount: commissionCalc,
+    status: targetStatus,
+    date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
+    recurringPaidMonths: selectedPricingType === "monthly_subscription" ? 1 : void 0,
+    notes: notes || "",
+    submittedBy: req.body.submittedBy || "mitra"
+  };
+  clientDeals.unshift(newDeal);
+  if (!isPendingAcc && mitra) {
+    mitra.referredClientsCount = (mitra.referredClientsCount || 0) + 1;
+    if (selectedPricingType === "monthly_subscription") {
+      mitra.activeSubscribersCount = (mitra.activeSubscribersCount || 0) + 1;
+    }
+    mitra.totalCommission = (mitra.totalCommission || 0) + commissionCalc;
+    mitra.pendingPayout = (mitra.pendingPayout || 0) + commissionCalc;
+    const newCommTrx = {
+      id: `trx-${Date.now()}`,
+      mitraId: newDeal.mitraId,
+      mitraName: newDeal.mitraName,
+      serviceName: newDeal.serviceName,
+      clientName: newDeal.companyName,
+      dealValue: newDeal.dealValue,
+      commissionAmount: newDeal.commissionAmount,
+      bonusAmount: 0,
+      status: "pending",
+      date: newDeal.date
+    };
+    commissions.unshift(newCommTrx);
+  }
+  const notif = {
+    id: `notif-${Date.now()}`,
+    title: isPendingAcc ? "Pendaftaran Klien Baru (Menunggu Validasi ACC)" : "Deal Klien Baru Terdaftar",
+    message: `${newDeal.companyName} terdaftar via kode referral ${newDeal.referralCode}. ${isPendingAcc ? "Menunggu verifikasi admin untuk mencairkan komisi." : `Komisi Rp ${commissionCalc.toLocaleString("id-ID")} dicatat.`}`,
+    type: "client_deal",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isRead: false
+  };
+  notifications.unshift(notif);
+  res.status(201).json({ success: true, data: newDeal });
+});
+app.put("/api/clients/:id/acc", (req, res) => {
+  const { id } = req.params;
+  const deal = clientDeals.find((d) => d.id === id);
+  if (!deal) {
+    return res.status(404).json({ success: false, message: "Deal klien tidak ditemukan" });
+  }
+  if (deal.status !== "pending_acc") {
+    return res.status(400).json({ success: false, message: "Klien ini sudah divalidasi sebelumnya." });
+  }
+  const approvedStatus = deal.pricingType === "monthly_subscription" ? "active_subscription" : "deal_closed";
+  deal.status = approvedStatus;
+  const mitra = mitras.find((m) => m.id === deal.mitraId);
+  if (mitra) {
+    mitra.referredClientsCount = (mitra.referredClientsCount || 0) + 1;
+    if (deal.pricingType === "monthly_subscription") {
+      mitra.activeSubscribersCount = (mitra.activeSubscribersCount || 0) + 1;
+    }
+    mitra.totalCommission = (mitra.totalCommission || 0) + deal.commissionAmount;
+    mitra.pendingPayout = (mitra.pendingPayout || 0) + deal.commissionAmount;
+  }
+  const newCommTrx = {
+    id: `trx-${Date.now()}`,
+    mitraId: deal.mitraId,
+    mitraName: deal.mitraName,
+    serviceName: deal.serviceName,
+    clientName: deal.companyName,
+    dealValue: deal.dealValue,
+    commissionAmount: deal.commissionAmount,
+    bonusAmount: 0,
+    status: "pending",
+    date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+  };
+  commissions.unshift(newCommTrx);
+  const notif = {
+    id: `notif-${Date.now()}`,
+    title: "Deal Klien Disetujui (ACC)",
+    message: `Admin telah meng-ACC klien "${deal.companyName}". Komisi ${deal.pricingType === "monthly_subscription" ? "bulan ke-1" : "1x bayar"} sebesar Rp ${deal.commissionAmount.toLocaleString("id-ID")} telah masuk ke saldo Mitra ${deal.mitraName}.`,
+    type: "commission",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isRead: false
+  };
+  notifications.unshift(notif);
+  res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
+});
+app.post("/api/clients/:id/bill-cycle", (req, res) => {
+  const { id } = req.params;
+  const deal = clientDeals.find((d) => d.id === id);
+  if (!deal) {
+    return res.status(404).json({ success: false, message: "Deal klien tidak ditemukan" });
+  }
+  if (deal.pricingType !== "monthly_subscription") {
+    return res.status(400).json({ success: false, message: "Hanya klien berlangganan bulanan yang dapat diproses tagihan berulang." });
+  }
+  deal.recurringPaidMonths = (deal.recurringPaidMonths || 1) + 1;
+  const mitra = mitras.find((m) => m.id === deal.mitraId);
+  if (mitra) {
+    mitra.totalCommission = (mitra.totalCommission || 0) + deal.commissionAmount;
+    mitra.pendingPayout = (mitra.pendingPayout || 0) + deal.commissionAmount;
+  }
+  const newCommTrx = {
+    id: `trx-${Date.now()}`,
+    mitraId: deal.mitraId,
+    mitraName: deal.mitraName,
+    serviceName: `${deal.serviceName} (Bulan #${deal.recurringPaidMonths})`,
+    clientName: deal.companyName,
+    dealValue: deal.dealValue,
+    commissionAmount: deal.commissionAmount,
+    bonusAmount: 0,
+    status: "pending",
+    date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+  };
+  commissions.unshift(newCommTrx);
+  const notif = {
+    id: `notif-${Date.now()}`,
+    title: "Komisi Langganan Bulanan Masuk (Recurring)",
+    message: `Pembayaran bulan ke-${deal.recurringPaidMonths} untuk klien "${deal.companyName}" terverifikasi. Komisi Rp ${deal.commissionAmount.toLocaleString("id-ID")} ditambahkan ke saldo Mitra ${deal.mitraName}.`,
+    type: "commission",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isRead: false
+  };
+  notifications.unshift(notif);
+  res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
+});
+app.put("/api/clients/:id/status", (req, res) => {
+  const { id } = req.params;
+  const { status, recurringPaidMonths } = req.body;
+  const deal = clientDeals.find((d) => d.id === id);
+  if (!deal) {
+    return res.status(404).json({ success: false, message: "Deal klien tidak ditemukan" });
+  }
+  if (status) deal.status = status;
+  if (recurringPaidMonths !== void 0) deal.recurringPaidMonths = recurringPaidMonths;
+  res.json({ success: true, data: deal });
+});
+app.get("/api/commissions/payout-requests", (req, res) => {
+  const { mitraId } = req.query;
+  if (mitraId) {
+    return res.json({ success: true, data: payoutRequests.filter((p) => p.mitraId === mitraId) });
+  }
+  return res.json({ success: true, data: payoutRequests });
+});
+app.put("/api/commissions/payout-requests/:id/approve", (req, res) => {
+  const { id } = req.params;
+  const payout = payoutRequests.find((p) => p.id === id);
+  if (!payout) {
+    return res.status(404).json({ success: false, message: "Pengajuan pencairan tidak ditemukan" });
+  }
+  payout.status = "approved";
+  payout.processedDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const mitra = mitras.find((m) => m.id === payout.mitraId);
+  if (mitra) {
+    mitra.pendingPayout = Math.max(0, (mitra.pendingPayout || 0) - payout.amount);
+    mitra.paidPayout = (mitra.paidPayout || 0) + payout.amount;
+  }
+  const commTrx = commissions.find((c) => c.mitraId === payout.mitraId && c.status === "processing");
+  if (commTrx) {
+    commTrx.status = "paid";
+  }
+  const notif = {
+    id: `notif-${Date.now()}`,
+    title: "Pencairan Komisi Telah Ditransfer",
+    message: `Dana komisi Rp ${payout.amount.toLocaleString("id-ID")} untuk ${payout.mitraName} telah berhasil ditransfer ke ${payout.bankDetails.bankName} (${payout.bankDetails.accountNumber}).`,
+    type: "commission",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isRead: false
+  };
+  notifications.unshift(notif);
+  res.json({ success: true, data: payout });
+});
+app.get("/api/settings", (req, res) => {
+  res.json({ success: true, data: appSettings });
+});
+app.put("/api/settings", (req, res) => {
+  const updates = req.body;
+  appSettings = { ...appSettings, ...updates };
+  const notif = {
+    id: `notif-${Date.now()}`,
+    title: "Pengaturan Sistem Diperbarui",
+    message: "Konfigurasi layanan aplikasi, OAuth Google, dan integrasi AI telah diperbarui oleh Admin.",
+    type: "tools_update",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isRead: false
+  };
+  notifications.unshift(notif);
+  res.json({ success: true, data: appSettings });
+});
 app.get("/api/notifications", async (req, res) => {
   if (supabase) {
     try {
@@ -601,6 +1123,13 @@ app.get("/api/analytics/monthly", (req, res) => {
 });
 app.post("/api/ai/monthly-report", async (req, res) => {
   try {
+    if (!appSettings.geminiApiEnabled) {
+      return res.json({
+        success: false,
+        message: "Modul Analisis Gemini AI dinonaktifkan di Pengaturan Sistem oleh Admin.",
+        disabled: true
+      });
+    }
     const { targetPeriod = "November 2026", userRole = "admin", specificMitraId } = req.body;
     const targetMitra = specificMitraId ? mitras.find((m) => m.id === specificMitraId) : null;
     const verifiedMitrasCount = mitras.filter((m) => m.status === "verified").length;
