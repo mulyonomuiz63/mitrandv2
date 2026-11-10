@@ -70,11 +70,12 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-2xl max-w-xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
         {!isDone ? (
           <>
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+            {/* FIXED STICKY HEADER */}
+            <div className="shrink-0 p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-white">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-xl bg-slate-900 p-1.5 flex items-center justify-center shrink-0 shadow-xs border border-slate-800">
                   <img
@@ -94,14 +95,17 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
               </div>
               <button
                 onClick={onClose}
-                className="text-slate-400 hover:text-slate-700 text-lg font-bold"
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-lg font-bold"
+                aria-label="Tutup"
               >
                 &times;
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-              {/* Section 1: Data Diri */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              {/* SCROLLABLE FORM BODY */}
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+                {/* Section 1: Data Diri */}
               <div>
                 <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
                   1. Data Diri &amp; Keahlian Profesional
@@ -261,25 +265,27 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                 />
               </div>
+            </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-xs disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Mendaftarkan...' : 'Kirim Pendaftaran Mitra'}
-                </button>
-              </div>
-            </form>
-          </>
+            {/* FIXED BOTTOM FOOTER BUTTONS */}
+            <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-xs disabled:opacity-50"
+              >
+                {isSubmitting ? 'Mendaftarkan...' : 'Kirim Pendaftaran Mitra'}
+              </button>
+            </div>
+          </form>
+        </>
         ) : (
           <div className="text-center py-6">
             <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">

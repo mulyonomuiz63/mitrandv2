@@ -46,11 +46,11 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
         
-        {/* Header Actions */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 print:hidden">
+        {/* FIXED STICKY HEADER */}
+        <div className="shrink-0 p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-white print:hidden">
           <div className="flex items-center gap-2 text-slate-800">
             <Receipt className="w-5 h-5 text-blue-700" />
             <h3 className="text-base font-bold font-display">
@@ -69,7 +69,7 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
             <button
               onClick={onClose}
               type="button"
-              className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+              className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
               aria-label="Tutup"
             >
               <X className="w-5 h-5" />
@@ -77,7 +77,8 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
           </div>
         </div>
 
-        {/* Printable Receipt Body */}
+        {/* SCROLLABLE RECEIPT BODY */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-8 space-y-5 print:overflow-visible print:p-0">
         <div className="mt-4 space-y-6 text-slate-800">
           
           {/* Company Branding & Status */}
@@ -292,18 +293,19 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
             </p>
           </div>
         </div>
+      </div>
 
-        {/* Footer Close Button */}
-        <div className="mt-6 pt-3 border-t border-slate-200 flex justify-end print:hidden">
-          <button
-            onClick={onClose}
-            type="button"
-            className="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-lg transition-colors shadow-xs"
-          >
-            Tutup
-          </button>
-        </div>
+      {/* FIXED BOTTOM FOOTER BUTTON */}
+      <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex justify-end print:hidden">
+        <button
+          onClick={onClose}
+          type="button"
+          className="px-5 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-lg transition-colors shadow-xs"
+        >
+          Tutup
+        </button>
       </div>
     </div>
-  );
+  </div>
+);
 };

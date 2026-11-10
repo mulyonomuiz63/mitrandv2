@@ -138,14 +138,14 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
-        {/* Modal Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-6 relative">
+        {/* FIXED STICKY HEADER */}
+        <div className="shrink-0 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-5 sm:p-6 relative">
           <button
             onClick={onClose}
-            className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
+            className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10"
             aria-label="Tutup"
           >
             <X className="w-5 h-5" />
@@ -162,17 +162,17 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
           </div>
           
           <h2 className="text-xl font-bold tracking-tight text-white">
-            Input Data Klien & Registrasi Proyek
+            Input Data Klien &amp; Registrasi Proyek
           </h2>
           <p className="text-xs text-slate-300 mt-1">
             Data klien akan otomatis dihubungkan dengan Kode Referral Anda untuk penghitungan komisi closing atau royalti bulanan.
           </p>
         </div>
 
-        {/* Modal Content */}
-        <div className="p-6">
+        {/* Modal Content / Form Area */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {submissionSuccess ? (
-            <div className="py-8 text-center space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 py-8 text-center space-y-4">
               <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
                 <CheckCircle2 className="w-9 h-9" />
               </div>
@@ -188,7 +188,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                 <div className="flex justify-between text-xs text-slate-500 pb-2 border-b border-slate-200">
                   <span>Skema Komisi:</span>
                   <span className="font-bold text-slate-800">
-                    {pricingType === 'monthly_subscription' ? 'Langganan Bulanan (Recurring)' : 'Case-by-Case (1x Bayar)'}
+                    {pricingType === 'monthly_subscription' ? 'Langganan Bulanan (Recurring)' : pricingType === 'annual_subscription' ? 'Langganan Tahunan' : 'Case-by-Case (1x Bayar)'}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -196,11 +196,12 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                   <span className="font-bold text-emerald-600 text-base">
                     Rp {estimatedCommission.toLocaleString('id-ID')}
                     {pricingType === 'monthly_subscription' && <span className="text-xs text-slate-500 font-normal"> / bulan</span>}
+                    {pricingType === 'annual_subscription' && <span className="text-xs text-slate-500 font-normal"> / tahun</span>}
                   </span>
                 </div>
                 {pricingType === 'monthly_subscription' && (
                   <p className="text-xs text-blue-700 bg-blue-50 p-2 rounded-lg leading-relaxed">
-                    ℹ️ Komisi akan ditransfer setiap bulan ke rekening Anda selama klien tetap aktif menggunakan jasa perpajakan & akuntansi NDTAXANDLAW.
+                    ℹ️ Komisi akan ditransfer setiap bulan ke rekening Anda selama klien tetap aktif menggunakan jasa perpajakan &amp; akuntansi NDTAXANDLAW.
                   </p>
                 )}
               </div>
@@ -225,14 +226,16 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                   onClick={onClose}
                   className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-colors"
                 >
-                  Tutup & Kembali ke Portal
+                  Tutup &amp; Kembali ke Portal
                 </button>
               </div>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              
-              {/* Referral Banner */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              {/* SCROLLABLE FORM FIELDS */}
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
+                
+                {/* Referral Banner */}
               <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
@@ -549,14 +552,15 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                 />
               </div>
+            </div>
 
-              {/* Submit Buttons */}
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3">
+            {/* FIXED BOTTOM FOOTER BUTTONS */}
+              <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={onClose}
                   disabled={isSubmitting}
-                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200/70 rounded-lg transition-colors"
                 >
                   Batal
                 </button>
@@ -569,7 +573,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     <span>Memproses...</span>
                   ) : (
                     <>
-                      <span>Simpan Klien & Tautkan Referral</span>
+                      <span>Simpan Klien &amp; Tautkan Referral</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}

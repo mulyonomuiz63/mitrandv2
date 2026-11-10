@@ -286,9 +286,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Form Body - Scrollable */}
-        <form onSubmit={handleSave} className="p-6 space-y-5 overflow-y-auto flex-1">
-          {successToast && (
+        {/* Form Container with Sticky Footer */}
+        <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="p-6 space-y-5 overflow-y-auto flex-1">
+            {successToast && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>Pengaturan aplikasi &amp; server SMTP berhasil disimpan serta diterapkan ke seluruh sistem!</span>
@@ -922,13 +923,14 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               </p>
             </div>
           )}
+          </div>
 
-          {/* Footer Save Actions */}
-          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0">
+          {/* Sticky Footer Save Actions */}
+          <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-lg transition-colors"
             >
               Tutup
             </button>
