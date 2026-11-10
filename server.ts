@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { supabase } from './src/supabase.ts';
 
 dotenv.config();
 
@@ -307,11 +308,21 @@ const monthlySalesHistory = [
 // API Routes
 
 // 1. Mitra Endpoints
-app.get('/api/mitra', (req: Request, res: Response) => {
+app.get('/api/mitra', async (req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('mitras').select('*');
+      if (!error && data && data.length > 0) {
+        return res.json({ success: true, data });
+      }
+    } catch (e) {
+      console.warn('Supabase query error for mitras, using fallback', e);
+    }
+  }
   res.json({ success: true, data: mitras });
 });
 
-app.post('/api/mitra/register', (req: Request, res: Response) => {
+app.post('/api/mitra/register', async (req: Request, res: Response) => {
   const { fullName, email, phone, nik, specialization, bankDetails } = req.body;
   if (!fullName || !email || !phone) {
     return res.status(400).json({ success: false, message: 'Nama, Email, dan No HP wajib diisi.' });
@@ -341,20 +352,37 @@ app.post('/api/mitra/register', (req: Request, res: Response) => {
 
   mitras.unshift(newMitra);
 
+  if (supabase) {
+    try {
+      await supabase.from('mitras').insert([newMitra]);
+    } catch (e) {
+      console.warn('Supabase insert error for new mitra', e);
+    }
+  }
+
   // Add system notification for admin
-  notifications.unshift({
+  const newNotif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Pendaftaran Mitra Baru',
     message: `${fullName} baru saja mengajukan pendaftaran kemitraan. Mohon verifikasi berkas di panel Admin.`,
     type: 'verification',
     timestamp: new Date().toISOString(),
     isRead: false,
-  });
+  };
+  notifications.unshift(newNotif);
+
+  if (supabase) {
+    try {
+      await supabase.from('notifications').insert([newNotif]);
+    } catch (e) {
+      console.warn('Supabase insert notification error', e);
+    }
+  }
 
   res.status(201).json({ success: true, data: newMitra });
 });
 
-app.put('/api/mitra/:id/verify', (req: Request, res: Response) => {
+app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status } = req.body; // 'verified' | 'rejected'
   const mitra = mitras.find((m) => m.id === id);
@@ -367,20 +395,37 @@ app.put('/api/mitra/:id/verify', (req: Request, res: Response) => {
   if (status === 'verified') {
     const randomCode = Math.floor(100 + Math.random() * 900);
     mitra.memberCode = `ND-${new Date().getFullYear()}-LAW-${randomCode}`;
-    notifications.unshift({
+    const notif: NotificationItem = {
       id: `notif-${Date.now()}`,
       title: 'Status Kemitraan Disetujui',
       message: `Pendaftaran ${mitra.fullName} telah disetujui. Kartu Identitas Eksklusif (${mitra.memberCode}) telah aktif.`,
       type: 'verification',
       timestamp: new Date().toISOString(),
       isRead: false,
-    });
+    };
+    notifications.unshift(notif);
+
+    if (supabase) {
+      try {
+        await supabase.from('notifications').insert([notif]);
+      } catch (e) {
+        console.warn('Supabase insert error', e);
+      }
+    }
+  }
+
+  if (supabase) {
+    try {
+      await supabase.from('mitras').update({ status, memberCode: mitra.memberCode }).eq('id', id);
+    } catch (e) {
+      console.warn('Supabase update verify error', e);
+    }
   }
 
   res.json({ success: true, data: mitra });
 });
 
-app.put('/api/mitra/:id/profile', (req: Request, res: Response) => {
+app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { fullName, phone, specialization, bankDetails } = req.body;
   const mitra = mitras.find((m) => m.id === id);
@@ -394,15 +439,38 @@ app.put('/api/mitra/:id/profile', (req: Request, res: Response) => {
   if (specialization) mitra.specialization = specialization;
   if (bankDetails) mitra.bankDetails = { ...mitra.bankDetails, ...bankDetails };
 
+  if (supabase) {
+    try {
+      await supabase.from('mitras').update({
+        fullName: mitra.fullName,
+        phone: mitra.phone,
+        specialization: mitra.specialization,
+        bankDetails: mitra.bankDetails,
+      }).eq('id', id);
+    } catch (e) {
+      console.warn('Supabase update profile error', e);
+    }
+  }
+
   res.json({ success: true, data: mitra });
 });
 
 // 2. Marketing Tools Endpoints
-app.get('/api/marketing-tools', (req: Request, res: Response) => {
+app.get('/api/marketing-tools', async (req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('marketing_tools').select('*');
+      if (!error && data && data.length > 0) {
+        return res.json({ success: true, data });
+      }
+    } catch (e) {
+      console.warn('Supabase tools error', e);
+    }
+  }
   res.json({ success: true, data: marketingTools });
 });
 
-app.post('/api/marketing-tools', (req: Request, res: Response) => {
+app.post('/api/marketing-tools', async (req: Request, res: Response) => {
   const { title, category, fileType, fileSize, downloadUrl, thumbnailUrl, description, targetProduct, duration } = req.body;
   if (!title || !category) {
     return res.status(400).json({ success: false, message: 'Judul dan Kategori wajib diisi' });
@@ -424,55 +492,114 @@ app.post('/api/marketing-tools', (req: Request, res: Response) => {
 
   marketingTools.unshift(newTool);
 
+  if (supabase) {
+    try {
+      await supabase.from('marketing_tools').insert([newTool]);
+    } catch (e) {
+      console.warn('Supabase insert tool error', e);
+    }
+  }
+
   // Real-time broadcast notification
-  notifications.unshift({
+  const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Tools Marketing Baru Ditambahkan',
     message: `Admin telah menambahkan materi baru: "${title}" (${category}). Mitra dapat mengunduhnya sekarang.`,
     type: 'tools_update',
     timestamp: new Date().toISOString(),
     isRead: false,
-  });
+  };
+  notifications.unshift(notif);
+
+  if (supabase) {
+    try {
+      await supabase.from('notifications').insert([notif]);
+    } catch (e) {
+      console.warn('Supabase insert notif error', e);
+    }
+  }
 
   res.status(201).json({ success: true, data: newTool });
 });
 
-app.delete('/api/marketing-tools/:id', (req: Request, res: Response) => {
+app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   marketingTools = marketingTools.filter((t) => t.id !== id);
+
+  if (supabase) {
+    try {
+      await supabase.from('marketing_tools').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Supabase delete tool error', e);
+    }
+  }
+
   res.json({ success: true, message: 'Materi berhasil dihapus' });
 });
 
 // 3. Commissions Endpoints
-app.get('/api/commissions', (req: Request, res: Response) => {
+app.get('/api/commissions', async (req: Request, res: Response) => {
   const { mitraId } = req.query;
+
+  if (supabase) {
+    try {
+      const query = supabase.from('commissions').select('*');
+      if (mitraId) query.eq('mitraId', mitraId);
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        return res.json({ success: true, data });
+      }
+    } catch (e) {
+      console.warn('Supabase commissions query error', e);
+    }
+  }
+
   if (mitraId) {
     return res.json({ success: true, data: commissions.filter((c) => c.mitraId === mitraId) });
   }
   res.json({ success: true, data: commissions });
 });
 
-app.post('/api/commissions/payout', (req: Request, res: Response) => {
+app.post('/api/commissions/payout', async (req: Request, res: Response) => {
   const { mitraId, amount } = req.body;
   const mitra = mitras.find((m) => m.id === mitraId);
   if (!mitra) {
     return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan' });
   }
 
-  notifications.unshift({
+  const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Pengajuan Penarikan Komisi',
     message: `Pengajuan pencairan komisi sebesar Rp ${(amount || 5000000).toLocaleString('id-ID')} ke ${mitra.bankDetails.bankName} (${mitra.bankDetails.accountNumber}) sedang diproses finance.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
-  });
+  };
+  notifications.unshift(notif);
+
+  if (supabase) {
+    try {
+      await supabase.from('notifications').insert([notif]);
+    } catch (e) {
+      console.warn('Supabase insert payout notif error', e);
+    }
+  }
 
   res.json({ success: true, message: 'Pengajuan pencairan berhasil dikirim' });
 });
 
 // 4. Notifications Endpoints
-app.get('/api/notifications', (req: Request, res: Response) => {
+app.get('/api/notifications', async (req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
+      if (!error && data && data.length > 0) {
+        return res.json({ success: true, data });
+      }
+    } catch (e) {
+      console.warn('Supabase notifications query error', e);
+    }
+  }
   res.json({ success: true, data: notifications });
 });
 
