@@ -30,7 +30,7 @@ export interface ServiceItem {
   name: string;
   category: 'Laporan Keuangan' | 'Kepatuhan Pajak' | 'Pendampingan Audit' | 'Legalitas Korporasi' | 'Konsultasi Finansial';
   defaultPrice: number;
-  pricingType: 'case_by_case' | 'monthly_subscription';
+  pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription';
   commissionRate: number; // percentage e.g. 15%
   description: string;
   isActive: boolean;
@@ -47,12 +47,18 @@ export interface ClientDeal {
   picEmail: string;
   serviceId: string;
   serviceName: string;
-  pricingType: 'case_by_case' | 'monthly_subscription';
+  pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription';
   dealValue: number;
   commissionAmount: number;
   status: 'pending_acc' | 'deal_closed' | 'active_subscription' | 'in_review' | 'cancelled' | 'rejected';
   date: string;
   recurringPaidMonths?: number;
+  recurringPaidYears?: number;
+  // Case-by-case custom period support (e.g. Feb 2024 s/d Apr 2025 sekali bayar)
+  periodStart?: string;
+  periodEnd?: string;
+  durationMonths?: number;
+  paymentTermType?: 'one_time' | 'milestone';
   notes?: string;
   submittedBy?: 'mitra' | 'client_self';
 }
@@ -62,11 +68,20 @@ export interface PayoutRequest {
   mitraId: string;
   mitraName: string;
   memberCode: string;
-  amount: number;
+  amount: number; // Gross amount
   bankDetails: BankDetails;
   requestDate: string;
   processedDate?: string;
   status: 'pending' | 'processing' | 'approved' | 'rejected';
+  // Deduction & Proof of Transfer fields (optional but fully supported)
+  pph21Deduction?: number;
+  pph21Rate?: number;
+  adminFeeDeduction?: number;
+  netAmountTransferred?: number;
+  proofFileUrl?: string; // Data URL or URL for PDF / JPG / PNG
+  proofFileName?: string;
+  transferRefNumber?: string;
+  disbursedBy?: string;
   notes?: string;
 }
 
@@ -82,6 +97,36 @@ export interface AppSettings {
   googleClientId: string;
   geminiApiEnabled: boolean;
   geminiModel: string;
+
+  // SMTP Email Server Configuration
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpEncryption: 'tls' | 'ssl' | 'none';
+  smtpUser: string;
+  smtpPassword?: string;
+  smtpSenderName: string;
+  smtpSenderEmail: string;
+  smtpReplyToEmail?: string;
+
+  // Automated Email Trigger Toggles
+  emailOnRegistrationVerify: boolean; // Verifikasi email pendaftaran akun mitra
+  emailOnPayoutDisbursed: boolean;    // Informasi pencairan komisi & bukti transfer
+  emailOnClientAcc: boolean;          // Validasi keberhasilan deal klien (ACC)
+  emailOnPasswordReset: boolean;      // Reset password dan instruksi keamanan
+  emailOnRecurringInvoice: boolean;   // Notifikasi siklus invoice langganan
+}
+
+export interface EmailLogItem {
+  id: string;
+  recipient: string;
+  recipientName?: string;
+  subject: string;
+  category: 'registration_verify' | 'payout_disbursed' | 'client_acc' | 'password_reset' | 'recurring_invoice' | 'test_email' | 'other';
+  sentAt: string;
+  status: 'sent' | 'queued' | 'failed';
+  previewSnippet: string;
+  htmlContent?: string;
 }
 
 export interface MarketingTool {

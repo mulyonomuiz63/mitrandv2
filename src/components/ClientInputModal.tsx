@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import { Mitra, ServiceItem, ClientDeal } from '../types';
+import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 
 interface ClientInputModalProps {
   isOpen: boolean;
@@ -23,7 +24,15 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   const [picPhone, setPicPhone] = useState('');
   const [picEmail, setPicEmail] = useState('');
   const [dealValue, setDealValue] = useState<number>(10000000);
-  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription'>('case_by_case');
+  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription' | 'annual_subscription'>('case_by_case');
+  const [isCustomPeriod, setIsCustomPeriod] = useState<boolean>(false);
+  
+  // Interactive Month & Year Picker state (No manual typing)
+  const [startMonth, setStartMonth] = useState<number>(2); // Februari
+  const [startYear, setStartYear] = useState<number>(2024);
+  const [endMonth, setEndMonth] = useState<number>(4); // April
+  const [endYear, setEndYear] = useState<number>(2025);
+  
   const [notes, setNotes] = useState('');
   const [copiedReferral, setCopiedReferral] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,6 +86,10 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
     }
   };
 
+  const autoDuration = Math.max(1, (endYear - startYear) * 12 + (endMonth - startMonth) + 1);
+  const autoPeriodStart = `${MONTH_NAMES_ID[startMonth - 1] || 'Januari'} ${startYear}`;
+  const autoPeriodEnd = `${MONTH_NAMES_ID[endMonth - 1] || 'Desember'} ${endYear}`;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim() || !picName.trim() || !selectedServiceId) {
@@ -100,6 +113,10 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
           serviceId: selectedServiceId,
           dealValue: Number(dealValue),
           pricingType,
+          periodStart: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodStart : undefined,
+          periodEnd: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
+          durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
+          paymentTermType: 'one_time',
           notes: notes.trim(),
         }),
       });
@@ -351,37 +368,120 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Model Pembayaran Klien
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Model Pembayaran &amp; Skema Komisi Klien
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                       <button
                         type="button"
                         onClick={() => setPricingType('case_by_case')}
-                        className={`px-3 py-2 text-xs font-medium rounded-lg border text-center transition-all ${
+                        className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
                           pricingType === 'case_by_case'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
+                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
-                        ⚡ Case-by-Case
-                        <span className="block text-[10px] opacity-80">1x Bayar (Proyek)</span>
+                        <span className="font-bold text-sm block">⚡ Case-by-Case</span>
+                        <span className={`block text-[11px] mt-0.5 ${pricingType === 'case_by_case' ? 'text-blue-100' : 'text-slate-500'}`}>
+                          1x Bayar (Proyek / Multi-Bulan)
+                        </span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setPricingType('monthly_subscription')}
-                        className={`px-3 py-2 text-xs font-medium rounded-lg border text-center transition-all ${
+                        className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
                           pricingType === 'monthly_subscription'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
+                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
-                        🔄 Langganan Bulanan
-                        <span className="block text-[10px] opacity-80">Recurring Retainer</span>
+                        <span className="font-bold text-sm block">🔄 Langganan Bulanan</span>
+                        <span className={`block text-[11px] mt-0.5 ${pricingType === 'monthly_subscription' ? 'text-blue-100' : 'text-slate-500'}`}>
+                          Komisi tiap siklus bulanan
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPricingType('annual_subscription')}
+                        className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
+                          pricingType === 'annual_subscription'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
+                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="font-bold text-sm block">📅 Langganan Tahunan</span>
+                        <span className={`block text-[11px] mt-0.5 ${pricingType === 'annual_subscription' ? 'text-blue-100' : 'text-slate-500'}`}>
+                          Annual Retainer Perikatan
+                        </span>
                       </button>
                     </div>
+
+                    {/* Case by case custom multi-month period section */}
+                    {pricingType === 'case_by_case' && (
+                      <div className="mt-3 p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={isCustomPeriod}
+                            onChange={(e) => setIsCustomPeriod(e.target.checked)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span>Atur Rentang Bulan &amp; Tahun Perikatan (Opsional: Multi-Bulan Sekali Bayar)</span>
+                        </label>
+
+                        {isCustomPeriod && (
+                          <div className="pt-2 border-t border-slate-100 space-y-3 animate-in fade-in">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* Click-to-select Month & Year (No manual typing) */}
+                              <MonthYearPicker
+                                label="Bulan & Tahun Mulai Perikatan"
+                                selectedMonth={startMonth}
+                                selectedYear={startYear}
+                                onChange={(m, y) => {
+                                  setStartMonth(m);
+                                  setStartYear(y);
+                                }}
+                              />
+
+                              <MonthYearPicker
+                                label="Bulan & Tahun Selesai Perikatan"
+                                selectedMonth={endMonth}
+                                selectedYear={endYear}
+                                onChange={(m, y) => {
+                                  setEndMonth(m);
+                                  setEndYear(y);
+                                }}
+                              />
+                            </div>
+
+                            {/* Auto-calculated contract duration */}
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div>
+                                <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider block">
+                                  Total Durasi Terhitung Otomatis
+                                </span>
+                                <span className="text-xs text-slate-700 font-medium">
+                                  Periode: <strong className="text-blue-800">{autoPeriodStart}</strong> s/d <strong className="text-blue-800">{autoPeriodEnd}</strong>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-600">Durasi:</span>
+                                <span className="px-3 py-1 bg-blue-600 text-white font-mono font-bold text-xs rounded-md shadow-xs">
+                                  {autoDuration} Bulan
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-[10px] text-slate-500 leading-relaxed">
+                              ℹ️ Durasi perikatan otomatis terhitung berdasarkan pilihan bulan dan tahun di atas. Meskipun perikatan mencakup multi-bulan (misal: Februari 2024 s/d April 2025 = 15 Bulan), skema transaksi tetap case-by-case (sekali bayar lunas, komisi mitra cair 1x).
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -405,6 +505,8 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     <p className="text-[11px] text-slate-500 mt-1">
                       {pricingType === 'monthly_subscription'
                         ? 'Nominal tagihan retensi per bulan ke klien.'
+                        : pricingType === 'annual_subscription'
+                        ? 'Nominal tagihan retensi per tahun ke klien.'
                         : 'Total nilai kontrak satu kali pengerjaan.'}
                     </p>
                   </div>

@@ -15,6 +15,7 @@ import {
   Lock
 } from 'lucide-react';
 import { ServiceItem, Mitra } from '../types';
+import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 
 interface ClientSelfRegistrationProps {
   referralCode: string;
@@ -37,7 +38,15 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
   const [picPhone, setPicPhone] = useState('');
   const [picEmail, setPicEmail] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
-  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription'>('monthly_subscription');
+  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription' | 'annual_subscription'>('case_by_case');
+  const [isCustomPeriod, setIsCustomPeriod] = useState(false);
+  
+  // Interactive Month & Year Picker state (No manual typing)
+  const [startMonth, setStartMonth] = useState<number>(2); // Februari
+  const [startYear, setStartYear] = useState<number>(2024);
+  const [endMonth, setEndMonth] = useState<number>(4); // April
+  const [endYear, setEndYear] = useState<number>(2025);
+  
   const [dealValue, setDealValue] = useState<number>(7500000);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,6 +98,10 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
     }
   };
 
+  const autoDuration = Math.max(1, (endYear - startYear) * 12 + (endMonth - startMonth) + 1);
+  const autoPeriodStart = `${MONTH_NAMES_ID[startMonth - 1] || 'Januari'} ${startYear}`;
+  const autoPeriodEnd = `${MONTH_NAMES_ID[endMonth - 1] || 'Desember'} ${endYear}`;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim() || !picName.trim() || !picPhone.trim() || !selectedServiceId) {
@@ -113,6 +126,9 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           serviceId: selectedServiceId,
           dealValue: Number(dealValue),
           pricingType,
+          periodStart: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodStart : undefined,
+          periodEnd: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
+          durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
           notes: notes.trim(),
           submittedBy: 'client_self',
           status: 'pending_acc',
@@ -352,52 +368,142 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                   </select>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Model Kerjasama
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setPricingType('monthly_subscription')}
-                        className={`p-2.5 text-xs font-semibold rounded-xl border text-center transition-all ${
-                          pricingType === 'monthly_subscription'
-                            ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
-                        }`}
-                      >
-                        🔄 Retainer Bulanan
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPricingType('case_by_case')}
-                        className={`p-2.5 text-xs font-semibold rounded-xl border text-center transition-all ${
-                          pricingType === 'case_by_case'
-                            ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
-                        }`}
-                      >
-                        ⚡ Proyek 1x Bayar
-                      </button>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Model Pembayaran &amp; Skema Komisi Klien
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setPricingType('case_by_case')}
+                      className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
+                        pricingType === 'case_by_case'
+                          ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700/80'
+                      }`}
+                    >
+                      <span className="font-bold text-sm block">⚡ Case-by-Case</span>
+                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'case_by_case' ? 'text-blue-100' : 'text-slate-400'}`}>
+                        1x Bayar (Proyek / Multi-Bulan)
+                      </span>
+                    </button>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Perkiraan Anggaran / Nilai Kontrak (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      step="500000"
-                      value={dealValue}
-                      onChange={(e) => setDealValue(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-sm font-semibold font-mono bg-slate-800 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-[10px] text-slate-500 mt-0.5 block">
-                      {pricingType === 'monthly_subscription' ? 'Estimasi per bulan' : 'Total 1x pengerjaan'}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPricingType('monthly_subscription')}
+                      className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
+                        pricingType === 'monthly_subscription'
+                          ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700/80'
+                      }`}
+                    >
+                      <span className="font-bold text-sm block">🔄 Langganan Bulanan</span>
+                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'monthly_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
+                        Komisi tiap siklus bulanan
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPricingType('annual_subscription')}
+                      className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
+                        pricingType === 'annual_subscription'
+                          ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700/80'
+                      }`}
+                    >
+                      <span className="font-bold text-sm block">📅 Langganan Tahunan</span>
+                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'annual_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
+                        Annual Retainer Perikatan
+                      </span>
+                    </button>
                   </div>
+                </div>
+
+                {/* Case by case custom multi-month period */}
+                {pricingType === 'case_by_case' && (
+                  <div className="p-3.5 bg-slate-850 bg-slate-800/90 rounded-2xl border border-slate-700 shadow-sm space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={isCustomPeriod}
+                        onChange={(e) => setIsCustomPeriod(e.target.checked)}
+                        className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span>Atur Rentang Bulan &amp; Tahun Perikatan (Opsional: Multi-Bulan Sekali Bayar)</span>
+                    </label>
+
+                    {isCustomPeriod && (
+                      <div className="pt-2 border-t border-slate-700/70 space-y-3 animate-in fade-in">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Click-to-select Month & Year in Dark Theme */}
+                          <MonthYearPicker
+                            label="Bulan & Tahun Mulai Perikatan"
+                            selectedMonth={startMonth}
+                            selectedYear={startYear}
+                            isDarkTheme={true}
+                            onChange={(m, y) => {
+                              setStartMonth(m);
+                              setStartYear(y);
+                            }}
+                          />
+
+                          <MonthYearPicker
+                            label="Bulan & Tahun Selesai Perikatan"
+                            selectedMonth={endMonth}
+                            selectedYear={endYear}
+                            isDarkTheme={true}
+                            onChange={(m, y) => {
+                              setEndMonth(m);
+                              setEndYear(y);
+                            }}
+                          />
+                        </div>
+
+                        {/* Auto-calculated contract duration */}
+                        <div className="p-3 bg-slate-900/90 border border-slate-700 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block">
+                              Total Durasi Terhitung Otomatis
+                            </span>
+                            <span className="text-xs text-slate-300 font-medium">
+                              Periode: <strong className="text-white">{autoPeriodStart}</strong> s/d <strong className="text-white">{autoPeriodEnd}</strong>
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400">Durasi:</span>
+                            <span className="px-3 py-1 bg-blue-600 text-white font-mono font-bold text-xs rounded-md shadow-xs">
+                              {autoDuration} Bulan
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          ℹ️ Durasi perikatan terisi otomatis dari rentang bulan &amp; tahun yang Anda pilih tanpa perlu input manual. Pembayaran bersifat sekali bayar (case-by-case).
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Perkiraan Anggaran / Nilai Kontrak Layanan (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    step="500000"
+                    value={dealValue}
+                    onChange={(e) => setDealValue(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-sm font-semibold font-mono bg-slate-800 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    {pricingType === 'monthly_subscription'
+                      ? 'Estimasi tagihan per bulan'
+                      : pricingType === 'annual_subscription'
+                      ? 'Estimasi tagihan per tahun'
+                      : 'Total nilai perikatan 1x bayar'}
+                  </span>
                 </div>
               </div>
 

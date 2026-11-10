@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, 
   CreditCard, 
@@ -9,10 +9,16 @@ import {
   Filter, 
   Download, 
   Send,
-  AlertCircle
+  AlertCircle,
+  Receipt,
+  Calendar,
+  FileText,
+  ShieldCheck,
+  Percent
 } from 'lucide-react';
-import { Mitra, CommissionTransaction, ClientDeal } from '../types';
+import { Mitra, CommissionTransaction, ClientDeal, PayoutRequest } from '../types';
 import { UserCheck, Sparkles, Plus, Repeat } from 'lucide-react';
+import { PayoutReceiptModal } from './PayoutReceiptModal';
 
 interface CommissionLedgerProps {
   mitra: Mitra;
@@ -33,11 +39,34 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
   onEditBankDetails,
   onOpenClientInput,
 }) => {
-  const [activeTab, setActiveTab] = useState<'transactions' | 'referrals'>('referrals');
+  const [activeTab, setActiveTab] = useState<'referrals' | 'transactions' | 'payouts'>('referrals');
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(mitra.pendingPayout || 5000000);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Mitra's payout requests
+  const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
+  const [selectedReceipt, setSelectedReceipt] = useState<PayoutRequest | null>(null);
+
+  const fetchPayoutHistory = async () => {
+    try {
+      const url = userRole === 'admin' 
+        ? '/api/commissions/payout-requests' 
+        : `/api/commissions/payout-requests?mitraId=${mitra.id}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success && data.data) {
+        setPayouts(data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load payout history:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayoutHistory();
+  }, [mitra.id, userRole]);
 
   // Filter transactions
   const displayTransactions = userRole === 'admin' 
@@ -65,6 +94,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       setIsPayoutModalOpen(false);
       setSuccessToast(`Pengajuan pencairan komisi ${formatRupiah(payoutAmount)} berhasil dikirimkan ke tim finance.`);
       setTimeout(() => setSuccessToast(null), 4000);
+      fetchPayoutHistory();
     } catch (err) {
       console.error(err);
     } finally {
@@ -106,7 +136,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         )}
       </div>
 
-      {/* Stat Cards Strip (Tabular Figures, Clean Single-Level Flat Surfaces) */}
+      {/* Stat Cards Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
@@ -140,66 +170,76 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             {formatRupiah(userRole === 'admin' ? 19700000 : mitra.pendingPayout)}
           </p>
           <span className="text-[11px] text-slate-500 mt-1 block">
-            Jadwal transfer berkala setiap hari kerja
+            Dapat diajukan penarikan kapan saja
           </span>
         </div>
 
-        {/* Bank Details Card */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Rekening Pencairan
-              </p>
-              {userRole === 'mitra' && (
-                <button
-                  onClick={onEditBankDetails}
-                  className="text-[11px] text-blue-700 hover:underline font-semibold"
-                >
-                  Ubah
-                </button>
-              )}
-            </div>
-            <p className="text-sm font-bold text-slate-900 mt-2 font-display">
-              {mitra.bankDetails.bankName || 'Belum Diatur'}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+              Rekening Bank Mitra
             </p>
-            <p className="text-xs text-slate-600 font-mono mt-0.5 tabular-nums">
-              {mitra.bankDetails.accountNumber || '-'}
-            </p>
+            {userRole === 'mitra' && (
+              <button
+                onClick={onEditBankDetails}
+                className="text-xs text-blue-700 hover:underline font-semibold"
+              >
+                Ubah
+              </button>
+            )}
           </div>
-          <p className="text-[11px] text-slate-500 mt-2 truncate">
+          <p className="text-sm font-bold text-slate-900 mt-2 truncate">
+            {mitra.bankDetails.bankName}
+          </p>
+          <p className="text-xs font-mono text-slate-600 mt-0.5 tracking-wider">
+            {mitra.bankDetails.accountNumber}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5 truncate">
             a.n. {mitra.bankDetails.accountHolder}
           </p>
         </div>
       </div>
 
-      {/* Tab Selector & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <div className="flex items-center gap-2 bg-slate-200/70 p-1 rounded-xl w-fit">
+      {/* Navigation Sub-Tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div className="flex items-center bg-slate-200/70 p-1 rounded-xl self-start border border-slate-200 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('referrals')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'referrals'
                 ? 'bg-white text-blue-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span>Klien Referral ({displayClientDeals.length})</span>
+            <span>Klien Referral &amp; Kontrak ({displayClientDeals.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('transactions')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'transactions'
                 ? 'bg-white text-blue-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <DollarSign className="w-3.5 h-3.5" />
-            <span>Riwayat Pembayaran Komisi ({displayTransactions.length})</span>
+            <span>Riwayat Transaksi Komisi ({displayTransactions.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('payouts')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'payouts'
+                ? 'bg-white text-blue-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Receipt className="w-3.5 h-3.5 text-blue-700" />
+            <span>Riwayat Pencairan &amp; Bukti Transfer ({payouts.length})</span>
           </button>
         </div>
 
@@ -207,7 +247,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
           <button
             type="button"
             onClick={onOpenClientInput}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Input Klien Baru (Referral)</span>
@@ -215,7 +255,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         )}
       </div>
 
-      {/* Referral Clients Table */}
+      {/* TAB 1: Referral Clients Table */}
       {activeTab === 'referrals' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden mb-8">
           <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/60">
@@ -227,7 +267,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Klien yang tercatat menggunakan kode referral Anda. Skema Langganan Bulanan akan rutin menghasilkan komisi pasif selama kontrak aktif.
+                Klien yang tercatat menggunakan kode referral Anda. Skema Langganan Bulanan / Tahunan rutin menghasilkan komisi pasif selama kontrak aktif.
               </p>
             </div>
 
@@ -277,24 +317,38 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                         <span className="line-clamp-2">{deal.serviceName}</span>
                       </td>
                       <td className="py-3.5 px-6 whitespace-nowrap">
-                        {deal.pricingType === 'monthly_subscription' ? (
+                        {deal.pricingType === 'annual_subscription' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
+                            <Calendar className="w-3 h-3 text-purple-600" />
+                            Langganan Tahunan ({deal.recurringPaidYears ?? 1} thn)
+                          </span>
+                        ) : deal.pricingType === 'monthly_subscription' ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
                             <Repeat className="w-3 h-3 text-blue-600" />
                             Langganan Bulanan ({deal.recurringPaidMonths ?? 1} bln)
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                            ⚡ Case 1x Bayar
-                          </span>
+                          <div>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                              ⚡ Case-by-Case
+                            </span>
+                            {deal.periodStart && deal.periodEnd && (
+                              <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                {deal.periodStart} s/d {deal.periodEnd}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="py-3.5 px-6 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">
                         {formatRupiah(deal.dealValue)}
                         {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / bln</span>}
+                        {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
                       </td>
                       <td className="py-3.5 px-6 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
                         {formatRupiah(deal.commissionAmount)}
                         {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / bln</span>}
+                        {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
                       </td>
                       <td className="py-3.5 px-6 text-center whitespace-nowrap">
                         {deal.status === 'active_subscription' ? (
@@ -307,7 +361,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                            <Clock className="w-3 h-3" /> Dalam Proses
+                            <Clock className="w-3 h-3" /> Menunggu Validasi ACC
                           </span>
                         )}
                       </td>
@@ -320,16 +374,16 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         </div>
       )}
 
-      {/* Transaction Table */}
+      {/* TAB 2: Transaction Table */}
       {activeTab === 'transactions' && (
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden mb-8">
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-slate-900 font-display">
-              Riwayat Transaksi &amp; Pencairan
+              Riwayat Transaksi Komisi Perikatan
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Rincian komisi per kesepakatan kontrak layanan klien.
+              Rincian komisi per closing kontrak layanan klien yang di-ACC oleh Finance NDTAXANDLAW.
             </p>
           </div>
 
@@ -346,7 +400,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
                 <th className="py-3 px-6">Tanggal</th>
                 {userRole === 'admin' && <th className="py-3 px-6">Mitra</th>}
-                <th className="py-3 px-6">Klien Korporat</th>
+                <th className="py-3 px-6">Klien Perusahaan</th>
                 <th className="py-3 px-6">Layanan Pajak &amp; Hukum</th>
                 <th className="py-3 px-6 text-right">Nilai Deal</th>
                 <th className="py-3 px-6 text-right">Komisi Bersih</th>
@@ -403,7 +457,119 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       </div>
       )}
 
-      {/* Payout Modal */}
+      {/* TAB 3: Payout History & Proof of Transfer Slip */}
+      {activeTab === 'payouts' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden mb-8">
+          <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/60">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 font-display flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-blue-700" />
+                <span>Riwayat Pencairan Komisi, Potongan PPh 21, &amp; Bukti Transfer Bank</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Rincian transparansi dana yang ditransfer ke rekening bank Anda, bukti potong pajak PPh 21 tenaga ahli, biaya admin, serta slip transfer resmi.
+              </p>
+            </div>
+
+            <div className="text-xs text-slate-500 font-medium">
+              Total {payouts.length} Riwayat Pencairan
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                  <th className="py-3 px-6">Tanggal Request / Cair</th>
+                  <th className="py-3 px-6">Rekening Tujuan</th>
+                  <th className="py-3 px-6 text-right">Hak Kotor</th>
+                  <th className="py-3 px-6 text-right">Potongan PPh 21 &amp; Adm</th>
+                  <th className="py-3 px-6 text-right">Bersih Diterima</th>
+                  <th className="py-3 px-6 text-center">Status</th>
+                  <th className="py-3 px-6 text-right">Rincian Slip &amp; Bukti</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {payouts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                      Belum ada riwayat penarikan dana. Klik <strong>"Tarik Komisi ke Rekening"</strong> untuk mengajukan penarikan pertama Anda.
+                    </td>
+                  </tr>
+                ) : (
+                  payouts.map((pay) => {
+                    const gross = pay.amount || 0;
+                    const pph = pay.pph21Deduction || 0;
+                    const admin = pay.adminFeeDeduction || 0;
+                    const totalDeduction = pph + admin;
+                    const net = pay.netAmountTransferred !== undefined ? pay.netAmountTransferred : Math.max(0, gross - totalDeduction);
+
+                    return (
+                      <tr key={pay.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3.5 px-6 font-mono text-slate-700 whitespace-nowrap">
+                          <div>{pay.requestDate}</div>
+                          {pay.processedDate && (
+                            <span className="text-[10px] text-emerald-700 font-semibold">
+                              Cair: {pay.processedDate}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-6">
+                          <div className="font-bold text-blue-900">{pay.bankDetails.bankName}</div>
+                          <div className="font-mono text-slate-700">{pay.bankDetails.accountNumber}</div>
+                          <div className="text-[10px] text-slate-500">a.n. {pay.bankDetails.accountHolder}</div>
+                        </td>
+                        <td className="py-3.5 px-6 text-right font-mono font-bold text-slate-800 whitespace-nowrap">
+                          {formatRupiah(gross)}
+                        </td>
+                        <td className="py-3.5 px-6 text-right font-mono whitespace-nowrap">
+                          {totalDeduction > 0 ? (
+                            <div>
+                              <span className="font-bold text-rose-700">- {formatRupiah(totalDeduction)}</span>
+                              <div className="text-[9px] text-slate-400">
+                                {pph > 0 ? `PPh21 (${pay.pph21Rate || 2.5}%): ${formatRupiah(pph)}` : ''}
+                                {admin > 0 ? ` · Adm: ${formatRupiah(admin)}` : ''}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-normal">Rp 0 (Tanpa Potongan)</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-6 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap text-sm">
+                          {formatRupiah(net)}
+                        </td>
+                        <td className="py-3.5 px-6 text-center whitespace-nowrap">
+                          {pay.status === 'approved' ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Berhasil Ditransfer
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-300">
+                              <Clock className="w-3.5 h-3.5" /> Menunggu Transfer Admin
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-6 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceipt(pay)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-2xs"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>Lihat Detail &amp; Bukti Transfer</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Payout Request Modal */}
       {isPayoutModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
@@ -464,10 +630,10 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 </p>
               </div>
 
-              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-blue-900 text-xs flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                 <p>
-                  Pencairan diproses setiap hari kerja pukul 15.00 WIB langsung ke rekening bank Anda tanpa potongan biaya admin.
+                  Pencairan diproses setiap hari kerja pukul 15.00 WIB langsung ke rekening bank Anda dengan struk dan rincian bukti transfer transparan.
                 </p>
               </div>
 
@@ -491,6 +657,13 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Slip Bukti Pencairan Resmi Modal */}
+      <PayoutReceiptModal
+        isOpen={Boolean(selectedReceipt)}
+        onClose={() => setSelectedReceipt(null)}
+        payout={selectedReceipt}
+      />
     </div>
   );
 };

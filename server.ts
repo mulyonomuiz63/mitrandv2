@@ -58,7 +58,7 @@ export interface ServiceItem {
   name: string;
   category: 'Laporan Keuangan' | 'Kepatuhan Pajak' | 'Pendampingan Audit' | 'Legalitas Korporasi' | 'Konsultasi Finansial';
   defaultPrice: number;
-  pricingType: 'case_by_case' | 'monthly_subscription';
+  pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription';
   commissionRate: number; // percentage e.g. 15%
   description: string;
   isActive: boolean;
@@ -75,12 +75,17 @@ export interface ClientDeal {
   picEmail: string;
   serviceId: string;
   serviceName: string;
-  pricingType: 'case_by_case' | 'monthly_subscription';
+  pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription';
   dealValue: number;
   commissionAmount: number;
   status: 'pending_acc' | 'deal_closed' | 'active_subscription' | 'in_review' | 'cancelled' | 'rejected';
   date: string;
   recurringPaidMonths?: number;
+  recurringPaidYears?: number;
+  periodStart?: string;
+  periodEnd?: string;
+  durationMonths?: number;
+  paymentTermType?: 'one_time' | 'milestone';
   notes?: string;
   submittedBy?: 'mitra' | 'client_self';
 }
@@ -95,6 +100,14 @@ export interface PayoutRequest {
   requestDate: string;
   processedDate?: string;
   status: 'pending' | 'processing' | 'approved' | 'rejected';
+  pph21Deduction?: number;
+  pph21Rate?: number;
+  adminFeeDeduction?: number;
+  netAmountTransferred?: number;
+  proofFileUrl?: string;
+  proofFileName?: string;
+  transferRefNumber?: string;
+  disbursedBy?: string;
   notes?: string;
 }
 
@@ -110,6 +123,36 @@ export interface AppSettings {
   googleClientId: string;
   geminiApiEnabled: boolean;
   geminiModel: string;
+
+  // SMTP Email Server Configuration
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpEncryption: 'tls' | 'ssl' | 'none';
+  smtpUser: string;
+  smtpPassword?: string;
+  smtpSenderName: string;
+  smtpSenderEmail: string;
+  smtpReplyToEmail?: string;
+
+  // Automated Email Trigger Toggles
+  emailOnRegistrationVerify: boolean; // Verifikasi email akun daftar baru
+  emailOnPayoutDisbursed: boolean;    // Informasi pencairan komisi mitra
+  emailOnClientAcc: boolean;          // Validasi keberhasilan deal klien (ACC)
+  emailOnPasswordReset: boolean;      // Reset password dan keamanan
+  emailOnRecurringInvoice: boolean;   // Tagihan berulang retainer
+}
+
+export interface EmailLogItem {
+  id: string;
+  recipient: string;
+  recipientName?: string;
+  subject: string;
+  category: 'registration_verify' | 'payout_disbursed' | 'client_acc' | 'password_reset' | 'recurring_invoice' | 'test_email' | 'other';
+  sentAt: string;
+  status: 'sent' | 'queued' | 'failed';
+  previewSnippet: string;
+  htmlContent?: string;
 }
 
 export interface MarketingTool {
@@ -350,6 +393,26 @@ let services: ServiceItem[] = [
     description: 'Akta Notaris, SK Kemenkumham, NPWP Badan, NIB Berbasis Risiko OSS-RBA, dan sertifikat standar operasional.',
     isActive: true,
   },
+  {
+    id: 'srv-07',
+    name: 'Retainer Kepatuhan Pajak & Audit Keuangan Tahunan (Annual Retainer)',
+    category: 'Kepatuhan Pajak',
+    defaultPrice: 65000000,
+    pricingType: 'annual_subscription',
+    commissionRate: 15,
+    description: 'Paket langganan komprehensif 1 tahun penuh: SPT Tahunan Badan, SPT Masa 12 bulan, audit internal laporan keuangan, dan konsultasi tak terbatas.',
+    isActive: true,
+  },
+  {
+    id: 'srv-08',
+    name: 'Retainer Konsultan Hukum Korporasi & Pengawasan Kontrak (Tahunan)',
+    category: 'Legalitas Korporasi',
+    defaultPrice: 85000000,
+    pricingType: 'annual_subscription',
+    commissionRate: 15,
+    description: 'Pendampingan legal corporate retainer tahunan: legal opinion, review & drafting kontrak bisnis berkala, dan penanganan sengketa ketenagakerjaan.',
+    isActive: true,
+  },
 ];
 
 // Client Deals tracked by Mitra & Referral Code
@@ -448,6 +511,47 @@ let clientDeals: ClientDeal[] = [
     notes: 'Kebutuhan mendesak tanggapan SP2DK KPP Pratama Tebet.',
     submittedBy: 'client_self',
   },
+  {
+    id: 'deal-06',
+    mitraId: 'mitra-01',
+    mitraName: 'Bambang Sudirman, S.H., M.Kn.',
+    referralCode: 'ND-REF-0042',
+    companyName: 'PT Samudera Petro Energi',
+    picName: 'Ir. Ridwan Kamil (Project Director)',
+    picPhone: '0811-9876-5432',
+    picEmail: 'ridwan@samuderapetro.co.id',
+    serviceId: 'srv-05',
+    serviceName: 'Tax Planning, Restrukturisasi Bisnis & Dokumentasi Transfer Pricing (TP Doc)',
+    pricingType: 'case_by_case',
+    dealValue: 85000000,
+    commissionAmount: 15300000,
+    status: 'deal_closed',
+    date: '2026-06-15',
+    periodStart: 'Februari 2024',
+    periodEnd: 'April 2025',
+    durationMonths: 15,
+    paymentTermType: 'one_time',
+    notes: 'Perikatan restrukturisasi keuangan & pajak multi-bulan periode Feb 2024 s/d Apr 2025 (15 Bulan) - Sekali bayar.',
+  },
+  {
+    id: 'deal-07',
+    mitraId: 'mitra-02',
+    mitraName: 'Dewi Lestari, S.E., B.K.P.',
+    referralCode: 'ND-REF-0077',
+    companyName: 'PT Graha Rekayasa Konstruksi',
+    picName: 'Drs. Hendro Wibowo (Direktur Utama)',
+    picPhone: '0812-7766-5544',
+    picEmail: 'hendro@graharekayasa.com',
+    serviceId: 'srv-07',
+    serviceName: 'Retainer Kepatuhan Pajak & Audit Keuangan Tahunan (Annual Retainer)',
+    pricingType: 'annual_subscription',
+    dealValue: 65000000,
+    commissionAmount: 9750000,
+    status: 'active_subscription',
+    date: '2026-03-20',
+    recurringPaidYears: 1,
+    notes: 'Langganan tahunan retainer kepatuhan pajak & audit keuangan komprehensif.',
+  },
 ];
 
 let payoutRequests: PayoutRequest[] = [
@@ -480,6 +584,13 @@ let payoutRequests: PayoutRequest[] = [
     requestDate: '2026-10-26',
     processedDate: '2026-10-26',
     status: 'approved',
+    pph21Deduction: 450000,
+    pph21Rate: 2.5,
+    adminFeeDeduction: 2500,
+    netAmountTransferred: 17547500,
+    transferRefNumber: 'TRX-MDR-20261026-99214',
+    proofFileName: 'Bukti_Transfer_Mandiri_Dewi_Lestari.pdf',
+    disbursedBy: 'Admin Operasional NDTAXANDLAW',
     notes: 'Pencairan komisi PT Global Indo Logistik - Sukses ditransfer via BI-FAST.',
   },
   {
@@ -496,6 +607,13 @@ let payoutRequests: PayoutRequest[] = [
     requestDate: '2026-10-15',
     processedDate: '2026-10-15',
     status: 'approved',
+    pph21Deduction: 281250,
+    pph21Rate: 2.5,
+    adminFeeDeduction: 2500,
+    netAmountTransferred: 10966250,
+    transferRefNumber: 'TRX-BCA-20261015-88102',
+    proofFileName: 'Bukti_Transfer_BCA_Bambang_Sudirman.pdf',
+    disbursedBy: 'Admin Operasional NDTAXANDLAW',
     notes: 'Pencairan komisi PT Nusantara Megah Resources - Sukses.',
   },
 ];
@@ -512,6 +630,104 @@ let appSettings: AppSettings = {
   googleClientId: '',
   geminiApiEnabled: true,
   geminiModel: 'gemini-3.8-flash',
+  
+  // SMTP Server Default Configuration
+  smtpEnabled: true,
+  smtpHost: 'smtp.gmail.com',
+  smtpPort: 587,
+  smtpEncryption: 'tls',
+  smtpUser: 'notifications@ndtaxlaw.com',
+  smtpPassword: '••••••••••••••••',
+  smtpSenderName: 'NDTAXANDLAW System',
+  smtpSenderEmail: 'notifications@ndtaxlaw.com',
+  smtpReplyToEmail: 'advisory@ndtaxlaw.com',
+  emailOnRegistrationVerify: true,
+  emailOnPayoutDisbursed: true,
+  emailOnClientAcc: true,
+  emailOnPasswordReset: true,
+  emailOnRecurringInvoice: true,
+};
+
+// Seed Email Dispatch Logs
+let emailLogs: EmailLogItem[] = [
+  {
+    id: 'email-001',
+    recipient: 'bambang.sudirman@ndtaxlaw.com',
+    recipientName: 'Bambang Sudirman, S.H., M.Kn.',
+    subject: 'Konfirmasi Pencairan Komisi Mitra #pay-003 - Rp 10.966.250',
+    category: 'payout_disbursed',
+    sentAt: '2026-10-15T14:30:00Z',
+    status: 'sent',
+    previewSnippet: 'Pencairan komisi referral PT Nusantara Megah Resources telah sukses ditransfer ke Bank BCA 8830192837.',
+  },
+  {
+    id: 'email-002',
+    recipient: 'dewi.lestari@taxconsult.id',
+    recipientName: 'Dewi Lestari, S.E., B.K.P.',
+    subject: 'Deal Klien Berhasil di-ACC: PT Global Indo Logistik - Komisi Rp 18.000.000',
+    category: 'client_acc',
+    sentAt: '2026-10-25T11:15:00Z',
+    status: 'sent',
+    previewSnippet: 'Deal klien rujukan Anda telah diverifikasi oleh tim finance. Saldo komisi Rp 18.000.000 telah masuk ke saldo mitra.',
+  },
+  {
+    id: 'email-003',
+    recipient: 'hendra.wijaya@outlook.com',
+    recipientName: 'Hendra Wijaya, S.E., Ak.',
+    subject: 'Aktivasi & Verifikasi Akun Kemitraan NDTAXANDLAW',
+    category: 'registration_verify',
+    sentAt: '2026-11-01T09:00:00Z',
+    status: 'sent',
+    previewSnippet: 'Terima kasih telah mendaftar sebagai Mitra Afiliasi NDTAXANDLAW. Akun & kode referral unik Anda telah aktif.',
+  },
+];
+
+// Helper to Dispatch System Notification Emails via SMTP
+export const sendSystemEmail = (params: {
+  recipient: string;
+  recipientName?: string;
+  subject: string;
+  category: EmailLogItem['category'];
+  previewSnippet: string;
+  htmlContent?: string;
+}): { success: boolean; logId: string; message: string } => {
+  if (!appSettings.smtpEnabled) {
+    console.log(`[SMTP Non-aktif] Pengiriman email diabaikan ke: ${params.recipient} (${params.subject})`);
+    return { success: false, logId: '', message: 'Server SMTP sedang dinonaktifkan dalam pengaturan sistem' };
+  }
+
+  // Check specific trigger switch
+  if (params.category === 'registration_verify' && !appSettings.emailOnRegistrationVerify) {
+    return { success: false, logId: '', message: 'Notifikasi verifikasi registrasi dinonaktifkan' };
+  }
+  if (params.category === 'payout_disbursed' && !appSettings.emailOnPayoutDisbursed) {
+    return { success: false, logId: '', message: 'Notifikasi pencairan komisi dinonaktifkan' };
+  }
+  if (params.category === 'client_acc' && !appSettings.emailOnClientAcc) {
+    return { success: false, logId: '', message: 'Notifikasi validasi client ACC dinonaktifkan' };
+  }
+  if (params.category === 'password_reset' && !appSettings.emailOnPasswordReset) {
+    return { success: false, logId: '', message: 'Notifikasi reset password dinonaktifkan' };
+  }
+  if (params.category === 'recurring_invoice' && !appSettings.emailOnRecurringInvoice) {
+    return { success: false, logId: '', message: 'Notifikasi invoice perikatan dinonaktifkan' };
+  }
+
+  const newLog: EmailLogItem = {
+    id: `email-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    recipient: params.recipient,
+    recipientName: params.recipientName,
+    subject: params.subject,
+    category: params.category,
+    sentAt: new Date().toISOString(),
+    status: 'sent',
+    previewSnippet: params.previewSnippet,
+    htmlContent: params.htmlContent,
+  };
+
+  emailLogs.unshift(newLog);
+  console.log(`[SMTP Terkirim] [${params.category}] Ke: ${params.recipient} | Judul: ${params.subject} via ${appSettings.smtpHost}:${appSettings.smtpPort}`);
+  return { success: true, logId: newLog.id, message: 'Email berhasil diproses dan dikirim melalui server SMTP' };
 };
 
 let commissions: CommissionTransaction[] = [
@@ -689,6 +905,17 @@ app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
   // Generate simulated OTP
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
+  const recipientName = isAdmin ? adminAccount.name : (mitra ? mitra.fullName : 'Pengguna NDTAXANDLAW');
+
+  // Send Automated Email via SMTP
+  sendSystemEmail({
+    recipient: normalizedEmail,
+    recipientName,
+    subject: `Kode Verifikasi Pemulihan Kata Sandi Akun NDTAXANDLAW: ${otpCode}`,
+    category: 'password_reset',
+    previewSnippet: `Halo ${recipientName}, kode OTP pemulihan kata sandi akun Anda adalah ${otpCode}. Gunakan kode ini untuk memperbarui kata sandi baru Anda. Jangan bagikan kode ini kepada orang lain demi keamanan.`,
+  });
+
   res.json({
     success: true,
     message: `Kode pemulihan kata sandi telah dikirim ke ${email}.`,
@@ -769,6 +996,15 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
       console.warn('Supabase insert error for new mitra', e);
     }
   }
+
+  // Automated Email via SMTP: Registration Verification & Activation
+  sendSystemEmail({
+    recipient: email,
+    recipientName: fullName,
+    subject: `Aktivasi & Verifikasi Pendaftaran Kemitraan NDTAXANDLAW - Kode: ${generatedReferralCode}`,
+    category: 'registration_verify',
+    previewSnippet: `Halo ${fullName}, selamat bergabung di jaringan Konsultan Afiliasi NDTAXANDLAW. Akun Anda berhasil terdaftar dengan Kode Referral resmi: ${generatedReferralCode}. Anda dapat langsung membagikan tautan layanan kepada klien potensial Anda.`,
+  });
 
   // Add system notification for admin
   const newNotif: NotificationItem = {
@@ -1088,6 +1324,10 @@ app.post('/api/clients', (req: Request, res: Response) => {
     serviceId,
     dealValue,
     pricingType,
+    periodStart,
+    periodEnd,
+    durationMonths,
+    paymentTermType,
     notes,
   } = req.body;
 
@@ -1098,7 +1338,7 @@ app.post('/api/clients', (req: Request, res: Response) => {
   const mitra = mitras.find((m) => m.id === mitraId);
   const service = services.find((s) => s.id === serviceId);
 
-  const selectedPricingType: 'case_by_case' | 'monthly_subscription' =
+  const selectedPricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription' =
     pricingType || (service ? service.pricingType : 'case_by_case');
   const nominalValue = Number(dealValue) || (service ? service.defaultPrice : 10000000);
   const rate = service ? service.commissionRate : 15;
@@ -1107,7 +1347,7 @@ app.post('/api/clients', (req: Request, res: Response) => {
   const isPendingAcc = req.body.status === 'pending_acc' || req.body.submittedBy === 'client_self';
   const targetStatus = isPendingAcc
     ? 'pending_acc'
-    : (selectedPricingType === 'monthly_subscription' ? 'active_subscription' : 'deal_closed');
+    : ((selectedPricingType === 'monthly_subscription' || selectedPricingType === 'annual_subscription') ? 'active_subscription' : 'deal_closed');
 
   const newDeal: ClientDeal = {
     id: `deal-${Date.now()}`,
@@ -1126,6 +1366,11 @@ app.post('/api/clients', (req: Request, res: Response) => {
     status: targetStatus,
     date: new Date().toISOString().split('T')[0],
     recurringPaidMonths: selectedPricingType === 'monthly_subscription' ? 1 : undefined,
+    recurringPaidYears: selectedPricingType === 'annual_subscription' ? 1 : undefined,
+    periodStart: periodStart || undefined,
+    periodEnd: periodEnd || undefined,
+    durationMonths: durationMonths ? Number(durationMonths) : undefined,
+    paymentTermType: paymentTermType || 'one_time',
     notes: notes || '',
     submittedBy: req.body.submittedBy || 'mitra',
   };
@@ -1135,7 +1380,7 @@ app.post('/api/clients', (req: Request, res: Response) => {
   // If already directly closed (not pending ACC)
   if (!isPendingAcc && mitra) {
     mitra.referredClientsCount = (mitra.referredClientsCount || 0) + 1;
-    if (selectedPricingType === 'monthly_subscription') {
+    if (selectedPricingType === 'monthly_subscription' || selectedPricingType === 'annual_subscription') {
       mitra.activeSubscribersCount = (mitra.activeSubscribersCount || 0) + 1;
     }
     mitra.totalCommission = (mitra.totalCommission || 0) + commissionCalc;
@@ -1160,7 +1405,7 @@ app.post('/api/clients', (req: Request, res: Response) => {
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: isPendingAcc ? 'Pendaftaran Klien Baru (Menunggu Validasi ACC)' : 'Deal Klien Baru Terdaftar',
-    message: `${newDeal.companyName} terdaftar via kode referral ${newDeal.referralCode}. ${isPendingAcc ? 'Menunggu verifikasi admin untuk mencairkan komisi.' : `Komisi Rp ${commissionCalc.toLocaleString('id-ID')} dicatat.`}`,
+    message: `${newDeal.companyName} terdaftar via kode referral ${newDeal.referralCode} (${newDeal.pricingType === 'annual_subscription' ? 'Langganan Tahunan' : newDeal.pricingType === 'monthly_subscription' ? 'Langganan Bulanan' : 'Case-by-Case'}). ${isPendingAcc ? 'Menunggu verifikasi admin untuk mencairkan komisi.' : `Komisi Rp ${commissionCalc.toLocaleString('id-ID')} dicatat.`}`,
     type: 'client_deal',
     timestamp: new Date().toISOString(),
     isRead: false,
@@ -1183,14 +1428,21 @@ app.put('/api/clients/:id/acc', (req: Request, res: Response) => {
     return res.status(400).json({ success: false, message: 'Klien ini sudah divalidasi sebelumnya.' });
   }
 
-  const approvedStatus = deal.pricingType === 'monthly_subscription' ? 'active_subscription' : 'deal_closed';
+  const isSubscription = deal.pricingType === 'monthly_subscription' || deal.pricingType === 'annual_subscription';
+  const approvedStatus = isSubscription ? 'active_subscription' : 'deal_closed';
   deal.status = approvedStatus;
+
+  if (deal.pricingType === 'monthly_subscription') {
+    deal.recurringPaidMonths = 1;
+  } else if (deal.pricingType === 'annual_subscription') {
+    deal.recurringPaidYears = 1;
+  }
 
   // Credit commission to Mitra
   const mitra = mitras.find((m) => m.id === deal.mitraId);
   if (mitra) {
     mitra.referredClientsCount = (mitra.referredClientsCount || 0) + 1;
-    if (deal.pricingType === 'monthly_subscription') {
+    if (isSubscription) {
       mitra.activeSubscribersCount = (mitra.activeSubscribersCount || 0) + 1;
     }
     mitra.totalCommission = (mitra.totalCommission || 0) + deal.commissionAmount;
@@ -1216,17 +1468,28 @@ app.put('/api/clients/:id/acc', (req: Request, res: Response) => {
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Deal Klien Disetujui (ACC)',
-    message: `Admin telah meng-ACC klien "${deal.companyName}". Komisi ${deal.pricingType === 'monthly_subscription' ? 'bulan ke-1' : '1x bayar'} sebesar Rp ${deal.commissionAmount.toLocaleString('id-ID')} telah masuk ke saldo Mitra ${deal.mitraName}.`,
+    message: `Admin telah meng-ACC klien "${deal.companyName}". Komisi ${deal.pricingType === 'annual_subscription' ? 'Tahun Ke-1' : deal.pricingType === 'monthly_subscription' ? 'Bulan Ke-1' : '1x Bayar (Case-by-Case)'} sebesar Rp ${deal.commissionAmount.toLocaleString('id-ID')} telah masuk ke saldo Mitra ${deal.mitraName}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
   };
   notifications.unshift(notif);
 
+  // Send Automated Email via SMTP to Mitra
+  if (mitra && mitra.email) {
+    sendSystemEmail({
+      recipient: mitra.email,
+      recipientName: mitra.fullName,
+      subject: `Deal Klien Disetujui (ACC): ${deal.companyName} - Komisi Rp ${deal.commissionAmount.toLocaleString('id-ID')}`,
+      category: 'client_acc',
+      previewSnippet: `Selamat! Klien rujukan Anda "${deal.companyName}" untuk paket ${deal.serviceName} (${deal.pricingType === 'annual_subscription' ? 'Langganan Tahunan' : deal.pricingType === 'monthly_subscription' ? 'Langganan Bulanan' : 'Case-by-Case'}) telah disetujui (ACC). Komisi Rp ${deal.commissionAmount.toLocaleString('id-ID')} telah dikreditkan ke saldo akun kemitraan Anda.`,
+    });
+  }
+
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
 
-// Admin confirms monthly recurring billing payment for subscription client
+// Admin confirms recurring billing payment for monthly or annual subscription client
 app.post('/api/clients/:id/bill-cycle', (req: Request, res: Response) => {
   const { id } = req.params;
   const deal = clientDeals.find((d) => d.id === id);
@@ -1235,13 +1498,20 @@ app.post('/api/clients/:id/bill-cycle', (req: Request, res: Response) => {
     return res.status(404).json({ success: false, message: 'Deal klien tidak ditemukan' });
   }
 
-  if (deal.pricingType !== 'monthly_subscription') {
-    return res.status(400).json({ success: false, message: 'Hanya klien berlangganan bulanan yang dapat diproses tagihan berulang.' });
+  if (deal.pricingType !== 'monthly_subscription' && deal.pricingType !== 'annual_subscription') {
+    return res.status(400).json({ success: false, message: 'Hanya klien berlangganan bulanan atau tahunan yang dapat diproses tagihan siklus berulang.' });
   }
 
-  deal.recurringPaidMonths = (deal.recurringPaidMonths || 1) + 1;
+  let cycleLabel = '';
+  if (deal.pricingType === 'monthly_subscription') {
+    deal.recurringPaidMonths = (deal.recurringPaidMonths || 1) + 1;
+    cycleLabel = `Bulan #${deal.recurringPaidMonths}`;
+  } else {
+    deal.recurringPaidYears = (deal.recurringPaidYears || 1) + 1;
+    cycleLabel = `Tahun Ke-${deal.recurringPaidYears}`;
+  }
 
-  // Credit another month's recurring commission to Mitra
+  // Credit recurring commission to Mitra
   const mitra = mitras.find((m) => m.id === deal.mitraId);
   if (mitra) {
     mitra.totalCommission = (mitra.totalCommission || 0) + deal.commissionAmount;
@@ -1252,7 +1522,7 @@ app.post('/api/clients/:id/bill-cycle', (req: Request, res: Response) => {
     id: `trx-${Date.now()}`,
     mitraId: deal.mitraId,
     mitraName: deal.mitraName,
-    serviceName: `${deal.serviceName} (Bulan #${deal.recurringPaidMonths})`,
+    serviceName: `${deal.serviceName} (${cycleLabel})`,
     clientName: deal.companyName,
     dealValue: deal.dealValue,
     commissionAmount: deal.commissionAmount,
@@ -1264,20 +1534,31 @@ app.post('/api/clients/:id/bill-cycle', (req: Request, res: Response) => {
 
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
-    title: 'Komisi Langganan Bulanan Masuk (Recurring)',
-    message: `Pembayaran bulan ke-${deal.recurringPaidMonths} untuk klien "${deal.companyName}" terverifikasi. Komisi Rp ${deal.commissionAmount.toLocaleString('id-ID')} ditambahkan ke saldo Mitra ${deal.mitraName}.`,
+    title: `Komisi Langganan Masuk (Siklus ${cycleLabel})`,
+    message: `Pembayaran ${cycleLabel} untuk klien "${deal.companyName}" terverifikasi. Komisi Rp ${deal.commissionAmount.toLocaleString('id-ID')} ditambahkan ke saldo Mitra ${deal.mitraName}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
   };
   notifications.unshift(notif);
 
+  // Send Automated Email via SMTP for recurring cycle
+  if (mitra && mitra.email) {
+    sendSystemEmail({
+      recipient: mitra.email,
+      recipientName: mitra.fullName,
+      subject: `Komisi Langganan Masuk (${cycleLabel}): ${deal.companyName} - Rp ${deal.commissionAmount.toLocaleString('id-ID')}`,
+      category: 'recurring_invoice',
+      previewSnippet: `Pembayaran perpanjangan ${cycleLabel} untuk klien "${deal.companyName}" telah diterima. Komisi royalti Anda sebesar Rp ${deal.commissionAmount.toLocaleString('id-ID')} telah ditambahkan ke dompet saldo kemitraan.`,
+    });
+  }
+
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
 
 app.put('/api/clients/:id/status', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { status, recurringPaidMonths } = req.body;
+  const { status, recurringPaidMonths, recurringPaidYears } = req.body;
   const deal = clientDeals.find((d) => d.id === id);
 
   if (!deal) {
@@ -1286,6 +1567,7 @@ app.put('/api/clients/:id/status', (req: Request, res: Response) => {
 
   if (status) deal.status = status;
   if (recurringPaidMonths !== undefined) deal.recurringPaidMonths = recurringPaidMonths;
+  if (recurringPaidYears !== undefined) deal.recurringPaidYears = recurringPaidYears;
 
   res.json({ success: true, data: deal });
 });
@@ -1301,6 +1583,17 @@ app.get('/api/commissions/payout-requests', (req: Request, res: Response) => {
 
 app.put('/api/commissions/payout-requests/:id/approve', (req: Request, res: Response) => {
   const { id } = req.params;
+  const {
+    pph21Deduction,
+    pph21Rate,
+    adminFeeDeduction,
+    netAmountTransferred,
+    proofFileUrl,
+    proofFileName,
+    transferRefNumber,
+    notes,
+  } = req.body;
+
   const payout = payoutRequests.find((p) => p.id === id);
 
   if (!payout) {
@@ -1309,6 +1602,22 @@ app.put('/api/commissions/payout-requests/:id/approve', (req: Request, res: Resp
 
   payout.status = 'approved';
   payout.processedDate = new Date().toISOString().split('T')[0];
+
+  const pphVal = pph21Deduction !== undefined && pph21Deduction !== '' ? Math.max(0, Number(pph21Deduction)) : 0;
+  const pphPercent = pph21Rate !== undefined && pph21Rate !== '' ? Number(pph21Rate) : (pphVal > 0 ? Number(((pphVal / payout.amount) * 100).toFixed(1)) : 0);
+  const adminFeeVal = adminFeeDeduction !== undefined && adminFeeDeduction !== '' ? Math.max(0, Number(adminFeeDeduction)) : 0;
+  const calculatedNet = Math.max(0, payout.amount - pphVal - adminFeeVal);
+
+  payout.pph21Deduction = pphVal;
+  payout.pph21Rate = pphPercent;
+  payout.adminFeeDeduction = adminFeeVal;
+  payout.netAmountTransferred = netAmountTransferred !== undefined && netAmountTransferred !== '' ? Number(netAmountTransferred) : calculatedNet;
+  
+  if (proofFileUrl) payout.proofFileUrl = proofFileUrl;
+  if (proofFileName) payout.proofFileName = proofFileName;
+  payout.transferRefNumber = transferRefNumber || `TRX-ND-${Date.now().toString().slice(-8)}`;
+  payout.disbursedBy = 'Admin Operasional NDTAXANDLAW';
+  if (notes) payout.notes = notes;
 
   const mitra = mitras.find((m) => m.id === payout.mitraId);
   if (mitra) {
@@ -1325,12 +1634,23 @@ app.put('/api/commissions/payout-requests/:id/approve', (req: Request, res: Resp
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Pencairan Komisi Telah Ditransfer',
-    message: `Dana komisi Rp ${payout.amount.toLocaleString('id-ID')} untuk ${payout.mitraName} telah berhasil ditransfer ke ${payout.bankDetails.bankName} (${payout.bankDetails.accountNumber}).`,
+    message: `Dana komisi kotor Rp ${payout.amount.toLocaleString('id-ID')} (Net Rp ${(payout.netAmountTransferred || payout.amount).toLocaleString('id-ID')}) untuk ${payout.mitraName} telah berhasil ditransfer ke ${payout.bankDetails.bankName} (${payout.bankDetails.accountNumber}) dengan Ref #${payout.transferRefNumber}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
   };
   notifications.unshift(notif);
+
+  // Send Automated Email via SMTP to Mitra regarding Payout with Slip & Deductions
+  if (mitra && mitra.email) {
+    sendSystemEmail({
+      recipient: mitra.email,
+      recipientName: payout.mitraName,
+      subject: `Pencairan Komisi Berhasil Diproses: Rp ${(payout.netAmountTransferred || payout.amount).toLocaleString('id-ID')} ke ${payout.bankDetails.bankName}`,
+      category: 'payout_disbursed',
+      previewSnippet: `Pencairan dana komisi kemitraan Anda telah disetujui & ditransfer via ${payout.bankDetails.bankName} (${payout.bankDetails.accountNumber}) a.n ${payout.bankDetails.accountHolder}. Jumlah Kotor: Rp ${payout.amount.toLocaleString('id-ID')} | Potongan PPh 21 (${payout.pph21Rate || 2.5}%): Rp ${(payout.pph21Deduction || 0).toLocaleString('id-ID')} | Biaya Admin: Rp ${(payout.adminFeeDeduction || 0).toLocaleString('id-ID')} | Total Bersih Ditransfer: Rp ${(payout.netAmountTransferred || payout.amount).toLocaleString('id-ID')}. No. Ref: #${payout.transferRefNumber}.`,
+    });
+  }
 
   res.json({ success: true, data: payout });
 });
@@ -1347,7 +1667,7 @@ app.put('/api/settings', (req: Request, res: Response) => {
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Pengaturan Sistem Diperbarui',
-    message: 'Konfigurasi layanan aplikasi, OAuth Google, dan integrasi AI telah diperbarui oleh Admin.',
+    message: 'Konfigurasi profil layanan, server SMTP email & notifikasi otomatis, OAuth Google, dan integrasi AI telah diperbarui.',
     type: 'tools_update',
     timestamp: new Date().toISOString(),
     isRead: false,
@@ -1355,6 +1675,65 @@ app.put('/api/settings', (req: Request, res: Response) => {
   notifications.unshift(notif);
 
   res.json({ success: true, data: appSettings });
+});
+
+// 3.9 SMTP Email Server & Dispatch Log Endpoints
+app.post('/api/settings/test-email', (req: Request, res: Response) => {
+  const { targetEmail } = req.body;
+  const emailToTest = (targetEmail || appSettings.supportEmail || 'admin@ndtaxlaw.com').trim();
+
+  if (!emailToTest || !emailToTest.includes('@')) {
+    return res.status(400).json({ success: false, message: 'Alamat email tujuan tidak valid.' });
+  }
+
+  if (!appSettings.smtpEnabled) {
+    return res.status(400).json({
+      success: false,
+      message: 'Server SMTP saat ini dinonaktifkan. Aktifkan switch SMTP terlebih dahulu sebelum mengirim tes email.',
+    });
+  }
+
+  // Simulate verification & dispatch
+  const result = sendSystemEmail({
+    recipient: emailToTest,
+    recipientName: 'Administrator Sistem NDTAXANDLAW',
+    subject: `[TEST] Uji Coba Konfigurasi Server SMTP NDTAXANDLAW - ${appSettings.smtpHost}`,
+    category: 'test_email',
+    previewSnippet: `Konfigurasi server SMTP (${appSettings.smtpHost}:${appSettings.smtpPort} - ${appSettings.smtpEncryption.toUpperCase()}) dari pengirim ${appSettings.smtpSenderName} <${appSettings.smtpSenderEmail}> telah berhasil terhubung dan siap digunakan untuk verifikasi akun, info pencairan komisi, serta ACC klien.`,
+  });
+
+  res.json({
+    success: true,
+    message: `Email uji coba berhasil dikirim ke ${emailToTest} via ${appSettings.smtpHost}:${appSettings.smtpPort} (${appSettings.smtpEncryption.toUpperCase()}).`,
+    data: result,
+  });
+});
+
+app.get('/api/emails/logs', (req: Request, res: Response) => {
+  res.json({ success: true, data: emailLogs });
+});
+
+app.post('/api/emails/resend/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const existingLog = emailLogs.find((l) => l.id === id);
+  if (!existingLog) {
+    return res.status(404).json({ success: false, message: 'Catatan email tidak ditemukan.' });
+  }
+
+  const resendResult = sendSystemEmail({
+    recipient: existingLog.recipient,
+    recipientName: existingLog.recipientName,
+    subject: `[KIRIM ULANG] ${existingLog.subject}`,
+    category: existingLog.category,
+    previewSnippet: existingLog.previewSnippet,
+  });
+
+  res.json({ success: true, message: `Email berhasil dikirim ulang ke ${existingLog.recipient}`, data: resendResult });
+});
+
+app.delete('/api/emails/logs', (req: Request, res: Response) => {
+  emailLogs = [];
+  res.json({ success: true, message: 'Riwayat log pengiriman email berhasil dibersihkan.' });
 });
 
 // 4. Notifications Endpoints

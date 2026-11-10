@@ -512,6 +512,7 @@ export default function App() {
               clientDeals={clientDeals}
               commissions={commissions}
               onRefreshData={fetchData}
+              onOpenSettings={() => setIsSettingsOpen(true)}
             />
           )}
 

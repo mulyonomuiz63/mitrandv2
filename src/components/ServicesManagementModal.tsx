@@ -22,7 +22,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
   const [name, setName] = useState('');
   const [category, setCategory] = useState<ServiceItem['category']>('Laporan Keuangan');
   const [defaultPrice, setDefaultPrice] = useState<number>(5000000);
-  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription'>('case_by_case');
+  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription' | 'annual_subscription'>('case_by_case');
   const [commissionRate, setCommissionRate] = useState<number>(15);
   const [description, setDescription] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -298,6 +298,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                   >
                     <option value="case_by_case">Case-by-Case (Proyek Sekali Bayar)</option>
                     <option value="monthly_subscription">Langganan Bulanan (Retainer Rutin)</option>
+                    <option value="annual_subscription">Langganan Tahunan (Annual Retainer)</option>
                   </select>
                 </div>
 
@@ -387,7 +388,11 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                       </span>
                     </td>
                     <td className="p-3">
-                      {srv.pricingType === 'monthly_subscription' ? (
+                      {srv.pricingType === 'annual_subscription' ? (
+                        <span className="px-2 py-0.5 bg-purple-50 text-purple-800 rounded font-semibold text-[10px] border border-purple-200">
+                          📅 Tahunan
+                        </span>
+                      ) : srv.pricingType === 'monthly_subscription' ? (
                         <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-semibold text-[10px] border border-blue-200">
                           🔄 Bulanan
                         </span>
@@ -400,6 +405,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                     <td className="p-3 text-right font-mono font-bold text-slate-800">
                       Rp {srv.defaultPrice.toLocaleString('id-ID')}
                       {srv.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-500 font-normal"> / bln</span>}
+                      {srv.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-500 font-normal"> / thn</span>}
                     </td>
                     <td className="p-3 text-center">
                       <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-bold rounded text-xs">
