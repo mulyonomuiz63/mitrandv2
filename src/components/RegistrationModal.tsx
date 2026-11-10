@@ -1,0 +1,309 @@
+import React, { useState } from 'react';
+import { 
+  UserPlus, 
+  CreditCard, 
+  ShieldCheck, 
+  Lock, 
+  CheckCircle2, 
+  Building2, 
+  AlertCircle 
+} from 'lucide-react';
+import { BankDetails } from '../types';
+
+interface RegistrationModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onRegister: (data: {
+    fullName: string;
+    email: string;
+    phone: string;
+    nik: string;
+    specialization: string;
+    bankDetails: BankDetails;
+  }) => Promise<void>;
+}
+
+export const RegistrationModal: React.FC<RegistrationModalProps> = ({
+  isOpen,
+  onClose,
+  onRegister,
+}) => {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [nik, setNik] = useState('');
+  const [specialization, setSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
+  const [password, setPassword] = useState('');
+  
+  // Bank fields
+  const [bankName, setBankName] = useState('Bank Central Asia (BCA)');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountHolder, setAccountHolder] = useState('');
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDone, setIsDone] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await onRegister({
+        fullName,
+        email,
+        phone,
+        nik: nik || '3201000000000000',
+        specialization,
+        bankDetails: {
+          bankName,
+          accountNumber,
+          accountHolder: accountHolder || fullName,
+        },
+      });
+      setIsDone(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
+        {!isDone ? (
+          <>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 p-1.5 flex items-center justify-center shrink-0 shadow-xs border border-slate-800">
+                  <img
+                    src="/assets/aistudio/logo_kotak_5ecb05e4.png"
+                    alt="ND Logo"
+                    className="w-full h-full object-contain filter drop-shadow"
+                  />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-display">
+                    Pendaftaran Mitra NDTAXANDLAW
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Lengkapi data diri dan rekening bank untuk verifikasi dan penerbitan Kartu Identitas Eksklusif.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-slate-700 text-lg font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+              {/* Section 1: Data Diri */}
+              <div>
+                <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
+                  1. Data Diri &amp; Keahlian Profesional
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Nama Lengkap &amp; Gelar *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Muhammad Reza, S.H., M.H."
+                      value={fullName}
+                      onChange={(e) => {
+                        setFullName(e.target.value);
+                        if (!accountHolder) setAccountHolder(e.target.value);
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Nomor KTP / NIK *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={16}
+                        placeholder="16 digit NIK resmi"
+                        value={nik}
+                        onChange={(e) => setNik(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Spesialisasi Konsultan
+                      </label>
+                      <select
+                        value={specialization}
+                        onChange={(e) => setSpecialization(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      >
+                        <option value="Konsultan Hukum Korporasi & Bisnis">Konsultan Hukum Korporasi &amp; Bisnis</option>
+                        <option value="Konsultan Perpajakan & Tax Planning">Konsultan Perpajakan &amp; Tax Planning</option>
+                        <option value="Pendirian Legalitas PT / PMA & OSS">Pendirian Legalitas PT / PMA &amp; OSS</option>
+                        <option value="Litigasi & Penyelesaian Sengketa">Litigasi &amp; Penyelesaian Sengketa</option>
+                        <option value="Audit Pajak & Pendampingan SP2DK">Audit Pajak &amp; Pendampingan SP2DK</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Email Resmi *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="nama@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        No. WhatsApp Aktif *
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="0812-xxxx-xxxx"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Data Rekening Bank untuk Komisi */}
+              <div className="pt-2 border-t border-slate-200">
+                <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-blue-700" />
+                  <span>2. Data Rekening Bank Pencairan Komisi</span>
+                </h4>
+                <p className="text-[11px] text-slate-500 mb-3">
+                  Komisi dan bonus penjualan layanan NDTAXANDLAW akan ditransfer secara otomatis ke nomor rekening ini.
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Nama Bank *
+                    </label>
+                    <select
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                    >
+                      <option value="Bank Central Asia (BCA)">Bank Central Asia (BCA)</option>
+                      <option value="Bank Mandiri">Bank Mandiri</option>
+                      <option value="Bank Rakyat Indonesia (BRI)">Bank Rakyat Indonesia (BRI)</option>
+                      <option value="Bank Negara Indonesia (BNI)">Bank Negara Indonesia (BNI)</option>
+                      <option value="Bank Syariah Indonesia (BSI)">Bank Syariah Indonesia (BSI)</option>
+                      <option value="CIMB Niaga">CIMB Niaga</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Nomor Rekening *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Contoh: 8830192837"
+                        value={accountNumber}
+                        onChange={(e) => setAccountNumber(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Nama Pemilik Rekening *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Harus sesuai buku tabungan"
+                        value={accountHolder}
+                        onChange={(e) => setAccountHolder(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="pt-2 border-t border-slate-200">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Kata Sandi Portal Kemitraan
+                </label>
+                <input
+                  type="password"
+                  placeholder="Minimal 8 karakter aman"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-xs disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Mendaftarkan...' : 'Kirim Pendaftaran Mitra'}
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <div className="text-center py-6">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 font-display">
+              Pendaftaran Kemitraan Berhasil Dikirim!
+            </h3>
+            <p className="text-xs text-slate-600 mt-2 max-w-sm mx-auto leading-relaxed">
+              Data Anda telah masuk ke sistem dan tim operasional NDTAXANDLAW akan meninjau kelengkapan berkas serta data rekening bank. Kartu Identitas Eksklusif Anda akan aktif segera setelah diverifikasi.
+            </p>
+
+            <button
+              onClick={() => {
+                setIsDone(false);
+                onClose();
+              }}
+              className="mt-6 px-6 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-xs"
+            >
+              Kembali ke Portal
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
