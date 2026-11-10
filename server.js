@@ -13,6 +13,51 @@ dotenv.config();
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || "";
 var supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+var isSupabaseConfigured = () => {
+  return Boolean(supabaseUrl && supabaseKey);
+};
+var getSupabaseConfig = () => {
+  return {
+    isConfigured: isSupabaseConfigured(),
+    url: supabaseUrl ? supabaseUrl.replace(/^(https?:\/\/[^.]+).*/, "$1.supabase.co") : "",
+    hasKey: Boolean(supabaseKey)
+  };
+};
+var testSupabaseConnection = async () => {
+  if (!supabase) {
+    return {
+      success: false,
+      message: "SUPABASE_URL atau SUPABASE_KEY belum terisi di environment variable server hosting Anda."
+    };
+  }
+  try {
+    const { data, error } = await supabase.from("mitras").select("id").limit(1);
+    if (error) {
+      if (error.code === "42P01") {
+        return {
+          success: false,
+          message: "Terhubung ke Supabase, namun tabel belum dibuat! Silakan jalankan file supabase_schema.sql di SQL Editor Supabase Anda.",
+          error: error.message
+        };
+      }
+      return {
+        success: false,
+        message: `Koneksi Supabase mengembalikan error: ${error.message} (Kode: ${error.code})`,
+        error: error.message
+      };
+    }
+    return {
+      success: true,
+      message: "Koneksi ke Supabase berhasil aktif dan tabel database terdeteksi dengan baik!"
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: `Gagal menghubungi Supabase: ${err.message || "Koneksi timeout / jaringan"}`,
+      error: err.message
+    };
+  }
+};
 
 // server.ts
 dotenv2.config();
@@ -1668,6 +1713,70 @@ Berdasarkan konsolidasi metrik operasional NDTAXANDLAW pada periode **November 2
       isFallback: true,
       generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
       note: "Menggunakan analisis cerdas berbasis rule engine NDTAXANDLAW."
+    });
+  }
+});
+app.get("/api/system/supabase-status", async (req, res) => {
+  const config = getSupabaseConfig();
+  const test = await testSupabaseConnection();
+  res.json({
+    success: true,
+    data: {
+      ...config,
+      ...test,
+      appEnvironment: appSettings.appEnvironment
+    }
+  });
+});
+app.post("/api/system/supabase-sync", async (req, res) => {
+  if (!supabase) {
+    return res.status(400).json({
+      success: false,
+      message: "SUPABASE_URL atau SUPABASE_KEY belum terpasang di file .env atau Environment Variable hosting Anda."
+    });
+  }
+  try {
+    const summary = {
+      mitras: 0,
+      services: 0,
+      clientDeals: 0,
+      marketingTools: 0,
+      commissions: 0
+    };
+    if (mitras.length > 0) {
+      const { error: errM } = await supabase.from("mitras").upsert(mitras);
+      if (!errM) summary.mitras = mitras.length;
+      else console.warn("Supabase sync mitras warning:", errM.message);
+    }
+    if (services.length > 0) {
+      const { error: errS } = await supabase.from("services").upsert(services);
+      if (!errS) summary.services = services.length;
+      else console.warn("Supabase sync services warning:", errS.message);
+    }
+    if (clientDeals.length > 0) {
+      const { error: errD } = await supabase.from("client_deals").upsert(clientDeals);
+      if (!errD) summary.clientDeals = clientDeals.length;
+      else console.warn("Supabase sync deals warning:", errD.message);
+    }
+    if (marketingTools.length > 0) {
+      const { error: errT } = await supabase.from("marketing_tools").upsert(marketingTools);
+      if (!errT) summary.marketingTools = marketingTools.length;
+      else console.warn("Supabase sync tools warning:", errT.message);
+    }
+    if (commissions.length > 0) {
+      const { error: errC } = await supabase.from("commissions").upsert(commissions);
+      if (!errC) summary.commissions = commissions.length;
+      else console.warn("Supabase sync commissions warning:", errC.message);
+    }
+    res.json({
+      success: true,
+      message: "Seluruh data operasional berhasil disinkronkan ke cloud database Supabase!",
+      summary
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: `Terjadi kendala sinkronisasi ke Supabase: ${err.message || "Unknown error"}`
     });
   }
 });

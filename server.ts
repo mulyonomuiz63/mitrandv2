@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
-import { supabase } from './src/supabase.ts';
+import { supabase, isSupabaseConfigured, getSupabaseConfig, testSupabaseConnection } from './src/supabase.ts';
 
 dotenv.config();
 
@@ -2101,6 +2101,80 @@ Berdasarkan konsolidasi metrik operasional NDTAXANDLAW pada periode **November 2
       isFallback: true,
       generatedAt: new Date().toISOString(),
       note: 'Menggunakan analisis cerdas berbasis rule engine NDTAXANDLAW.',
+    });
+  }
+});
+
+// 7. Supabase Database Diagnostics & One-Click Cloud Sync
+app.get('/api/system/supabase-status', async (req: Request, res: Response) => {
+  const config = getSupabaseConfig();
+  const test = await testSupabaseConnection();
+  res.json({
+    success: true,
+    data: {
+      ...config,
+      ...test,
+      appEnvironment: appSettings.appEnvironment,
+    },
+  });
+});
+
+app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
+  if (!supabase) {
+    return res.status(400).json({
+      success: false,
+      message: 'SUPABASE_URL atau SUPABASE_KEY belum terpasang di file .env atau Environment Variable hosting Anda.',
+    });
+  }
+
+  try {
+    const summary = {
+      mitras: 0,
+      services: 0,
+      clientDeals: 0,
+      marketingTools: 0,
+      commissions: 0,
+    };
+
+    if (mitras.length > 0) {
+      const { error: errM } = await supabase.from('mitras').upsert(mitras);
+      if (!errM) summary.mitras = mitras.length;
+      else console.warn('Supabase sync mitras warning:', errM.message);
+    }
+
+    if (services.length > 0) {
+      const { error: errS } = await supabase.from('services').upsert(services);
+      if (!errS) summary.services = services.length;
+      else console.warn('Supabase sync services warning:', errS.message);
+    }
+
+    if (clientDeals.length > 0) {
+      const { error: errD } = await supabase.from('client_deals').upsert(clientDeals);
+      if (!errD) summary.clientDeals = clientDeals.length;
+      else console.warn('Supabase sync deals warning:', errD.message);
+    }
+
+    if (marketingTools.length > 0) {
+      const { error: errT } = await supabase.from('marketing_tools').upsert(marketingTools);
+      if (!errT) summary.marketingTools = marketingTools.length;
+      else console.warn('Supabase sync tools warning:', errT.message);
+    }
+
+    if (commissions.length > 0) {
+      const { error: errC } = await supabase.from('commissions').upsert(commissions);
+      if (!errC) summary.commissions = commissions.length;
+      else console.warn('Supabase sync commissions warning:', errC.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Seluruh data operasional berhasil disinkronkan ke cloud database Supabase!',
+      summary,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: `Terjadi kendala sinkronisasi ke Supabase: ${err.message || 'Unknown error'}`,
     });
   }
 });

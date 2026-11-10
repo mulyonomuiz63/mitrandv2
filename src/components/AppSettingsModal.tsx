@@ -72,11 +72,25 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     emailOnRecurringInvoice: true,
   });
 
-  const [activeTab, setActiveTab] = useState<'general' | 'environment' | 'smtp' | 'oauth' | 'ai'>('environment');
+  const [activeTab, setActiveTab] = useState<'general' | 'environment' | 'supabase' | 'smtp' | 'oauth' | 'ai'>('supabase');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successToast, setSuccessToast] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Supabase State
+  const [supabaseStatus, setSupabaseStatus] = useState<{
+    isConfigured: boolean;
+    success: boolean;
+    message: string;
+    url?: string;
+    hasKey?: boolean;
+    error?: string;
+  } | null>(null);
+  const [isCheckingSupabase, setIsCheckingSupabase] = useState(false);
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
 
   // Test Email State
   const [testEmailTarget, setTestEmailTarget] = useState('mulyonoazza63@gmail.com');
@@ -105,8 +119,197 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
         .finally(() => setLoading(false));
 
       fetchEmailLogs();
+      checkSupabase();
     }
   }, [isOpen]);
+
+  const checkSupabase = async () => {
+    setIsCheckingSupabase(true);
+    try {
+      const res = await fetch('/api/system/supabase-status');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setSupabaseStatus(data.data);
+      }
+    } catch (err: any) {
+      setSupabaseStatus({
+        isConfigured: false,
+        success: false,
+        message: 'Gagal menghubungi endpoint status Supabase di backend server.',
+      });
+    } finally {
+      setIsCheckingSupabase(false);
+    }
+  };
+
+  const syncDataToSupabase = async () => {
+    setIsSyncingSupabase(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/system/supabase-sync', { method: 'POST' });
+      const data = await res.json();
+      setSyncResult(data);
+      if (data.success) {
+        checkSupabase();
+      }
+    } catch (err: any) {
+      setSyncResult({
+        success: false,
+        message: 'Gagal mengirim permintaan sinkronisasi ke server.',
+      });
+    } finally {
+      setIsSyncingSupabase(false);
+    }
+  };
+
+  const copySqlSchema = () => {
+    const sqlText = `-- SKEMA SUPABASE NDTAXANDLAW
+CREATE TABLE IF NOT EXISTS public.mitras (
+    id TEXT PRIMARY KEY,
+    "memberCode" TEXT,
+    "referralCode" TEXT,
+    "fullName" TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    phone TEXT,
+    nik TEXT,
+    specialization TEXT,
+    status TEXT DEFAULT 'pending',
+    "avatarUrl" TEXT,
+    "joinedDate" TEXT,
+    "bankDetails" JSONB,
+    "totalCommission" NUMERIC DEFAULT 0,
+    "totalBonus" NUMERIC DEFAULT 0,
+    "pendingPayout" NUMERIC DEFAULT 0,
+    "paidPayout" NUMERIC DEFAULT 0,
+    "referredClientsCount" INTEGER DEFAULT 0,
+    "activeSubscribersCount" INTEGER DEFAULT 0,
+    "emailVerified" BOOLEAN DEFAULT false,
+    "verificationToken" TEXT,
+    "verificationTokenExpiry" TEXT
+);
+
+CREATE TABLE IF NOT EXISTS public.services (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    "defaultPrice" NUMERIC NOT NULL,
+    "pricingType" TEXT DEFAULT 'case_by_case',
+    "commissionRate" NUMERIC DEFAULT 15,
+    description TEXT,
+    "isActive" BOOLEAN DEFAULT true
+);
+
+CREATE TABLE IF NOT EXISTS public.client_deals (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "referralCode" TEXT,
+    "companyName" TEXT NOT NULL,
+    "picName" TEXT NOT NULL,
+    "picPhone" TEXT,
+    "picEmail" TEXT,
+    "serviceId" TEXT,
+    "serviceName" TEXT,
+    "pricingType" TEXT,
+    "dealValue" NUMERIC NOT NULL,
+    "commissionAmount" NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'pending_acc',
+    date TEXT,
+    "recurringPaidMonths" INTEGER,
+    "recurringPaidYears" INTEGER,
+    "periodStart" TEXT,
+    "periodEnd" TEXT,
+    "durationMonths" INTEGER,
+    "paymentTermType" TEXT DEFAULT 'one_time',
+    notes TEXT,
+    "submittedBy" TEXT DEFAULT 'mitra'
+);
+
+CREATE TABLE IF NOT EXISTS public.commissions (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "serviceName" TEXT,
+    "clientName" TEXT,
+    "dealValue" NUMERIC DEFAULT 0,
+    "commissionAmount" NUMERIC DEFAULT 0,
+    "bonusAmount" NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    date TEXT
+);
+
+CREATE TABLE IF NOT EXISTS public.payout_requests (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "memberCode" TEXT,
+    amount NUMERIC NOT NULL,
+    "bankDetails" JSONB,
+    "requestDate" TEXT,
+    "processedDate" TEXT,
+    status TEXT DEFAULT 'pending',
+    "pph21Deduction" NUMERIC DEFAULT 0,
+    "pph21Rate" NUMERIC DEFAULT 0,
+    "adminFeeDeduction" NUMERIC DEFAULT 0,
+    "netAmountTransferred" NUMERIC DEFAULT 0,
+    "proofFileUrl" TEXT,
+    "proofFileName" TEXT,
+    "transferRefNumber" TEXT,
+    "disbursedBy" TEXT,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS public.marketing_tools (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    "fileType" TEXT,
+    "fileSize" TEXT,
+    "downloadUrl" TEXT,
+    "thumbnailUrl" TEXT,
+    description TEXT,
+    "createdAt" TEXT,
+    "targetProduct" TEXT,
+    duration TEXT
+);
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT,
+    timestamp TEXT,
+    "isRead" BOOLEAN DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS public.user_passwords (
+    email TEXT PRIMARY KEY,
+    password TEXT NOT NULL
+);
+
+-- RLS & Policies
+ALTER TABLE public.mitras ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_deals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.commissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payout_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.marketing_tools ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public services" ON public.services FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public client_deals" ON public.client_deals FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public commissions" ON public.commissions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public payout_requests" ON public.payout_requests FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public marketing_tools" ON public.marketing_tools FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (true) WITH CHECK (true);`;
+
+    navigator.clipboard.writeText(sqlText);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
 
   const fetchEmailLogs = async () => {
     setLoadingLogs(true);
@@ -264,6 +467,27 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
             }`}>
               {settings.appEnvironment === 'production' ? 'PROD' : 'DEV'}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('supabase');
+              checkSupabase();
+            }}
+            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'supabase'
+                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Database Supabase</span>
+            {supabaseStatus?.success ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            )}
           </button>
 
           <button
@@ -560,6 +784,214 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 <p className="text-[11px] text-slate-500">
                   Saat server Node.js dijalankan di Hostinger dengan variabel tersebut, sistem secara otomatis mengunci seluruh portal ke dalam Mode Production tanpa konfigurasi ulang.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: DATABASE SUPABASE INTEGRATION & SETUP */}
+          {activeTab === 'supabase' && (
+            <div className="space-y-5 animate-in fade-in duration-200">
+              {/* Header Banner */}
+              <div className="p-4 bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-xl border border-emerald-800/60 shadow-xs flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Cloud Database PostgreSQL
+                    </span>
+                    <span className="text-xs text-emerald-300 font-mono">
+                      Supabase Integration Hub
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold font-display text-white">
+                    Koneksi &amp; Skema Database Supabase
+                  </h3>
+                  <p className="text-xs text-emerald-200/90 mt-1 leading-relaxed max-w-xl">
+                    Hubungkan NDTAXANDLAW ke database PostgreSQL cloud Supabase agar seluruh data kemitraan, klien, deal, dan pencairan komisi tersimpan permanen dan scalable.
+                  </p>
+                </div>
+                <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+                  <Server className="w-6 h-6 text-emerald-400" />
+                </div>
+              </div>
+
+              {/* Status Koneksi Card */}
+              <div className={`p-4 rounded-xl border ${
+                supabaseStatus?.success
+                  ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                  : 'bg-amber-50/70 border-amber-300 text-amber-950'
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                      supabaseStatus?.success
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-500 text-white'
+                    }`}>
+                      {supabaseStatus?.success ? (
+                        <CheckCheck className="w-5 h-5" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold">
+                          {supabaseStatus?.success
+                            ? 'Supabase Terhubung & Siap Digunakan'
+                            : (supabaseStatus?.isConfigured ? 'Kredensial Ada, Menunggu Tabel SQL' : 'Kredensial Supabase Belum Terpasang')}
+                        </h4>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                          supabaseStatus?.success
+                            ? 'bg-emerald-200 text-emerald-900'
+                            : 'bg-amber-200 text-amber-900'
+                        }`}>
+                          {supabaseStatus?.success ? 'ONLINE' : 'PERLU SETUP'}
+                        </span>
+                      </div>
+                      <p className="text-xs mt-1 text-slate-700 leading-relaxed">
+                        {supabaseStatus?.message || 'Memeriksa status koneksi ke endpoint Supabase...'}
+                      </p>
+                      {supabaseStatus?.url && (
+                        <p className="text-[11px] font-mono text-slate-600 mt-1">
+                          Endpoint: <strong>{supabaseStatus.url}</strong>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                    <button
+                      type="button"
+                      onClick={checkSupabase}
+                      disabled={isCheckingSupabase}
+                      className="px-3.5 py-2 text-xs font-bold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingSupabase ? 'animate-spin' : ''}`} />
+                      <span>{isCheckingSupabase ? 'Menguji...' : 'Tes Koneksi'}</span>
+                    </button>
+
+                    {supabaseStatus?.success && (
+                      <button
+                        type="button"
+                        onClick={syncDataToSupabase}
+                        disabled={isSyncingSupabase}
+                        className="px-3.5 py-2 text-xs font-bold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
+                        <span>{isSyncingSupabase ? 'Menyinkronkan...' : 'Sinkronkan Data Awal'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {syncResult && (
+                  <div className={`mt-3 p-3 rounded-lg text-xs border ${
+                    syncResult.success 
+                      ? 'bg-emerald-100/70 border-emerald-300 text-emerald-900' 
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}>
+                    {syncResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/* PANDUAN 3 LANGKAH MENGHUBUNGKAN SUPABASE */}
+              <div className="p-5 bg-white border border-slate-200 rounded-xl space-y-4">
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-emerald-700" />
+                  <span>Panduan Praktis Menghubungkan Supabase ke Hosting / Production</span>
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  {/* Step 1 */}
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs mb-2">
+                        1
+                      </span>
+                      <p className="font-bold text-slate-900">Jalankan Skrip SQL di Supabase</p>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        Buka dashboard Supabase project Anda &rarr; klik menu <strong>SQL Editor</strong> di kiri &rarr; tempelkan skrip tabel &rarr; klik <strong>RUN</strong>.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={copySqlSchema}
+                      className="mt-2 w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      {copiedSql ? <Check className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                      <span>{copiedSql ? 'Tersalin ke Clipboard!' : 'Salin Skrip SQL Tabel'}</span>
+                    </button>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs mb-2">
+                        2
+                      </span>
+                      <p className="font-bold text-slate-900">Ambil URL &amp; API Key</p>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        Di dashboard Supabase, klik menu <strong>Project Settings</strong> (ikon gerigi) &rarr; pilih <strong>API</strong>. Salin <strong>Project URL</strong> dan <strong>anon/public Key</strong> (atau <em>service_role</em>).
+                      </p>
+                    </div>
+                    <a
+                      href="https://supabase.com/dashboard"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 w-full py-1.5 px-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 text-center"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Buka Supabase Dashboard</span>
+                    </a>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs mb-2">
+                        3
+                      </span>
+                      <p className="font-bold text-slate-900">Pasang di File .env Hosting</p>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        Di cPanel / Hostinger VPS / file manager server Anda, buka file <code>.env</code> dan masukkan 2 baris variabel Supabase Anda.
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-2 py-1 rounded text-center">
+                      Auto-connect saat server start
+                    </span>
+                  </div>
+                </div>
+
+                {/* Environment Template Preview */}
+                <div className="pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-bold text-slate-800">
+                      Contoh Format Variabel di file <code>.env</code> Hosting / VPS:
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-mono">Ditaruh di root folder server</span>
+                  </div>
+                  <div className="bg-slate-900 text-slate-100 p-3 rounded-xl font-mono text-xs overflow-x-auto select-all leading-relaxed">
+                    <span className="text-slate-400"># 1. URL Project Supabase Anda</span><br />
+                    SUPABASE_URL="https://xxxxxxxxxxxxxxxx.supabase.co"<br /><br />
+                    <span className="text-slate-400"># 2. Key Supabase (anon public atau service_role)</span><br />
+                    SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."<br /><br />
+                    <span className="text-slate-400"># 3. Kunci ke mode production</span><br />
+                    APP_ENV="production"<br />
+                    NODE_ENV="production"
+                  </div>
+                </div>
+
+                {/* Download SQL File Note */}
+                <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
+                  <FileText className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">File Skrip SQL Lengkap Sudah Tersedia di Repository</p>
+                    <p className="mt-0.5 text-blue-800 text-[11px] leading-relaxed">
+                      File <strong>supabase_schema.sql</strong> telah kami buatkan langsung di dalam root folder proyek. Anda dapat membukanya langsung, menyalin seluruh isinya, dan menempelkannya di menu <em>SQL Editor</em> Supabase.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
