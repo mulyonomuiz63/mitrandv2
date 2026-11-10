@@ -38,7 +38,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   onRegisterSubmit,
   appEnvironment = 'development',
 }) => {
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'verify'>('login');
   
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -47,6 +47,15 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Email Verification States
+  const [verifyEmail, setVerifyEmail] = useState('');
+  const [verifyToken, setVerifyToken] = useState('');
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifySuccess, setVerifySuccess] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   // Register Form States
   const [regFullName, setRegFullName] = useState('');
@@ -86,6 +95,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const data = await res.json();
       if (data.success && data.user) {
         onLoginSuccess(data.user);
+      } else if (data.needsEmailVerification) {
+        setVerifyEmail(data.email || email);
+        if (data.verificationToken) {
+          setVerifyToken(data.verificationToken);
+        }
+        setAuthMode('verify');
+        setVerifyError(data.message || 'Akun Anda belum melakukan verifikasi email.');
       } else {
         setLoginError(data.message || 'Gagal masuk.');
       }
@@ -110,6 +126,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const data = await res.json();
       if (data.success && data.user) {
         onLoginSuccess(data.user);
+      } else if (data.needsEmailVerification) {
+        setVerifyEmail(data.email || loginEmail);
+        if (data.verificationToken) {
+          setVerifyToken(data.verificationToken);
+        }
+        setAuthMode('verify');
+        setVerifyError(data.message || 'Akun Anda belum melakukan verifikasi email.');
       } else {
         setLoginError(data.message || 'Email atau kata sandi tidak valid.');
       }
@@ -137,20 +160,74 @@ export const AuthView: React.FC<AuthViewProps> = ({
           accountNumber: regAccountNumber,
           accountHolder: regAccountHolder || regFullName,
         },
-        password: regPassword,
+        password: regPassword || 'mitraND2026!',
       });
 
-      setRegSuccessMessage('Pendaftaran berhasil dikirim! Akun Anda sedang menunggu verifikasi admin.');
-      setTimeout(() => {
-        setLoginEmail(regEmail);
-        setLoginPassword(regPassword || 'mitraND2026!');
-        setAuthMode('login');
-        setRegSuccessMessage(null);
-      }, 2000);
-    } catch (err) {
-      setLoginError('Gagal mengirim pendaftaran.');
+      setVerifyEmail(regEmail);
+      setVerifySuccess('Pendaftaran berhasil! Kode verifikasi 6-digit telah dikirimkan ke email Anda. Silakan verifikasi email Anda di bawah untuk mengaktifkan akun sebelum masuk.');
+      setAuthMode('verify');
+    } catch (err: any) {
+      setLoginError(err.message || 'Gagal mengirim pendaftaran.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleVerifyEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsVerifying(true);
+    setVerifyError(null);
+    setVerifySuccess(null);
+
+    try {
+      const res = await fetch('/api/auth/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: verifyEmail, token: verifyToken }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVerifySuccess(data.message || 'Verifikasi email berhasil! Mengalihkan ke login...');
+        setTimeout(() => {
+          setLoginEmail(verifyEmail);
+          setLoginPassword(regPassword || 'mitraND2026!');
+          setAuthMode('login');
+          setVerifySuccess(null);
+        }, 1800);
+      } else {
+        setVerifyError(data.message || 'Kode verifikasi tidak cocok.');
+      }
+    } catch {
+      setVerifyError('Terjadi kesalahan koneksi saat verifikasi email.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setIsResending(true);
+    setResendMessage(null);
+    setVerifyError(null);
+
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: verifyEmail }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResendMessage(data.message || 'Kode verifikasi baru berhasil dikirim ke email Anda.');
+        if (data.verificationToken) {
+          setVerifyToken(data.verificationToken);
+        }
+      } else {
+        setVerifyError(data.message || 'Gagal mengirim ulang kode.');
+      }
+    } catch {
+      setVerifyError('Gagal menghubungi server untuk kirim ulang kode.');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -340,9 +417,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 </button>
               </div>
 
-              {authMode === 'forgot' && (
+              {(authMode === 'forgot' || authMode === 'verify') && (
                 <button
-                  onClick={() => setAuthMode('login')}
+                  onClick={() => {
+                    setAuthMode('login');
+                    setVerifyError(null);
+                    setVerifySuccess(null);
+                  }}
                   className="text-xs font-semibold text-blue-700 hover:underline"
                 >
                   &larr; Kembali ke Masuk
@@ -801,6 +882,90 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     </button>
                   </form>
                 )}
+              </div>
+            )}
+
+            {/* 4. EMAIL VERIFICATION FORM */}
+            {authMode === 'verify' && (
+              <div className="space-y-4">
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-amber-900 text-sm">Verifikasi Email Akun Mitra</p>
+                      <p className="mt-1 text-amber-800 text-xs leading-relaxed">
+                        Sebelum dapat masuk, Anda diwajibkan melakukan verifikasi email. Kode verifikasi 6-digit telah dikirimkan ke alamat email:
+                      </p>
+                      <p className="font-mono font-bold text-amber-950 bg-white/70 px-2 py-1 rounded border border-amber-300 inline-block mt-1.5">
+                        {verifyEmail || 'Email Terdaftar'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {verifySuccess && (
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="font-medium leading-relaxed">{verifySuccess}</span>
+                  </div>
+                )}
+
+                {verifyError && (
+                  <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span className="leading-relaxed">{verifyError}</span>
+                  </div>
+                )}
+
+                {resendMessage && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs flex items-center gap-2">
+                    <Check className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>{resendMessage}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleVerifyEmailSubmit} className="space-y-4 pt-1">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Kode Verifikasi 6-Digit *
+                      </label>
+                      <span className="text-[10px] text-slate-400">
+                        Periksa Inbox / Folder Spam
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      placeholder="Contoh: 123456"
+                      value={verifyToken}
+                      onChange={(e) => setVerifyToken(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-4 py-3 text-lg font-mono font-bold text-center tracking-[0.5em] rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-slate-50 focus:bg-white transition-colors"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isVerifying || verifyToken.length < 6}
+                    className="w-full py-3 px-4 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <span>{isVerifying ? 'Memverifikasi...' : 'Verifikasi & Aktifkan Akun'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </form>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                  <span className="text-slate-500 text-[11px]">Belum menerima kode verifikasi?</span>
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={isResending}
+                    className="font-bold text-blue-700 hover:text-blue-900 hover:underline disabled:opacity-50 text-xs"
+                  >
+                    {isResending ? 'Mengirim ulang...' : 'Kirim Ulang Kode'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

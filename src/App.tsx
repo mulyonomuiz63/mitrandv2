@@ -151,22 +151,23 @@ export default function App() {
     nik: string;
     specialization: string;
     bankDetails: BankDetails;
+    password?: string;
   }) => {
-    try {
-      const res = await fetch('/api/mitra/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setMitras((prev) => [data.data, ...prev]);
-        setActiveMitraId(data.data.id);
-        fetchData();
-      }
-    } catch (err) {
-      console.error(err);
+    const res = await fetch('/api/mitra/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'Pendaftaran gagal diproses.');
     }
+    if (data.success && data.data) {
+      setMitras((prev) => [data.data, ...prev]);
+      setActiveMitraId(data.data.id);
+      fetchData();
+    }
+    return data;
   };
 
   const handleVerifyMitra = async (id: string, status: 'verified' | 'rejected') => {

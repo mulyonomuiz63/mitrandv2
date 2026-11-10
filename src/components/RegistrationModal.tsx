@@ -20,7 +20,8 @@ interface RegistrationModalProps {
     nik: string;
     specialization: string;
     bankDetails: BankDetails;
-  }) => Promise<void>;
+    password?: string;
+  }) => Promise<any>;
 }
 
 export const RegistrationModal: React.FC<RegistrationModalProps> = ({
@@ -42,11 +43,13 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     setIsSubmitting(true);
     try {
       await onRegister({
@@ -60,10 +63,11 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
           accountNumber,
           accountHolder: accountHolder || fullName,
         },
+        password: password || 'mitraND2026!',
       });
       setIsDone(true);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Pendaftaran gagal diproses. Silakan periksa kembali data Anda.');
     } finally {
       setIsSubmitting(false);
     }
@@ -105,6 +109,16 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
             <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               {/* SCROLLABLE FORM BODY */}
               <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+                {errorMessage && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Gagal Mendaftar</p>
+                      <p className="mt-0.5 leading-relaxed">{errorMessage}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Section 1: Data Diri */}
               <div>
                 <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
@@ -287,25 +301,34 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
           </form>
         </>
         ) : (
-          <div className="text-center py-6">
-            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">
+          <div className="text-center p-6 sm:p-8">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3 shadow-inner">
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <h3 className="text-lg font-bold text-slate-900 font-display">
-              Pendaftaran Kemitraan Berhasil Dikirim!
+              Pendaftaran Kemitraan Berhasil!
             </h3>
-            <p className="text-xs text-slate-600 mt-2 max-w-sm mx-auto leading-relaxed">
-              Data Anda telah masuk ke sistem dan tim operasional NDTAXANDLAW akan meninjau kelengkapan berkas serta data rekening bank. Kartu Identitas Eksklusif Anda akan aktif segera setelah diverifikasi.
-            </p>
+            <div className="mt-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-left max-w-md mx-auto text-xs text-blue-950 space-y-2">
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                <p className="font-semibold text-blue-900">Langkah Berikutnya: Verifikasi Email Anda</p>
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Kode verifikasi 6-digit telah dikirimkan secara otomatis ke alamat email: <strong className="font-mono text-blue-950">{email}</strong>.
+              </p>
+              <p className="text-[11px] text-amber-800 font-medium bg-amber-50 p-2 rounded-lg border border-amber-200">
+                Penting: Akun Anda belum dapat digunakan untuk masuk (login) sebelum melakukan verifikasi email. Silakan masukkan kode verifikasi 6-digit saat masuk ke portal.
+              </p>
+            </div>
 
             <button
               onClick={() => {
                 setIsDone(false);
                 onClose();
               }}
-              className="mt-6 px-6 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-xs"
+              className="mt-6 px-6 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors"
             >
-              Kembali ke Portal
+              Selesai &amp; Buka Halaman Masuk
             </button>
           </div>
         )}

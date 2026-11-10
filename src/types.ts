@@ -23,6 +23,10 @@ export interface Mitra {
   paidPayout: number;
   referredClientsCount: number;
   activeSubscribersCount: number;
+  // Email Verification Fields
+  emailVerified?: boolean;
+  verificationToken?: string;
+  verificationTokenExpiry?: string;
 }
 
 export interface ServiceItem {

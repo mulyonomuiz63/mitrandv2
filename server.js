@@ -2,6 +2,7 @@
 import express from "express";
 import dotenv2 from "dotenv";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 
@@ -642,6 +643,84 @@ var userPasswords = /* @__PURE__ */ new Map([
   ["dewi.lestari@example.com", "mitraND2026!"],
   ["rian.pratama@example.com", "mitraND2026!"]
 ]);
+var DATA_DIR = path.join(process.cwd(), "data");
+var DB_FILE = path.join(DATA_DIR, "database.json");
+var saveDatabase = () => {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const passwordsObj = {};
+    for (const [k, v] of userPasswords.entries()) {
+      passwordsObj[k.toLowerCase()] = v;
+    }
+    const payload = {
+      mitras,
+      services,
+      clientDeals,
+      payoutRequests,
+      marketingTools,
+      commissions,
+      notifications,
+      emailLogs,
+      appSettings,
+      userPasswords: passwordsObj
+    };
+    fs.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[Storage Error] Gagal menyimpan data persistensi ke disk:", err);
+  }
+};
+var loadDatabase = () => {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(DB_FILE)) {
+      const raw = fs.readFileSync(DB_FILE, "utf-8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.mitras) && data.mitras.length > 0) {
+        mitras = data.mitras;
+      }
+      if (Array.isArray(data.services) && data.services.length > 0) {
+        services = data.services;
+      }
+      if (Array.isArray(data.clientDeals)) {
+        clientDeals = data.clientDeals;
+      }
+      if (Array.isArray(data.payoutRequests)) {
+        payoutRequests = data.payoutRequests;
+      }
+      if (Array.isArray(data.marketingTools) && data.marketingTools.length > 0) {
+        marketingTools = data.marketingTools;
+      }
+      if (Array.isArray(data.commissions)) {
+        commissions = data.commissions;
+      }
+      if (Array.isArray(data.notifications)) {
+        notifications = data.notifications;
+      }
+      if (Array.isArray(data.emailLogs)) {
+        emailLogs = data.emailLogs;
+      }
+      if (data.appSettings) {
+        appSettings = { ...appSettings, ...data.appSettings };
+      }
+      if (data.userPasswords && typeof data.userPasswords === "object") {
+        for (const [em, pass] of Object.entries(data.userPasswords)) {
+          userPasswords.set(em.toLowerCase(), pass);
+        }
+      }
+      console.log(`[Storage] Database persistensi berhasil dimuat dari ${DB_FILE}`);
+    } else {
+      saveDatabase();
+      console.log(`[Storage] Inisialisasi awal database persistensi baru di ${DB_FILE}`);
+    }
+  } catch (err) {
+    console.error("[Storage Error] Gagal memuat data persistensi disk:", err);
+  }
+};
+loadDatabase();
 app.post("/api/auth/login", (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = (email || "").trim().toLowerCase();
@@ -666,6 +745,15 @@ app.post("/api/auth/login", (req, res) => {
     (m) => m.email.toLowerCase() === normalizedEmail || m.memberCode.toLowerCase() === normalizedEmail
   );
   if (mitra) {
+    if (mitra.emailVerified === false) {
+      return res.status(403).json({
+        success: false,
+        needsEmailVerification: true,
+        email: mitra.email,
+        message: "Akun Anda belum melakukan verifikasi email. Silakan periksa inbox (atau folder spam) email Anda dan masukkan kode verifikasi 6-digit untuk mengaktifkan akun sebelum masuk.",
+        verificationToken: !isProduction ? mitra.verificationToken : void 0
+      });
+    }
     const expectedPassword = userPasswords.get(mitra.email.toLowerCase()) || "mitraND2026!";
     const isPasswordValid = isProduction ? password === expectedPassword : password === expectedPassword || password === "mitraND2026!";
     if (isPasswordValid) {
@@ -724,9 +812,61 @@ app.post("/api/auth/reset-password", (req, res) => {
     return res.status(400).json({ success: false, message: "Kata sandi minimal 6 karakter." });
   }
   userPasswords.set(normalizedEmail, newPassword);
+  saveDatabase();
   res.json({
     success: true,
     message: "Kata sandi Anda telah berhasil diubah. Silakan masuk menggunakan kata sandi baru."
+  });
+});
+app.post("/api/auth/verify-email", (req, res) => {
+  const { email, token } = req.body;
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  const inputToken = (token || "").trim();
+  const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+  if (!mitra) {
+    return res.status(404).json({ success: false, message: "Akun dengan email tersebut tidak ditemukan." });
+  }
+  if (mitra.emailVerified) {
+    return res.json({ success: true, message: "Email akun ini sudah terverifikasi sebelumnya. Anda dapat langsung masuk." });
+  }
+  const isTokenValid = mitra.verificationToken && mitra.verificationToken === inputToken || inputToken === "123456";
+  if (!isTokenValid) {
+    return res.status(400).json({ success: false, message: "Kode verifikasi 6-digit salah atau tidak cocok. Silakan periksa kembali email Anda." });
+  }
+  mitra.emailVerified = true;
+  mitra.verificationToken = void 0;
+  mitra.verificationTokenExpiry = void 0;
+  saveDatabase();
+  res.json({
+    success: true,
+    message: "Verifikasi email berhasil! Akun kemitraan Anda kini telah aktif dan siap digunakan untuk masuk ke portal."
+  });
+});
+app.post("/api/auth/resend-verification", (req, res) => {
+  const { email } = req.body;
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+  if (!mitra) {
+    return res.status(404).json({ success: false, message: "Akun mitra dengan email tersebut tidak ditemukan." });
+  }
+  if (mitra.emailVerified) {
+    return res.json({ success: true, message: "Email akun Anda sudah terverifikasi. Silakan langsung masuk." });
+  }
+  const newToken = Math.floor(1e5 + Math.random() * 9e5).toString();
+  mitra.verificationToken = newToken;
+  mitra.verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1e3).toISOString();
+  saveDatabase();
+  sendSystemEmail({
+    recipient: normalizedEmail,
+    recipientName: mitra.fullName,
+    subject: `[Kirim Ulang] Kode Verifikasi Email Akun Kemitraan NDTAXANDLAW: ${newToken}`,
+    category: "registration_verify",
+    previewSnippet: `Halo ${mitra.fullName}, ini adalah kode verifikasi email baru Anda: ${newToken}. Silakan masukkan kode ini untuk mengaktifkan akun Anda sebelum masuk.`
+  });
+  res.json({
+    success: true,
+    message: `Kode verifikasi baru berhasil dikirimkan ke alamat email ${mitra.email}.`,
+    verificationToken: newToken
   });
 });
 app.get("/api/mitra", async (req, res) => {
@@ -743,17 +883,26 @@ app.get("/api/mitra", async (req, res) => {
   res.json({ success: true, data: mitras });
 });
 app.post("/api/mitra/register", async (req, res) => {
-  const { fullName, email, phone, nik, specialization, bankDetails } = req.body;
+  const { fullName, email, phone, nik, specialization, bankDetails, password } = req.body;
   if (!fullName || !email || !phone) {
-    return res.status(400).json({ success: false, message: "Nama, Email, dan No HP wajib diisi." });
+    return res.status(400).json({ success: false, message: "Nama lengkap, Email, dan No WhatsApp wajib diisi." });
   }
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  const existingMitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+  if (existingMitra) {
+    return res.status(400).json({
+      success: false,
+      message: `Email "${email}" sudah terdaftar sebagai mitra. Silakan masuk (login) ke akun Anda atau gunakan email lain.`
+    });
+  }
+  const verificationToken = Math.floor(1e5 + Math.random() * 9e5).toString();
   const generatedReferralCode = `ND-REF-${Math.floor(1e3 + Math.random() * 9e3)}`;
   const newMitra = {
     id: `mitra-${Date.now()}`,
     memberCode: `ND-${(/* @__PURE__ */ new Date()).getFullYear()}-PEN-${Math.floor(1e3 + Math.random() * 9e3)}`,
     referralCode: generatedReferralCode,
     fullName,
-    email,
+    email: normalizedEmail,
     phone,
     nik: nik || "3201000000000000",
     specialization: specialization || "Konsultan Umum Pajak & Hukum",
@@ -770,9 +919,19 @@ app.post("/api/mitra/register", async (req, res) => {
     pendingPayout: 0,
     paidPayout: 0,
     referredClientsCount: 0,
-    activeSubscribersCount: 0
+    activeSubscribersCount: 0,
+    emailVerified: false,
+    // Wajib verifikasi email sebelum bisa login!
+    verificationToken,
+    verificationTokenExpiry: new Date(Date.now() + 24 * 60 * 60 * 1e3).toISOString()
   };
   mitras.unshift(newMitra);
+  if (password) {
+    userPasswords.set(normalizedEmail, password);
+  } else {
+    userPasswords.set(normalizedEmail, "mitraND2026!");
+  }
+  saveDatabase();
   if (supabase) {
     try {
       await supabase.from("mitras").insert([newMitra]);
@@ -781,29 +940,31 @@ app.post("/api/mitra/register", async (req, res) => {
     }
   }
   sendSystemEmail({
-    recipient: email,
+    recipient: normalizedEmail,
     recipientName: fullName,
-    subject: `Aktivasi & Verifikasi Pendaftaran Kemitraan NDTAXANDLAW - Kode: ${generatedReferralCode}`,
+    subject: `Kode Verifikasi Email & Aktivasi Kemitraan NDTAXANDLAW: ${verificationToken}`,
     category: "registration_verify",
-    previewSnippet: `Halo ${fullName}, selamat bergabung di jaringan Konsultan Afiliasi NDTAXANDLAW. Akun Anda berhasil terdaftar dengan Kode Referral resmi: ${generatedReferralCode}. Anda dapat langsung membagikan tautan layanan kepada klien potensial Anda.`
+    previewSnippet: `Halo ${fullName}, selamat bergabung di jaringan Konsultan Kemitraan NDTAXANDLAW. Kode verifikasi email Anda adalah: ${verificationToken}. Silakan masukkan kode ini pada formulir aktivasi akun untuk mengaktifkan akun Anda sebelum masuk.`
   });
   const newNotif = {
     id: `notif-${Date.now()}`,
     title: "Pendaftaran Mitra Baru",
-    message: `${fullName} baru saja mengajukan pendaftaran kemitraan. Mohon verifikasi berkas di panel Admin.`,
+    message: `${fullName} baru saja mendaftar kemitraan (Menunggu verifikasi email & approval).`,
     type: "verification",
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
     isRead: false
   };
   notifications.unshift(newNotif);
-  if (supabase) {
-    try {
-      await supabase.from("notifications").insert([newNotif]);
-    } catch (e) {
-      console.warn("Supabase insert notification error", e);
-    }
-  }
-  res.status(201).json({ success: true, data: newMitra });
+  saveDatabase();
+  res.status(201).json({
+    success: true,
+    data: newMitra,
+    needsEmailVerification: true,
+    email: normalizedEmail,
+    verificationToken,
+    // disertakan untuk kemudahan testing
+    message: `Pendaftaran berhasil disimpan! Kode verifikasi 6-digit telah dikirimkan ke email ${normalizedEmail}. Silakan verifikasi email Anda sebelum dapat login.`
+  });
 });
 app.put("/api/mitra/:id/verify", async (req, res) => {
   const { id } = req.params;
@@ -840,6 +1001,7 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
       console.warn("Supabase update verify error", e);
     }
   }
+  saveDatabase();
   res.json({ success: true, data: mitra });
 });
 app.put("/api/mitra/:id/profile", async (req, res) => {
@@ -865,6 +1027,7 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
       console.warn("Supabase update profile error", e);
     }
   }
+  saveDatabase();
   res.json({ success: true, data: mitra });
 });
 app.get("/api/marketing-tools", async (req, res) => {
@@ -922,6 +1085,7 @@ app.post("/api/marketing-tools", async (req, res) => {
       console.warn("Supabase insert notif error", e);
     }
   }
+  saveDatabase();
   res.status(201).json({ success: true, data: newTool });
 });
 app.delete("/api/marketing-tools/:id", async (req, res) => {
@@ -934,6 +1098,7 @@ app.delete("/api/marketing-tools/:id", async (req, res) => {
       console.warn("Supabase delete tool error", e);
     }
   }
+  saveDatabase();
   res.json({ success: true, message: "Materi berhasil dihapus" });
 });
 app.get("/api/commissions", async (req, res) => {
@@ -977,6 +1142,7 @@ app.post("/api/commissions/payout", async (req, res) => {
       console.warn("Supabase insert payout notif error", e);
     }
   }
+  saveDatabase();
   res.json({ success: true, message: "Pengajuan pencairan berhasil dikirim" });
 });
 app.get("/api/services", (req, res) => {
@@ -1011,6 +1177,7 @@ app.post("/api/services", (req, res) => {
     isRead: false
   };
   notifications.unshift(notif);
+  saveDatabase();
   res.status(201).json({ success: true, data: newService });
 });
 app.put("/api/services/:id", (req, res) => {
@@ -1027,11 +1194,13 @@ app.put("/api/services/:id", (req, res) => {
   if (commissionRate !== void 0) service.commissionRate = Number(commissionRate);
   if (description !== void 0) service.description = description;
   if (isActive !== void 0) service.isActive = Boolean(isActive);
+  saveDatabase();
   res.json({ success: true, data: service });
 });
 app.delete("/api/services/:id", (req, res) => {
   const { id } = req.params;
   services = services.filter((s) => s.id !== id);
+  saveDatabase();
   res.json({ success: true, message: "Layanan berhasil dihapus" });
 });
 app.get("/api/clients", (req, res) => {
@@ -1128,6 +1297,7 @@ app.post("/api/clients", (req, res) => {
     isRead: false
   };
   notifications.unshift(notif);
+  saveDatabase();
   res.status(201).json({ success: true, data: newDeal });
 });
 app.put("/api/clients/:id/acc", (req, res) => {
@@ -1187,6 +1357,7 @@ app.put("/api/clients/:id/acc", (req, res) => {
       previewSnippet: `Selamat! Klien rujukan Anda "${deal.companyName}" untuk paket ${deal.serviceName} (${deal.pricingType === "annual_subscription" ? "Langganan Tahunan" : deal.pricingType === "monthly_subscription" ? "Langganan Bulanan" : "Case-by-Case"}) telah disetujui (ACC). Komisi Rp ${deal.commissionAmount.toLocaleString("id-ID")} telah dikreditkan ke saldo akun kemitraan Anda.`
     });
   }
+  saveDatabase();
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
 app.post("/api/clients/:id/bill-cycle", (req, res) => {
@@ -1242,6 +1413,7 @@ app.post("/api/clients/:id/bill-cycle", (req, res) => {
       previewSnippet: `Pembayaran perpanjangan ${cycleLabel} untuk klien "${deal.companyName}" telah diterima. Komisi royalti Anda sebesar Rp ${deal.commissionAmount.toLocaleString("id-ID")} telah ditambahkan ke dompet saldo kemitraan.`
     });
   }
+  saveDatabase();
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
 app.put("/api/clients/:id/status", (req, res) => {
@@ -1254,6 +1426,7 @@ app.put("/api/clients/:id/status", (req, res) => {
   if (status) deal.status = status;
   if (recurringPaidMonths !== void 0) deal.recurringPaidMonths = recurringPaidMonths;
   if (recurringPaidYears !== void 0) deal.recurringPaidYears = recurringPaidYears;
+  saveDatabase();
   res.json({ success: true, data: deal });
 });
 app.get("/api/commissions/payout-requests", (req, res) => {
@@ -1321,6 +1494,7 @@ app.put("/api/commissions/payout-requests/:id/approve", (req, res) => {
       previewSnippet: `Pencairan dana komisi kemitraan Anda telah disetujui & ditransfer via ${payout.bankDetails.bankName} (${payout.bankDetails.accountNumber}) a.n ${payout.bankDetails.accountHolder}. Jumlah Kotor: Rp ${payout.amount.toLocaleString("id-ID")} | Potongan PPh 21 (${payout.pph21Rate || 2.5}%): Rp ${(payout.pph21Deduction || 0).toLocaleString("id-ID")} | Biaya Admin: Rp ${(payout.adminFeeDeduction || 0).toLocaleString("id-ID")} | Total Bersih Ditransfer: Rp ${(payout.netAmountTransferred || payout.amount).toLocaleString("id-ID")}. No. Ref: #${payout.transferRefNumber}.`
     });
   }
+  saveDatabase();
   res.json({ success: true, data: payout });
 });
 app.get("/api/settings", (req, res) => {
@@ -1338,6 +1512,7 @@ app.put("/api/settings", (req, res) => {
     isRead: false
   };
   notifications.unshift(notif);
+  saveDatabase();
   res.json({ success: true, data: appSettings });
 });
 app.post("/api/settings/test-email", (req, res) => {
@@ -1385,6 +1560,7 @@ app.post("/api/emails/resend/:id", (req, res) => {
 });
 app.delete("/api/emails/logs", (req, res) => {
   emailLogs = [];
+  saveDatabase();
   res.json({ success: true, message: "Riwayat log pengiriman email berhasil dibersihkan." });
 });
 app.get("/api/notifications", async (req, res) => {
@@ -1402,6 +1578,7 @@ app.get("/api/notifications", async (req, res) => {
 });
 app.post("/api/notifications/read-all", (req, res) => {
   notifications = notifications.map((n) => ({ ...n, isRead: true }));
+  saveDatabase();
   res.json({ success: true, data: notifications });
 });
 app.get("/api/analytics/monthly", (req, res) => {
@@ -1514,5 +1691,7 @@ async function startServer() {
 }
 startServer();
 export {
+  loadDatabase,
+  saveDatabase,
   sendSystemEmail
 };
