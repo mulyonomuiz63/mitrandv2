@@ -98,6 +98,9 @@ export interface AppSettings {
   geminiApiEnabled: boolean;
   geminiModel: string;
 
+  // Environment Mode (Development vs Production)
+  appEnvironment: 'development' | 'production';
+
   // SMTP Email Server Configuration
   smtpEnabled: boolean;
   smtpHost: string;

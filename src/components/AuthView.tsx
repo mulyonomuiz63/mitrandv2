@@ -30,11 +30,13 @@ interface AuthViewProps {
     bankDetails: BankDetails;
     password?: string;
   }) => Promise<void>;
+  appEnvironment?: 'development' | 'production';
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
   onLoginSuccess,
   onRegisterSubmit,
+  appEnvironment = 'development',
 }) => {
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
   
@@ -443,78 +445,97 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </button>
                 </form>
 
-                {/* Sample Demo Accounts Strip */}
-                <div className="mt-6 pt-6 border-t border-slate-200">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">
-                    Pilih Akun Sample / Demo (1-Klik Masuk Langsung):
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    {/* Admin Sample */}
-                    <button
-                      type="button"
-                      onClick={() => handleQuickLogin('admin@ndtaxlaw.com', 'adminND2026!')}
-                      className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100 text-left transition-colors flex items-start gap-2"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
-                        ADM
+                {/* Sample Demo Accounts vs Production Notice */}
+                {appEnvironment === 'production' ? (
+                  <div className="mt-6 pt-5 border-t border-slate-200">
+                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-start gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-slate-800">Mode Production Aktif (Hosting Live)</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          Sistem login diproteksi untuk operasional riil. Silakan masuk menggunakan alamat email dan kata sandi yang telah terdaftar secara sah.
+                        </p>
                       </div>
-                      <div className="overflow-hidden">
-                        <p className="font-bold text-slate-900 truncate">Admin Operasional</p>
-                        <p className="text-[10px] text-slate-500 font-mono">admin@ndtaxlaw.com</p>
-                        <p className="text-[9px] text-blue-800 font-semibold mt-0.5">Akses: Manajemen Seluruh Sistem</p>
-                      </div>
-                    </button>
-
-                    {/* Mitra Sample 1 (Verified) */}
-                    <button
-                      type="button"
-                      onClick={() => handleQuickLogin('bambang.sudirman@example.com', 'mitraND2026!')}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors flex items-start gap-2"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
-                        MTR
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="font-bold text-slate-900 truncate">Bambang Sudirman, S.H.</p>
-                        <p className="text-[10px] text-slate-500 font-mono">bambang.sudirman@...</p>
-                        <p className="text-[9px] text-emerald-700 font-semibold mt-0.5">Status: Terverifikasi (ID Aktif)</p>
-                      </div>
-                    </button>
-
-                    {/* Mitra Sample 2 (Pending) */}
-                    <button
-                      type="button"
-                      onClick={() => handleQuickLogin('rian.pratama@example.com', 'mitraND2026!')}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors flex items-start gap-2"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
-                        REV
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="font-bold text-slate-900 truncate">Rian Pratama, S.H.</p>
-                        <p className="text-[10px] text-slate-500 font-mono">rian.pratama@...</p>
-                        <p className="text-[9px] text-amber-700 font-semibold mt-0.5">Status: Menunggu Review</p>
-                      </div>
-                    </button>
-
-                    {/* Mitra Sample 3 (Dewi Lestari) */}
-                    <button
-                      type="button"
-                      onClick={() => handleQuickLogin('dewi.lestari@example.com', 'mitraND2026!')}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors flex items-start gap-2"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
-                        TAX
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="font-bold text-slate-900 truncate">Dewi Lestari, S.E.</p>
-                        <p className="text-[10px] text-slate-500 font-mono">dewi.lestari@...</p>
-                        <p className="text-[9px] text-indigo-700 font-semibold mt-0.5">Spesialis Pajak &amp; Komisi Tinggi</p>
-                      </div>
-                    </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-6 pt-6 border-t border-slate-200">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Pilih Akun Sample / Demo (Mode Dev 1-Klik):
+                      </p>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold uppercase">
+                        Mode Dev
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {/* Admin Sample */}
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('admin@ndtaxlaw.com', 'adminND2026!')}
+                        className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100 text-left transition-colors flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
+                          ADM
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="font-bold text-slate-900 truncate">Admin Operasional</p>
+                          <p className="text-[10px] text-slate-500 font-mono">admin@ndtaxlaw.com</p>
+                          <p className="text-[9px] text-blue-800 font-semibold mt-0.5">Akses: Manajemen Seluruh Sistem</p>
+                        </div>
+                      </button>
+
+                      {/* Mitra Sample 1 (Verified) */}
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('bambang.sudirman@example.com', 'mitraND2026!')}
+                        className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
+                          MTR
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="font-bold text-slate-900 truncate">Bambang Sudirman, S.H.</p>
+                          <p className="text-[10px] text-slate-500 font-mono">bambang.sudirman@...</p>
+                          <p className="text-[9px] text-emerald-700 font-semibold mt-0.5">Status: Terverifikasi (ID Aktif)</p>
+                        </div>
+                      </button>
+
+                      {/* Mitra Sample 2 (Pending) */}
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('rian.pratama@example.com', 'mitraND2026!')}
+                        className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
+                          REV
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="font-bold text-slate-900 truncate">Rian Pratama, S.H.</p>
+                          <p className="text-[10px] text-slate-500 font-mono">rian.pratama@...</p>
+                          <p className="text-[9px] text-amber-700 font-semibold mt-0.5">Status: Menunggu Review</p>
+                        </div>
+                      </button>
+
+                      {/* Mitra Sample 3 (Dewi Lestari) */}
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('dewi.lestari@example.com', 'mitraND2026!')}
+                        className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
+                          TAX
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="font-bold text-slate-900 truncate">Dewi Lestari, S.E.</p>
+                          <p className="text-[10px] text-slate-500 font-mono">dewi.lestari@...</p>
+                          <p className="text-[9px] text-indigo-700 font-semibold mt-0.5">Spesialis Pajak &amp; Komisi Tinggi</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

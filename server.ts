@@ -124,6 +124,9 @@ export interface AppSettings {
   geminiApiEnabled: boolean;
   geminiModel: string;
 
+  // Environment Mode (Development vs Production)
+  appEnvironment: 'development' | 'production';
+
   // SMTP Email Server Configuration
   smtpEnabled: boolean;
   smtpHost: string;
@@ -631,6 +634,9 @@ let appSettings: AppSettings = {
   geminiApiEnabled: true,
   geminiModel: 'gemini-3.8-flash',
   
+  // Environment Mode (Development vs Production)
+  appEnvironment: ((process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production') ? 'production' : 'development') as 'development' | 'production',
+  
   // SMTP Server Default Configuration
   smtpEnabled: true,
   smtpHost: 'smtp.gmail.com',
@@ -841,9 +847,11 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   const { email, password } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
 
+  const isProduction = appSettings.appEnvironment === 'production' || process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+
   // Check admin
   if (normalizedEmail === adminAccount.email.toLowerCase()) {
-    if (password === adminAccount.password || password === 'adminND2026!') {
+    if (password === adminAccount.password) {
       return res.json({
         success: true,
         user: {
@@ -853,6 +861,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
           role: 'admin',
           avatarUrl: adminAccount.avatarUrl,
         },
+        environment: appSettings.appEnvironment,
       });
     }
     return res.status(401).json({ success: false, message: 'Kata sandi admin tidak valid.' });
@@ -865,7 +874,12 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 
   if (mitra) {
     const expectedPassword = userPasswords.get(mitra.email.toLowerCase()) || 'mitraND2026!';
-    if (password === expectedPassword || password === 'mitraND2026!') {
+    // In production, only accept the exact registered password
+    const isPasswordValid = isProduction 
+      ? password === expectedPassword
+      : (password === expectedPassword || password === 'mitraND2026!');
+
+    if (isPasswordValid) {
       return res.json({
         success: true,
         user: {
@@ -877,9 +891,10 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
           referralCode: mitra.referralCode,
           avatarUrl: mitra.avatarUrl,
         },
+        environment: appSettings.appEnvironment,
       });
     }
-    return res.status(401).json({ success: false, message: 'Kata sandi mitra salah. Silakan coba lagi.' });
+    return res.status(401).json({ success: false, message: 'Kata sandi akun mitra salah. Silakan periksa kembali.' });
   }
 
   return res.status(404).json({

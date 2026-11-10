@@ -20,7 +20,7 @@ import { ServicesManagementModal } from './components/ServicesManagementModal';
 import { AdminOperationsHub } from './components/AdminOperationsHub';
 import { AppSettingsModal } from './components/AppSettingsModal';
 import { ClientSelfRegistration } from './components/ClientSelfRegistration';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal } from './types';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings } from './types';
 import { 
   ShieldCheck, 
   Sparkles, 
@@ -49,6 +49,7 @@ export default function App() {
   const [clientRefCode, setClientRefCode] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>('mitra');
   const [activeTab, setActiveTab] = useState<string>('idcard');
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   
   // State from server API with immediate offline fallbacks
   const [mitras, setMitras] = useState<Mitra[]>([]);
@@ -70,13 +71,14 @@ export default function App() {
   // Fetch initial data
   const fetchData = async () => {
     try {
-      const [resMitra, resTools, resComm, resClients, resNotif, resAnalytics] = await Promise.allSettled([
+      const [resMitra, resTools, resComm, resClients, resNotif, resAnalytics, resSettings] = await Promise.allSettled([
         fetch('/api/mitra').then((r) => r.json()),
         fetch('/api/marketing-tools').then((r) => r.json()),
         fetch('/api/commissions').then((r) => r.json()),
         fetch('/api/clients').then((r) => r.json()),
         fetch('/api/notifications').then((r) => r.json()),
         fetch('/api/analytics/monthly').then((r) => r.json()),
+        fetch('/api/settings').then((r) => r.json()),
       ]);
 
       if (resMitra.status === 'fulfilled' && resMitra.value?.data) {
@@ -96,6 +98,9 @@ export default function App() {
       }
       if (resAnalytics.status === 'fulfilled' && resAnalytics.value?.data?.salesHistory) {
         setSalesHistory(resAnalytics.value.data.salesHistory);
+      }
+      if (resSettings.status === 'fulfilled' && resSettings.value?.data) {
+        setSettings(resSettings.value.data);
       }
     } catch (err) {
       console.warn('API fetch warning, using seeded defaults', err);
@@ -272,8 +277,13 @@ export default function App() {
     } catch {}
   };
 
-  // If role changes, ensure activeTab is valid
+  // If role changes, ensure activeTab is valid (only permitted in development mode)
   const handleRoleChange = (newRole: 'admin' | 'mitra') => {
+    if (settings?.appEnvironment === 'production' && currentUser) {
+      // In production mode, role is permanently locked to authenticated user account
+      setCurrentRole(currentUser.role);
+      return;
+    }
     setCurrentRole(newRole);
     if (newRole === 'admin' && (activeTab === 'idcard')) {
       setActiveTab('admin-operations');
@@ -361,6 +371,7 @@ export default function App() {
           onRegisterSubmit={async (formData) => {
             await handleRegisterMitra(formData);
           }}
+          appEnvironment={settings?.appEnvironment || 'development'}
         />
 
         <RegistrationModal
@@ -395,6 +406,7 @@ export default function App() {
           onOpenServicesModal={() => setIsServicesModalOpen(true)}
           onOpenClientInput={() => setIsClientModalOpen(true)}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
+          appEnvironment={settings?.appEnvironment || 'development'}
         />
 
         {/* Executive Sub-Header / Persona Context Bar */}
@@ -412,7 +424,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* Quick Mitra Switcher (Useful for demo & testing different states) */}
+            {/* Mitra Action Bar */}
             {currentRole === 'mitra' ? (
               <div className="flex items-center gap-3 self-start sm:self-auto">
                 <button
@@ -422,20 +434,23 @@ export default function App() {
                 >
                   <span>+ Input Klien Baru</span>
                 </button>
-                <div className="flex items-center gap-1.5 text-slate-300">
-                  <span className="text-slate-400 hidden sm:inline">Mitra:</span>
-                  <select
-                    value={activeMitra.id}
-                    onChange={(e) => setActiveMitraId(e.target.value)}
-                    className="bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded-md text-xs font-medium border border-white/20 focus:outline-hidden cursor-pointer"
-                  >
-                    {mitras.map((m) => (
-                      <option key={m.id} value={m.id} className="bg-slate-900 text-white">
-                        {m.fullName.split(',')[0]} ({m.status === 'verified' ? 'Verified' : 'Pending'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Switcher ONLY IN DEV MODE */}
+                {settings?.appEnvironment !== 'production' && (
+                  <div className="flex items-center gap-1.5 text-slate-300">
+                    <span className="text-slate-400 hidden sm:inline">Mitra:</span>
+                    <select
+                      value={activeMitra.id}
+                      onChange={(e) => setActiveMitraId(e.target.value)}
+                      className="bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded-md text-xs font-medium border border-white/20 focus:outline-hidden cursor-pointer"
+                    >
+                      {mitras.map((m) => (
+                        <option key={m.id} value={m.id} className="bg-slate-900 text-white">
+                          {m.fullName.split(',')[0]} ({m.status === 'verified' ? 'Verified' : 'Pending'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-3">
@@ -603,7 +618,8 @@ export default function App() {
       <AppSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        onSettingsSaved={() => {
+        onSettingsSaved={(newSettings) => {
+          setSettings(newSettings);
           fetchData();
         }}
       />

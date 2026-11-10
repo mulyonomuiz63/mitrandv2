@@ -459,6 +459,8 @@ var appSettings = {
   googleClientId: "",
   geminiApiEnabled: true,
   geminiModel: "gemini-3.8-flash",
+  // Environment Mode (Development vs Production)
+  appEnvironment: process.env.APP_ENV === "production" || process.env.NODE_ENV === "production" ? "production" : "development",
   // SMTP Server Default Configuration
   smtpEnabled: true,
   smtpHost: "smtp.gmail.com",
@@ -643,8 +645,9 @@ var userPasswords = /* @__PURE__ */ new Map([
 app.post("/api/auth/login", (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = (email || "").trim().toLowerCase();
+  const isProduction = appSettings.appEnvironment === "production" || process.env.NODE_ENV === "production" || process.env.APP_ENV === "production";
   if (normalizedEmail === adminAccount.email.toLowerCase()) {
-    if (password === adminAccount.password || password === "adminND2026!") {
+    if (password === adminAccount.password) {
       return res.json({
         success: true,
         user: {
@@ -653,7 +656,8 @@ app.post("/api/auth/login", (req, res) => {
           email: adminAccount.email,
           role: "admin",
           avatarUrl: adminAccount.avatarUrl
-        }
+        },
+        environment: appSettings.appEnvironment
       });
     }
     return res.status(401).json({ success: false, message: "Kata sandi admin tidak valid." });
@@ -663,7 +667,8 @@ app.post("/api/auth/login", (req, res) => {
   );
   if (mitra) {
     const expectedPassword = userPasswords.get(mitra.email.toLowerCase()) || "mitraND2026!";
-    if (password === expectedPassword || password === "mitraND2026!") {
+    const isPasswordValid = isProduction ? password === expectedPassword : password === expectedPassword || password === "mitraND2026!";
+    if (isPasswordValid) {
       return res.json({
         success: true,
         user: {
@@ -674,10 +679,11 @@ app.post("/api/auth/login", (req, res) => {
           mitraId: mitra.id,
           referralCode: mitra.referralCode,
           avatarUrl: mitra.avatarUrl
-        }
+        },
+        environment: appSettings.appEnvironment
       });
     }
-    return res.status(401).json({ success: false, message: "Kata sandi mitra salah. Silakan coba lagi." });
+    return res.status(401).json({ success: false, message: "Kata sandi akun mitra salah. Silakan periksa kembali." });
   }
   return res.status(404).json({
     success: false,
