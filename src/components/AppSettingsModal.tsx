@@ -53,7 +53,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     googleClientId: '',
     geminiApiEnabled: true,
     geminiModel: 'gemini-3.8-flash',
-    appEnvironment: 'development',
+    appEnvironment: 'production',
     
     // SMTP Email Defaults
     smtpEnabled: true,
@@ -86,6 +86,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     url?: string;
     hasKey?: boolean;
     error?: string;
+    appEnvironment?: 'development' | 'production';
+    strictSupabaseOnly?: boolean;
     tableChecks?: Array<{
       table: string;
       label: string;
@@ -845,7 +847,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       <span>{isCheckingSupabase ? 'Menguji...' : 'Tes Koneksi'}</span>
                     </button>
 
-                    {supabaseStatus?.success && (
+                    {supabaseStatus?.success && settings.appEnvironment === 'development' && !supabaseStatus?.strictSupabaseOnly && (
                       <button
                         type="button"
                         onClick={syncDataToSupabase}

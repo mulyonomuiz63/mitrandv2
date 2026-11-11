@@ -4097,23 +4097,10 @@ app.post("/api/system/supabase-sync", async (req, res) => {
     });
   }
   try {
-    const direction = req.body?.direction || (isProductionMode() ? "pull" : "push");
-    if (direction === "pull" || isProductionMode()) {
-      await syncFromSupabase();
-      return res.json({
-        success: true,
-        message: "Data aplikasi (termasuk Pengaturan, Log Aktivitas, dan Log Email) berhasil disinkronkan langsung dari database Supabase!",
-        summary: {
-          mitras: mitras.length,
-          services: services.length,
-          clientDeals: clientDeals.length,
-          marketingTools: marketingTools.length,
-          commissions: commissions.length,
-          payoutRequests: payoutRequests.length,
-          notifications: notifications.length,
-          activityLogs: activityLogs.length,
-          emailLogs: emailLogs.length
-        }
+    if (isProductionMode()) {
+      return res.status(403).json({
+        success: false,
+        message: "Fitur Sinkronkan Data Awal dinonaktifkan pada Mode Production demi melindungi data operasional di Supabase agar tidak tertimpa."
       });
     }
     const summary = {
