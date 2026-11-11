@@ -41,13 +41,24 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'referrals' | 'transactions' | 'payouts'>('referrals');
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
-  const [payoutAmount, setPayoutAmount] = useState<number>(mitra.pendingPayout || 5000000);
+  const [payoutAmount, setPayoutAmount] = useState<number>(mitra.pendingPayout || 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
 
   // Mitra's payout requests
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<PayoutRequest | null>(null);
+
+  // Calculate fixed commission available for withdrawal (pendingPayout minus already pending requests)
+  const pendingRequestsAmount = payouts
+    .filter((p) => p.mitraId === mitra.id && p.status === 'pending')
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const availableFixCommission = Math.max(0, (Number(mitra.pendingPayout) || 0) - pendingRequestsAmount);
+
+  useEffect(() => {
+    setPayoutAmount(availableFixCommission);
+  }, [availableFixCommission, isPayoutModalOpen]);
 
   const fetchPayoutHistory = async () => {
     try {
@@ -88,6 +99,15 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 
   const handlePayoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPayoutError(null);
+    if (availableFixCommission <= 0) {
+      setPayoutError('Belum ada dana komisi fix yang dapat dicairkan.');
+      return;
+    }
+    if (payoutAmount <= 0 || payoutAmount > availableFixCommission) {
+      setPayoutError(`Nominal pencairan tidak boleh melebihi dana komisi fix tersedia (${formatRupiah(availableFixCommission)}).`);
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onRequestPayout(mitra.id, payoutAmount);
@@ -95,8 +115,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       setSuccessToast(`Pengajuan pencairan komisi ${formatRupiah(payoutAmount)} berhasil dikirimkan ke tim finance.`);
       setTimeout(() => setSuccessToast(null), 4000);
       fetchPayoutHistory();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setPayoutError(err?.message || 'Gagal mengajukan pencairan komisi.');
     } finally {
       setIsSubmitting(false);
     }
@@ -127,11 +148,19 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 
         {userRole === 'mitra' && (
           <button
-            onClick={() => setIsPayoutModalOpen(true)}
-            className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start sm:self-auto"
+            onClick={() => {
+              setPayoutError(null);
+              setIsPayoutModalOpen(true);
+            }}
+            disabled={availableFixCommission <= 0}
+            className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start sm:self-auto"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Tarik Komisi ke Rekening</span>
+            <span>
+              {availableFixCommission > 0
+                ? `Tarik Komisi Fix (${formatRupiah(availableFixCommission)})`
+                : 'Belum Ada Saldo Komisi Fix'}
+            </span>
           </button>
         )}
       </div>
@@ -140,37 +169,46 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            Total Komisi Terakumulasi
+            {userRole === 'admin' ? 'Total Komisi Terakumulasi' : 'Saldo Komisi Aktif (Belum Ditarik)'}
           </p>
-          <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? 398000000 : mitra.totalCommission)}
+          <p className="text-2xl font-bold text-emerald-700 mt-2 font-mono tabular-nums">
+            {formatRupiah(userRole === 'admin' ? transactions.reduce((s, t) => s + t.commissionAmount, 0) : mitra.pendingPayout)}
           </p>
-          <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1 mt-1">
-            <ArrowUpRight className="w-3 h-3" /> Berdasarkan transaksi tervalidasi
+          <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1 mt-1">
+            <ArrowUpRight className="w-3 h-3 text-emerald-600" />
+            {userRole === 'admin'
+              ? 'Berdasarkan transaksi tervalidasi'
+              : `Total Akumulasi Historis: ${formatRupiah(mitra.totalCommission)}`}
           </span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            Bonus Target &amp; Akselerasi
+            Komisi Sudah Dicairkan (Selesai)
           </p>
           <p className="text-2xl font-bold text-blue-900 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? 68000000 : mitra.totalBonus)}
+            {formatRupiah(
+              userRole === 'admin'
+                ? payouts.filter((p) => p.status === 'approved').reduce((s, p) => s + p.amount, 0)
+                : mitra.paidPayout || 0
+            )}
           </p>
           <span className="text-[11px] text-blue-600 font-medium flex items-center gap-1 mt-1">
-            Pencapaian kuartal berjalan
+            Bonus Target: {formatRupiah(mitra.totalBonus || 0)}
           </span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            Siap Dicairkan (Pending)
+            Dana Fix Siap Dicairkan
           </p>
           <p className="text-2xl font-bold text-amber-600 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? 19700000 : mitra.pendingPayout)}
+            {formatRupiah(userRole === 'admin' ? payouts.filter((p) => p.status === 'pending').reduce((s, p) => s + p.amount, 0) : availableFixCommission)}
           </p>
           <span className="text-[11px] text-slate-500 mt-1 block">
-            Dapat diajukan penarikan kapan saja
+            {pendingRequestsAmount > 0
+              ? `Sedang diajukan pencairan: ${formatRupiah(pendingRequestsAmount)}`
+              : 'Hanya komisi yang telah di-approve Admin'}
           </span>
         </div>
 
@@ -318,15 +356,25 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                       </td>
                       <td className="py-3.5 px-6 whitespace-nowrap">
                         {deal.pricingType === 'annual_subscription' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
-                            <Calendar className="w-3 h-3 text-purple-600" />
-                            Langganan Tahunan ({deal.recurringPaidYears ?? 1} thn)
-                          </span>
+                          <div>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
+                              <Calendar className="w-3 h-3 text-purple-600" />
+                              Langganan Tahunan ({deal.recurringPaidYears ?? (deal.status === 'pending_acc' || deal.status === 'rejected' ? 0 : 1)} thn)
+                            </span>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              Mulai: {deal.subscriptionStartDate || deal.date} · Tagihan Tgl {deal.billingDayOfMonth || 1}
+                            </div>
+                          </div>
                         ) : deal.pricingType === 'monthly_subscription' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                            <Repeat className="w-3 h-3 text-blue-600" />
-                            Langganan Bulanan ({deal.recurringPaidMonths ?? 1} bln)
-                          </span>
+                          <div>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                              <Repeat className="w-3 h-3 text-blue-600" />
+                              Langganan Bulanan ({deal.recurringPaidMonths ?? (deal.status === 'pending_acc' || deal.status === 'rejected' ? 0 : 1)} bln)
+                            </span>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              Mulai: {deal.subscriptionStartDate || deal.date} · Tagihan Tgl {deal.billingDayOfMonth || 1}
+                            </div>
+                          </div>
                         ) : (
                           <div>
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
@@ -345,23 +393,78 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                         {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / bln</span>}
                         {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
                       </td>
-                      <td className="py-3.5 px-6 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                        {formatRupiah(deal.commissionAmount)}
-                        {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / bln</span>}
-                        {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
+                      <td className="py-3.5 px-6 text-right font-mono whitespace-nowrap">
+                        {deal.status === 'pending_acc' ? (
+                          <div>
+                            <div className="font-bold text-amber-700">Rp 0</div>
+                            <span className="inline-block text-[9px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                              Menunggu Approve Admin (Est: {formatRupiah(deal.commissionAmount)})
+                            </span>
+                          </div>
+                        ) : deal.status === 'rejected' ? (
+                          <div>
+                            <div className="font-bold text-rose-700">Rp 0</div>
+                            <span className="inline-block text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                              Tidak Deal (Komisi Rp 0)
+                            </span>
+                          </div>
+                        ) : deal.status === 'cancelled' ? (
+                          <div>
+                            <div className="line-through text-slate-400 text-[11px]">
+                              {formatRupiah(deal.commissionAmount)}
+                              {deal.pricingType === 'monthly_subscription' ? ' / bln' : deal.pricingType === 'annual_subscription' ? ' / thn' : ''}
+                            </div>
+                            <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                              Komisi Dihentikan (Langganan Berakhir)
+                            </span>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="font-bold text-emerald-700">
+                              {formatRupiah(deal.commissionAmount)}
+                              {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / bln</span>}
+                              {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
+                            </div>
+                            <span className="inline-block text-[9px] font-semibold text-emerald-700">
+                              ✓ Komisi Masuk Saldo
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-6 text-center whitespace-nowrap">
                         {deal.status === 'active_subscription' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3" /> Langganan Aktif
+                            <CheckCircle2 className="w-3 h-3" /> Deal (Langganan Aktif)
                           </span>
+                        ) : deal.status === 'rejected' ? (
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                              <AlertCircle className="w-3 h-3" /> Tidak Deal / Ditolak
+                            </span>
+                            {deal.rejectionReason && (
+                              <span className="text-[9px] text-rose-600 max-w-[160px] truncate" title={deal.rejectionReason}>
+                                {deal.rejectionReason}
+                              </span>
+                            )}
+                          </div>
+                        ) : deal.status === 'cancelled' ? (
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                              <AlertCircle className="w-3 h-3" /> Langganan Berakhir
+                            </span>
+                            {deal.terminatedAt && (
+                              <span className="text-[9px] font-mono text-slate-500">
+                                Diputus: {deal.terminatedAt}
+                              </span>
+                            )}
+                          </div>
                         ) : deal.status === 'deal_closed' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
                             <CheckCircle2 className="w-3 h-3" /> Deal Closed
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                            <Clock className="w-3 h-3" /> Menunggu Validasi ACC
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-300">
+                            <Clock className="w-3 h-3" /> Sedang Ditinjau Admin
                           </span>
                         )}
                       </td>
@@ -541,11 +644,11 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                         <td className="py-3.5 px-6 text-center whitespace-nowrap">
                           {pay.status === 'approved' ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Berhasil Ditransfer
+                              <CheckCircle2 className="w-3.5 h-3.5" /> ✓ Selesai (Lunas Ditransfer)
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-300">
-                              <Clock className="w-3.5 h-3.5" /> Menunggu Transfer Admin
+                              <Clock className="w-3.5 h-3.5" /> Menunggu Cek &amp; Approve Admin
                             </span>
                           )}
                         </td>
@@ -609,7 +712,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nominal Penarikan (IDR) *
+                  Nominal Penarikan Komisi Fix (IDR) *
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-500">
@@ -617,8 +720,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   </span>
                   <input
                     type="number"
-                    min="500000"
-                    step="100000"
+                    min="50000"
+                    max={availableFixCommission}
+                    step="10000"
                     required
                     value={payoutAmount}
                     onChange={(e) => setPayoutAmount(Number(e.target.value))}
@@ -626,8 +730,11 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   />
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Saldo komisi pending yang tersedia: <strong className="font-mono">{formatRupiah(mitra.pendingPayout || 6200000)}</strong>
+                  Dana komisi fix siap ditarik: <strong className="font-mono text-emerald-700">{formatRupiah(availableFixCommission)}</strong>
                 </p>
+                {payoutError && (
+                  <p className="text-[11px] text-rose-600 font-semibold mt-1">{payoutError}</p>
+                )}
               </div>
 
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-blue-900 text-xs flex items-start gap-2">

@@ -188,17 +188,21 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Total Komisi Disalurkan' : 'Total Komisi Anda'}
+              {userRole === 'admin' ? 'Total Komisi Disalurkan' : 'Saldo Komisi Aktif Anda'}
             </span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
               <BarChart3 className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl font-bold text-emerald-700 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? 398000000 : activeMitra.totalCommission)}
+            {formatRupiah(userRole === 'admin' ? 398000000 : activeMitra.pendingPayout)}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
-            <span>Pencairan via rekening bank resmi</span>
+            <span>
+              {userRole === 'admin'
+                ? 'Pencairan via rekening bank resmi'
+                : `Sudah Ditarik: ${formatRupiah(activeMitra.paidPayout || 0)} | Total: ${formatRupiah(activeMitra.totalCommission)}`}
+            </span>
           </div>
         </div>
       </div>

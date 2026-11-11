@@ -34,31 +34,53 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   const [endYear, setEndYear] = useState<number>(2025);
   
   const [notes, setNotes] = useState('');
+  const [subscriptionStartDate, setSubscriptionStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [billingDayOfMonth, setBillingDayOfMonth] = useState<number>(() => new Date().getDate());
   const [copiedReferral, setCopiedReferral] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
+  const [lastSubmittedDeal, setLastSubmittedDeal] = useState<ClientDeal | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Fetch available services
+  const resetFormFields = (serviceList: ServiceItem[] = services) => {
+    setCompanyName('');
+    setPicName('');
+    setPicPhone('');
+    setPicEmail('');
+    setNotes('');
+    setIsCustomPeriod(false);
+    setStartMonth(2);
+    setStartYear(2024);
+    setEndMonth(4);
+    setEndYear(2025);
+    const todayStr = new Date().toISOString().split('T')[0];
+    setSubscriptionStartDate(todayStr);
+    setBillingDayOfMonth(new Date().getDate());
+    setErrorMessage('');
+    if (serviceList.length > 0) {
+      setSelectedServiceId(serviceList[0].id);
+      setDealValue(serviceList[0].defaultPrice);
+      setPricingType(serviceList[0].pricingType);
+    }
+  };
+
+  // Fetch available services & reset form every time modal opens
   useEffect(() => {
     if (isOpen) {
+      setSubmissionSuccess(false);
+      setLastSubmittedDeal(null);
+      resetFormFields();
       setLoadingServices(true);
       fetch('/api/services')
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.data && data.data.length > 0) {
             setServices(data.data);
-            setSelectedServiceId(data.data[0].id);
-            setDealValue(data.data[0].defaultPrice);
-            setPricingType(data.data[0].pricingType);
+            resetFormFields(data.data);
           }
         })
         .catch((err) => console.error('Error fetching services:', err))
         .finally(() => setLoadingServices(false));
-      
-      // Reset form state
-      setSubmissionSuccess(false);
-      setErrorMessage('');
     }
   }, [isOpen]);
 
@@ -113,6 +135,9 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
           serviceId: selectedServiceId,
           dealValue: Number(dealValue),
           pricingType,
+          status: 'pending_acc',
+          subscriptionStartDate: pricingType !== 'case_by_case' ? subscriptionStartDate : undefined,
+          billingDayOfMonth: pricingType !== 'case_by_case' ? Number(billingDayOfMonth) : undefined,
           periodStart: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodStart : undefined,
           periodEnd: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
           durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
@@ -123,6 +148,8 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
 
       const result = await response.json();
       if (result.success) {
+        setLastSubmittedDeal(result.data);
+        resetFormFields(services);
         setSubmissionSuccess(true);
         if (onDealAdded) {
           onDealAdded(result.data);
@@ -173,57 +200,70 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {submissionSuccess ? (
             <div className="flex-1 overflow-y-auto p-6 py-8 text-center space-y-4">
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+              <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
                 <CheckCircle2 className="w-9 h-9" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-slate-900">Data Klien Berhasil Didaftarkan!</h3>
+                <span className="inline-block px-3 py-1 mb-2 text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded-full">
+                  ⏳ Status: Sedang Ditinjau Admin
+                </span>
+                <h3 className="text-xl font-bold text-slate-900">Data Klien Berhasil Dikirim untuk Ditinjau Admin!</h3>
                 <p className="text-sm text-slate-600 mt-1 max-w-md mx-auto">
-                  Proyek atas nama <strong className="text-slate-800">{companyName}</strong> telah terikat dengan kode referral <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{currentMitra.referralCode}</span>.
+                  Data klien <strong className="text-slate-800">{lastSubmittedDeal?.companyName}</strong> telah terikat dengan kode referral <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{currentMitra.referralCode}</span> dan saat ini sedang direview oleh Admin.
                 </p>
               </div>
 
               {/* Commission Summary Card */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 max-w-md mx-auto text-left space-y-2">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 max-w-md mx-auto text-left space-y-2.5">
                 <div className="flex justify-between text-xs text-slate-500 pb-2 border-b border-slate-200">
-                  <span>Skema Komisi:</span>
+                  <span>Skema Layanan:</span>
                   <span className="font-bold text-slate-800">
-                    {pricingType === 'monthly_subscription' ? 'Langganan Bulanan (Recurring)' : pricingType === 'annual_subscription' ? 'Langganan Tahunan' : 'Case-by-Case (1x Bayar)'}
+                    {lastSubmittedDeal?.pricingType === 'monthly_subscription'
+                      ? 'Langganan Bulanan (Recurring)'
+                      : lastSubmittedDeal?.pricingType === 'annual_subscription'
+                      ? 'Langganan Tahunan'
+                      : 'Case-by-Case (1x Bayar)'}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Estimasi Komisi Mitra:</span>
-                  <span className="font-bold text-emerald-600 text-base">
-                    Rp {estimatedCommission.toLocaleString('id-ID')}
-                    {pricingType === 'monthly_subscription' && <span className="text-xs text-slate-500 font-normal"> / bulan</span>}
-                    {pricingType === 'annual_subscription' && <span className="text-xs text-slate-500 font-normal"> / tahun</span>}
+                <div className="flex justify-between items-center text-xs pb-2 border-b border-slate-200">
+                  <span className="text-slate-600">Komisi Masuk Saat Ini:</span>
+                  <span className="font-mono font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                    Rp 0 (Menunggu Approve Admin)
                   </span>
                 </div>
-                {pricingType === 'monthly_subscription' && (
-                  <p className="text-xs text-blue-700 bg-blue-50 p-2 rounded-lg leading-relaxed">
-                    ℹ️ Komisi akan ditransfer setiap bulan ke rekening Anda selama klien tetap aktif menggunakan jasa perpajakan &amp; akuntansi NDTAXANDLAW.
-                  </p>
-                )}
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-600">Potensi Komisi (Jika Deal Di-Approve):</span>
+                  <span className="font-bold text-emerald-600 font-mono">
+                    Rp {(lastSubmittedDeal?.commissionAmount || estimatedCommission).toLocaleString('id-ID')}
+                    {lastSubmittedDeal?.pricingType === 'monthly_subscription' && <span className="text-xs text-slate-500 font-normal"> / bln</span>}
+                    {lastSubmittedDeal?.pricingType === 'annual_subscription' && <span className="text-xs text-slate-500 font-normal"> / thn</span>}
+                  </span>
+                </div>
+                <p className="text-xs text-blue-800 bg-blue-50 border border-blue-200 p-2.5 rounded-lg leading-relaxed">
+                  ℹ️ <strong>Penting:</strong> Komisi baru akan masuk ke saldo Anda setelah Admin melakukan review, konfirmasi dengan klien, dan melakukan <strong>Approve (Deal)</strong>. Jika tidak deal / ditolak, maka komisi tetap Rp 0.
+                </p>
               </div>
 
               <div className="pt-4 flex gap-3 justify-center">
                 <button
                   type="button"
                   onClick={() => {
+                    resetFormFields(services);
+                    setLastSubmittedDeal(null);
                     setSubmissionSuccess(false);
-                    setCompanyName('');
-                    setPicName('');
-                    setPicPhone('');
-                    setPicEmail('');
-                    setNotes('');
                   }}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
                 >
-                  Input Klien Lainnya
+                  + Input Klien Lainnya (Form Baru)
                 </button>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={() => {
+                    resetFormFields(services);
+                    setLastSubmittedDeal(null);
+                    setSubmissionSuccess(false);
+                    onClose();
+                  }}
                   className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-colors"
                 >
                   Tutup &amp; Kembali ke Portal
@@ -421,6 +461,45 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                         </span>
                       </button>
                     </div>
+
+                    {/* Subscription Start Date & Recurring Billing Day */}
+                    {(pricingType === 'monthly_subscription' || pricingType === 'annual_subscription') && (
+                      <div className="mt-3 p-3.5 bg-white rounded-xl border border-blue-200 shadow-2xs grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Tanggal Mulai Langganan
+                          </label>
+                          <input
+                            type="date"
+                            value={subscriptionStartDate}
+                            onChange={(e) => {
+                              setSubscriptionStartDate(e.target.value);
+                              if (e.target.value) {
+                                const day = Number(e.target.value.split('-')[2]);
+                                if (day >= 1 && day <= 31) setBillingDayOfMonth(day);
+                              }
+                            }}
+                            className="w-full px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Jadwal Tagihan Rutin (Setiap Tanggal)
+                          </label>
+                          <select
+                            value={billingDayOfMonth}
+                            onChange={(e) => setBillingDayOfMonth(Number(e.target.value))}
+                            className="w-full px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-600 outline-none"
+                          >
+                            {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                              <option key={d} value={d}>
+                                Setiap Tanggal {d} ({pricingType === 'annual_subscription' ? 'Tahunan' : 'Bulanan'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Case by case custom multi-month period section */}
                     {pricingType === 'case_by_case' && (

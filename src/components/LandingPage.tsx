@@ -22,17 +22,23 @@ import {
   Check,
   DollarSign
 } from 'lucide-react';
+import { AuthUser } from '../types';
+import { MALE_AVATAR_URL } from '../avatars';
 
 interface LandingPageProps {
   onEnterPortal: () => void;
   onOpenRegister: () => void;
   onOpenClientRegister?: () => void;
+  currentUser?: AuthUser | null;
+  userAvatarUrl?: string;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onEnterPortal,
   onOpenRegister,
   onOpenClientRegister,
+  currentUser,
+  userAvatarUrl,
 }) => {
   // Interactive Fee Estimator State
   const [companyTurnover, setCompanyTurnover] = useState<number>(3); // in Billion IDR
@@ -64,36 +70,36 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen w-full overflow-x-hidden bg-slate-50 text-slate-800 flex flex-col font-sans pb-16 lg:pb-0">
       
       {/* Top Banner Bar */}
-      <div className="bg-slate-900 text-slate-300 text-xs py-2 px-4 border-b border-slate-800">
+      <div className="bg-slate-900 text-slate-300 text-xs py-2 px-3 sm:px-6 border-b border-slate-800">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-4 text-[11px]">
-            <span className="flex items-center gap-1.5 text-blue-400">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terdaftar Resmi
+          <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] min-w-0">
+            <span className="flex items-center gap-1.5 text-blue-400 truncate">
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Konsultan Pajak &amp; Kuasa Hukum Pengadilan Pajak Resmi</span>
             </span>
-            <span className="hidden md:inline text-slate-500">•</span>
-            <span className="hidden md:inline text-slate-400">
+            <span className="hidden xl:inline text-slate-500">•</span>
+            <span className="hidden xl:inline text-slate-400 truncate">
               Standar Akuntansi Keuangan SAK / ETAP / IFRS Compliant
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-[11px]">
+          <div className="flex items-center gap-3 text-[10px] sm:text-[11px] shrink-0 ml-auto">
             <a
               href="https://wa.me/6281288997711?text=Halo%20NDTAXANDLAW,%20saya%20ingin%20konsultasi%20mengenai%20jasa%20keuangan%20dan%20laporan%20pajak."
               target="_blank"
               rel="noopener noreferrer"
-              className="text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
+              className="text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 whitespace-nowrap"
             >
-              <Phone className="w-3 h-3" />
-              Hotline Klien: 0812-8899-7711
+              <Phone className="w-3 h-3 shrink-0" />
+              <span>Hotline: 0812-8899-7711</span>
             </a>
-            <span className="text-slate-600">|</span>
+            <span className="hidden sm:inline text-slate-600">|</span>
             <button
               onClick={onEnterPortal}
-              className="text-amber-400 hover:text-amber-300 font-semibold"
+              className="hidden sm:inline text-amber-400 hover:text-amber-300 font-semibold whitespace-nowrap"
             >
               Masuk Portal Mitra →
             </button>
@@ -101,73 +107,136 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </div>
 
-      {/* Main Navigation */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+      {/* Main Navigation (Desktop Top Bar & Mobile Compact Header) */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs w-full">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2 sm:gap-4">
           
-          {/* Logo & Brand Identity */}
-          <div className="flex items-center gap-3">
-            <img
-              src="/assets/aistudio/logo_c3fdb6de.png"
-              alt="Logo NDTAXANDLAW"
-              className="h-10 w-auto object-contain"
-            />
-            <div className="hidden sm:block border-l border-slate-200 pl-3">
-              <span className="text-xs font-semibold text-slate-900 tracking-wide block uppercase">
-                Tax & Legal Advisory Firm
-              </span>
-              <span className="text-[10px] text-slate-500 block">
-                Partner Jasa Keuangan, Akuntansi & Kepatuhan Pajak Korporasi
+          {/* Logo & Brand Identity (Samping Kiri Responsif) */}
+          <a href="#" className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink">
+            <div className="flex items-center justify-center bg-slate-50 border border-slate-200/90 px-2.5 py-1.5 rounded-xl shadow-2xs shrink-0">
+              <img
+                src="/assets/aistudio/logo_c3fdb6de.png"
+                alt="Logo NDTAXANDLAW"
+                className="h-7 sm:h-8 lg:h-9 w-auto object-contain"
+              />
+            </div>
+            <div className="flex flex-col justify-center border-l-2 border-amber-400 pl-2.5 sm:pl-3 min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[10px] sm:text-[11px] font-extrabold text-slate-900 tracking-wide uppercase truncate">
+                  Tax &amp; Legal Advisory
+                </span>
+                <span className="hidden sm:inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                  Official
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium leading-tight truncate mt-0.5">
+                Jasa Keuangan, Akuntansi &amp; Pajak
               </span>
             </div>
-          </div>
+          </a>
 
-          {/* Desktop Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-7 text-sm font-medium text-slate-700">
-            <a href="#layanan" className="hover:text-blue-700 transition-colors">
-              Layanan Keuangan & Pajak
+          {/* Desktop Navigation Links (Tampil di Atas pada Layar Desktop lg+) */}
+          <nav className="hidden lg:flex items-center gap-4 xl:gap-7 text-xs xl:text-sm font-semibold text-slate-700 shrink-0">
+            <a href="#layanan" className="hover:text-blue-700 transition-colors whitespace-nowrap py-1">
+              Layanan Keuangan &amp; Pajak
             </a>
-            <a href="#kalkulator" className="hover:text-blue-700 transition-colors">
+            <a href="#kalkulator" className="hover:text-blue-700 transition-colors whitespace-nowrap py-1">
               Simulasi Biaya Retainer
             </a>
-            <a href="#keunggulan" className="hover:text-blue-700 transition-colors">
+            <a href="#keunggulan" className="hover:text-blue-700 transition-colors whitespace-nowrap py-1">
               Mengapa NDTAXANDLAW
             </a>
-            <a href="#kemitraan" className="hover:text-blue-700 transition-colors flex items-center gap-1.5 text-blue-700 font-bold">
-              <span className="relative flex h-2 w-2">
+            <a href="#kemitraan" className="hover:text-blue-700 transition-colors flex items-center gap-1.5 text-blue-700 font-bold whitespace-nowrap py-1">
+              <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
               </span>
-              Program Mitra & Referral
+              <span>Program Mitra &amp; Referral</span>
             </a>
           </nav>
 
-          {/* Action CTAs */}
-          <div className="flex items-center gap-3">
-            {onOpenClientRegister && (
+          {/* Action CTA: Jika belum login tombol Masuk saja, jika sudah login gambar profil saja */}
+          <div className="flex items-center justify-end shrink-0">
+            {currentUser ? (
               <button
-                onClick={onOpenClientRegister}
-                className="hidden md:inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors border border-amber-300"
+                onClick={onEnterPortal}
+                title={`Buka Portal (${currentUser.name})`}
+                className="relative group rounded-full p-0.5 border-2 border-blue-600 hover:border-amber-500 shadow-sm hover:shadow-md transition-all focus:outline-hidden"
               >
-                <span>Ajukan Layanan Online</span>
+                <img
+                  src={userAvatarUrl || MALE_AVATAR_URL}
+                  alt={currentUser.name}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover bg-slate-100"
+                />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+              </button>
+            ) : (
+              <button
+                onClick={onEnterPortal}
+                className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-sm hover:shadow transition-all whitespace-nowrap"
+              >
+                <span>Masuk</span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               </button>
             )}
-            <button
-              onClick={onOpenRegister}
-              className="hidden sm:inline-flex items-center gap-1 px-4 py-2 text-xs font-semibold text-slate-700 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300"
-            >
-              Daftar Jadi Mitra
-            </button>
-            <button
-              onClick={onEnterPortal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all"
-            >
-              <span>Masuk Portal Mitra / Admin</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
           </div>
         </div>
       </header>
+
+      {/* Mobile Bottom Navigation Bar (Menu di Bawah khusus Mobile seperti Aplikasi) */}
+      <nav
+        aria-label="Navigasi Bawah Mobile"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] px-2 py-1.5"
+      >
+        <div className="max-w-md mx-auto grid grid-cols-5 gap-1">
+          <a
+            href="#layanan"
+            className="flex flex-col items-center justify-center py-1 px-1 rounded-xl text-slate-600 hover:text-blue-700 hover:bg-blue-50/60 transition-colors"
+          >
+            <Briefcase className="w-4 h-4 text-blue-700" />
+            <span className="text-[10px] font-semibold mt-0.5 truncate">Layanan</span>
+          </a>
+          <a
+            href="#kalkulator"
+            className="flex flex-col items-center justify-center py-1 px-1 rounded-xl text-slate-600 hover:text-blue-700 hover:bg-blue-50/60 transition-colors"
+          >
+            <Calculator className="w-4 h-4 text-blue-700" />
+            <span className="text-[10px] font-semibold mt-0.5 truncate">Simulasi</span>
+          </a>
+          <a
+            href="#keunggulan"
+            className="flex flex-col items-center justify-center py-1 px-1 rounded-xl text-slate-600 hover:text-blue-700 hover:bg-blue-50/60 transition-colors"
+          >
+            <ShieldCheck className="w-4 h-4 text-blue-700" />
+            <span className="text-[10px] font-semibold mt-0.5 truncate">Keunggulan</span>
+          </a>
+          <a
+            href="#kemitraan"
+            className="flex flex-col items-center justify-center py-1 px-1 rounded-xl text-slate-600 hover:text-blue-700 hover:bg-blue-50/60 transition-colors"
+          >
+            <Users className="w-4 h-4 text-blue-700" />
+            <span className="text-[10px] font-semibold mt-0.5 truncate">Kemitraan</span>
+          </a>
+          <button
+            type="button"
+            onClick={onEnterPortal}
+            className="flex flex-col items-center justify-center py-1 px-1 rounded-xl bg-blue-700 text-white shadow-xs transition-colors"
+          >
+            {currentUser ? (
+              <img
+                src={userAvatarUrl || MALE_AVATAR_URL}
+                alt={currentUser.name}
+                className="w-4 h-4 rounded-full object-cover border border-white"
+              />
+            ) : (
+              <ArrowRight className="w-4 h-4" />
+            )}
+            <span className="text-[10px] font-bold mt-0.5 truncate">
+              {currentUser ? 'Portal' : 'Masuk'}
+            </span>
+          </button>
+        </div>
+      </nav>
 
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-b from-slate-900 via-blue-950 to-slate-900 text-white py-20 lg:py-24">
@@ -312,7 +381,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-between">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">Mulai Dari</div>
-                  <div className="text-base font-extrabold text-slate-900 font-mono">Rp 5.000.000 <span className="text-[10px] text-slate-500 font-normal">/ bln</span></div>
+                  <div className="text-base font-extrabold text-slate-900 font-mono">Rp 450.000 <span className="text-[10px] text-slate-500 font-normal">/ bln</span></div>
                 </div>
                 <a
                   href="https://wa.me/6281288997711?text=Halo,%20saya%20ingin%20informasi%20layanan%20Laporan%20Keuangan%20Bulanan."
@@ -364,7 +433,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-between">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">Mulai Dari</div>
-                  <div className="text-base font-extrabold text-blue-700 font-mono">Rp 4.500.000 <span className="text-[10px] text-slate-500 font-normal">/ bln</span></div>
+                  <div className="text-base font-extrabold text-blue-700 font-mono">Rp 450.000 <span className="text-[10px] text-slate-500 font-normal">/ bln</span></div>
                 </div>
                 <a
                   href="https://wa.me/6281288997711?text=Halo,%20saya%20ingin%20konsultasi%20Kepatuhan%20Pajak%20Bulanan%20dan%20SPT%20Tahunan."
@@ -511,7 +580,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-between">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">Mulai Dari</div>
-                  <div className="text-base font-extrabold text-slate-900 font-mono">Rp 12.000.000</div>
+                  <div className="text-base font-extrabold text-slate-900 font-mono">Rp 450.000</div>
                 </div>
                 <a
                   href="https://wa.me/6281288997711?text=Halo,%20saya%20ingin%20mendirikan%20PT%20/%20PMA%20baru."

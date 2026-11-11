@@ -5,9 +5,12 @@ import {
   Lock, 
   CheckCircle2, 
   ShieldCheck, 
-  Building2 
+  Building2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Mitra, BankDetails } from '../types';
+import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, inferGenderFromName } from '../avatars';
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -24,6 +27,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 }) => {
   const [fullName, setFullName] = useState(mitra.fullName);
   const [phone, setPhone] = useState(mitra.phone);
+  const [gender, setGender] = useState<'male' | 'female'>(mitra.gender || inferGenderFromName(mitra.fullName));
   const [specialization, setSpecialization] = useState(mitra.specialization);
   const [bankName, setBankName] = useState(mitra.bankDetails.bankName);
   const [accountNumber, setAccountNumber] = useState(mitra.bankDetails.accountNumber);
@@ -33,6 +37,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -51,6 +57,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       await onUpdateProfile(mitra.id, {
         fullName,
         phone,
+        gender,
+        avatarUrl: getDefaultAvatar(gender),
         specialization,
         bankDetails: {
           bankName,
@@ -158,7 +166,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Spesialisasi Konsultasi
+                  Spesialisasi Bisnis
                 </label>
                 <input
                   type="text"
@@ -166,6 +174,45 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                   onChange={(e) => setSpecialization(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
                 />
+              </div>
+
+              {/* Gender / Avatar Default Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Pilih Avatar Profil Default
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setGender('male')}
+                    className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
+                      gender === 'male'
+                        ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <img src={MALE_AVATAR_URL} alt="Avatar Laki-laki" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Avatar Laki-laki</p>
+                      <p className="text-[10px] text-slate-500">Default Laki-laki</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGender('female')}
+                    className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
+                      gender === 'female'
+                        ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <img src={FEMALE_AVATAR_URL} alt="Avatar Perempuan" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Avatar Perempuan</p>
+                      <p className="text-[10px] text-slate-500">Default Perempuan</p>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -239,25 +286,43 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Kata Sandi Baru
                 </label>
-                <input
-                  type="password"
-                  placeholder="Minimal 8 karakter"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    placeholder="Minimal 6 karakter"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-slate-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Konfirmasi Sandi Baru
                 </label>
-                <input
-                  type="password"
-                  placeholder="Ulangi sandi baru"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Ulangi sandi baru"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-slate-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

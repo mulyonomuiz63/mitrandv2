@@ -18,6 +18,7 @@ import {
   Check
 } from 'lucide-react';
 import { AuthUser, BankDetails } from '../types';
+import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
 
 interface AuthViewProps {
   onLoginSuccess: (user: AuthUser) => void;
@@ -29,6 +30,8 @@ interface AuthViewProps {
     specialization: string;
     bankDetails: BankDetails;
     password?: string;
+    gender?: 'male' | 'female';
+    avatarUrl?: string;
   }) => Promise<void>;
   appEnvironment?: 'development' | 'production';
 }
@@ -62,20 +65,23 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regNik, setRegNik] = useState('');
+  const [regGender, setRegGender] = useState<'male' | 'female'>('male');
   const [regSpecialization, setRegSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
   const [regBankName, setRegBankName] = useState('Bank Central Asia (BCA)');
   const [regAccountNumber, setRegAccountNumber] = useState('');
   const [regAccountHolder, setRegAccountHolder] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [showRegPassword, setShowRegPassword] = useState(false);
   const [regSuccessMessage, setRegSuccessMessage] = useState<string | null>(null);
 
   // Forgot Password States
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStep, setForgotStep] = useState<1 | 2>(1);
   const [otpCode, setOtpCode] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [forgotMessage, setForgotMessage] = useState<string | null>(null);
   const [forgotError, setForgotError] = useState<string | null>(null);
 
@@ -97,9 +103,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         onLoginSuccess(data.user);
       } else if (data.needsEmailVerification) {
         setVerifyEmail(data.email || email);
-        if (data.verificationToken) {
-          setVerifyToken(data.verificationToken);
-        }
+        setVerifyToken('');
         setAuthMode('verify');
         setVerifyError(data.message || 'Akun Anda belum melakukan verifikasi email.');
       } else {
@@ -128,9 +132,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         onLoginSuccess(data.user);
       } else if (data.needsEmailVerification) {
         setVerifyEmail(data.email || loginEmail);
-        if (data.verificationToken) {
-          setVerifyToken(data.verificationToken);
-        }
+        setVerifyToken('');
         setAuthMode('verify');
         setVerifyError(data.message || 'Akun Anda belum melakukan verifikasi email.');
       } else {
@@ -155,6 +157,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
         phone: regPhone,
         nik: regNik || '3201000000000000',
         specialization: regSpecialization,
+        gender: regGender,
+        avatarUrl: getDefaultAvatar(regGender),
         bankDetails: {
           bankName: regBankName,
           accountNumber: regAccountNumber,
@@ -164,7 +168,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
       });
 
       setVerifyEmail(regEmail);
-      setVerifySuccess('Pendaftaran berhasil! Kode verifikasi 6-digit telah dikirimkan ke email Anda. Silakan verifikasi email Anda di bawah untuk mengaktifkan akun sebelum masuk.');
+      setVerifyToken('');
+      setVerifySuccess('Pendaftaran berhasil! Kode verifikasi 6-digit telah dikirimkan ke email Anda. Silakan masukkan kode dari email Anda di bawah untuk mengaktifkan akun.');
       setAuthMode('verify');
     } catch (err: any) {
       setLoginError(err.message || 'Gagal mengirim pendaftaran.');
@@ -217,10 +222,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        setResendMessage(data.message || 'Kode verifikasi baru berhasil dikirim ke email Anda.');
-        if (data.verificationToken) {
-          setVerifyToken(data.verificationToken);
-        }
+        setVerifyToken('');
+        setResendMessage(data.message || 'Kode verifikasi baru berhasil dikirim ke email Anda. Silakan cek kotak masuk atau folder Spam.');
       } else {
         setVerifyError(data.message || 'Gagal mengirim ulang kode.');
       }
@@ -244,8 +247,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        setGeneratedOtp(data.otpCode);
-        setOtpCode(data.otpCode);
+        setOtpCode('');
         setForgotStep(2);
         setForgotMessage(data.message);
       } else {
@@ -526,20 +528,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </button>
                 </form>
 
-                {/* Sample Demo Accounts vs Production Notice */}
-                {appEnvironment === 'production' ? (
-                  <div className="mt-6 pt-5 border-t border-slate-200">
-                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-start gap-2.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-slate-800">Mode Production Aktif (Hosting Live)</p>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                          Sistem login diproteksi untuk operasional riil. Silakan masuk menggunakan alamat email dan kata sandi yang telah terdaftar secara sah.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
+                {/* Sample Demo Accounts (hanya di Mode Dev; di Mode Production tidak ditampilkan card informasi) */}
+                {appEnvironment !== 'production' && (
                   <div className="mt-6 pt-6 border-t border-slate-200">
                     <div className="flex items-center justify-between mb-2.5">
                       <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
@@ -686,7 +676,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Spesialisasi
+                      Spesialisasi Bisnis
                     </label>
                     <select
                       value={regSpecialization}
@@ -698,6 +688,45 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <option value="Pendirian Legalitas PT / PMA & OSS">Pendirian PT / PMA &amp; OSS</option>
                       <option value="Audit Pajak & SP2DK">Audit Pajak &amp; SP2DK</option>
                     </select>
+                  </div>
+                </div>
+
+                {/* Gender / Default Avatar Selector */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Pilih Jenis Kelamin &amp; Foto Profil Default (Avatar)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setRegGender('male')}
+                      className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
+                        regGender === 'male'
+                          ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <img src={MALE_AVATAR_URL} alt="Avatar Laki-laki" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">Laki-laki</p>
+                        <p className="text-[10px] text-slate-500">Avatar Laki-laki</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRegGender('female')}
+                      className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
+                        regGender === 'female'
+                          ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <img src={FEMALE_AVATAR_URL} alt="Avatar Perempuan" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">Perempuan</p>
+                        <p className="text-[10px] text-slate-500">Avatar Perempuan</p>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
@@ -753,14 +782,24 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Buat Kata Sandi Akun
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Minimal 6 karakter aman"
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showRegPassword ? 'text' : 'password'}
+                      required
+                      placeholder="Minimal 6 karakter aman"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      className="w-full pl-3 pr-10 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      title={showRegPassword ? 'Sembunyikan kata sandi' : 'Lihat kata sandi'}
+                    >
+                      {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -831,45 +870,59 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-xs font-semibold text-slate-700">Kode Verifikasi OTP (6 Digit)</label>
-                        {generatedOtp && (
-                          <span className="text-[10px] text-blue-700 font-mono font-bold bg-blue-100 px-1.5 py-0.5 rounded">
-                            Kode Demo: {generatedOtp}
-                          </span>
-                        )}
+                        <span className="text-[10px] text-slate-400">Cek Email Anda</span>
                       </div>
                       <input
                         type="text"
                         required
                         maxLength={6}
-                        placeholder="6 Digit OTP"
+                        placeholder="6 Digit OTP dari Email"
                         value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value)}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                         className="w-full px-3 py-2 text-xs font-mono font-bold text-center tracking-widest rounded-xl border border-slate-300"
                       />
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Kata Sandi Baru</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Minimal 6 karakter baru"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showNewPassword ? 'text' : 'password'}
+                          required
+                          placeholder="Minimal 6 karakter baru"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          className="w-full pl-3 pr-10 py-2 text-xs rounded-xl border border-slate-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Ulangi Kata Sandi Baru</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Konfirmasi sandi baru"
-                        value={confirmNewPassword}
-                        onChange={(e) => setConfirmNewPassword(e.target.value)}
-                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showConfirmNewPassword ? 'text' : 'password'}
+                          required
+                          placeholder="Konfirmasi sandi baru"
+                          value={confirmNewPassword}
+                          onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          className="w-full pl-3 pr-10 py-2 text-xs rounded-xl border border-slate-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <button

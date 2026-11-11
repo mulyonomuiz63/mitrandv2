@@ -21,6 +21,7 @@ import { AdminOperationsHub } from './components/AdminOperationsHub';
 import { AppSettingsModal } from './components/AppSettingsModal';
 import { ClientSelfRegistration } from './components/ClientSelfRegistration';
 import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings } from './types';
+import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
   ShieldCheck, 
   Sparkles, 
@@ -35,6 +36,9 @@ import {
   Globe
 } from 'lucide-react';
 
+const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'];
+const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions', 'ai-reports'];
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
@@ -45,15 +49,62 @@ export default function App() {
     }
   });
 
-  const [viewMode, setViewMode] = useState<'landing' | 'portal' | 'auth' | 'client_register'>('landing');
+  const [viewMode, setViewMode] = useState<'landing' | 'portal' | 'auth' | 'client_register'>(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('ref')) return 'client_register';
+    }
+    try {
+      const savedUser = localStorage.getItem('nd_auth_user');
+      if (savedUser) return 'portal';
+    } catch {}
+    return 'landing';
+  });
+
   const [clientRefCode, setClientRefCode] = useState<string | null>(null);
-  const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>('mitra');
-  const [activeTab, setActiveTab] = useState<string>('idcard');
+
+  const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>(() => {
+    try {
+      const savedUser = localStorage.getItem('nd_auth_user');
+      if (savedUser) {
+        const parsed: AuthUser = JSON.parse(savedUser);
+        return parsed.role === 'admin' ? 'admin' : 'mitra';
+      }
+    } catch {}
+    return 'mitra';
+  });
+
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      const savedUser = localStorage.getItem('nd_auth_user');
+      const savedTab = localStorage.getItem('nd_active_tab');
+      if (savedUser) {
+        const parsed: AuthUser = JSON.parse(savedUser);
+        if (parsed.role === 'admin') {
+          return savedTab && ADMIN_VALID_TABS.includes(savedTab) ? savedTab : 'dashboard';
+        } else {
+          return savedTab && MITRA_VALID_TABS.includes(savedTab) ? savedTab : 'idcard';
+        }
+      }
+    } catch {}
+    return 'idcard';
+  });
+
   const [settings, setSettings] = useState<AppSettings | null>(null);
   
   // State from server API with immediate offline fallbacks
   const [mitras, setMitras] = useState<Mitra[]>([]);
-  const [activeMitraId, setActiveMitraId] = useState<string>('mitra-01');
+  const [activeMitraId, setActiveMitraId] = useState<string>(() => {
+    try {
+      const savedUser = localStorage.getItem('nd_auth_user');
+      if (savedUser) {
+        const parsed: AuthUser = JSON.parse(savedUser);
+        if (parsed.mitraId) return parsed.mitraId;
+        if (parsed.role === 'mitra' && parsed.id) return parsed.id;
+      }
+    } catch {}
+    return 'mitra-01';
+  });
   const [marketingTools, setMarketingTools] = useState<MarketingTool[]>([]);
   const [commissions, setCommissions] = useState<CommissionTransaction[]>([]);
   const [clientDeals, setClientDeals] = useState<ClientDeal[]>([]);
@@ -119,27 +170,103 @@ export default function App() {
     }
   }, []);
 
-  const activeMitra = mitras.find((m) => m.id === activeMitraId) || mitras[0] || {
-    id: 'mitra-01',
-    memberCode: 'ND-2026-LAW-0042',
-    fullName: 'Bambang Sudirman, S.H., M.Kn.',
-    email: 'bambang.sudirman@example.com',
-    phone: '0812-8899-7711',
-    nik: '3201123456780001',
-    specialization: 'Konsultan Hukum Korporasi & Kontrak Bisnis',
-    status: 'verified',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-    joinedDate: '2026-01-15',
-    bankDetails: {
-      bankName: 'Bank Central Asia (BCA)',
-      accountNumber: '8830192837',
-      accountHolder: 'Bambang Sudirman',
-    },
-    totalCommission: 34500000,
-    totalBonus: 7500000,
-    pendingPayout: 6200000,
-    paidPayout: 35800000,
-  };
+  // Synchronize role, activeTab, and activeMitraId strictly with logged-in user
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentRole !== currentUser.role) {
+      setCurrentRole(currentUser.role);
+    }
+    if (currentUser.role === 'mitra') {
+      const targetId = currentUser.mitraId || currentUser.id;
+      if (targetId && activeMitraId !== targetId) {
+        setActiveMitraId(targetId);
+      }
+      if (!MITRA_VALID_TABS.includes(activeTab)) {
+        setActiveTab('idcard');
+      }
+    } else if (currentUser.role === 'admin') {
+      if (!ADMIN_VALID_TABS.includes(activeTab)) {
+        setActiveTab('dashboard');
+      }
+    }
+  }, [currentUser, currentRole, activeTab, activeMitraId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nd_active_tab', activeTab);
+    } catch {}
+  }, [activeTab]);
+
+  // Resolve the active Mitra profile without ever leaking another Mitra's account on reload
+  const resolvedLoggedInMitra = React.useMemo(() => {
+    if (currentUser?.role === 'mitra') {
+      const byId = mitras.find(
+        (m) => m.id === currentUser.mitraId || m.id === currentUser.id
+      );
+      if (byId) return byId;
+      const byEmail = mitras.find(
+        (m) => m.email.toLowerCase() === currentUser.email.toLowerCase()
+      );
+      if (byEmail) return byEmail;
+      // Fallback strictly using currentUser's own identity while mitras list is loading
+      return {
+        id: currentUser.mitraId || currentUser.id,
+        memberCode: 'ND-2026-MTR',
+        referralCode: currentUser.referralCode || 'ND-REF-MTR',
+        fullName: currentUser.name,
+        email: currentUser.email,
+        phone: '-',
+        nik: '-',
+        specialization: 'Konsultan Hukum Korporasi & Bisnis',
+        status: 'verified' as const,
+        gender: currentUser.gender || 'male',
+        avatarUrl: resolveAvatarUrl(currentUser.avatarUrl, currentUser.gender, currentUser.name),
+        joinedDate: new Date().toISOString().slice(0, 10),
+        bankDetails: {
+          bankName: 'Bank Central Asia (BCA)',
+          accountNumber: '-',
+          accountHolder: currentUser.name,
+        },
+        totalCommission: 0,
+        totalBonus: 0,
+        pendingPayout: 0,
+        paidPayout: 0,
+        referredClientsCount: 0,
+        activeSubscribersCount: 0,
+      };
+    }
+
+    return (
+      mitras.find((m) => m.id === activeMitraId) ||
+      mitras[0] || {
+        id: 'mitra-01',
+        memberCode: 'ND-2026-LAW-0042',
+        referralCode: 'ND-REF-0042',
+        fullName: 'Bambang Sudirman, S.H., M.Kn.',
+        email: 'bambang.sudirman@example.com',
+        phone: '0812-8899-7711',
+        nik: '3201123456780001',
+        specialization: 'Konsultan Hukum Korporasi & Kontrak Bisnis',
+        status: 'verified' as const,
+        gender: 'male' as const,
+        avatarUrl: MALE_AVATAR_URL,
+        joinedDate: '2026-01-15',
+        bankDetails: {
+          bankName: 'Bank Central Asia (BCA)',
+          accountNumber: '8830192837',
+          accountHolder: 'Bambang Sudirman',
+        },
+        totalCommission: 34500000,
+        totalBonus: 7500000,
+        pendingPayout: 6200000,
+        paidPayout: 35800000,
+        referredClientsCount: 8,
+        activeSubscribersCount: 3,
+      }
+    );
+  }, [currentUser, mitras, activeMitraId]);
+
+  const activeMitra = resolvedLoggedInMitra;
 
   const unreadNotifCount = notifications.filter((n) => !n.isRead).length;
 
@@ -230,16 +357,16 @@ export default function App() {
   };
 
   const handleRequestPayout = async (mitraId: string, amount: number) => {
-    try {
-      await fetch('/api/commissions/payout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mitraId, amount }),
-      });
-      fetchData();
-    } catch (err) {
-      console.error(err);
+    const res = await fetch('/api/commissions/payout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mitraId, amount }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'Gagal mengajukan pencairan komisi.');
     }
+    fetchData();
   };
 
   const handleMarkAllNotificationsAsRead = async () => {
@@ -259,15 +386,23 @@ export default function App() {
 
     if (user.role === 'admin') {
       setCurrentRole('admin');
-      setActiveTab('verification');
+      setActiveTab('dashboard');
+      try {
+        localStorage.setItem('nd_active_tab', 'dashboard');
+      } catch {}
     } else {
       setCurrentRole('mitra');
       setActiveTab('idcard');
-      if (user.mitraId) {
-        setActiveMitraId(user.mitraId);
+      try {
+        localStorage.setItem('nd_active_tab', 'idcard');
+      } catch {}
+      const mitraTargetId = user.mitraId || user.id;
+      if (mitraTargetId) {
+        setActiveMitraId(mitraTargetId);
       }
     }
     setViewMode('portal');
+    fetchData();
   };
 
   const handleLogout = () => {
@@ -275,43 +410,29 @@ export default function App() {
     setViewMode('landing');
     try {
       localStorage.removeItem('nd_auth_user');
+      localStorage.removeItem('nd_active_tab');
     } catch {}
   };
 
-  // If role changes, ensure activeTab is valid (only permitted in development mode)
-  const handleRoleChange = (newRole: 'admin' | 'mitra') => {
-    if (settings?.appEnvironment === 'production' && currentUser) {
-      // In production mode, role is permanently locked to authenticated user account
+  // Role is strictly locked to the authenticated user's role
+  const handleRoleChange = (_newRole: 'admin' | 'mitra') => {
+    if (currentUser) {
       setCurrentRole(currentUser.role);
-      return;
-    }
-    setCurrentRole(newRole);
-    if (newRole === 'admin' && (activeTab === 'idcard')) {
-      setActiveTab('admin-operations');
-    } else if (newRole === 'mitra' && (activeTab === 'verification' || activeTab === 'admin-operations')) {
-      setActiveTab('idcard');
     }
   };
 
   // 1. Landing Page View (Public Facing for Financial Services & Tax Reports)
   if (viewMode === 'landing') {
+    const loggedInAvatar =
+      currentUser?.role === 'mitra'
+        ? resolveAvatarUrl(activeMitra.avatarUrl, activeMitra.gender, activeMitra.fullName)
+        : resolveAvatarUrl(currentUser?.avatarUrl, currentUser?.gender || 'male', currentUser?.name);
+
     return (
       <div className="relative">
-        {currentUser && (
-          <div className="sticky top-0 z-50 bg-blue-900 text-white text-xs px-4 py-2 flex items-center justify-between border-b border-blue-800 shadow-md">
-            <span className="font-medium">
-              Anda sedang login sebagai <strong>{currentUser.name}</strong> ({currentUser.role === 'admin' ? 'Admin' : 'Mitra'}).
-            </span>
-            <button
-              onClick={() => setViewMode('portal')}
-              className="px-3 py-1 bg-amber-400 text-slate-950 font-bold rounded-md hover:bg-amber-300 transition-colors shadow-xs"
-            >
-              Kembali ke Portal Kemitraan →
-            </button>
-          </div>
-        )}
-
         <LandingPage
+          currentUser={currentUser}
+          userAvatarUrl={loggedInAvatar}
           onEnterPortal={() => {
             if (currentUser) {
               setViewMode('portal');
@@ -386,8 +507,8 @@ export default function App() {
 
   // 3. Portal View (Mitra & Admin Operations)
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900">
-      <div>
+    <div className="min-h-screen w-full overflow-x-hidden pb-20 md:pb-0 bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900">
+      <div className="w-full min-w-0">
         {/* Navigation Bar */}
         <Navbar
           currentRole={currentRole}
@@ -411,58 +532,41 @@ export default function App() {
         />
 
         {/* Executive Sub-Header / Persona Context Bar */}
-        <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 text-white border-b border-blue-900/50 py-3 px-4 sm:px-8">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded font-mono font-bold uppercase text-[10px] bg-blue-700/60 border border-blue-400/30 text-blue-200">
+        <div className="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 text-white border-b border-blue-900/50 py-2.5 px-3 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="px-2 py-0.5 rounded font-mono font-bold uppercase text-[10px] bg-blue-700/60 border border-blue-400/30 text-blue-200 shrink-0">
                 {currentRole === 'admin' ? 'PANEL OPERASIONAL ADMIN' : 'PORTAL RESMI MITRA'}
               </span>
-              <span className="text-slate-300 hidden md:inline">·</span>
-              <span className="text-slate-200 font-medium hidden md:inline">
+              <span className="text-slate-300 hidden md:inline shrink-0">·</span>
+              <span className="text-slate-200 font-medium truncate hidden sm:inline">
                 {currentRole === 'admin'
                   ? 'Manajemen Verifikasi, Monitoring Komisi Bank, & Unggah Tools Pemasaran'
                   : `Aktif sebagai: ${activeMitra.fullName} (${activeMitra.memberCode})`}
               </span>
             </div>
 
-            {/* Mitra Action Bar */}
+            {/* Mitra Action Bar (No switcher to other Mitra accounts) */}
             {currentRole === 'mitra' ? (
-              <div className="flex items-center gap-3 self-start sm:self-auto">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsClientModalOpen(true)}
-                  className="px-3 py-1 bg-amber-400 text-slate-950 font-bold rounded-md hover:bg-amber-300 transition-colors shadow-xs flex items-center gap-1.5"
+                  className="px-2.5 py-1 bg-amber-400 text-slate-950 font-bold rounded-md hover:bg-amber-300 transition-colors shadow-xs flex items-center gap-1.5 text-[11px] sm:text-xs"
                 >
                   <span>+ Input Klien Baru</span>
                 </button>
-                {/* Switcher ONLY IN DEV MODE */}
-                {settings?.appEnvironment !== 'production' && (
-                  <div className="flex items-center gap-1.5 text-slate-300">
-                    <span className="text-slate-400 hidden sm:inline">Mitra:</span>
-                    <select
-                      value={activeMitra.id}
-                      onChange={(e) => setActiveMitraId(e.target.value)}
-                      className="bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded-md text-xs font-medium border border-white/20 focus:outline-hidden cursor-pointer"
-                    >
-                      {mitras.map((m) => (
-                        <option key={m.id} value={m.id} className="bg-slate-900 text-white">
-                          {m.fullName.split(',')[0]} ({m.status === 'verified' ? 'Verified' : 'Pending'})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
               </div>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsServicesModalOpen(true)}
-                  className="px-3 py-1 bg-blue-700 text-white font-bold rounded-md hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs"
+                  className="px-2.5 py-1 bg-blue-700 text-white font-bold rounded-md hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
                 >
                   Kelola Layanan Pajak
                 </button>
-                <div className="text-slate-300 font-mono text-[11px] hidden sm:block">
+                <div className="text-slate-300 font-mono text-[11px] hidden lg:block">
                   <span className="text-emerald-400">Database &amp; AI Aktif</span>
                 </div>
               </div>
@@ -481,15 +585,31 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'idcard' && currentRole === 'mitra' && (
-            <ExclusiveIdCard
-              mitra={activeMitra}
-              onEditProfile={() => setIsProfileOpen(true)}
-              onOpenClientSelfRegister={(refCode) => {
-                setClientRefCode(refCode);
-                setViewMode('client_register');
-              }}
-            />
+          {activeTab === 'idcard' && (
+            <div>
+              {currentRole === 'admin' && (
+                <div className="max-w-7xl mx-auto pt-4 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-600">
+                    Pratinjau Kartu Identitas Mitra: <strong>{activeMitra.fullName}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('verification')}
+                    className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg"
+                  >
+                    ← Kembali ke Verifikasi Mitra
+                  </button>
+                </div>
+              )}
+              <ExclusiveIdCard
+                mitra={activeMitra}
+                onEditProfile={() => setIsProfileOpen(true)}
+                onOpenClientSelfRegister={(refCode) => {
+                  setClientRefCode(refCode);
+                  setViewMode('client_register');
+                }}
+              />
+            </div>
           )}
 
           {activeTab === 'marketing-tools' && (
@@ -529,6 +649,18 @@ export default function App() {
               commissions={commissions}
               onRefreshData={fetchData}
               onOpenSettings={() => setIsSettingsOpen(true)}
+              initialSubTab="client_validation"
+            />
+          )}
+
+          {activeTab === 'activity-logs' && currentRole === 'admin' && (
+            <AdminOperationsHub
+              mitras={mitras}
+              clientDeals={clientDeals}
+              commissions={commissions}
+              onRefreshData={fetchData}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              initialSubTab="activity_logs"
             />
           )}
 
@@ -538,7 +670,6 @@ export default function App() {
               onVerifyMitra={handleVerifyMitra}
               onSelectMitraPreview={(m) => {
                 setActiveMitraId(m.id);
-                setCurrentRole('mitra');
                 setActiveTab('idcard');
               }}
             />

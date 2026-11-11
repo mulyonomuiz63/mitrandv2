@@ -15,6 +15,7 @@ export interface Mitra {
   specialization: string;
   status: 'verified' | 'pending' | 'rejected';
   avatarUrl: string;
+  gender?: 'male' | 'female';
   joinedDate: string;
   bankDetails: BankDetails;
   totalCommission: number;
@@ -65,6 +66,17 @@ export interface ClientDeal {
   paymentTermType?: 'one_time' | 'milestone';
   notes?: string;
   submittedBy?: 'mitra' | 'client_self';
+  // Subscription Schedule & Billing Fields
+  subscriptionStartDate?: string;
+  billingDayOfMonth?: number;
+  nextBillingDate?: string;
+  lastBilledDate?: string;
+  isBillingDue?: boolean;
+  // Termination & Rejection Fields
+  terminatedAt?: string;
+  terminationReason?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
 }
 
 export interface PayoutRequest {
@@ -134,6 +146,38 @@ export interface EmailLogItem {
   status: 'sent' | 'queued' | 'failed';
   previewSnippet: string;
   htmlContent?: string;
+  errorMessage?: string;
+  smtpHostUsed?: string;
+}
+
+export interface ActivityLogItem {
+  id: string;
+  actorRole: 'admin' | 'mitra' | 'client' | 'system';
+  actorId?: string;
+  actorName: string;
+  actorEmail?: string;
+  actionType:
+    | 'login'
+    | 'register'
+    | 'verify_email'
+    | 'password_reset'
+    | 'mitra_verify'
+    | 'profile_update'
+    | 'client_create'
+    | 'client_acc'
+    | 'client_update'
+    | 'payout_request'
+    | 'payout_approve'
+    | 'service_create'
+    | 'service_update'
+    | 'service_delete'
+    | 'tool_create'
+    | 'tool_delete'
+    | 'settings_update';
+  operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
+  targetEntity: string;
+  description: string;
+  timestamp: string;
 }
 
 export interface MarketingTool {
@@ -188,5 +232,5 @@ export interface AuthUser {
   mitraId?: string;
   referralCode?: string;
   avatarUrl?: string;
+  gender?: 'male' | 'female';
 }
-

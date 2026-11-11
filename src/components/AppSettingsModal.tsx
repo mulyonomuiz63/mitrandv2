@@ -363,12 +363,12 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
       const res = await fetch('/api/settings/test-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetEmail: testEmailTarget }),
+        body: JSON.stringify({ targetEmail: testEmailTarget, smtpConfig: settings }),
       });
       const data = await res.json();
+      fetchEmailLogs();
       if (data.success) {
         setTestResult({ success: true, message: data.message });
-        fetchEmailLogs();
       } else {
         setTestResult({ success: false, message: data.message || 'Gagal mengirim email tes.' });
       }
@@ -379,7 +379,7 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
     }
   };
 
-  const applyPreset = (preset: 'gmail' | 'hostinger' | 'microsoft') => {
+  const applyPreset = (preset: 'gmail' | 'hostinger' | 'niagahoster_tls' | 'microsoft') => {
     if (preset === 'gmail') {
       setSettings((prev) => ({
         ...prev,
@@ -390,9 +390,16 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
     } else if (preset === 'hostinger') {
       setSettings((prev) => ({
         ...prev,
-        smtpHost: 'smtp.hostinger.com',
+        smtpHost: prev.smtpHost && !prev.smtpHost.includes('gmail') ? prev.smtpHost : 'mail.domainanda.com',
         smtpPort: 465,
         smtpEncryption: 'ssl',
+      }));
+    } else if (preset === 'niagahoster_tls') {
+      setSettings((prev) => ({
+        ...prev,
+        smtpHost: prev.smtpHost && !prev.smtpHost.includes('gmail') ? prev.smtpHost : 'mail.domainanda.com',
+        smtpPort: 587,
+        smtpEncryption: 'tls',
       }));
     } else if (preset === 'microsoft') {
       setSettings((prev) => ({
@@ -1077,17 +1084,24 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
                     <span className="text-[11px] font-semibold text-slate-500">Preset Cepat:</span>
                     <button
                       type="button"
+                      onClick={() => applyPreset('hostinger')}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-md border border-blue-200 transition-colors"
+                    >
+                      Niagahoster / cPanel (SSL 465)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyPreset('niagahoster_tls')}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-md border border-blue-200 transition-colors"
+                    >
+                      Niagahoster / cPanel (TLS 587)
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => applyPreset('gmail')}
                       className="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-300 transition-colors"
                     >
                       Google Mail (TLS 587)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyPreset('hostinger')}
-                      className="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-300 transition-colors"
-                    >
-                      Hostinger / cPanel (SSL 465)
                     </button>
                     <button
                       type="button"
@@ -1408,9 +1422,15 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
                             <span className="font-bold text-slate-900 truncate">
                               {log.subject}
                             </span>
-                            <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                              ✓ {log.status.toUpperCase()}
-                            </span>
+                            {log.status === 'sent' ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                ✓ BERHASIL TERKIRIM
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-50 text-red-700 border border-red-200 shrink-0">
+                                ✕ GAGAL TERKIRIM
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
@@ -1427,6 +1447,11 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
                           <p className="text-[11px] text-slate-600 bg-slate-50 p-2 rounded-lg mt-1 line-clamp-2">
                             {log.previewSnippet}
                           </p>
+                          {log.status === 'failed' && log.errorMessage && (
+                            <p className="text-[11px] text-red-800 bg-red-50 border border-red-200 p-2 rounded-lg mt-1 font-mono">
+                              <strong>Error SMTP:</strong> {log.errorMessage}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>

@@ -6,9 +6,12 @@ import {
   Lock, 
   CheckCircle2, 
   Building2, 
-  AlertCircle 
+  AlertCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { BankDetails } from '../types';
+import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
 
 interface RegistrationModalProps {
   isOpen: boolean;
@@ -21,6 +24,8 @@ interface RegistrationModalProps {
     specialization: string;
     bankDetails: BankDetails;
     password?: string;
+    gender?: 'male' | 'female';
+    avatarUrl?: string;
   }) => Promise<any>;
 }
 
@@ -33,8 +38,10 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [nik, setNik] = useState('');
+  const [gender, setGender] = useState<'male' | 'female'>('male');
   const [specialization, setSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   
   // Bank fields
   const [bankName, setBankName] = useState('Bank Central Asia (BCA)');
@@ -58,6 +65,8 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
         phone,
         nik: nik || '3201000000000000',
         specialization,
+        gender,
+        avatarUrl: getDefaultAvatar(gender),
         bankDetails: {
           bankName,
           accountNumber,
@@ -159,7 +168,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Spesialisasi Konsultan
+                        Spesialisasi Bisnis
                       </label>
                       <select
                         value={specialization}
@@ -172,6 +181,45 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                         <option value="Litigasi & Penyelesaian Sengketa">Litigasi &amp; Penyelesaian Sengketa</option>
                         <option value="Audit Pajak & Pendampingan SP2DK">Audit Pajak &amp; Pendampingan SP2DK</option>
                       </select>
+                    </div>
+                  </div>
+
+                  {/* Gender / Avatar Default Selector */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Jenis Kelamin &amp; Foto Profil Default (Avatar)
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setGender('male')}
+                        className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
+                          gender === 'male'
+                            ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <img src={MALE_AVATAR_URL} alt="Avatar Laki-laki" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">Laki-laki</p>
+                          <p className="text-[10px] text-slate-500">Avatar Laki-laki</p>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGender('female')}
+                        className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
+                          gender === 'female'
+                            ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <img src={FEMALE_AVATAR_URL} alt="Avatar Perempuan" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">Perempuan</p>
+                          <p className="text-[10px] text-slate-500">Avatar Perempuan</p>
+                        </div>
+                      </button>
                     </div>
                   </div>
 
@@ -271,13 +319,23 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Kata Sandi Portal Kemitraan
                 </label>
-                <input
-                  type="password"
-                  placeholder="Minimal 8 karakter aman"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Minimal 6 karakter aman"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-3 pr-10 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    title={showPassword ? 'Sembunyikan kata sandi' : 'Lihat kata sandi'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
