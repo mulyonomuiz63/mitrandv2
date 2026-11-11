@@ -86,11 +86,21 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     url?: string;
     hasKey?: boolean;
     error?: string;
+    tableChecks?: Array<{
+      table: string;
+      label: string;
+      exists: boolean;
+      missingColumns: string[];
+    }>;
+    hasPendingMigration?: boolean;
+    migrationSql?: string;
+    fullSchemaSql?: string;
   } | null>(null);
   const [isCheckingSupabase, setIsCheckingSupabase] = useState(false);
   const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [sqlQueryMode, setSqlQueryMode] = useState<'migration' | 'full'>('migration');
 
   // Test Email State
   const [testEmailTarget, setTestEmailTarget] = useState('mulyonoazza63@gmail.com');
@@ -162,150 +172,108 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     }
   };
 
-  const copySqlSchema = () => {
-    const sqlText = `-- SKEMA SUPABASE NDTAXANDLAW
-CREATE TABLE IF NOT EXISTS public.mitras (
-    id TEXT PRIMARY KEY,
-    "memberCode" TEXT,
-    "referralCode" TEXT,
-    "fullName" TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    phone TEXT,
-    nik TEXT,
-    specialization TEXT,
-    status TEXT DEFAULT 'pending',
-    "avatarUrl" TEXT,
-    "joinedDate" TEXT,
-    "bankDetails" JSONB,
-    "totalCommission" NUMERIC DEFAULT 0,
-    "totalBonus" NUMERIC DEFAULT 0,
-    "pendingPayout" NUMERIC DEFAULT 0,
-    "paidPayout" NUMERIC DEFAULT 0,
-    "referredClientsCount" INTEGER DEFAULT 0,
-    "activeSubscribersCount" INTEGER DEFAULT 0,
-    "emailVerified" BOOLEAN DEFAULT false,
-    "verificationToken" TEXT,
-    "verificationTokenExpiry" TEXT
+  const defaultMigrationSql = `-- ====================================================================
+-- QUERY UPDATE TABEL & KOLOM BARU SUPABASE NDTAXANDLAW
+-- Aman dijalankan berulang kali (CREATE TABLE IF NOT EXISTS & ADD COLUMN IF NOT EXISTS)
+-- ====================================================================
+
+-- 1. Tambah Kolom Baru pada Tabel Existing (Jika Belum Ada)
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "emailVerified" BOOLEAN DEFAULT false;
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationToken" TEXT;
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationTokenExpiry" TEXT;
+
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "subscriptionStartDate" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "billingDayOfMonth" INTEGER;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "nextBillingDate" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "lastBilledDate" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "isBillingDue" BOOLEAN DEFAULT false;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminatedAt" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminationReason" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectedAt" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT;
+
+ALTER TABLE public.user_passwords ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- 2. Buat Tabel Pengaturan Sistem (app_settings)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    id TEXT PRIMARY KEY DEFAULT 'config_primary',
+    settings JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.services (
-    id TEXT PRIMARY KEY,
+-- 3. Buat Tabel Manajemen Role Dinamis (system_roles)
+CREATE TABLE IF NOT EXISTS public.system_roles (
+    code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    "defaultPrice" NUMERIC NOT NULL,
-    "pricingType" TEXT DEFAULT 'case_by_case',
-    "commissionRate" NUMERIC DEFAULT 15,
     description TEXT,
-    "isActive" BOOLEAN DEFAULT true
+    "portalView" TEXT DEFAULT 'mitra',
+    "defaultTab" TEXT DEFAULT 'idcard',
+    "allowedTabs" JSONB DEFAULT '[]'::jsonb,
+    permissions JSONB DEFAULT '[]'::jsonb,
+    "isSystem" BOOLEAN DEFAULT false,
+    "isActive" BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.client_deals (
+-- 4. Buat Tabel Log Aktivitas Audit (activity_logs)
+CREATE TABLE IF NOT EXISTS public.activity_logs (
     id TEXT PRIMARY KEY,
-    "mitraId" TEXT,
-    "mitraName" TEXT,
-    "referralCode" TEXT,
-    "companyName" TEXT NOT NULL,
-    "picName" TEXT NOT NULL,
-    "picPhone" TEXT,
-    "picEmail" TEXT,
-    "serviceId" TEXT,
-    "serviceName" TEXT,
-    "pricingType" TEXT,
-    "dealValue" NUMERIC NOT NULL,
-    "commissionAmount" NUMERIC DEFAULT 0,
-    status TEXT DEFAULT 'pending_acc',
-    date TEXT,
-    "recurringPaidMonths" INTEGER,
-    "recurringPaidYears" INTEGER,
-    "periodStart" TEXT,
-    "periodEnd" TEXT,
-    "durationMonths" INTEGER,
-    "paymentTermType" TEXT DEFAULT 'one_time',
-    notes TEXT,
-    "submittedBy" TEXT DEFAULT 'mitra'
+    timestamp TEXT NOT NULL,
+    "actorRole" TEXT NOT NULL,
+    "actorId" TEXT,
+    "actorName" TEXT NOT NULL,
+    "actorEmail" TEXT,
+    "actionType" TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    "targetEntity" TEXT NOT NULL,
+    "targetId" TEXT,
+    description TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.commissions (
+-- 5. Buat Tabel Log Pengiriman Email SMTP (email_logs)
+CREATE TABLE IF NOT EXISTS public.email_logs (
     id TEXT PRIMARY KEY,
-    "mitraId" TEXT,
-    "mitraName" TEXT,
-    "serviceName" TEXT,
-    "clientName" TEXT,
-    "dealValue" NUMERIC DEFAULT 0,
-    "commissionAmount" NUMERIC DEFAULT 0,
-    "bonusAmount" NUMERIC DEFAULT 0,
-    status TEXT DEFAULT 'pending',
-    date TEXT
-);
-
-CREATE TABLE IF NOT EXISTS public.payout_requests (
-    id TEXT PRIMARY KEY,
-    "mitraId" TEXT,
-    "mitraName" TEXT,
-    "memberCode" TEXT,
-    amount NUMERIC NOT NULL,
-    "bankDetails" JSONB,
-    "requestDate" TEXT,
-    "processedDate" TEXT,
-    status TEXT DEFAULT 'pending',
-    "pph21Deduction" NUMERIC DEFAULT 0,
-    "pph21Rate" NUMERIC DEFAULT 0,
-    "adminFeeDeduction" NUMERIC DEFAULT 0,
-    "netAmountTransferred" NUMERIC DEFAULT 0,
-    "proofFileUrl" TEXT,
-    "proofFileName" TEXT,
-    "transferRefNumber" TEXT,
-    "disbursedBy" TEXT,
-    notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS public.marketing_tools (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    "recipientName" TEXT NOT NULL,
+    subject TEXT NOT NULL,
     category TEXT NOT NULL,
-    "fileType" TEXT,
-    "fileSize" TEXT,
-    "downloadUrl" TEXT,
-    "thumbnailUrl" TEXT,
-    description TEXT,
-    "createdAt" TEXT,
-    "targetProduct" TEXT,
-    duration TEXT
+    status TEXT NOT NULL,
+    "smtpResponse" TEXT,
+    timestamp TEXT NOT NULL,
+    "previewSnippet" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.notifications (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    message TEXT NOT NULL,
-    type TEXT,
-    timestamp TEXT,
-    "isRead" BOOLEAN DEFAULT false
-);
+-- 6. Aktifkan RLS & Kebijakan Akses API
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE TABLE IF NOT EXISTS public.user_passwords (
-    email TEXT PRIMARY KEY,
-    password TEXT NOT NULL
-);
+DROP POLICY IF EXISTS "Public Anon Access app_settings" ON public.app_settings;
+CREATE POLICY "Public Anon Access app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
 
--- RLS & Policies
-ALTER TABLE public.mitras ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.client_deals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.commissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payout_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.marketing_tools ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access system_roles" ON public.system_roles;
+CREATE POLICY "Public Anon Access system_roles" ON public.system_roles FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "Public mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public services" ON public.services FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public client_deals" ON public.client_deals FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public commissions" ON public.commissions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public payout_requests" ON public.payout_requests FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public marketing_tools" ON public.marketing_tools FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (true) WITH CHECK (true);`;
+DROP POLICY IF EXISTS "Public Anon Access activity_logs" ON public.activity_logs;
+CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
+CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`;
+
+  const getDisplayedSqlQuery = () => {
+    if (sqlQueryMode === 'migration') {
+      return supabaseStatus?.migrationSql || defaultMigrationSql;
+    }
+    return supabaseStatus?.fullSchemaSql || defaultMigrationSql;
+  };
+
+  const copySqlSchema = (customSql?: string) => {
+    const sqlText = customSql || getDisplayedSqlQuery();
     navigator.clipboard.writeText(sqlText);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2500);
@@ -902,6 +870,142 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
                 )}
               </div>
 
+              {/* PUSAT QUERY SQL UPDATE TABEL & KOLOM BARU (COPY-PASTE KE SUPABASE) */}
+              <div className="p-5 bg-white border-2 border-emerald-600/30 rounded-xl space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-emerald-700" />
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Pusat Query SQL Update Tabel &amp; Kolom Baru (Copy-Paste ke Supabase)
+                      </h4>
+                      {supabaseStatus?.hasPendingMigration ? (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded">
+                          ADA UPDATE TABEL / KOLOM
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 rounded">
+                          SKEMA TERBARU SIAP
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      Setiap kali ada pembaruan aplikasi yang menambah <strong>tabel baru</strong> atau <strong>kolom baru</strong>, sistem otomatis menyusun query SQL di bawah ini. Anda cukup klik <strong>Copy Query SQL</strong> lalu jalankan (<strong>RUN</strong>) di SQL Editor Supabase.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => copySqlSchema()}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                    >
+                      {copiedSql ? <Check className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                      <span>{copiedSql ? 'Query Tersalin!' : 'Copy Query SQL'}</span>
+                    </button>
+                    <a
+                      href="https://supabase.com/dashboard/project/wopbuflusryycanyfqop/sql/new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Buka SQL Editor</span>
+                    </a>
+                  </div>
+                </div>
+
+                {/* Status 12 Tabel & Kolom di Supabase Anda */}
+                {supabaseStatus?.tableChecks && supabaseStatus.tableChecks.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                        Status Deteksi 12 Tabel &amp; Kolom di Database Supabase Anda:
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {supabaseStatus.tableChecks.filter((t) => t.exists).length} dari {supabaseStatus.tableChecks.length} tabel sudah dibuat
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {supabaseStatus.tableChecks.map((tbl) => (
+                        <div
+                          key={tbl.table}
+                          className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2 ${
+                            tbl.exists && tbl.missingColumns.length === 0
+                              ? 'bg-emerald-50/50 border-emerald-200 text-emerald-950'
+                              : 'bg-amber-50/60 border-amber-300 text-amber-950'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="font-mono font-bold text-[11px] truncate">public.{tbl.table}</p>
+                            <p className="text-[10px] text-slate-600 truncate">{tbl.label}</p>
+                            {tbl.missingColumns.length > 0 && (
+                              <p className="text-[10px] text-amber-800 font-semibold mt-0.5">
+                                + Kolom baru: {tbl.missingColumns.join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 uppercase ${
+                              tbl.exists && tbl.missingColumns.length === 0
+                                ? 'bg-emerald-200 text-emerald-900'
+                                : tbl.exists
+                                ? 'bg-amber-200 text-amber-900'
+                                : 'bg-amber-200 text-amber-900'
+                            }`}
+                          >
+                            {tbl.exists && tbl.missingColumns.length === 0
+                              ? 'AKTIF'
+                              : tbl.exists
+                              ? 'KURANG KOLOM'
+                              : 'BELUM ADA'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Pilihan Mode Query: Update Tabel/Kolom Baru vs Skema Lengkap */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setSqlQueryMode('migration')}
+                        className={`px-3 py-1.5 text-[11px] font-bold rounded-md transition-all ${
+                          sqlQueryMode === 'migration'
+                            ? 'bg-emerald-700 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Query Update / Tambah Tabel &amp; Kolom Baru
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSqlQueryMode('full')}
+                        className={`px-3 py-1.5 text-[11px] font-bold rounded-md transition-all ${
+                          sqlQueryMode === 'full'
+                            ? 'bg-emerald-700 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Skrip Lengkap 12 Tabel (Full Schema)
+                      </button>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      Aman dijalankan berulang kali (IF NOT EXISTS)
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <pre className="bg-slate-950 text-emerald-300 p-4 rounded-xl font-mono text-[11px] overflow-x-auto max-h-64 overflow-y-auto leading-relaxed border border-slate-800 select-all">
+                      {getDisplayedSqlQuery()}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+
               {/* PANDUAN 3 LANGKAH MENGHUBUNGKAN SUPABASE */}
               <div className="p-5 bg-white border border-slate-200 rounded-xl space-y-4">
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
@@ -923,7 +1027,7 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
                     </div>
                     <button
                       type="button"
-                      onClick={copySqlSchema}
+                      onClick={() => copySqlSchema()}
                       className="mt-2 w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
                     >
                       {copiedSql ? <Check className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
