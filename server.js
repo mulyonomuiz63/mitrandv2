@@ -206,7 +206,7 @@ dotenv2.config();
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
 var app = express();
-var PORT = process.env.PORT || 3000;
+var PORT = process.env.PORT || 3e3;
 app.use(express.json({ limit: "10mb" }));
 var ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
