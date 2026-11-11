@@ -171,6 +171,37 @@ CREATE TABLE IF NOT EXISTS public.system_roles (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 11. TABEL LOG AKTIVITAS AUDIT (ACTIVITY LOGS)
+CREATE TABLE IF NOT EXISTS public.activity_logs (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    "actorRole" TEXT NOT NULL,
+    "actorId" TEXT,
+    "actorName" TEXT NOT NULL,
+    "actorEmail" TEXT,
+    "actionType" TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    "targetEntity" TEXT NOT NULL,
+    "targetId" TEXT,
+    description TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. TABEL LOG PENGIRIMAN EMAIL SMTP (EMAIL LOGS)
+CREATE TABLE IF NOT EXISTS public.email_logs (
+    id TEXT PRIMARY KEY,
+    recipient TEXT NOT NULL,
+    "recipientName" TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL,
+    "smtpResponse" TEXT,
+    timestamp TEXT NOT NULL,
+    "previewSnippet" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ====================================================================
 -- AKTIFKAN ROW LEVEL SECURITY (RLS) & IZINKAN AKSES API
 -- ====================================================================
@@ -184,6 +215,8 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
 
 -- Kebijakan akses penuh untuk Service Role & Anon API
 CREATE POLICY "Public Anon Access mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
@@ -196,6 +229,8 @@ CREATE POLICY "Public Anon Access notifications" ON public.notifications FOR ALL
 CREATE POLICY "Public Anon Access app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public Anon Access user_passwords" ON public.user_passwords FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public Anon Access system_roles" ON public.system_roles FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);
 
 -- SEED ROLE AWAL (ADMIN & MITRA)
 INSERT INTO public.system_roles (code, name, description, "portalView", "defaultTab", "allowedTabs", permissions, "isSystem", "isActive")

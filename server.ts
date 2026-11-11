@@ -754,6 +754,63 @@ let activityLogs: ActivityLogItem[] = [
   },
 ];
 
+// Cloud Persistence Helpers for Settings, Activity Logs, and Email Logs (Dual-Layer: Dedicated Table + user_passwords KV Fallback)
+export const persistSettingsToSupabase = async () => {
+  if (!supabase) return;
+  try {
+    await supabase.from('user_passwords').upsert([
+      { email: '__sys_config__@ndtaxlaw.internal', password: JSON.stringify(appSettings) },
+      { email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) },
+    ]);
+  } catch (e) {
+    console.warn('[Supabase Settings KV Warning]', e);
+  }
+  try {
+    await supabase.from('app_settings').upsert([
+      { id: 'config_primary', settings: { ...appSettings, roles: systemRoles }, updated_at: new Date().toISOString() },
+    ]);
+  } catch {
+    // Table app_settings is optional if user_passwords KV is active
+  }
+};
+
+export const persistActivityLogsToSupabase = async (latestItem?: ActivityLogItem) => {
+  if (!supabase) return;
+  try {
+    await supabase.from('user_passwords').upsert([
+      { email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) },
+    ]);
+  } catch (e) {
+    console.warn('[Supabase Activity Logs KV Warning]', e);
+  }
+  if (latestItem) {
+    try {
+      await supabase.from('activity_logs').upsert([latestItem]);
+    } catch {
+      // Table activity_logs is optional if user_passwords KV is active
+    }
+  }
+};
+
+export const persistEmailLogsToSupabase = async (latestItem?: EmailLogItem) => {
+  if (!supabase) return;
+  try {
+    const compactLogs = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
+    await supabase.from('user_passwords').upsert([
+      { email: '__sys_email_logs__@ndtaxlaw.internal', password: JSON.stringify(compactLogs) },
+    ]);
+  } catch (e) {
+    console.warn('[Supabase Email Logs KV Warning]', e);
+  }
+  if (latestItem) {
+    try {
+      await supabase.from('email_logs').upsert([latestItem]);
+    } catch {
+      // Table email_logs is optional if user_passwords KV is active
+    }
+  }
+};
+
 // Helper to record system-wide Activity Logs (Admin & Mitra)
 export const recordActivity = (params: {
   actorRole: ActivityLogItem['actorRole'];
@@ -781,6 +838,8 @@ export const recordActivity = (params: {
   if (activityLogs.length > 500) {
     activityLogs = activityLogs.slice(0, 500);
   }
+  saveDatabase();
+  void persistActivityLogsToSupabase(newItem);
   return newItem;
 };
 
@@ -842,6 +901,7 @@ export const sendSystemEmail = async (params: {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(failedLog);
     return { success: false, logId: failedLog.id, message: failedLog.errorMessage! };
   }
 
@@ -879,6 +939,7 @@ export const sendSystemEmail = async (params: {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(failedLog);
     console.warn(`[SMTP Gagal] ${errMsg}`);
     return { success: false, logId: failedLog.id, message: errMsg, error: errMsg };
   }
@@ -935,6 +996,7 @@ export const sendSystemEmail = async (params: {
 
     emailLogs.unshift(sentLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(sentLog);
     console.log(`[SMTP Terkirim] [${params.category}] Ke: ${params.recipient} | MessageID: ${info.messageId} via ${smtpHostUsed}`);
     return {
       success: true,
@@ -957,6 +1019,7 @@ export const sendSystemEmail = async (params: {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(failedLog);
     console.error(`[SMTP Error] Gagal mengirim email ke ${params.recipient} via ${smtpHostUsed}:`, errMsg);
     return {
       success: false,
@@ -1540,29 +1603,62 @@ export const syncFromSupabase = async () => {
       console.log(`[Supabase Cloud] Sinkronisasi ${notifications.length} notifikasi dari Supabase`);
     }
 
-    // 8. User Passwords & Encrypted Credentials + Roles
+    // 8. User Passwords & Encrypted Credentials + System KV (Settings, Roles, Activity Logs, Email Logs)
     const { data: dbPasswords, error: errP } = await supabase.from('user_passwords').select('*');
     if (!errP && Array.isArray(dbPasswords)) {
       const toUpgradeInSupabase: { email: string; password: string }[] = [];
+      let hasSysConfig = false;
+      let hasSysRoles = false;
+      let hasSysActivityLogs = false;
+      let hasSysEmailLogs = false;
+
       for (const row of dbPasswords) {
         if (!row.email || !row.password) continue;
         const emailLower = row.email.toLowerCase();
         if (emailLower === '__sys_config__@ndtaxlaw.internal') {
+          hasSysConfig = true;
           try {
             const parsedSettings = JSON.parse(row.password);
             if (parsedSettings && typeof parsedSettings === 'object') {
+              if (parsedSettings.smtpPassword === '••••••••••••••••') {
+                delete parsedSettings.smtpPassword;
+              }
               appSettings = { ...appSettings, ...parsedSettings };
             }
           } catch {}
           continue;
         }
         if (emailLower === '__sys_roles__@ndtaxlaw.internal') {
+          hasSysRoles = true;
           try {
             const parsedRoles = JSON.parse(row.password);
             if (Array.isArray(parsedRoles) && parsedRoles.length > 0) {
               systemRoles = parsedRoles;
             }
           } catch {}
+          continue;
+        }
+        if (emailLower === '__sys_activity_logs__@ndtaxlaw.internal') {
+          hasSysActivityLogs = true;
+          try {
+            const parsedActivity = JSON.parse(row.password);
+            if (Array.isArray(parsedActivity)) {
+              activityLogs = parsedActivity;
+            }
+          } catch {}
+          continue;
+        }
+        if (emailLower === '__sys_email_logs__@ndtaxlaw.internal') {
+          hasSysEmailLogs = true;
+          try {
+            const parsedEmails = JSON.parse(row.password);
+            if (Array.isArray(parsedEmails)) {
+              emailLogs = parsedEmails;
+            }
+          } catch {}
+          continue;
+        }
+        if (emailLower.startsWith('__sys_') && emailLower.endsWith('@ndtaxlaw.internal')) {
           continue;
         }
 
@@ -1574,6 +1670,21 @@ export const syncFromSupabase = async () => {
         } else {
           userPasswords.set(emailLower, row.password);
         }
+      }
+
+      // Seed System Config, Roles, Activity Logs, and Email Logs into Supabase if not yet present
+      if (!hasSysConfig) {
+        toUpgradeInSupabase.push({ email: '__sys_config__@ndtaxlaw.internal', password: JSON.stringify(appSettings) });
+      }
+      if (!hasSysRoles) {
+        toUpgradeInSupabase.push({ email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) });
+      }
+      if (!hasSysActivityLogs) {
+        toUpgradeInSupabase.push({ email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) });
+      }
+      if (!hasSysEmailLogs) {
+        const compactEmails = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
+        toUpgradeInSupabase.push({ email: '__sys_email_logs__@ndtaxlaw.internal', password: JSON.stringify(compactEmails) });
       }
 
       // Ensure every existing Mitra in Supabase has an encrypted password record in Supabase user_passwords
@@ -1597,19 +1708,35 @@ export const syncFromSupabase = async () => {
 
       if (toUpgradeInSupabase.length > 0) {
         await supabase.from('user_passwords').upsert(toUpgradeInSupabase);
-        console.log(`[Security] ${toUpgradeInSupabase.length} password pengguna telah dienkripsi kuat (scrypt + AES-256-GCM) di Supabase.`);
+        console.log(`[Supabase Cloud] Sinkronisasi pengaturan, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
       }
     }
 
-    // 9. App Settings table (if created)
-    const { data: dbSettings, error: errSet } = await supabase.from('app_settings').select('*').eq('id', 'config_primary').maybeSingle();
-    if (!errSet && dbSettings && dbSettings.settings) {
-      const cloudSettings = dbSettings.settings as Partial<AppSettings>;
-      if (cloudSettings.smtpPassword === '••••••••••••••••') {
-        delete cloudSettings.smtpPassword;
+    // 9. Optional dedicated tables (app_settings, activity_logs, email_logs) if created in Supabase
+    try {
+      const { data: dbSettings, error: errSet } = await supabase.from('app_settings').select('*').eq('id', 'config_primary').maybeSingle();
+      if (!errSet && dbSettings && dbSettings.settings) {
+        const cloudSettings = dbSettings.settings as Partial<AppSettings>;
+        if (cloudSettings.smtpPassword === '••••••••••••••••') {
+          delete cloudSettings.smtpPassword;
+        }
+        appSettings = { ...appSettings, ...cloudSettings };
       }
-      appSettings = { ...appSettings, ...cloudSettings };
-    }
+    } catch {}
+
+    try {
+      const { data: dbActLogs, error: errAct } = await supabase.from('activity_logs').select('*').order('timestamp', { ascending: false }).limit(250);
+      if (!errAct && Array.isArray(dbActLogs) && dbActLogs.length > 0) {
+        activityLogs = dbActLogs;
+      }
+    } catch {}
+
+    try {
+      const { data: dbEmLogs, error: errEm } = await supabase.from('email_logs').select('*').order('sentAt', { ascending: false }).limit(200);
+      if (!errEm && Array.isArray(dbEmLogs) && dbEmLogs.length > 0) {
+        emailLogs = dbEmLogs;
+      }
+    } catch {}
 
     saveDatabase();
   } catch (err) {
@@ -3469,6 +3596,32 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
 app.get('/api/settings', async (req: Request, res: Response) => {
   if (supabase) {
     try {
+      const { data: pwRows, error: errPw } = await supabase
+        .from('user_passwords')
+        .select('*')
+        .in('email', ['__sys_config__@ndtaxlaw.internal', '__sys_roles__@ndtaxlaw.internal']);
+      if (!errPw && Array.isArray(pwRows)) {
+        for (const row of pwRows) {
+          if (row.email === '__sys_config__@ndtaxlaw.internal' && row.password) {
+            try {
+              const parsed = JSON.parse(row.password);
+              const { roles: storedRoles, ...restSettings } = parsed;
+              appSettings = { ...appSettings, ...restSettings };
+              if (Array.isArray(storedRoles) && storedRoles.length > 0) {
+                systemRoles = storedRoles;
+              }
+            } catch {}
+          } else if (row.email === '__sys_roles__@ndtaxlaw.internal' && row.password) {
+            try {
+              const parsedRoles = JSON.parse(row.password);
+              if (Array.isArray(parsedRoles) && parsedRoles.length > 0) {
+                systemRoles = parsedRoles;
+              }
+            } catch {}
+          }
+        }
+      }
+
       const { data: settingsData, error } = await supabase
         .from('app_settings')
         .select('*')
@@ -3496,6 +3649,7 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   // Jika beralih ke mode production, langsung sinkronkan penuh dari Supabase (tanpa dummy lokal)
   if (previousEnv !== 'production' && appSettings.appEnvironment === 'production' && supabase) {
     await syncFromSupabase();
+    appSettings = { ...appSettings, ...updates };
   }
 
   recordActivity({
@@ -3520,15 +3674,13 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   notifications.unshift(notif);
 
   saveDatabase();
+  await persistSettingsToSupabase();
 
   if (supabase) {
     try {
-      await supabase.from('app_settings').upsert([
-        { id: 'config_primary', settings: { ...appSettings, roles: systemRoles }, updated_at: new Date().toISOString() },
-      ]);
       await supabase.from('notifications').insert([notif]);
     } catch (e) {
-      console.warn('Supabase settings upsert error', e);
+      console.warn('Supabase notification insert error', e);
     }
   }
 
@@ -3548,6 +3700,7 @@ app.post('/api/settings/test-email', async (req: Request, res: Response) => {
   if (smtpConfig && typeof smtpConfig === 'object') {
     appSettings = { ...appSettings, ...smtpConfig };
     saveDatabase();
+    await persistSettingsToSupabase();
   }
 
   if (!appSettings.smtpEnabled) {
@@ -3580,7 +3733,35 @@ app.post('/api/settings/test-email', async (req: Request, res: Response) => {
   });
 });
 
-app.get('/api/emails/logs', (req: Request, res: Response) => {
+app.get('/api/emails/logs', async (req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      const { data: tableLogs, error: errTable } = await supabase
+        .from('email_logs')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(300);
+      if (!errTable && Array.isArray(tableLogs) && tableLogs.length > 0) {
+        emailLogs = tableLogs;
+        saveDatabase();
+        return res.json({ success: true, data: emailLogs });
+      }
+      const { data: kvRow, error: errKv } = await supabase
+        .from('user_passwords')
+        .select('*')
+        .eq('email', '__sys_email_logs__@ndtaxlaw.internal')
+        .maybeSingle();
+      if (!errKv && kvRow && kvRow.password) {
+        const parsed = JSON.parse(kvRow.password);
+        if (Array.isArray(parsed)) {
+          emailLogs = parsed;
+          saveDatabase();
+        }
+      }
+    } catch (e) {
+      console.warn('Supabase email logs query error', e);
+    }
+  }
   res.json({ success: true, data: emailLogs });
 });
 
@@ -3610,21 +3791,61 @@ app.post('/api/emails/resend/:id', async (req: Request, res: Response) => {
   res.json({ success: true, message: `Email berhasil dikirim ulang ke ${existingLog.recipient}`, data: resendResult });
 });
 
-app.delete('/api/emails/logs', (req: Request, res: Response) => {
+app.delete('/api/emails/logs', async (req: Request, res: Response) => {
   emailLogs = [];
   saveDatabase();
-  res.json({ success: true, message: 'Riwayat log pengiriman email berhasil dibersihkan.' });
+  await persistEmailLogsToSupabase();
+  if (supabase) {
+    try {
+      await supabase.from('email_logs').delete().neq('id', '');
+    } catch {}
+  }
+  res.json({ success: true, message: 'Riwayat log pengiriman email berhasil dibersihkan dari lokal dan Supabase.' });
 });
 
 // 3.10 Activity Logs Endpoints (Admin & Mitra Audit Trail)
-app.get('/api/activity-logs', (req: Request, res: Response) => {
+app.get('/api/activity-logs', async (req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      const { data: tableLogs, error: errTable } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(500);
+      if (!errTable && Array.isArray(tableLogs) && tableLogs.length > 0) {
+        activityLogs = tableLogs;
+        saveDatabase();
+        return res.json({ success: true, data: activityLogs });
+      }
+      const { data: kvRow, error: errKv } = await supabase
+        .from('user_passwords')
+        .select('*')
+        .eq('email', '__sys_activity_logs__@ndtaxlaw.internal')
+        .maybeSingle();
+      if (!errKv && kvRow && kvRow.password) {
+        const parsed = JSON.parse(kvRow.password);
+        if (Array.isArray(parsed)) {
+          activityLogs = parsed;
+          saveDatabase();
+        }
+      }
+    } catch (e) {
+      console.warn('Supabase activity logs query error', e);
+    }
+  }
   res.json({ success: true, data: activityLogs });
 });
 
-app.delete('/api/activity-logs', (req: Request, res: Response) => {
+app.delete('/api/activity-logs', async (req: Request, res: Response) => {
   activityLogs = [];
   saveDatabase();
-  res.json({ success: true, message: 'Riwayat log aktivitas berhasil dibersihkan.' });
+  await persistActivityLogsToSupabase();
+  if (supabase) {
+    try {
+      await supabase.from('activity_logs').delete().neq('id', '');
+    } catch {}
+  }
+  res.json({ success: true, message: 'Riwayat log aktivitas berhasil dibersihkan dari lokal dan Supabase.' });
 });
 
 // ========================================================
@@ -3809,7 +4030,7 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
       await syncFromSupabase();
       return res.json({
         success: true,
-        message: 'Data aplikasi berhasil disinkronkan langsung dari database Supabase (Mode Production Strict)!',
+        message: 'Data aplikasi (termasuk Pengaturan, Log Aktivitas, dan Log Email) berhasil disinkronkan langsung dari database Supabase!',
         summary: {
           mitras: mitras.length,
           services: services.length,
@@ -3818,6 +4039,8 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
           commissions: commissions.length,
           payoutRequests: payoutRequests.length,
           notifications: notifications.length,
+          activityLogs: activityLogs.length,
+          emailLogs: emailLogs.length,
         },
       });
     }
@@ -3828,6 +4051,8 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
       clientDeals: 0,
       marketingTools: 0,
       commissions: 0,
+      activityLogs: activityLogs.length,
+      emailLogs: emailLogs.length,
     };
 
     if (mitras.length > 0) {
@@ -3862,9 +4087,13 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
       else console.warn('Supabase sync commissions warning:', errC.message);
     }
 
+    await persistSettingsToSupabase();
+    await persistActivityLogsToSupabase();
+    await persistEmailLogsToSupabase();
+
     res.json({
       success: true,
-      message: 'Seluruh data operasional berhasil disinkronkan ke cloud database Supabase!',
+      message: 'Seluruh data operasional, pengaturan, log aktivitas, dan log email berhasil disinkronkan ke cloud database Supabase!',
       summary,
     });
   } catch (err: any) {

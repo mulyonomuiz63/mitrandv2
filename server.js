@@ -725,6 +725,56 @@ var activityLogs = [
     timestamp: "2026-11-05T14:20:00Z"
   }
 ];
+var persistSettingsToSupabase = async () => {
+  if (!supabase) return;
+  try {
+    await supabase.from("user_passwords").upsert([
+      { email: "__sys_config__@ndtaxlaw.internal", password: JSON.stringify(appSettings) },
+      { email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) }
+    ]);
+  } catch (e) {
+    console.warn("[Supabase Settings KV Warning]", e);
+  }
+  try {
+    await supabase.from("app_settings").upsert([
+      { id: "config_primary", settings: { ...appSettings, roles: systemRoles }, updated_at: (/* @__PURE__ */ new Date()).toISOString() }
+    ]);
+  } catch {
+  }
+};
+var persistActivityLogsToSupabase = async (latestItem) => {
+  if (!supabase) return;
+  try {
+    await supabase.from("user_passwords").upsert([
+      { email: "__sys_activity_logs__@ndtaxlaw.internal", password: JSON.stringify(activityLogs.slice(0, 250)) }
+    ]);
+  } catch (e) {
+    console.warn("[Supabase Activity Logs KV Warning]", e);
+  }
+  if (latestItem) {
+    try {
+      await supabase.from("activity_logs").upsert([latestItem]);
+    } catch {
+    }
+  }
+};
+var persistEmailLogsToSupabase = async (latestItem) => {
+  if (!supabase) return;
+  try {
+    const compactLogs = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
+    await supabase.from("user_passwords").upsert([
+      { email: "__sys_email_logs__@ndtaxlaw.internal", password: JSON.stringify(compactLogs) }
+    ]);
+  } catch (e) {
+    console.warn("[Supabase Email Logs KV Warning]", e);
+  }
+  if (latestItem) {
+    try {
+      await supabase.from("email_logs").upsert([latestItem]);
+    } catch {
+    }
+  }
+};
 var recordActivity = (params) => {
   const newItem = {
     id: `act-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
@@ -742,6 +792,8 @@ var recordActivity = (params) => {
   if (activityLogs.length > 500) {
     activityLogs = activityLogs.slice(0, 500);
   }
+  saveDatabase();
+  void persistActivityLogsToSupabase(newItem);
   return newItem;
 };
 var buildEmailHtml = (subject, recipientName, snippet) => {
@@ -791,6 +843,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(failedLog);
     return { success: false, logId: failedLog.id, message: failedLog.errorMessage };
   }
   if (params.category === "registration_verify" && !appSettings.emailOnRegistrationVerify) {
@@ -824,6 +877,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(failedLog);
     console.warn(`[SMTP Gagal] ${errMsg}`);
     return { success: false, logId: failedLog.id, message: errMsg, error: errMsg };
   }
@@ -872,6 +926,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(sentLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(sentLog);
     console.log(`[SMTP Terkirim] [${params.category}] Ke: ${params.recipient} | MessageID: ${info.messageId} via ${smtpHostUsed}`);
     return {
       success: true,
@@ -894,6 +949,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
+    await persistEmailLogsToSupabase(failedLog);
     console.error(`[SMTP Error] Gagal mengirim email ke ${params.recipient} via ${smtpHostUsed}:`, errMsg);
     return {
       success: false,
@@ -1373,13 +1429,21 @@ var syncFromSupabase = async () => {
     const { data: dbPasswords, error: errP } = await supabase.from("user_passwords").select("*");
     if (!errP && Array.isArray(dbPasswords)) {
       const toUpgradeInSupabase = [];
+      let hasSysConfig = false;
+      let hasSysRoles = false;
+      let hasSysActivityLogs = false;
+      let hasSysEmailLogs = false;
       for (const row of dbPasswords) {
         if (!row.email || !row.password) continue;
         const emailLower = row.email.toLowerCase();
         if (emailLower === "__sys_config__@ndtaxlaw.internal") {
+          hasSysConfig = true;
           try {
             const parsedSettings = JSON.parse(row.password);
             if (parsedSettings && typeof parsedSettings === "object") {
+              if (parsedSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
+                delete parsedSettings.smtpPassword;
+              }
               appSettings = { ...appSettings, ...parsedSettings };
             }
           } catch {
@@ -1387,6 +1451,7 @@ var syncFromSupabase = async () => {
           continue;
         }
         if (emailLower === "__sys_roles__@ndtaxlaw.internal") {
+          hasSysRoles = true;
           try {
             const parsedRoles = JSON.parse(row.password);
             if (Array.isArray(parsedRoles) && parsedRoles.length > 0) {
@@ -1394,6 +1459,31 @@ var syncFromSupabase = async () => {
             }
           } catch {
           }
+          continue;
+        }
+        if (emailLower === "__sys_activity_logs__@ndtaxlaw.internal") {
+          hasSysActivityLogs = true;
+          try {
+            const parsedActivity = JSON.parse(row.password);
+            if (Array.isArray(parsedActivity)) {
+              activityLogs = parsedActivity;
+            }
+          } catch {
+          }
+          continue;
+        }
+        if (emailLower === "__sys_email_logs__@ndtaxlaw.internal") {
+          hasSysEmailLogs = true;
+          try {
+            const parsedEmails = JSON.parse(row.password);
+            if (Array.isArray(parsedEmails)) {
+              emailLogs = parsedEmails;
+            }
+          } catch {
+          }
+          continue;
+        }
+        if (emailLower.startsWith("__sys_") && emailLower.endsWith("@ndtaxlaw.internal")) {
           continue;
         }
         const defaultRole = row.role || (emailLower === adminAccount.email.toLowerCase() ? "admin" : "mitra");
@@ -1404,6 +1494,19 @@ var syncFromSupabase = async () => {
         } else {
           userPasswords.set(emailLower, row.password);
         }
+      }
+      if (!hasSysConfig) {
+        toUpgradeInSupabase.push({ email: "__sys_config__@ndtaxlaw.internal", password: JSON.stringify(appSettings) });
+      }
+      if (!hasSysRoles) {
+        toUpgradeInSupabase.push({ email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) });
+      }
+      if (!hasSysActivityLogs) {
+        toUpgradeInSupabase.push({ email: "__sys_activity_logs__@ndtaxlaw.internal", password: JSON.stringify(activityLogs.slice(0, 250)) });
+      }
+      if (!hasSysEmailLogs) {
+        const compactEmails = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
+        toUpgradeInSupabase.push({ email: "__sys_email_logs__@ndtaxlaw.internal", password: JSON.stringify(compactEmails) });
       }
       for (const m of mitras) {
         const mEmail = m.email.toLowerCase();
@@ -1422,16 +1525,33 @@ var syncFromSupabase = async () => {
       }
       if (toUpgradeInSupabase.length > 0) {
         await supabase.from("user_passwords").upsert(toUpgradeInSupabase);
-        console.log(`[Security] ${toUpgradeInSupabase.length} password pengguna telah dienkripsi kuat (scrypt + AES-256-GCM) di Supabase.`);
+        console.log(`[Supabase Cloud] Sinkronisasi pengaturan, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
       }
     }
-    const { data: dbSettings, error: errSet } = await supabase.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
-    if (!errSet && dbSettings && dbSettings.settings) {
-      const cloudSettings = dbSettings.settings;
-      if (cloudSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
-        delete cloudSettings.smtpPassword;
+    try {
+      const { data: dbSettings, error: errSet } = await supabase.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
+      if (!errSet && dbSettings && dbSettings.settings) {
+        const cloudSettings = dbSettings.settings;
+        if (cloudSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
+          delete cloudSettings.smtpPassword;
+        }
+        appSettings = { ...appSettings, ...cloudSettings };
       }
-      appSettings = { ...appSettings, ...cloudSettings };
+    } catch {
+    }
+    try {
+      const { data: dbActLogs, error: errAct } = await supabase.from("activity_logs").select("*").order("timestamp", { ascending: false }).limit(250);
+      if (!errAct && Array.isArray(dbActLogs) && dbActLogs.length > 0) {
+        activityLogs = dbActLogs;
+      }
+    } catch {
+    }
+    try {
+      const { data: dbEmLogs, error: errEm } = await supabase.from("email_logs").select("*").order("sentAt", { ascending: false }).limit(200);
+      if (!errEm && Array.isArray(dbEmLogs) && dbEmLogs.length > 0) {
+        emailLogs = dbEmLogs;
+      }
+    } catch {
     }
     saveDatabase();
   } catch (err) {
@@ -3021,6 +3141,30 @@ No. Referensi: #${payout.transferRefNumber}`
 app.get("/api/settings", async (req, res) => {
   if (supabase) {
     try {
+      const { data: pwRows, error: errPw } = await supabase.from("user_passwords").select("*").in("email", ["__sys_config__@ndtaxlaw.internal", "__sys_roles__@ndtaxlaw.internal"]);
+      if (!errPw && Array.isArray(pwRows)) {
+        for (const row of pwRows) {
+          if (row.email === "__sys_config__@ndtaxlaw.internal" && row.password) {
+            try {
+              const parsed = JSON.parse(row.password);
+              const { roles: storedRoles, ...restSettings } = parsed;
+              appSettings = { ...appSettings, ...restSettings };
+              if (Array.isArray(storedRoles) && storedRoles.length > 0) {
+                systemRoles = storedRoles;
+              }
+            } catch {
+            }
+          } else if (row.email === "__sys_roles__@ndtaxlaw.internal" && row.password) {
+            try {
+              const parsedRoles = JSON.parse(row.password);
+              if (Array.isArray(parsedRoles) && parsedRoles.length > 0) {
+                systemRoles = parsedRoles;
+              }
+            } catch {
+            }
+          }
+        }
+      }
       const { data: settingsData, error } = await supabase.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
       if (!error && settingsData && settingsData.settings) {
         const { roles: storedRoles, ...restSettings } = settingsData.settings;
@@ -3041,6 +3185,7 @@ app.put("/api/settings", async (req, res) => {
   appSettings = { ...appSettings, ...updates };
   if (previousEnv !== "production" && appSettings.appEnvironment === "production" && supabase) {
     await syncFromSupabase();
+    appSettings = { ...appSettings, ...updates };
   }
   recordActivity({
     actorRole: "admin",
@@ -3062,14 +3207,12 @@ app.put("/api/settings", async (req, res) => {
   };
   notifications.unshift(notif);
   saveDatabase();
+  await persistSettingsToSupabase();
   if (supabase) {
     try {
-      await supabase.from("app_settings").upsert([
-        { id: "config_primary", settings: { ...appSettings, roles: systemRoles }, updated_at: (/* @__PURE__ */ new Date()).toISOString() }
-      ]);
       await supabase.from("notifications").insert([notif]);
     } catch (e) {
-      console.warn("Supabase settings upsert error", e);
+      console.warn("Supabase notification insert error", e);
     }
   }
   res.json({ success: true, data: appSettings });
@@ -3083,6 +3226,7 @@ app.post("/api/settings/test-email", async (req, res) => {
   if (smtpConfig && typeof smtpConfig === "object") {
     appSettings = { ...appSettings, ...smtpConfig };
     saveDatabase();
+    await persistSettingsToSupabase();
   }
   if (!appSettings.smtpEnabled) {
     return res.status(400).json({
@@ -3110,7 +3254,27 @@ app.post("/api/settings/test-email", async (req, res) => {
     data: result
   });
 });
-app.get("/api/emails/logs", (req, res) => {
+app.get("/api/emails/logs", async (req, res) => {
+  if (supabase) {
+    try {
+      const { data: tableLogs, error: errTable } = await supabase.from("email_logs").select("*").order("timestamp", { ascending: false }).limit(300);
+      if (!errTable && Array.isArray(tableLogs) && tableLogs.length > 0) {
+        emailLogs = tableLogs;
+        saveDatabase();
+        return res.json({ success: true, data: emailLogs });
+      }
+      const { data: kvRow, error: errKv } = await supabase.from("user_passwords").select("*").eq("email", "__sys_email_logs__@ndtaxlaw.internal").maybeSingle();
+      if (!errKv && kvRow && kvRow.password) {
+        const parsed = JSON.parse(kvRow.password);
+        if (Array.isArray(parsed)) {
+          emailLogs = parsed;
+          saveDatabase();
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase email logs query error", e);
+    }
+  }
   res.json({ success: true, data: emailLogs });
 });
 app.post("/api/emails/resend/:id", async (req, res) => {
@@ -3135,18 +3299,52 @@ app.post("/api/emails/resend/:id", async (req, res) => {
   }
   res.json({ success: true, message: `Email berhasil dikirim ulang ke ${existingLog.recipient}`, data: resendResult });
 });
-app.delete("/api/emails/logs", (req, res) => {
+app.delete("/api/emails/logs", async (req, res) => {
   emailLogs = [];
   saveDatabase();
-  res.json({ success: true, message: "Riwayat log pengiriman email berhasil dibersihkan." });
+  await persistEmailLogsToSupabase();
+  if (supabase) {
+    try {
+      await supabase.from("email_logs").delete().neq("id", "");
+    } catch {
+    }
+  }
+  res.json({ success: true, message: "Riwayat log pengiriman email berhasil dibersihkan dari lokal dan Supabase." });
 });
-app.get("/api/activity-logs", (req, res) => {
+app.get("/api/activity-logs", async (req, res) => {
+  if (supabase) {
+    try {
+      const { data: tableLogs, error: errTable } = await supabase.from("activity_logs").select("*").order("timestamp", { ascending: false }).limit(500);
+      if (!errTable && Array.isArray(tableLogs) && tableLogs.length > 0) {
+        activityLogs = tableLogs;
+        saveDatabase();
+        return res.json({ success: true, data: activityLogs });
+      }
+      const { data: kvRow, error: errKv } = await supabase.from("user_passwords").select("*").eq("email", "__sys_activity_logs__@ndtaxlaw.internal").maybeSingle();
+      if (!errKv && kvRow && kvRow.password) {
+        const parsed = JSON.parse(kvRow.password);
+        if (Array.isArray(parsed)) {
+          activityLogs = parsed;
+          saveDatabase();
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase activity logs query error", e);
+    }
+  }
   res.json({ success: true, data: activityLogs });
 });
-app.delete("/api/activity-logs", (req, res) => {
+app.delete("/api/activity-logs", async (req, res) => {
   activityLogs = [];
   saveDatabase();
-  res.json({ success: true, message: "Riwayat log aktivitas berhasil dibersihkan." });
+  await persistActivityLogsToSupabase();
+  if (supabase) {
+    try {
+      await supabase.from("activity_logs").delete().neq("id", "");
+    } catch {
+    }
+  }
+  res.json({ success: true, message: "Riwayat log aktivitas berhasil dibersihkan dari lokal dan Supabase." });
 });
 app.get("/api/notifications", async (req, res) => {
   if (supabase) {
@@ -3304,7 +3502,7 @@ app.post("/api/system/supabase-sync", async (req, res) => {
       await syncFromSupabase();
       return res.json({
         success: true,
-        message: "Data aplikasi berhasil disinkronkan langsung dari database Supabase (Mode Production Strict)!",
+        message: "Data aplikasi (termasuk Pengaturan, Log Aktivitas, dan Log Email) berhasil disinkronkan langsung dari database Supabase!",
         summary: {
           mitras: mitras.length,
           services: services.length,
@@ -3312,7 +3510,9 @@ app.post("/api/system/supabase-sync", async (req, res) => {
           marketingTools: marketingTools.length,
           commissions: commissions.length,
           payoutRequests: payoutRequests.length,
-          notifications: notifications.length
+          notifications: notifications.length,
+          activityLogs: activityLogs.length,
+          emailLogs: emailLogs.length
         }
       });
     }
@@ -3321,7 +3521,9 @@ app.post("/api/system/supabase-sync", async (req, res) => {
       services: 0,
       clientDeals: 0,
       marketingTools: 0,
-      commissions: 0
+      commissions: 0,
+      activityLogs: activityLogs.length,
+      emailLogs: emailLogs.length
     };
     if (mitras.length > 0) {
       const cleanMitras = mitras.map(({ gender: _g, ...rest }) => rest);
@@ -3350,9 +3552,12 @@ app.post("/api/system/supabase-sync", async (req, res) => {
       if (!errC) summary.commissions = commissions.length;
       else console.warn("Supabase sync commissions warning:", errC.message);
     }
+    await persistSettingsToSupabase();
+    await persistActivityLogsToSupabase();
+    await persistEmailLogsToSupabase();
     res.json({
       success: true,
-      message: "Seluruh data operasional berhasil disinkronkan ke cloud database Supabase!",
+      message: "Seluruh data operasional, pengaturan, log aktivitas, dan log email berhasil disinkronkan ke cloud database Supabase!",
       summary
     });
   } catch (err) {
@@ -3393,6 +3598,9 @@ export {
   isEncryptedPassword,
   isProductionMode,
   loadDatabase,
+  persistActivityLogsToSupabase,
+  persistEmailLogsToSupabase,
+  persistSettingsToSupabase,
   recordActivity,
   saveDatabase,
   sendSystemEmail,
