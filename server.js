@@ -3363,21 +3363,25 @@ app.post("/api/system/supabase-sync", async (req, res) => {
   }
 });
 async function startServer() {
-  if (process.env.NODE_ENV === "production") {
-    app.use(express.static(path.join(__dirname, "dist")));
+  const distPath = path.join(__dirname, "dist");
+  const hasDistBuild = fs.existsSync(path.join(distPath, "index.html"));
+  const isCompiledServer = __filename.endsWith("server.js");
+  const shouldServeStaticDist = hasDistBuild && (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production" || isProductionMode() || isCompiledServer);
+  if (shouldServeStaticDist) {
+    app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(distPath, "index.html"));
     });
   } else {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false, watch: null },
       appType: "spa"
     });
     app.use(vite.middlewares);
   }
   app.listen(PORT, () => {
-    console.log(`NDTAXANDLAW Server is running on port ${PORT}`);
+    console.log(`NDTAXANDLAW Server is running on port ${PORT} (static=${shouldServeStaticDist})`);
   });
 }
 startServer();
