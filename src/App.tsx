@@ -170,24 +170,35 @@ export default function App() {
     }
   }, []);
 
-  // Synchronize role, activeTab, and activeMitraId strictly with logged-in user
+  // Synchronize role, activeTab, and activeMitraId strictly with logged-in user (supports extensible roles)
   useEffect(() => {
     if (!currentUser) return;
-    if (currentRole !== currentUser.role) {
-      setCurrentRole(currentUser.role);
+    const effectivePortalRole: 'admin' | 'mitra' =
+      currentUser.portalView === 'admin' || currentUser.role === 'admin' ? 'admin' : 'mitra';
+
+    if (currentRole !== effectivePortalRole) {
+      setCurrentRole(effectivePortalRole);
     }
-    if (currentUser.role === 'mitra') {
+
+    const validTabs =
+      currentUser.allowedTabs && currentUser.allowedTabs.length > 0
+        ? currentUser.allowedTabs
+        : effectivePortalRole === 'admin'
+          ? ADMIN_VALID_TABS
+          : MITRA_VALID_TABS;
+
+    const defaultRoleTab =
+      currentUser.defaultTab || (effectivePortalRole === 'admin' ? 'dashboard' : 'idcard');
+
+    if (effectivePortalRole === 'mitra') {
       const targetId = currentUser.mitraId || currentUser.id;
       if (targetId && activeMitraId !== targetId) {
         setActiveMitraId(targetId);
       }
-      if (!MITRA_VALID_TABS.includes(activeTab)) {
-        setActiveTab('idcard');
-      }
-    } else if (currentUser.role === 'admin') {
-      if (!ADMIN_VALID_TABS.includes(activeTab)) {
-        setActiveTab('dashboard');
-      }
+    }
+
+    if (!validTabs.includes(activeTab)) {
+      setActiveTab(defaultRoleTab);
     }
   }, [currentUser, currentRole, activeTab, activeMitraId]);
 
@@ -199,7 +210,7 @@ export default function App() {
 
   // Resolve the active Mitra profile without ever leaking another Mitra's account on reload
   const resolvedLoggedInMitra = React.useMemo(() => {
-    if (currentUser?.role === 'mitra') {
+    if (currentUser && (currentUser.portalView === 'mitra' || currentUser.role === 'mitra')) {
       const byId = mitras.find(
         (m) => m.id === currentUser.mitraId || m.id === currentUser.id
       );
@@ -217,7 +228,7 @@ export default function App() {
         email: currentUser.email,
         phone: '-',
         nik: '-',
-        specialization: 'Konsultan Hukum Korporasi & Bisnis',
+        specialization: 'Konsultan Bisnis & Pajak',
         status: 'verified' as const,
         gender: currentUser.gender || 'male',
         avatarUrl: resolveAvatarUrl(currentUser.avatarUrl, currentUser.gender, currentUser.name),
@@ -239,29 +250,29 @@ export default function App() {
     return (
       mitras.find((m) => m.id === activeMitraId) ||
       mitras[0] || {
-        id: 'mitra-01',
-        memberCode: 'ND-2026-LAW-0042',
-        referralCode: 'ND-REF-0042',
-        fullName: 'Bambang Sudirman, S.H., M.Kn.',
-        email: 'bambang.sudirman@example.com',
-        phone: '0812-8899-7711',
-        nik: '3201123456780001',
-        specialization: 'Konsultan Hukum Korporasi & Kontrak Bisnis',
-        status: 'verified' as const,
+        id: 'mitra-empty',
+        memberCode: 'ND-2026-0000',
+        referralCode: 'ND-REF-0000',
+        fullName: 'Belum Ada Mitra Terdaftar',
+        email: '-',
+        phone: '-',
+        nik: '-',
+        specialization: 'Konsultan Bisnis & Pajak',
+        status: 'pending' as const,
         gender: 'male' as const,
         avatarUrl: MALE_AVATAR_URL,
-        joinedDate: '2026-01-15',
+        joinedDate: new Date().toISOString().slice(0, 10),
         bankDetails: {
-          bankName: 'Bank Central Asia (BCA)',
-          accountNumber: '8830192837',
-          accountHolder: 'Bambang Sudirman',
+          bankName: '-',
+          accountNumber: '-',
+          accountHolder: '-',
         },
-        totalCommission: 34500000,
-        totalBonus: 7500000,
-        pendingPayout: 6200000,
-        paidPayout: 35800000,
-        referredClientsCount: 8,
-        activeSubscribersCount: 3,
+        totalCommission: 0,
+        totalBonus: 0,
+        pendingPayout: 0,
+        paidPayout: 0,
+        referredClientsCount: 0,
+        activeSubscribersCount: 0,
       }
     );
   }, [currentUser, mitras, activeMitraId]);
@@ -581,6 +592,8 @@ export default function App() {
               salesHistory={salesHistory}
               userRole={currentRole}
               activeMitra={activeMitra}
+              allMitras={mitras}
+              allClientDeals={clientDeals}
               onNavigateTab={setActiveTab}
             />
           )}
@@ -638,6 +651,8 @@ export default function App() {
               salesHistory={salesHistory}
               userRole={currentRole}
               activeMitra={activeMitra}
+              allMitras={mitras}
+              allClientDeals={clientDeals}
               onNavigateTab={setActiveTab}
             />
           )}

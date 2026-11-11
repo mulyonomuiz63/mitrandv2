@@ -16,12 +16,14 @@ import {
   ShieldCheck,
   FileCheck
 } from 'lucide-react';
-import { SalesHistoryMonth, Mitra } from '../types';
+import { SalesHistoryMonth, Mitra, ClientDeal } from '../types';
 
 interface AnalyticsDashboardProps {
   salesHistory: SalesHistoryMonth[];
   userRole: 'admin' | 'mitra';
   activeMitra: Mitra;
+  allMitras?: Mitra[];
+  allClientDeals?: ClientDeal[];
   onNavigateTab: (tab: string) => void;
 }
 
@@ -29,6 +31,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   salesHistory,
   userRole,
   activeMitra,
+  allMitras = [],
+  allClientDeals = [],
   onNavigateTab,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('November 2026');
@@ -85,7 +89,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   };
 
   // Max value for SVG scale calculations
-  const maxSales = Math.max(...salesHistory.map((s) => s.totalSales));
+  const maxSales = Math.max(...salesHistory.map((s) => s.totalSales), 1);
+
+  // Live metrics from Supabase / active state
+  const approvedDeals = allClientDeals.filter(
+    (d) => d.status === 'active_subscription' || d.status === 'deal_closed'
+  );
+  const myApprovedDeals = approvedDeals.filter(
+    (d) => d.mitraId === activeMitra.id || d.referralCode === activeMitra.referralCode
+  );
+  const totalAdminSales = approvedDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+  const totalMitraSales = myApprovedDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+  const verifiedMitrasCount = allMitras.filter((m) => m.status === 'verified').length;
+  const pendingMitrasCount = allMitras.filter((m) => m.status === 'pending').length;
+  const totalAdminCommissions = allMitras.reduce((sum, m) => sum + (Number(m.totalCommission) || 0), 0);
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
@@ -136,18 +153,18 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Total Omset Penjualan (Nov)' : 'Akumulasi Deal Layanan'}
+              {userRole === 'admin' ? 'Total Omset Deal Aktif' : 'Akumulasi Deal Layanan'}
             </span>
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? 430000000 : 120000000)}
+            {formatRupiah(userRole === 'admin' ? totalAdminSales : totalMitraSales)}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-emerald-600 font-semibold">
             <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>+18.4% dari bulan lalu</span>
+            <span>Data Realtime Database</span>
           </div>
         </div>
 
@@ -161,46 +178,54 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             </div>
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
-            {userRole === 'admin' ? '48 Mitra' : activeMitra.memberCode}
+            {userRole === 'admin' ? `${verifiedMitrasCount} Mitra` : activeMitra.memberCode}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
-            <span>{userRole === 'admin' ? '3 pendaftaran menunggu review' : 'Terverifikasi resmi di sistem'}</span>
+            <span>
+              {userRole === 'admin'
+                ? `${pendingMitrasCount} pendaftaran menunggu review (Total ${allMitras.length})`
+                : 'Terverifikasi resmi di sistem'}
+            </span>
           </div>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Kontrak Deal Selesai
+              Kontrak Deal Disetujui
             </span>
             <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
               <Briefcase className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
-            {userRole === 'admin' ? '21 Kontrak' : '4 Kontrak'}
+            {userRole === 'admin' ? `${approvedDeals.length} Kontrak` : `${myApprovedDeals.length} Kontrak`}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
-            <span>Rata-rata closing rate 68%</span>
+            <span>
+              {userRole === 'admin'
+                ? `Total pengajuan klien: ${allClientDeals.length}`
+                : `Total klien diinput: ${allClientDeals.filter((d) => d.mitraId === activeMitra.id).length}`}
+            </span>
           </div>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Total Komisi Disalurkan' : 'Saldo Komisi Aktif Anda'}
+              {userRole === 'admin' ? 'Total Akumulasi Komisi Mitra' : 'Saldo Komisi Aktif Anda'}
             </span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
               <BarChart3 className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl font-bold text-emerald-700 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? 398000000 : activeMitra.pendingPayout)}
+            {formatRupiah(userRole === 'admin' ? totalAdminCommissions : activeMitra.pendingPayout)}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
             <span>
               {userRole === 'admin'
-                ? 'Pencairan via rekening bank resmi'
+                ? 'Sinkron langsung dengan database Supabase'
                 : `Sudah Ditarik: ${formatRupiah(activeMitra.paidPayout || 0)} | Total: ${formatRupiah(activeMitra.totalCommission)}`}
             </span>
           </div>

@@ -757,19 +757,19 @@ CREATE POLICY "Public user_passwords" ON public.user_passwords FOR ALL USING (tr
                   <div className="space-y-2 border-t border-slate-200 pt-3 text-xs text-slate-700">
                     <div className="flex items-start gap-2">
                       <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Tombol Switch [Mitra | Admin] DISEMBUNYIKAN</strong> total dari navbar atas.</span>
+                      <span><strong>Hanya Terkoneksi Database Supabase</strong>: Tidak memakai data dummy atau cache file lokal. Data yang dihapus di Supabase langsung hilang saat di-refresh.</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Akun Demo 1-Klik DISEMBUNYIKAN</strong> dari formulir login pengguna.</span>
+                      <span><strong>Enkripsi Password Kuat (SCRYPT + AES-256-GCM)</strong>: Seluruh kata sandi user tersimpan terenkripsi kuat (<code>ndenc$v2</code>).</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Login Wajib Riil</strong>: Pengguna hanya dapat masuk dengan email &amp; kata sandi terdaftar.</span>
+                      <span><strong>Sistem Role Dinamis</strong>: Mendukung pemisahan hak akses ketat (saat ini aktif: <code>admin</code> &amp; <code>mitra</code>, siap ditambah role baru).</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span>Mitra terkunci pada data pribadi miliknya (tidak dapat melihat atau berganti ke akun mitra lain).</span>
+                      <span><strong>Tombol Switch &amp; Akun Demo Disembunyikan</strong>: Pengguna wajib login riil sesuai role masing-masing.</span>
                     </div>
                   </div>
                 </div>

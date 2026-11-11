@@ -224,11 +224,31 @@ export interface SalesHistoryMonth {
   dealsClosed: number;
 }
 
+export type UserRoleCode = 'admin' | 'mitra' | string;
+
+export interface RoleDefinition {
+  code: UserRoleCode;
+  name: string;
+  description: string;
+  portalView: 'admin' | 'mitra';
+  defaultTab: string;
+  allowedTabs: string[];
+  permissions: string[];
+  isSystem: boolean;
+  isActive: boolean;
+}
+
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
   role: 'admin' | 'mitra';
+  roleCode?: UserRoleCode;
+  roleName?: string;
+  portalView?: 'admin' | 'mitra';
+  defaultTab?: string;
+  allowedTabs?: string[];
+  permissions?: string[];
   mitraId?: string;
   referralCode?: string;
   avatarUrl?: string;

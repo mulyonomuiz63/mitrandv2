@@ -148,11 +148,27 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. TABEL KATA SANDI PENGGUNA (USER PASSWORDS)
+-- 9. TABEL KATA SANDI PENGGUNA TERENKRIPSI (USER PASSWORDS - SCRYPT + AES-256-GCM)
+-- Format: ndenc$v2$<role>$<saltHex>$<scryptHashHex>$<ivHex>$<authTagHex>$<cipherHex>
 CREATE TABLE IF NOT EXISTS public.user_passwords (
     email TEXT PRIMARY KEY,
     password TEXT NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. TABEL MANAJEMEN ROLE DINAMIS (SYSTEM ROLES)
+-- Saat ini aktif: 'admin' dan 'mitra' (siap ditambahkan role baru di masa mendatang)
+CREATE TABLE IF NOT EXISTS public.system_roles (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    "portalView" TEXT DEFAULT 'mitra',
+    "defaultTab" TEXT DEFAULT 'idcard',
+    "allowedTabs" JSONB DEFAULT '[]'::jsonb,
+    permissions JSONB DEFAULT '[]'::jsonb,
+    "isSystem" BOOLEAN DEFAULT false,
+    "isActive" BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ====================================================================
@@ -167,6 +183,7 @@ ALTER TABLE public.marketing_tools ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
 
 -- Kebijakan akses penuh untuk Service Role & Anon API
 CREATE POLICY "Public Anon Access mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
@@ -178,6 +195,34 @@ CREATE POLICY "Public Anon Access marketing_tools" ON public.marketing_tools FOR
 CREATE POLICY "Public Anon Access notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public Anon Access app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public Anon Access user_passwords" ON public.user_passwords FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Anon Access system_roles" ON public.system_roles FOR ALL USING (true) WITH CHECK (true);
+
+-- SEED ROLE AWAL (ADMIN & MITRA)
+INSERT INTO public.system_roles (code, name, description, "portalView", "defaultTab", "allowedTabs", permissions, "isSystem", "isActive")
+VALUES
+(
+    'admin',
+    'Administrator Operasional',
+    'Akses penuh ke operasional firma, review & approve deal klien, pemutusan langganan, pencairan komisi, manajemen mitra, layanan, dan pengaturan sistem.',
+    'admin',
+    'dashboard',
+    '["dashboard", "admin-operations", "verification", "activity-logs", "marketing-tools", "commissions", "ai-reports", "idcard"]'::jsonb,
+    '["manage_mitra", "review_clients", "approve_payouts", "manage_services", "manage_tools", "manage_settings", "manage_roles", "view_logs"]'::jsonb,
+    true,
+    true
+),
+(
+    'mitra',
+    'Mitra Konsultan Resmi',
+    'Akses ke kartu identitas eksklusif, tautan referral, input klien baru, pencairan komisi fix, materi marketing, dan laporan performa mitra.',
+    'mitra',
+    'idcard',
+    '["idcard", "dashboard", "marketing-tools", "commissions", "ai-reports"]'::jsonb,
+    '["view_own_idcard", "create_client_referral", "request_payout", "download_marketing_tools", "update_own_profile"]'::jsonb,
+    true,
+    true
+)
+ON CONFLICT (code) DO NOTHING;
 
 -- ====================================================================
 -- SEED DATA AWAL MITRA (CONTOH DATA RESMI)

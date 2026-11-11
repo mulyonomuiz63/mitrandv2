@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { GoogleGenAI } from '@google/genai';
@@ -695,7 +696,7 @@ let appSettings: AppSettings = {
   googleClientId: '',
   geminiApiEnabled: true,
   geminiModel: 'gemini-3.8-flash',
-  appEnvironment: ((process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production') ? 'production' : 'development') as 'development' | 'production',
+  appEnvironment: (process.env.APP_ENV === 'development' ? 'development' : 'production') as 'development' | 'production',
   smtpEnabled: true,
   smtpHost: process.env.SMTP_HOST || 'mail.ndtaxlaw.com',
   smtpPort: Number(process.env.SMTP_PORT) || 465,
@@ -1054,7 +1055,160 @@ const monthlySalesHistory = [
   { month: 'Nov 2026 (M-T-D)', totalSales: 430000000, totalCommission: 64500000, mitraCount: 48, dealsClosed: 21 },
 ];
 
-// 0. Authentication & Password Storage
+// ========================================================
+// 0. DYNAMIC ROLE REGISTRY & STRONG PASSWORD ENCRYPTION
+// ========================================================
+export interface RoleDefinition {
+  code: string;
+  name: string;
+  description: string;
+  portalView: 'admin' | 'mitra';
+  defaultTab: string;
+  allowedTabs: string[];
+  permissions: string[];
+  isSystem: boolean;
+  isActive: boolean;
+}
+
+// Saat ini role yang aktif adalah 'admin' dan 'mitra', dirancang siap diekspansi untuk banyak role baru ke depannya
+let systemRoles: RoleDefinition[] = [
+  {
+    code: 'admin',
+    name: 'Administrator Operasional',
+    description: 'Akses penuh manajemen operasional, validasi klien & mitra, pencairan komisi, log audit, dan pengaturan sistem.',
+    portalView: 'admin',
+    defaultTab: 'dashboard',
+    allowedTabs: ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'],
+    permissions: ['all', 'manage_mitra', 'manage_clients', 'approve_payouts', 'manage_services', 'view_logs', 'manage_settings', 'manage_roles'],
+    isSystem: true,
+    isActive: true,
+  },
+  {
+    code: 'mitra',
+    name: 'Mitra Konsultan & Referral',
+    description: 'Akses portal kemitraan eksklusif: kartu identitas mitra, input klien referral, pelacakan komisi, penarikan dana, dan materi promosi.',
+    portalView: 'mitra',
+    defaultTab: 'idcard',
+    allowedTabs: ['idcard', 'dashboard', 'marketing-tools', 'commissions', 'ai-reports'],
+    permissions: ['view_idcard', 'input_client', 'view_commissions', 'request_payout', 'download_tools'],
+    isSystem: true,
+    isActive: true,
+  },
+];
+
+export const getRoleDefinition = (roleCode?: string): RoleDefinition => {
+  const normalized = (roleCode || 'mitra').trim().toLowerCase();
+  const found = systemRoles.find((r) => r.code.toLowerCase() === normalized && r.isActive);
+  if (found) return found;
+  return normalized === 'admin' ? systemRoles[0] : systemRoles[1];
+};
+
+// Enkripsi Password Kuat: scrypt (N=16384, r=8, p=1, 64-byte key) + 128-bit Random Salt + AES-256-GCM Envelope
+const PASSWORD_ENC_PREFIX = 'ndenc$v2$';
+const PASSWORD_SECRET_KEY = crypto
+  .createHash('sha256')
+  .update(process.env.PASSWORD_SECRET_KEY || 'NDTAXANDLAW-ENTERPRISE-AES256-SCRYPT-KEY-2026')
+  .digest();
+
+export const isEncryptedPassword = (val?: string): boolean => {
+  return Boolean(val && val.startsWith(PASSWORD_ENC_PREFIX));
+};
+
+export const encryptUserPassword = (plainPassword: string, roleCode: string = 'mitra'): string => {
+  const cleanRole = (roleCode || 'mitra').trim().toLowerCase();
+  // If already encrypted, optionally update role prefix if needed
+  if (isEncryptedPassword(plainPassword)) {
+    const parts = plainPassword.split('$');
+    if (parts.length >= 8) {
+      parts[2] = cleanRole;
+      return parts.join('$');
+    }
+    return plainPassword;
+  }
+
+  const salt = crypto.randomBytes(16);
+  const scryptHash = crypto.scryptSync(plainPassword, salt, 64, { N: 16384, r: 8, p: 1 });
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', PASSWORD_SECRET_KEY, iv);
+  const encryptedBuf = Buffer.concat([
+    cipher.update(scryptHash),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return [
+    'ndenc',
+    'v2',
+    cleanRole,
+    salt.toString('hex'),
+    scryptHash.toString('hex'),
+    iv.toString('hex'),
+    authTag.toString('hex'),
+    encryptedBuf.toString('hex'),
+  ].join('$');
+};
+
+export const extractUserRole = (storedValue?: string, fallbackRole: string = 'mitra'): string => {
+  if (!storedValue) return fallbackRole;
+  if (isEncryptedPassword(storedValue)) {
+    const parts = storedValue.split('$');
+    if (parts.length >= 3 && parts[2]) {
+      return parts[2].toLowerCase();
+    }
+  }
+  return fallbackRole;
+};
+
+export const verifyUserPassword = (
+  inputPassword: string,
+  storedValue?: string,
+  defaultRole: string = 'mitra'
+): { valid: boolean; role: string; needsUpgrade: boolean } => {
+  if (!storedValue || !inputPassword) {
+    return { valid: false, role: defaultRole, needsUpgrade: false };
+  }
+
+  if (isEncryptedPassword(storedValue)) {
+    try {
+      const parts = storedValue.split('$');
+      // Format: ndenc$v2$<role>$<saltHex>$<scryptHashHex>$<ivHex>$<authTagHex>$<cipherHex>
+      const role = parts[2] || defaultRole;
+      const salt = Buffer.from(parts[3], 'hex');
+      const expectedHash = Buffer.from(parts[4], 'hex');
+      const computedHash = crypto.scryptSync(inputPassword, salt, 64, { N: 16384, r: 8, p: 1 });
+
+      // Also verify AES-256-GCM integrity if present
+      if (parts.length >= 8) {
+        const iv = Buffer.from(parts[5], 'hex');
+        const authTag = Buffer.from(parts[6], 'hex');
+        const encryptedBuf = Buffer.from(parts[7], 'hex');
+        const decipher = crypto.createDecipheriv('aes-256-gcm', PASSWORD_SECRET_KEY, iv);
+        decipher.setAuthTag(authTag);
+        const decryptedHash = Buffer.concat([decipher.update(encryptedBuf), decipher.final()]);
+        if (
+          decryptedHash.length === computedHash.length &&
+          crypto.timingSafeEqual(decryptedHash, computedHash)
+        ) {
+          return { valid: true, role, needsUpgrade: false };
+        }
+        return { valid: false, role, needsUpgrade: false };
+      }
+
+      if (expectedHash.length === computedHash.length && crypto.timingSafeEqual(expectedHash, computedHash)) {
+        return { valid: true, role, needsUpgrade: false };
+      }
+      return { valid: false, role, needsUpgrade: false };
+    } catch {
+      return { valid: false, role: defaultRole, needsUpgrade: false };
+    }
+  }
+
+  // Legacy plaintext fallback -> verify and mark for immediate encryption upgrade
+  const isMatch = inputPassword === storedValue;
+  return { valid: isMatch, role: defaultRole, needsUpgrade: isMatch };
+};
+
 const adminAccount = {
   id: 'admin-01',
   name: 'Admin Operasional NDTAXANDLAW',
@@ -1066,14 +1220,22 @@ const adminAccount = {
 };
 
 const userPasswords = new Map<string, string>([
-  ['admin@ndtaxlaw.com', 'adminND2026!'],
-  ['bambang.sudirman@example.com', 'mitraND2026!'],
-  ['dewi.lestari@example.com', 'mitraND2026!'],
-  ['rian.pratama@example.com', 'mitraND2026!'],
+  ['admin@ndtaxlaw.com', encryptUserPassword('adminND2026!', 'admin')],
+  ['bambang.sudirman@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
+  ['dewi.lestari@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
+  ['rian.pratama@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
 ]);
 
 // Store password reset OTP tokens in memory
 const passwordResetTokens = new Map<string, { otp: string; expiresAt: number }>();
+
+export const isProductionMode = (): boolean => {
+  return (
+    appSettings.appEnvironment === 'production' ||
+    process.env.NODE_ENV === 'production' ||
+    process.env.APP_ENV === 'production'
+  );
+};
 
 // Normalize mitra avatars so stock unsplash URLs are replaced with clean default Male/Female SVG avatars
 const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
@@ -1112,9 +1274,82 @@ const computeNextBillingDate = (
   return `${year}-${mm}-${dd}`;
 };
 
+const ND_META_REGEX = /\s*<!--ND_META:(.*?)-->\s*$/s;
+
+// Serialize ClientDeal into exact columns supported by public.client_deals in Supabase
+export const toSupabaseClientDeal = (deal: ClientDeal) => {
+  const cleanNotes = (deal.notes || '').replace(ND_META_REGEX, '').trim();
+  const metaObj = {
+    subscriptionStartDate: deal.subscriptionStartDate,
+    billingDayOfMonth: deal.billingDayOfMonth,
+    nextBillingDate: deal.nextBillingDate,
+    lastBilledDate: deal.lastBilledDate,
+    isBillingDue: deal.isBillingDue,
+    terminatedAt: deal.terminatedAt,
+    terminationReason: deal.terminationReason,
+    rejectedAt: deal.rejectedAt,
+    rejectionReason: deal.rejectionReason,
+  };
+  const encodedNotes = `${cleanNotes}${cleanNotes ? ' ' : ''}<!--ND_META:${JSON.stringify(metaObj)}-->`;
+
+  return {
+    id: deal.id,
+    mitraId: deal.mitraId,
+    mitraName: deal.mitraName,
+    referralCode: deal.referralCode,
+    companyName: deal.companyName,
+    picName: deal.picName,
+    picPhone: deal.picPhone,
+    picEmail: deal.picEmail,
+    serviceId: deal.serviceId,
+    serviceName: deal.serviceName,
+    pricingType: deal.pricingType,
+    dealValue: deal.dealValue,
+    commissionAmount: deal.commissionAmount,
+    status: deal.status,
+    date: deal.date,
+    recurringPaidMonths: deal.recurringPaidMonths ?? null,
+    recurringPaidYears: deal.recurringPaidYears ?? null,
+    periodStart: deal.periodStart ?? null,
+    periodEnd: deal.periodEnd ?? null,
+    durationMonths: deal.durationMonths ?? null,
+    paymentTermType: deal.paymentTermType ?? 'one_time',
+    notes: encodedNotes,
+    submittedBy: deal.submittedBy ?? 'mitra',
+  };
+};
+
+// Deserialize Supabase client_deals row back into full ClientDeal object
+export const fromSupabaseClientDeal = (row: any): ClientDeal => {
+  const rawNotes = typeof row.notes === 'string' ? row.notes : '';
+  const match = rawNotes.match(ND_META_REGEX);
+  let meta: Partial<ClientDeal> = {};
+  if (match && match[1]) {
+    try {
+      meta = JSON.parse(match[1]);
+    } catch {}
+  }
+  const cleanNotes = rawNotes.replace(ND_META_REGEX, '').trim();
+
+  return {
+    ...row,
+    notes: cleanNotes,
+    subscriptionStartDate: row.subscriptionStartDate || meta.subscriptionStartDate,
+    billingDayOfMonth: row.billingDayOfMonth || meta.billingDayOfMonth,
+    nextBillingDate: row.nextBillingDate || meta.nextBillingDate,
+    lastBilledDate: row.lastBilledDate || meta.lastBilledDate,
+    isBillingDue: row.isBillingDue !== undefined ? row.isBillingDue : meta.isBillingDue,
+    terminatedAt: row.terminatedAt || meta.terminatedAt,
+    terminationReason: row.terminationReason || meta.terminationReason,
+    rejectedAt: row.rejectedAt || meta.rejectedAt,
+    rejectionReason: row.rejectionReason || meta.rejectionReason,
+  };
+};
+
 const normalizeClientDeals = (list: ClientDeal[]): ClientDeal[] => {
   const todayStr = new Date().toISOString().split('T')[0];
-  return list.map((d) => {
+  return list.map((rawDeal) => {
+    const d = fromSupabaseClientDeal(rawDeal);
     if (d.pricingType === 'monthly_subscription' || d.pricingType === 'annual_subscription') {
       const startDate = d.subscriptionStartDate || d.date || todayStr;
       const dayFromDate = Number(startDate.split('-')[2]) || 1;
@@ -1148,7 +1383,9 @@ const normalizeClientDeals = (list: ClientDeal[]): ClientDeal[] => {
 };
 
 // ========================================================
-// PERSISTENT DISK STORAGE ENGINE (ANTI-RESET PRODUCTION)
+// STORAGE ENGINE:
+// - PRODUCTION MODE: STRICTLY SUPABASE ONLY (No local database.json fallback)
+// - DEVELOPMENT MODE: Local database.json fallback only if Supabase is offline
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
@@ -1160,24 +1397,27 @@ export const saveDatabase = () => {
     }
     const passwordsObj: Record<string, string> = {};
     for (const [k, v] of userPasswords.entries()) {
-      passwordsObj[k.toLowerCase()] = v;
+      const role = k.toLowerCase() === adminAccount.email.toLowerCase() ? 'admin' : extractUserRole(v, 'mitra');
+      passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
     }
+    // Always persist appSettings, logs, and encrypted passwords; only persist entity caches in development mode
     const payload = {
-      mitras,
-      services,
-      clientDeals,
-      payoutRequests,
-      marketingTools,
-      commissions,
-      notifications,
+      mitras: isProductionMode() ? [] : mitras,
+      services: isProductionMode() ? [] : services,
+      clientDeals: isProductionMode() ? [] : clientDeals,
+      payoutRequests: isProductionMode() ? [] : payoutRequests,
+      marketingTools: isProductionMode() ? [] : marketingTools,
+      commissions: isProductionMode() ? [] : commissions,
+      notifications: isProductionMode() ? [] : notifications,
       emailLogs,
       activityLogs,
       appSettings,
+      roles: systemRoles,
       userPasswords: passwordsObj,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Storage Error] Gagal menyimpan data persistensi ke disk:', err);
+    console.error('[Storage Error] Gagal menyimpan konfigurasi ke disk:', err);
   }
 };
 
@@ -1189,132 +1429,179 @@ export const loadDatabase = () => {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const data = JSON.parse(raw);
-      if (Array.isArray(data.mitras) && data.mitras.length > 0) {
-        mitras = normalizeMitraAvatars(data.mitras);
-      }
-      if (Array.isArray(data.services) && data.services.length > 0) {
-        services = data.services;
-      }
-      if (Array.isArray(data.clientDeals)) {
-        clientDeals = normalizeClientDeals(data.clientDeals);
-      }
-      if (Array.isArray(data.payoutRequests)) {
-        payoutRequests = data.payoutRequests;
-      }
-      if (Array.isArray(data.marketingTools) && data.marketingTools.length > 0) {
-        marketingTools = data.marketingTools;
-      }
-      if (Array.isArray(data.commissions)) {
-        commissions = data.commissions;
-      }
-      if (Array.isArray(data.notifications)) {
-        notifications = data.notifications;
-      }
-      if (Array.isArray(data.emailLogs)) {
-        // Filter out old fake seeded email logs if needed or keep real ones
-        emailLogs = data.emailLogs.filter((l: EmailLogItem) => !['email-001', 'email-002', 'email-003'].includes(l.id));
-      }
-      if (Array.isArray(data.activityLogs) && data.activityLogs.length > 0) {
-        activityLogs = data.activityLogs;
-      }
+
       if (data.appSettings) {
         appSettings = { ...appSettings, ...data.appSettings };
         if (appSettings.smtpPassword === '••••••••••••••••') {
           appSettings.smtpPassword = process.env.SMTP_PASS || '';
         }
-      }
-      if (data.userPasswords && typeof data.userPasswords === 'object') {
-        for (const [em, pass] of Object.entries(data.userPasswords)) {
-          userPasswords.set(em.toLowerCase(), pass as string);
+        // Default to production if supabase is configured unless explicitly set by env
+        if (process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production') {
+          appSettings.appEnvironment = 'production';
         }
       }
-      saveDatabase();
-      console.log(`[Storage] Database persistensi berhasil dimuat dari ${DB_FILE}`);
-    } else {
-      saveDatabase();
-      console.log(`[Storage] Inisialisasi awal database persistensi baru di ${DB_FILE}`);
+
+      if (Array.isArray(data.roles) && data.roles.length > 0) {
+        systemRoles = data.roles;
+      }
+
+      if (Array.isArray(data.emailLogs)) {
+        emailLogs = data.emailLogs.filter((l: EmailLogItem) => !['email-001', 'email-002', 'email-003'].includes(l.id));
+      }
+      if (Array.isArray(data.activityLogs)) {
+        activityLogs = data.activityLogs;
+      }
+
+      if (data.userPasswords && typeof data.userPasswords === 'object') {
+        for (const [em, pass] of Object.entries(data.userPasswords)) {
+          const emailKey = em.toLowerCase();
+          const role = emailKey === adminAccount.email.toLowerCase() ? 'admin' : extractUserRole(pass as string, 'mitra');
+          userPasswords.set(emailKey, encryptUserPassword(pass as string, role));
+        }
+      }
+
+      // PENTING: Jika Mode Production aktif, JANGAN muat data entitas lokal/dummy dari database.json!
+      // Seluruh data wajib 100% berasal dari Supabase Database.
+      if (isProductionMode()) {
+        mitras = [];
+        services = [];
+        clientDeals = [];
+        payoutRequests = [];
+        marketingTools = [];
+        commissions = [];
+        notifications = [];
+        console.log('[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).');
+      } else {
+        if (Array.isArray(data.mitras)) mitras = normalizeMitraAvatars(data.mitras);
+        if (Array.isArray(data.services)) services = data.services;
+        if (Array.isArray(data.clientDeals)) clientDeals = normalizeClientDeals(data.clientDeals);
+        if (Array.isArray(data.payoutRequests)) payoutRequests = data.payoutRequests;
+        if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
+        if (Array.isArray(data.commissions)) commissions = data.commissions;
+        if (Array.isArray(data.notifications)) notifications = data.notifications;
+        console.log(`[Development Mode] Konfigurasi lokal dimuat dari ${DB_FILE}`);
+      }
     }
   } catch (err) {
-    console.error('[Storage Error] Gagal memuat data persistensi disk:', err);
+    console.error('[Storage Error] Gagal memuat konfigurasi disk:', err);
   }
 };
 
-// Merge helper for Mitras (keeps both Supabase and local entries in sync)
-const mergeMitraLists = (cloudList: Mitra[], localList: Mitra[]): Mitra[] => {
-  const map = new Map<string, Mitra>();
-  for (const m of localList) {
-    map.set(m.id, m);
-  }
-  for (const cm of cloudList) {
-    const existing = map.get(cm.id) || Array.from(map.values()).find((x) => x.email.toLowerCase() === cm.email.toLowerCase());
-    if (existing) {
-      map.set(existing.id, {
-        ...existing,
-        ...cm,
-        // Preserve local verification token if recently generated
-        verificationToken: cm.verificationToken || existing.verificationToken,
-        emailVerified: cm.emailVerified !== undefined ? cm.emailVerified : existing.emailVerified,
-      });
-    } else {
-      map.set(cm.id, cm);
-    }
-  }
-  return normalizeMitraAvatars(Array.from(map.values()));
-};
-
-// Sinkronisasi data dari Cloud Database Supabase (Production)
+// Sinkronisasi langsung (Single Source of Truth) dari Cloud Database Supabase
 export const syncFromSupabase = async () => {
   if (!supabase) return;
   try {
+    // 1. Mitras: Replace directly with Supabase rows (so deleted rows in Supabase are immediately gone!)
     const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
-    if (!errM && dbMitras && dbMitras.length > 0) {
-      mitras = mergeMitraLists(dbMitras, mitras);
-      console.log(`[Supabase Cloud] Dimuat & digabungkan ${mitras.length} mitra dari Supabase`);
+    if (!errM && Array.isArray(dbMitras)) {
+      mitras = normalizeMitraAvatars(dbMitras);
+      console.log(`[Supabase Cloud] Sinkronisasi ${mitras.length} mitra dari Supabase`);
     }
 
+    // 2. Services
     const { data: dbServices, error: errS } = await supabase.from('services').select('*');
-    if (!errS && dbServices && dbServices.length > 0) {
+    if (!errS && Array.isArray(dbServices)) {
       services = dbServices;
-      console.log(`[Supabase Cloud] Dimuat ${dbServices.length} layanan dari Supabase`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${services.length} layanan dari Supabase`);
     }
 
+    // 3. Client Deals
     const { data: dbDeals, error: errD } = await supabase.from('client_deals').select('*');
-    if (!errD && dbDeals && dbDeals.length > 0) {
-      clientDeals = dbDeals;
-      console.log(`[Supabase Cloud] Dimuat ${dbDeals.length} deal klien dari Supabase`);
+    if (!errD && Array.isArray(dbDeals)) {
+      clientDeals = normalizeClientDeals(dbDeals);
+      console.log(`[Supabase Cloud] Sinkronisasi ${clientDeals.length} deal klien dari Supabase`);
     }
 
+    // 4. Commissions
     const { data: dbCommissions, error: errC } = await supabase.from('commissions').select('*');
-    if (!errC && dbCommissions && dbCommissions.length > 0) {
+    if (!errC && Array.isArray(dbCommissions)) {
       commissions = dbCommissions;
-      console.log(`[Supabase Cloud] Dimuat ${dbCommissions.length} komisi dari Supabase`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${commissions.length} komisi dari Supabase`);
     }
 
+    // 5. Payout Requests
     const { data: dbPayouts, error: errPay } = await supabase.from('payout_requests').select('*');
-    if (!errPay && dbPayouts && dbPayouts.length > 0) {
+    if (!errPay && Array.isArray(dbPayouts)) {
       payoutRequests = dbPayouts;
+      console.log(`[Supabase Cloud] Sinkronisasi ${payoutRequests.length} pengajuan pencairan dari Supabase`);
     }
 
+    // 6. Marketing Tools
     const { data: dbTools, error: errT } = await supabase.from('marketing_tools').select('*');
-    if (!errT && dbTools && dbTools.length > 0) {
+    if (!errT && Array.isArray(dbTools)) {
       marketingTools = dbTools;
-      console.log(`[Supabase Cloud] Dimuat ${dbTools.length} tools marketing dari Supabase`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${marketingTools.length} tools marketing dari Supabase`);
     }
 
+    // 7. Notifications
     const { data: dbNotifs, error: errN } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
-    if (!errN && dbNotifs && dbNotifs.length > 0) {
+    if (!errN && Array.isArray(dbNotifs)) {
       notifications = dbNotifs;
+      console.log(`[Supabase Cloud] Sinkronisasi ${notifications.length} notifikasi dari Supabase`);
     }
 
+    // 8. User Passwords & Encrypted Credentials + Roles
     const { data: dbPasswords, error: errP } = await supabase.from('user_passwords').select('*');
-    if (!errP && dbPasswords && dbPasswords.length > 0) {
+    if (!errP && Array.isArray(dbPasswords)) {
+      const toUpgradeInSupabase: { email: string; password: string }[] = [];
       for (const row of dbPasswords) {
-        if (row.email && row.password) {
-          userPasswords.set(row.email.toLowerCase(), row.password);
+        if (!row.email || !row.password) continue;
+        const emailLower = row.email.toLowerCase();
+        if (emailLower === '__sys_config__@ndtaxlaw.internal') {
+          try {
+            const parsedSettings = JSON.parse(row.password);
+            if (parsedSettings && typeof parsedSettings === 'object') {
+              appSettings = { ...appSettings, ...parsedSettings };
+            }
+          } catch {}
+          continue;
         }
+        if (emailLower === '__sys_roles__@ndtaxlaw.internal') {
+          try {
+            const parsedRoles = JSON.parse(row.password);
+            if (Array.isArray(parsedRoles) && parsedRoles.length > 0) {
+              systemRoles = parsedRoles;
+            }
+          } catch {}
+          continue;
+        }
+
+        const defaultRole = row.role || (emailLower === adminAccount.email.toLowerCase() ? 'admin' : 'mitra');
+        if (!isEncryptedPassword(row.password)) {
+          const encrypted = encryptUserPassword(row.password, defaultRole);
+          userPasswords.set(emailLower, encrypted);
+          toUpgradeInSupabase.push({ email: emailLower, password: encrypted });
+        } else {
+          userPasswords.set(emailLower, row.password);
+        }
+      }
+
+      // Ensure every existing Mitra in Supabase has an encrypted password record in Supabase user_passwords
+      for (const m of mitras) {
+        const mEmail = m.email.toLowerCase();
+        const existingInCloud = dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === mEmail);
+        if (!existingInCloud) {
+          const localEnc = userPasswords.get(mEmail) || encryptUserPassword('mitraND2026!', 'mitra');
+          userPasswords.set(mEmail, localEnc);
+          toUpgradeInSupabase.push({ email: mEmail, password: localEnc });
+        }
+      }
+
+      // Ensure Admin has an encrypted password record in Supabase user_passwords
+      const adminEmail = adminAccount.email.toLowerCase();
+      if (!dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === adminEmail)) {
+        const adminEnc = userPasswords.get(adminEmail) || encryptUserPassword(adminAccount.password, 'admin');
+        userPasswords.set(adminEmail, adminEnc);
+        toUpgradeInSupabase.push({ email: adminEmail, password: adminEnc });
+      }
+
+      if (toUpgradeInSupabase.length > 0) {
+        await supabase.from('user_passwords').upsert(toUpgradeInSupabase);
+        console.log(`[Security] ${toUpgradeInSupabase.length} password pengguna telah dienkripsi kuat (scrypt + AES-256-GCM) di Supabase.`);
       }
     }
 
+    // 9. App Settings table (if created)
     const { data: dbSettings, error: errSet } = await supabase.from('app_settings').select('*').eq('id', 'config_primary').maybeSingle();
     if (!errSet && dbSettings && dbSettings.settings) {
       const cloudSettings = dbSettings.settings as Partial<AppSettings>;
@@ -1330,23 +1617,123 @@ export const syncFromSupabase = async () => {
   }
 };
 
-// Muat database yang tersimpan di disk pada startup server
+// Muat konfigurasi awal & sinkronkan langsung dari Supabase
 loadDatabase();
+// Pastikan default mode adalah production (terkoneksi eksklusif ke Supabase) kecuali disetel development
+if (!process.env.APP_ENV) {
+  appSettings.appEnvironment = 'production';
+}
 syncFromSupabase();
 
 // ========================================================
-// 0. AUTHENTICATION ENDPOINTS
+// 0. AUTHENTICATION & DYNAMIC ROLE ENDPOINTS
 // ========================================================
+app.get('/api/roles', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: systemRoles,
+  });
+});
+
+app.post('/api/roles', async (req: Request, res: Response) => {
+  const { code, name, description, portalView, defaultTab, allowedTabs, permissions } = req.body;
+  if (!code || !name) {
+    return res.status(400).json({ success: false, message: 'Kode role dan nama role wajib diisi.' });
+  }
+  const cleanCode = String(code).trim().toLowerCase().replace(/\s+/g, '_');
+  if (systemRoles.some((r) => r.code.toLowerCase() === cleanCode)) {
+    return res.status(400).json({ success: false, message: `Role "${cleanCode}" sudah terdaftar.` });
+  }
+
+  const newRole: RoleDefinition = {
+    code: cleanCode,
+    name: String(name).trim(),
+    description: description || `Role akses ${name}`,
+    portalView: portalView === 'admin' ? 'admin' : 'mitra',
+    defaultTab: defaultTab || (portalView === 'admin' ? 'dashboard' : 'idcard'),
+    allowedTabs: Array.isArray(allowedTabs) && allowedTabs.length > 0
+      ? allowedTabs
+      : (portalView === 'admin'
+          ? ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard']
+          : ['idcard', 'dashboard', 'marketing-tools', 'commissions', 'ai-reports']),
+    permissions: Array.isArray(permissions) ? permissions : [],
+    isSystem: false,
+    isActive: true,
+  };
+
+  systemRoles.push(newRole);
+  saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').upsert([
+        { email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) },
+      ]);
+    } catch {}
+  }
+
+  res.status(201).json({ success: true, data: newRole });
+});
+
+app.put('/api/roles/:code', async (req: Request, res: Response) => {
+  const { code } = req.params;
+  const target = systemRoles.find((r) => r.code.toLowerCase() === code.toLowerCase());
+  if (!target) {
+    return res.status(404).json({ success: false, message: 'Role tidak ditemukan.' });
+  }
+  const { name, description, portalView, defaultTab, allowedTabs, permissions, isActive } = req.body;
+  if (name !== undefined) target.name = name;
+  if (description !== undefined) target.description = description;
+  if (portalView === 'admin' || portalView === 'mitra') target.portalView = portalView;
+  if (defaultTab !== undefined) target.defaultTab = defaultTab;
+  if (Array.isArray(allowedTabs)) target.allowedTabs = allowedTabs;
+  if (Array.isArray(permissions)) target.permissions = permissions;
+  if (isActive !== undefined && !target.isSystem) target.isActive = Boolean(isActive);
+
+  saveDatabase();
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').upsert([
+        { email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) },
+      ]);
+    } catch {}
+  }
+  res.json({ success: true, data: target });
+});
+
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
+  const isProd = isProductionMode();
 
-  const isProduction = appSettings.appEnvironment === 'production' || process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+  // Sinkronisasi kredensial terbaru dari Supabase saat login
+  if (supabase) {
+    try {
+      const { data: pwRow } = await supabase
+        .from('user_passwords')
+        .select('*')
+        .ilike('email', normalizedEmail)
+        .maybeSingle();
+      if (pwRow && pwRow.email && pwRow.password) {
+        const defaultRole = pwRow.email.toLowerCase() === adminAccount.email.toLowerCase() ? 'admin' : 'mitra';
+        if (!isEncryptedPassword(pwRow.password)) {
+          const enc = encryptUserPassword(pwRow.password, defaultRole);
+          userPasswords.set(pwRow.email.toLowerCase(), enc);
+          await supabase.from('user_passwords').upsert([{ email: pwRow.email.toLowerCase(), password: enc }]);
+        } else {
+          userPasswords.set(pwRow.email.toLowerCase(), pwRow.password);
+        }
+      }
+    } catch {}
+  }
 
-  // Check admin
+  // 1. Check Admin Login
   if (normalizedEmail === adminAccount.email.toLowerCase()) {
-    const adminExpectedPass = userPasswords.get(adminAccount.email.toLowerCase()) || adminAccount.password;
-    if (password === adminExpectedPass || password === adminAccount.password) {
+    const storedAdminCred = userPasswords.get(adminAccount.email.toLowerCase()) || encryptUserPassword(adminAccount.password, 'admin');
+    const verifyRes = verifyUserPassword(password, storedAdminCred, 'admin');
+
+    if (verifyRes.valid) {
+      const roleDef = getRoleDefinition(verifyRes.role || 'admin');
       recordActivity({
         actorRole: 'admin',
         actorId: adminAccount.id,
@@ -1355,7 +1742,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         actionType: 'login',
         operation: 'LOGIN',
         targetEntity: 'Autentikasi Admin',
-        description: `Admin Operasional (${adminAccount.email}) berhasil login ke Panel Admin.`,
+        description: `Admin Operasional (${adminAccount.email}) berhasil login ke Panel Admin (Enkripsi: scrypt+AES256, Role: ${roleDef.code}).`,
       });
       saveDatabase();
 
@@ -1365,7 +1752,13 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           id: adminAccount.id,
           name: adminAccount.name,
           email: adminAccount.email,
-          role: 'admin',
+          role: roleDef.portalView,
+          roleCode: roleDef.code,
+          roleName: roleDef.name,
+          portalView: roleDef.portalView,
+          defaultTab: roleDef.defaultTab,
+          allowedTabs: roleDef.allowedTabs,
+          permissions: roleDef.permissions,
           gender: 'male',
           avatarUrl: adminAccount.avatarUrl,
         },
@@ -1375,28 +1768,34 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     return res.status(401).json({ success: false, message: 'Kata sandi admin tidak valid.' });
   }
 
-  // Check mitra (also check Supabase if not in memory yet)
-  let mitra = mitras.find(
-    (m) => m.email.toLowerCase() === normalizedEmail || m.memberCode.toLowerCase() === normalizedEmail
-  );
-
-  if (!mitra && supabase) {
+  // 2. Check Mitra Login (Dalam mode Production, WAJIB mengecek langsung ke tabel mitras di Supabase)
+  let mitra: Mitra | undefined;
+  if (supabase) {
     try {
-      const { data: foundMitras } = await supabase
-        .from('mitras')
-        .select('*')
-        .or(`email.ilike.${normalizedEmail},memberCode.ilike.${normalizedEmail}`);
-      if (foundMitras && foundMitras.length > 0) {
-        mitras = mergeMitraLists(foundMitras, mitras);
+      const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+      if (!errM && Array.isArray(dbMitras)) {
+        mitras = normalizeMitraAvatars(dbMitras);
         mitra = mitras.find(
-          (m) => m.email.toLowerCase() === normalizedEmail || m.memberCode.toLowerCase() === normalizedEmail
+          (m) => m.email.toLowerCase() === normalizedEmail || (m.memberCode && m.memberCode.toLowerCase() === normalizedEmail)
         );
       }
-    } catch {}
+    } catch (e) {
+      if (isProd) {
+        return res.status(503).json({
+          success: false,
+          message: 'Gagal terhubung ke Database Supabase pada mode Production.',
+        });
+      }
+    }
+  }
+
+  if (!mitra && !isProd) {
+    mitra = mitras.find(
+      (m) => m.email.toLowerCase() === normalizedEmail || (m.memberCode && m.memberCode.toLowerCase() === normalizedEmail)
+    );
   }
 
   if (mitra) {
-    // 1. CEK STATUS VERIFIKASI EMAIL MITRA
     if (mitra.emailVerified === false) {
       return res.status(403).json({
         success: false,
@@ -1406,12 +1805,25 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       });
     }
 
-    const expectedPassword = userPasswords.get(mitra.email.toLowerCase()) || 'mitraND2026!';
-    const isPasswordValid = isProduction
-      ? password === expectedPassword
-      : (password === expectedPassword || password === 'mitraND2026!');
+    const mitraEmailLower = mitra.email.toLowerCase();
+    const storedCred = userPasswords.get(mitraEmailLower) || encryptUserPassword('mitraND2026!', 'mitra');
+    const verifyRes = verifyUserPassword(password, storedCred, 'mitra');
+    const isPasswordValid = isProd
+      ? verifyRes.valid
+      : (verifyRes.valid || password === 'mitraND2026!');
 
     if (isPasswordValid) {
+      if (verifyRes.needsUpgrade) {
+        const upgraded = encryptUserPassword(password, verifyRes.role || 'mitra');
+        userPasswords.set(mitraEmailLower, upgraded);
+        if (supabase) {
+          try {
+            await supabase.from('user_passwords').upsert([{ email: mitraEmailLower, password: upgraded }]);
+          } catch {}
+        }
+      }
+
+      const roleDef = getRoleDefinition(verifyRes.role || 'mitra');
       const resolvedGender = mitra.gender || inferGenderFromName(mitra.fullName);
       const resolvedAvatar = resolveAvatarUrl(mitra.avatarUrl, resolvedGender, mitra.fullName);
       mitra.gender = resolvedGender;
@@ -1425,7 +1837,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         actionType: 'login',
         operation: 'LOGIN',
         targetEntity: 'Autentikasi Mitra',
-        description: `Mitra ${mitra.fullName} (${mitra.memberCode}) berhasil login ke Portal Kemitraan.`,
+        description: `Mitra ${mitra.fullName} (${mitra.memberCode}) berhasil login ke Portal Kemitraan (Role: ${roleDef.code}).`,
       });
       saveDatabase();
 
@@ -1435,7 +1847,13 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           id: mitra.id,
           name: mitra.fullName,
           email: mitra.email,
-          role: 'mitra',
+          role: roleDef.portalView,
+          roleCode: roleDef.code,
+          roleName: roleDef.name,
+          portalView: roleDef.portalView,
+          defaultTab: roleDef.defaultTab,
+          allowedTabs: roleDef.allowedTabs,
+          permissions: roleDef.permissions,
           mitraId: mitra.id,
           referralCode: mitra.referralCode,
           gender: resolvedGender,
@@ -1449,7 +1867,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
   return res.status(404).json({
     success: false,
-    message: 'Akun tidak ditemukan. Pastikan email atau nomor keanggotaan sudah terdaftar.',
+    message: 'Akun tidak ditemukan di database Supabase. Pastikan email atau nomor keanggotaan sudah terdaftar.',
   });
 });
 
@@ -1457,13 +1875,20 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   const { email } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
 
+  if (supabase) {
+    try {
+      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
+
   const isAdmin = normalizedEmail === adminAccount.email.toLowerCase();
   const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
 
   if (!isAdmin && !mitra) {
     return res.status(404).json({
       success: false,
-      message: 'Email tidak terdaftar di sistem NDTAXANDLAW.',
+      message: 'Email tidak terdaftar di database sistem NDTAXANDLAW.',
     });
   }
 
@@ -1512,7 +1937,12 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
     passwordResetTokens.delete(normalizedEmail);
   }
 
-  userPasswords.set(normalizedEmail, newPassword);
+  const existingRole = normalizedEmail === adminAccount.email.toLowerCase()
+    ? 'admin'
+    : extractUserRole(userPasswords.get(normalizedEmail), 'mitra');
+  const encryptedPassword = encryptUserPassword(newPassword, existingRole);
+
+  userPasswords.set(normalizedEmail, encryptedPassword);
   const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
   recordActivity({
     actorRole: normalizedEmail === adminAccount.email.toLowerCase() ? 'admin' : 'mitra',
@@ -1522,13 +1952,13 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
     actionType: 'password_reset',
     operation: 'UPDATE',
     targetEntity: 'Keamanan Akun',
-    description: `Kata sandi untuk akun ${normalizedEmail} berhasil diperbarui.`,
+    description: `Kata sandi untuk akun ${normalizedEmail} berhasil diperbarui dan dienkripsi (scrypt + AES-256-GCM).`,
   });
   saveDatabase();
 
   if (supabase) {
     try {
-      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: newPassword }]);
+      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPassword }]);
     } catch (e) {
       console.warn('Supabase password reset update error', e);
     }
@@ -1536,7 +1966,7 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: 'Kata sandi Anda telah berhasil diubah. Silakan masuk menggunakan kata sandi baru.',
+    message: 'Kata sandi Anda telah berhasil diubah dan dienkripsi. Silakan masuk menggunakan kata sandi baru.',
   });
 });
 
@@ -1545,6 +1975,13 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
   const { email, token } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
   const inputToken = (token || '').trim();
+
+  if (supabase) {
+    try {
+      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
 
   const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
   if (!mitra) {
@@ -1602,6 +2039,13 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
   const { email } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
 
+  if (supabase) {
+    try {
+      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
+
   const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
   if (!mitra) {
     return res.status(404).json({ success: false, message: 'Akun mitra dengan email tersebut tidak ditemukan.' });
@@ -1657,26 +2101,45 @@ app.get('/api/mitra', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('mitras').select('*');
-      if (!error && data && data.length > 0) {
-        mitras = mergeMitraLists(data, mitras);
+      if (!error && Array.isArray(data)) {
+        // LANGSUNG gunakan data dari Supabase tanpa merge lokal, sehingga jika data dihapus di Supabase otomatis hilang saat refresh!
+        mitras = normalizeMitraAvatars(data);
         saveDatabase();
         return res.json({ success: true, data: mitras });
       }
-    } catch (e) {
-      console.warn('Supabase query error for mitras, using fallback', e);
+      if (isProductionMode() && error) {
+        return res.status(503).json({ success: false, message: `Supabase Error: ${error.message}`, data: [] });
+      }
+    } catch (e: any) {
+      if (isProductionMode()) {
+        return res.status(503).json({ success: false, message: 'Gagal memuat data mitra dari Supabase.', data: [] });
+      }
+      console.warn('Supabase query error for mitras, using dev fallback', e);
     }
+  } else if (isProductionMode()) {
+    return res.status(503).json({ success: false, message: 'Supabase wajib terhubung pada mode Production.', data: [] });
   }
   mitras = normalizeMitraAvatars(mitras);
   res.json({ success: true, data: mitras });
 });
 
 app.post('/api/mitra/register', async (req: Request, res: Response) => {
-  const { fullName, email, phone, nik, specialization, bankDetails, password, gender } = req.body;
+  const { fullName, email, phone, nik, specialization, bankDetails, password, gender, role } = req.body;
   if (!fullName || !email || !phone) {
     return res.status(400).json({ success: false, message: 'Nama lengkap, Email, dan No WhatsApp wajib diisi.' });
   }
 
   const normalizedEmail = (email || '').trim().toLowerCase();
+
+  // Sinkronkan daftar mitra dari Supabase terlebih dahulu agar validasi email unik selalu akurat
+  if (supabase) {
+    try {
+      const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+      if (!errM && Array.isArray(dbMitras)) {
+        mitras = normalizeMitraAvatars(dbMitras);
+      }
+    } catch {}
+  }
 
   // VALIDASI 1: EMAIL UNIQUE
   const existingMitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
@@ -1690,6 +2153,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
   const generatedReferralCode = `ND-REF-${Math.floor(1000 + Math.random() * 9000)}`;
   const resolvedGender: 'male' | 'female' = gender === 'female' ? 'female' : (gender === 'male' ? 'male' : inferGenderFromName(fullName));
+  const assignedRole = getRoleDefinition(role || 'mitra').code;
 
   const newMitra: Mitra = {
     id: `mitra-${Date.now()}`,
@@ -1722,11 +2186,8 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   mitras.unshift(newMitra);
 
-  if (password) {
-    userPasswords.set(normalizedEmail, password);
-  } else {
-    userPasswords.set(normalizedEmail, 'mitraND2026!');
-  }
+  const encryptedPass = encryptUserPassword(password || 'mitraND2026!', assignedRole);
+  userPasswords.set(normalizedEmail, encryptedPass);
 
   recordActivity({
     actorRole: 'mitra',
@@ -1736,10 +2197,8 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     actionType: 'register',
     operation: 'CREATE',
     targetEntity: 'Pendaftaran Mitra',
-    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}) dengan Spesialisasi Bisnis: ${newMitra.specialization}.`,
+    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan Spesialisasi Bisnis: ${newMitra.specialization}. Password dienkripsi (scrypt + AES-256-GCM).`,
   });
-
-  saveDatabase();
 
   if (supabase) {
     try {
@@ -1748,11 +2207,13 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
       if (insertErr) {
         console.warn('Supabase mitra insert warning:', insertErr.message);
       }
-      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: password || 'mitraND2026!' }]);
+      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPass }]);
     } catch (e) {
       console.warn('Supabase insert error for new mitra', e);
     }
   }
+
+  saveDatabase();
 
   const emailResult = await sendSystemEmail({
     recipient: normalizedEmail,
@@ -1771,6 +2232,12 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     isRead: false,
   };
   notifications.unshift(newNotif);
+
+  if (supabase) {
+    try {
+      await supabase.from('notifications').insert([newNotif]);
+    } catch {}
+  }
 
   saveDatabase();
 
@@ -1864,10 +2331,11 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   }
 
   if (newPassword && newPassword.length >= 6) {
-    userPasswords.set(mitra.email.toLowerCase(), newPassword);
+    const encryptedPwd = encryptUserPassword(newPassword, 'mitra');
+    userPasswords.set(mitra.email.toLowerCase(), encryptedPwd);
     if (supabase) {
       try {
-        await supabase.from('user_passwords').upsert([{ email: mitra.email.toLowerCase(), password: newPassword }]);
+        await supabase.from('user_passwords').upsert([{ email: mitra.email.toLowerCase(), password: encryptedPwd }]);
       } catch {}
     }
   }
@@ -1909,13 +2377,17 @@ app.get('/api/marketing-tools', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('marketing_tools').select('*');
-      if (!error && data && data.length > 0) {
+      if (!error && Array.isArray(data)) {
         marketingTools = data;
-        return res.json({ success: true, data });
+        saveDatabase();
+        return res.json({ success: true, data: marketingTools });
       }
     } catch (e) {
       console.warn('Supabase tools error', e);
     }
+  }
+  if (isProductionMode() && !supabase) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
   }
   res.json({ success: true, data: marketingTools });
 });
@@ -2021,15 +2493,22 @@ app.get('/api/commissions', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      const query = supabase.from('commissions').select('*');
-      if (mitraId) query.eq('mitraId', mitraId);
-      const { data, error } = await query;
-      if (!error && data && data.length > 0) {
-        return res.json({ success: true, data });
+      const { data, error } = await supabase.from('commissions').select('*');
+      if (!error && Array.isArray(data)) {
+        commissions = data;
+        saveDatabase();
+        if (mitraId) {
+          return res.json({ success: true, data: commissions.filter((c) => c.mitraId === mitraId) });
+        }
+        return res.json({ success: true, data: commissions });
       }
     } catch (e) {
       console.warn('Supabase commissions query error', e);
     }
+  }
+
+  if (isProductionMode() && !supabase) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
   }
 
   if (mitraId) {
@@ -2126,8 +2605,22 @@ app.post('/api/commissions/payout', async (req: Request, res: Response) => {
 // ========================================================
 // 3.5 DYNAMIC SERVICES ENDPOINTS (ADMIN CONTROLLED)
 // ========================================================
-app.get('/api/services', (req: Request, res: Response) => {
+app.get('/api/services', async (req: Request, res: Response) => {
   const { all } = req.query;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('services').select('*');
+      if (!error && Array.isArray(data)) {
+        services = data;
+        saveDatabase();
+      }
+    } catch (e) {
+      console.warn('Supabase services query error', e);
+    }
+  } else if (isProductionMode()) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  }
+
   if (all === 'true') {
     return res.json({ success: true, data: services });
   }
@@ -2179,6 +2672,7 @@ app.post('/api/services', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('services').insert([newService]);
+      await supabase.from('notifications').insert([notif]);
     } catch (e) {
       console.warn('Supabase insert service error', e);
     }
@@ -2260,8 +2754,22 @@ app.delete('/api/services/:id', async (req: Request, res: Response) => {
 // ========================================================
 // 3.6 CLIENT DEALS & REFERRAL TRACKING ENDPOINTS
 // ========================================================
-app.get('/api/clients', (req: Request, res: Response) => {
+app.get('/api/clients', async (req: Request, res: Response) => {
   const { mitraId, referralCode } = req.query;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('client_deals').select('*');
+      if (!error && Array.isArray(data)) {
+        clientDeals = data.map((row: any) => fromSupabaseClientDeal(row));
+        saveDatabase();
+      }
+    } catch (e) {
+      console.warn('Supabase client_deals query error', e);
+    }
+  } else if (isProductionMode()) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  }
+
   let filtered = [...clientDeals];
   if (mitraId) {
     filtered = filtered.filter((d) => d.mitraId === mitraId);
@@ -2366,7 +2874,8 @@ app.post('/api/clients', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('client_deals').insert([newDeal]);
+      await supabase.from('client_deals').insert([toSupabaseClientDeal(newDeal)]);
+      await supabase.from('notifications').insert([notif]);
     } catch (e) {
       console.warn('Supabase client deal insert error', e);
     }
@@ -2478,13 +2987,9 @@ app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('client_deals').update({
-        status: approvedStatus,
-        recurringPaidMonths: deal.recurringPaidMonths,
-        recurringPaidYears: deal.recurringPaidYears,
-      }).eq('id', id);
-
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
       await supabase.from('commissions').insert([newCommTrx]);
+      await supabase.from('notifications').insert([notif]);
 
       if (mitra) {
         await supabase.from('mitras').update({
@@ -2545,10 +3050,8 @@ app.put('/api/clients/:id/reject', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('client_deals').update({
-        status: 'rejected',
-        notes: deal.notes ? `${deal.notes} | [Ditolak/Tidak Deal: ${deal.rejectionReason}]` : `[Ditolak/Tidak Deal: ${deal.rejectionReason}]`,
-      }).eq('id', id);
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from('notifications').insert([notif]);
     } catch (e) {
       console.warn('Supabase reject client error', e);
     }
@@ -2562,7 +3065,7 @@ app.put('/api/clients/:id/reject', async (req: Request, res: Response) => {
 });
 
 // Admin triggers or marks subscription billing time as arrived (Waktu Pembayaran Tiba)
-app.put('/api/clients/:id/trigger-billing-due', (req: Request, res: Response) => {
+app.put('/api/clients/:id/trigger-billing-due', async (req: Request, res: Response) => {
   const { id } = req.params;
   const deal = clientDeals.find((d) => d.id === id);
 
@@ -2576,6 +3079,14 @@ app.put('/api/clients/:id/trigger-billing-due', (req: Request, res: Response) =>
 
   deal.isBillingDue = true;
   saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+    } catch (e) {
+      console.warn('Supabase trigger-billing-due error', e);
+    }
+  }
 
   res.json({
     success: true,
@@ -2673,6 +3184,22 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
 
   saveDatabase();
 
+  if (supabase) {
+    try {
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from('commissions').insert([newCommTrx]);
+      await supabase.from('notifications').insert([notif]);
+      if (mitra) {
+        await supabase.from('mitras').update({
+          totalCommission: mitra.totalCommission,
+          pendingPayout: mitra.pendingPayout,
+        }).eq('id', mitra.id);
+      }
+    } catch (e) {
+      console.warn('Supabase bill-cycle error', e);
+    }
+  }
+
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
 
@@ -2725,10 +3252,8 @@ app.put('/api/clients/:id/terminate', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('client_deals').update({
-        status: 'cancelled',
-        notes: deal.notes ? `${deal.notes} | [Diputus ${deal.terminatedAt}: ${deal.terminationReason}]` : `[Diputus ${deal.terminatedAt}: ${deal.terminationReason}]`,
-      }).eq('id', id);
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from('notifications').insert([notif]);
 
       if (mitra) {
         await supabase.from('mitras').update({
@@ -2747,7 +3272,7 @@ app.put('/api/clients/:id/terminate', async (req: Request, res: Response) => {
   });
 });
 
-app.put('/api/clients/:id/status', (req: Request, res: Response) => {
+app.put('/api/clients/:id/status', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status, recurringPaidMonths, recurringPaidYears } = req.body;
   const deal = clientDeals.find((d) => d.id === id);
@@ -2785,14 +3310,41 @@ app.put('/api/clients/:id/status', (req: Request, res: Response) => {
 
   saveDatabase();
 
+  if (supabase) {
+    try {
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      if (mitra) {
+        await supabase.from('mitras').update({
+          activeSubscribersCount: mitra.activeSubscribersCount,
+        }).eq('id', mitra.id);
+      }
+    } catch (e) {
+      console.warn('Supabase update client status error', e);
+    }
+  }
+
   res.json({ success: true, data: deal });
 });
 
 // ========================================================
 // 3.7 PAYOUT REQUESTS MANAGEMENT ENDPOINTS
 // ========================================================
-app.get('/api/commissions/payout-requests', (req: Request, res: Response) => {
+app.get('/api/commissions/payout-requests', async (req: Request, res: Response) => {
   const { mitraId } = req.query;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('payout_requests').select('*');
+      if (!error && Array.isArray(data)) {
+        payoutRequests = data;
+        saveDatabase();
+      }
+    } catch (e) {
+      console.warn('Supabase payout_requests query error', e);
+    }
+  } else if (isProductionMode()) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  }
+
   if (mitraId) {
     return res.json({ success: true, data: payoutRequests.filter((p) => p.mitraId === mitraId) });
   }
@@ -2848,13 +3400,14 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
   }
 
   let remainingToMarkPaid = payout.amount;
+  const paidCommissionIds: string[] = [];
   for (const c of commissions) {
     if (c.mitraId === payout.mitraId && c.status !== 'paid' && remainingToMarkPaid > 0) {
       c.status = 'paid';
       remainingToMarkPaid -= c.commissionAmount;
+      paidCommissionIds.push(c.id);
     }
   }
-  const commTrx = commissions.find((c) => c.mitraId === payout.mitraId && c.status === 'paid');
 
   recordActivity({
     actorRole: 'admin',
@@ -2892,14 +3445,15 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
   if (supabase) {
     try {
       await supabase.from('payout_requests').upsert([payout]);
+      await supabase.from('notifications').insert([notif]);
       if (mitra) {
         await supabase.from('mitras').update({
           pendingPayout: mitra.pendingPayout,
           paidPayout: mitra.paidPayout,
         }).eq('id', payout.mitraId);
       }
-      if (commTrx) {
-        await supabase.from('commissions').update({ status: 'paid' }).eq('id', commTrx.id);
+      for (const commId of paidCommissionIds) {
+        await supabase.from('commissions').update({ status: 'paid' }).eq('id', commId);
       }
     } catch (e) {
       console.warn('Supabase payout approve error', e);
@@ -2912,13 +3466,37 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
 // ========================================================
 // 3.8 APPLICATION SETTINGS & LOGS ENDPOINTS
 // ========================================================
-app.get('/api/settings', (req: Request, res: Response) => {
-  res.json({ success: true, data: appSettings });
+app.get('/api/settings', async (req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      const { data: settingsData, error } = await supabase
+        .from('app_settings')
+        .select('*')
+        .eq('id', 'config_primary')
+        .maybeSingle();
+      if (!error && settingsData && settingsData.settings) {
+        const { roles: storedRoles, ...restSettings } = settingsData.settings;
+        appSettings = { ...appSettings, ...restSettings };
+        if (Array.isArray(storedRoles) && storedRoles.length > 0) {
+          systemRoles = storedRoles;
+        }
+      }
+    } catch (e) {
+      console.warn('Supabase settings query error', e);
+    }
+  }
+  res.json({ success: true, data: appSettings, roles: systemRoles });
 });
 
 app.put('/api/settings', async (req: Request, res: Response) => {
   const updates = req.body;
+  const previousEnv = appSettings.appEnvironment;
   appSettings = { ...appSettings, ...updates };
+
+  // Jika beralih ke mode production, langsung sinkronkan penuh dari Supabase (tanpa dummy lokal)
+  if (previousEnv !== 'production' && appSettings.appEnvironment === 'production' && supabase) {
+    await syncFromSupabase();
+  }
 
   recordActivity({
     actorRole: 'admin',
@@ -2946,8 +3524,9 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('app_settings').upsert([
-        { id: 'config_primary', settings: appSettings, updated_at: new Date().toISOString() },
+        { id: 'config_primary', settings: { ...appSettings, roles: systemRoles }, updated_at: new Date().toISOString() },
       ]);
+      await supabase.from('notifications').insert([notif]);
     } catch (e) {
       console.warn('Supabase settings upsert error', e);
     }
@@ -3055,18 +3634,30 @@ app.get('/api/notifications', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
-      if (!error && data && data.length > 0) {
-        return res.json({ success: true, data });
+      if (!error && Array.isArray(data)) {
+        notifications = data;
+        saveDatabase();
+        return res.json({ success: true, data: notifications });
       }
     } catch (e) {
       console.warn('Supabase notifications query error', e);
     }
   }
+  if (isProductionMode() && !supabase) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  }
   res.json({ success: true, data: notifications });
 });
 
-app.post('/api/notifications/read-all', (req: Request, res: Response) => {
+app.post('/api/notifications/read-all', async (req: Request, res: Response) => {
   notifications = notifications.map((n) => ({ ...n, isRead: true }));
+  if (supabase) {
+    try {
+      await supabase.from('notifications').update({ isRead: true }).neq('isRead', true);
+    } catch (e) {
+      console.warn('Supabase mark read notifications error', e);
+    }
+  }
   saveDatabase();
   res.json({ success: true, data: notifications });
 });
@@ -3074,17 +3665,26 @@ app.post('/api/notifications/read-all', (req: Request, res: Response) => {
 // ========================================================
 // 5. ANALYTICS & AI ENDPOINTS
 // ========================================================
-app.get('/api/analytics/monthly', (req: Request, res: Response) => {
+app.get('/api/analytics/monthly', async (req: Request, res: Response) => {
+  if (supabase) {
+    await syncFromSupabase();
+  }
+  const activeDeals = clientDeals.filter((d) => d.status === 'active_subscription' || d.status === 'deal_closed');
+  const totalSalesFromDeals = activeDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+  const totalPaidCommissions = mitras.reduce((sum, m) => sum + (Number(m.paidPayout) || 0) + (Number(m.pendingPayout) || 0), 0);
+  const verifiedMitraCount = mitras.filter((m) => m.status === 'verified').length;
+  const avgTicket = activeDeals.length > 0 ? Math.round(totalSalesFromDeals / activeDeals.length) : 0;
+
   res.json({
     success: true,
     data: {
       salesHistory: monthlySalesHistory,
       summary: {
-        currentMonthSales: 430000000,
-        currentMonthDeals: 21,
-        activeMitraCount: mitras.filter((m) => m.status === 'verified').length,
-        totalCommissionsPaid: 398000000,
-        averageDealTicket: 20476190,
+        currentMonthSales: totalSalesFromDeals,
+        currentMonthDeals: activeDeals.length,
+        activeMitraCount: verifiedMitraCount,
+        totalCommissionsPaid: totalPaidCommissions,
+        averageDealTicket: avgTicket,
       },
     },
   });
@@ -3144,30 +3744,33 @@ Gunakan bahasa Indonesia formal, berwibawa, analitis, dan berorientasi hasil. Se
       model: 'gemini-3.8-flash',
     });
   } catch (error: any) {
+    const activeDealsCount = clientDeals.filter((d) => d.status === 'active_subscription' || d.status === 'deal_closed').length;
+    const activeDealsValue = clientDeals
+      .filter((d) => d.status === 'active_subscription' || d.status === 'deal_closed')
+      .reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+    const totalMitraCommissions = mitras.reduce((sum, m) => sum + (Number(m.totalCommission) || 0), 0);
+
     const fallbackReport = `### Executive Performance Summary - NDTAXANDLAW (November 2026)
 
-Berdasarkan konsolidasi metrik operasional NDTAXANDLAW pada periode **November 2026**, performa kemitraan menunjukkan trajektori ekspansi yang solid dengan total transaksi berjalan mencapai **Rp 430.000.000** dari 21 penutupan deal legalitas dan kepatuhan perpajakan.
+Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database Supabase pada periode **November 2026**, performa kemitraan mencatat total transaksi aktif mencapai **Rp ${activeDealsValue.toLocaleString('id-ID')}** dari **${activeDealsCount} kontrak aktif** dan **${mitras.length} mitra terdaftar**.
 
 #### 1. Analisis Tren Penjualan & Pertumbuhan Mitra
-- **Pertumbuhan Jaringan**: Basis mitra konsultan aktif meningkat secara konsisten dari 18 mitra pada Juni 2026 menjadi 48 mitra pada November 2026 (+166% pertumbuhan 5 bulan).
-- **Layanan Unggulan**: Portofolio dengan kontribusi omset tertinggi didominasi oleh *Corporate Tax Compliance & Transfer Pricing Documentation* (38%) serta *Pendirian PT PMA & Perizinan Khusus OSS-RBA* (32%).
-- **Rata-rata Nilai Transaksi (Ticket Size)**: Berada pada angka Rp 20.476.000 per kontrak kerja sama.
+- **Jaringan Mitra Terdaftar**: Terdapat ${mitras.filter((m) => m.status === 'verified').length} mitra terverifikasi dan ${mitras.filter((m) => m.status === 'pending').length} calon mitra yang sedang dalam tahap verifikasi.
+- **Layanan Unggulan**: Portofolio layanan perpajakan korporasi, pembukuan, dan kepatuhan SPT tetap menjadi pendorong utama komisi mitra.
 
 #### 2. Evaluasi Distribusi Komisi & Likuiditas Mitra
-- Akumulasi komisi yang telah disalurkan kepada mitra mencapai **Rp 398.000.000**, dengan tingkat pencairan rekening bank tercatat aman tanpa kendala administratif.
-- Mitra berkinerja unggul berhasil membukukan rata-rata komisi di atas Rp 30.000.000 per kuartal, membuktikan efektivitas kartu identitas eksklusif NDTAXANDLAW dalam meningkatkan *closing rate* di hadapan dewan direksi klien.
+- Total akumulasi komisi mitra tercatat sebesar **Rp ${totalMitraCommissions.toLocaleString('id-ID')}**.
 
 #### 3. Rekomendasi Aksi Strategis 30 Hari Kedepan
 1. **Intensifikasi Kampanye Akhir Tahun (Tax Year-End Closing)**: Distribusikan materi tools marketing bertema persiapan SPT Tahunan Badan dan review risiko SP2DK melalui katalog digital.
-2. **Percepatan Verifikasi Mitra Baru**: Tuntaskan proses verifikasi administrasi calon mitra yang berstatus *Pending Review* dalam tempo 1x24 jam untuk memaksimalkan penetrasi pasar daerah.
-3. **Pemberian Insentif Bonus Tier 2**: Terapkan bonus akselerasi 5% tambahan untuk mitra yang mampu mengamankan kontrak *retainer* hukum di atas 12 bulan.`;
+2. **Percepatan Verifikasi Mitra & Review Klien**: Tuntaskan proses review klien berstatus *Sedang Ditinjau Admin* dalam tempo 1x24 jam.`;
 
     res.json({
       success: true,
       report: fallbackReport,
       isFallback: true,
       generatedAt: new Date().toISOString(),
-      note: 'Menggunakan analisis cerdas berbasis rule engine NDTAXANDLAW.',
+      note: 'Menggunakan analisis cerdas berbasis data riil database Supabase NDTAXANDLAW.',
     });
   }
 });
@@ -3182,6 +3785,10 @@ app.get('/api/system/supabase-status', async (req: Request, res: Response) => {
       ...config,
       ...test,
       appEnvironment: appSettings.appEnvironment,
+      strictSupabaseOnly: isProductionMode(),
+      passwordEncryption: 'SCRYPT + AES-256-GCM (ndenc$v2)',
+      activeRolesCount: systemRoles.filter((r) => r.isActive).length,
+      totalRolesCount: systemRoles.length,
     },
   });
 });
@@ -3195,6 +3802,26 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
   }
 
   try {
+    const direction = req.body?.direction || (isProductionMode() ? 'pull' : 'push');
+
+    // Dalam mode Production, sinkronisasi menarik (pull) data murni dari Supabase agar penghapusan/perubahan di Supabase langsung tercermin
+    if (direction === 'pull' || isProductionMode()) {
+      await syncFromSupabase();
+      return res.json({
+        success: true,
+        message: 'Data aplikasi berhasil disinkronkan langsung dari database Supabase (Mode Production Strict)!',
+        summary: {
+          mitras: mitras.length,
+          services: services.length,
+          clientDeals: clientDeals.length,
+          marketingTools: marketingTools.length,
+          commissions: commissions.length,
+          payoutRequests: payoutRequests.length,
+          notifications: notifications.length,
+        },
+      });
+    }
+
     const summary = {
       mitras: 0,
       services: 0,
@@ -3217,7 +3844,8 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
     }
 
     if (clientDeals.length > 0) {
-      const { error: errD } = await supabase.from('client_deals').upsert(clientDeals);
+      const cleanDeals = clientDeals.map((d) => toSupabaseClientDeal(d));
+      const { error: errD } = await supabase.from('client_deals').upsert(cleanDeals);
       if (!errD) summary.clientDeals = clientDeals.length;
       else console.warn('Supabase sync deals warning:', errD.message);
     }
