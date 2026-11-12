@@ -12,26 +12,32 @@ import {
   Sparkles,
   ExternalLink,
   X,
-  Check
+  Check,
+  Camera
 } from 'lucide-react';
 import { Mitra } from '../types';
 
 interface ExclusiveIdCardProps {
   mitra: Mitra;
   onEditProfile: () => void;
+  onUpdateProfile?: (id: string, data: Partial<Mitra>) => Promise<void>;
   onOpenClientSelfRegister?: (refCode: string) => void;
 }
 
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   mitra,
   onEditProfile,
+  onUpdateProfile,
   onOpenClientSelfRegister,
 }) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [showDualSidedModal, setShowDualSidedModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoSuccessMessage, setPhotoSuccessMessage] = useState<string | null>(null);
 
   const handleDownload = () => {
     setShowDualSidedModal(true);
@@ -39,6 +45,55 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
   const handlePrint = () => {
     setShowDualSidedModal(true);
+  };
+
+  const handleDirectPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onUpdateProfile) return;
+    setIsUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 360;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          try {
+            await onUpdateProfile(mitra.id, { avatarUrl: compressedDataUrl });
+            setPhotoSuccessMessage('Foto profil berhasil diperbarui!');
+            setTimeout(() => setPhotoSuccessMessage(null), 3000);
+          } finally {
+            setIsUploadingPhoto(false);
+          }
+        } else {
+          setIsUploadingPhoto(false);
+        }
+      };
+      if (typeof reader.result === 'string') {
+        img.src = reader.result;
+      } else {
+        setIsUploadingPhoto(false);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const clientSelfRegisterLink = typeof window !== 'undefined'
@@ -56,43 +111,18 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   return (
     <div className="max-w-4xl mx-auto py-6 px-4">
       {/* Header and status banner */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 font-display">
-              Kartu Identitas Eksklusif Mitra
-            </h1>
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 border border-blue-200">
-              Official Credential
-            </span>
-          </div>
-          <p className="text-sm text-slate-600 mt-1">
-            Kartu digital resmi NDTAXANDLAW yang diakui untuk representasi hukum, pajak, dan pitching klien korporasi.
-          </p>
+      <div className="mb-6">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-900 font-display">
+            Kartu Identitas Eksklusif Mitra
+          </h1>
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 border border-blue-200">
+            Official Credential
+          </span>
         </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => setIsFlipped(!isFlipped)}
-            className="px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-xs"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-            <span>{isFlipped ? 'Lihat Sisi Depan' : 'Lihat Sisi Belakang'}</span>
-          </button>
-          <button
-            onClick={() => setShowDualSidedModal(true)}
-            disabled={!isVerified}
-            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs ${
-              isVerified
-                ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold'
-                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-            }`}
-            title="Download / Cetak Kartu Tampak Depan & Belakang Sekaligus"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Cetak Depan &amp; Belakang</span>
-          </button>
-        </div>
+        <p className="text-sm text-slate-600 mt-1">
+          Kartu digital resmi NDTAXANDLAW yang diakui untuk representasi hukum, pajak, dan pitching klien korporasi.
+        </p>
       </div>
 
       {/* Pending status warning */}
@@ -108,7 +138,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               onClick={onEditProfile}
               className="mt-2 text-xs font-semibold text-amber-900 underline hover:text-amber-950"
             >
-              Pastikan kelengkapan data diri &amp; rekening bank pencairan di sini &rarr;
+              Pastikan kelengkapan data diri, foto profil &amp; rekening bank pencairan di sini &rarr;
             </button>
           </div>
         </div>
@@ -134,11 +164,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 type="button"
                 onClick={() => {
                   navigator.clipboard.writeText(mitra.referralCode || 'ND-REF-0042');
-                  alert(`Kode referral ${mitra.referralCode || 'ND-REF-0042'} berhasil disalin ke clipboard!`);
+                  setCopiedCode(true);
+                  setTimeout(() => setCopiedCode(false), 2500);
                 }}
                 className="px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors border border-white/20"
               >
-                Salin Kode
+                {copiedCode ? '✓ Kode Disalin!' : 'Salin Kode'}
               </button>
               <a
                 href={`https://wa.me/?text=Halo,%20saya%20merekomendasikan%20layanan%20jasa%20keuangan%20dan%20laporan%20pajak%20terpercaya%20dari%20NDTAXANDLAW.%20Gunakan%20kode%20referral%20saya%20${mitra.referralCode || 'ND-REF-0042'}%20untuk%20konsultasi%20resmi.`}
@@ -155,7 +186,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
           <div className="flex items-center gap-3 pt-2 md:pt-0 border-t md:border-t-0 md:border-l border-white/10 md:pl-5">
             <div className="text-center px-2">
               <div className="text-xl font-bold font-mono text-white">
-                {mitra.referredClientsCount ?? 8}
+                {mitra.referredClientsCount ?? 0}
               </div>
               <div className="text-[10px] text-blue-200 uppercase font-semibold">
                 Klien Terdaftar
@@ -164,7 +195,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             <div className="h-8 w-px bg-white/15"></div>
             <div className="text-center px-2">
               <div className="text-xl font-bold font-mono text-emerald-400">
-                {mitra.activeSubscribersCount ?? 3}
+                {mitra.activeSubscribersCount ?? 0}
               </div>
               <div className="text-[10px] text-emerald-200 uppercase font-semibold">
                 Langganan Aktif
@@ -211,13 +242,63 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
           </div>
           <div className="flex items-start gap-2">
             <span className="text-emerald-400 font-bold shrink-0">🔄 Langganan Bulanan:</span>
-            <span>Mitra menerima komisi pasif rutin setiap bulan selama klien tetap aktif berlangganan jasa akuntansi & pajak.</span>
+            <span>Mitra menerima komisi pasif rutin setiap bulan selama klien tetap aktif berlangganan jasa akuntansi &amp; pajak.</span>
           </div>
         </div>
       </div>
 
-      {/* ID Card Presentation Area */}
+      {/* ID Card Presentation Area + Action Toolbar Right Around the Card */}
       <div className="flex flex-col items-center justify-center py-4">
+        {/* Card Controls Toolbar (Berada Tepat di Sekitaran Kartu) */}
+        <div className="w-full max-w-[520px] mb-3 flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsFlipped(!isFlipped)}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 shadow-2xs"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-blue-700" />
+              <span>{isFlipped ? 'Lihat Sisi Depan' : 'Lihat Sisi Belakang'}</span>
+            </button>
+
+            {onUpdateProfile && (
+              <label className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs">
+                <Camera className="w-3.5 h-3.5" />
+                <span>{isUploadingPhoto ? 'Mengunggah...' : 'Upload Foto Profil'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleDirectPhotoUpload}
+                  disabled={isUploadingPhoto}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowDualSidedModal(true)}
+            disabled={!isVerified}
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs ${
+              isVerified
+                ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold'
+                : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+            }`}
+            title="Download / Cetak Kartu Tampak Depan & Belakang Sekaligus"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Cetak Depan &amp; Belakang</span>
+          </button>
+        </div>
+
+        {photoSuccessMessage && (
+          <div className="w-full max-w-[520px] mb-3 p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{photoSuccessMessage}</span>
+          </div>
+        )}
+
         <div 
           className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden transition-all duration-500 shadow-xl select-none"
           style={{

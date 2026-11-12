@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, 
   Lock, 
@@ -15,7 +15,8 @@ import {
   Eye,
   EyeOff,
   UserCheck,
-  Check
+  Check,
+  Camera
 } from 'lucide-react';
 import { AuthUser, BankDetails } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
@@ -34,14 +35,20 @@ interface AuthViewProps {
     avatarUrl?: string;
   }) => Promise<void>;
   appEnvironment?: 'development' | 'production';
+  initialMode?: 'login' | 'register';
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
   onLoginSuccess,
   onRegisterSubmit,
   appEnvironment = 'development',
+  initialMode = 'login',
 }) => {
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'verify'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'verify'>(initialMode);
+
+  useEffect(() => {
+    setAuthMode(initialMode);
+  }, [initialMode]);
   
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -66,6 +73,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regNik, setRegNik] = useState('');
   const [regGender, setRegGender] = useState<'male' | 'female'>('male');
+  const [regCustomAvatarUrl, setRegCustomAvatarUrl] = useState<string>('');
   const [regSpecialization, setRegSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
   const [regBankName, setRegBankName] = useState('Bank Central Asia (BCA)');
   const [regAccountNumber, setRegAccountNumber] = useState('');
@@ -73,6 +81,44 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regSuccessMessage, setRegSuccessMessage] = useState<string | null>(null);
+
+  const handleRegPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 320;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          setRegCustomAvatarUrl(compressed);
+        }
+      };
+      if (typeof reader.result === 'string') {
+        img.src = reader.result;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Forgot Password States
   const [forgotEmail, setForgotEmail] = useState('');
@@ -158,7 +204,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         nik: regNik || '3201000000000000',
         specialization: regSpecialization,
         gender: regGender,
-        avatarUrl: getDefaultAvatar(regGender),
+        avatarUrl: regCustomAvatarUrl || getDefaultAvatar(regGender),
         bankDetails: {
           bankName: regBankName,
           accountNumber: regAccountNumber,
@@ -169,7 +215,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
       setVerifyEmail(regEmail);
       setVerifyToken('');
-      setVerifySuccess('Pendaftaran berhasil! Kode verifikasi 6-digit telah dikirimkan ke email Anda. Silakan masukkan kode dari email Anda di bawah untuk mengaktifkan akun.');
+      setVerifyError(null);
+      setResendMessage(null);
+      setVerifySuccess(null);
       setAuthMode('verify');
     } catch (err: any) {
       setLoginError(err.message || 'Gagal mengirim pendaftaran.');
@@ -691,17 +739,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                 </div>
 
-                {/* Gender / Default Avatar Selector */}
+                {/* Gender / Default Avatar Selector + Custom Photo Upload */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Pilih Jenis Kelamin &amp; Foto Profil Default (Avatar)
+                    Pilih Jenis Kelamin &amp; Foto Profil Mitra
                   </label>
                   <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       onClick={() => setRegGender('male')}
                       className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
-                        regGender === 'male'
+                        regGender === 'male' && !regCustomAvatarUrl
                           ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
@@ -709,14 +757,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <img src={MALE_AVATAR_URL} alt="Avatar Laki-laki" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
                       <div>
                         <p className="text-xs font-bold text-slate-900">Laki-laki</p>
-                        <p className="text-[10px] text-slate-500">Avatar Laki-laki</p>
+                        <p className="text-[10px] text-slate-500">Avatar Default</p>
                       </div>
                     </button>
                     <button
                       type="button"
                       onClick={() => setRegGender('female')}
                       className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
-                        regGender === 'female'
+                        regGender === 'female' && !regCustomAvatarUrl
                           ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
@@ -724,9 +772,48 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <img src={FEMALE_AVATAR_URL} alt="Avatar Perempuan" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
                       <div>
                         <p className="text-xs font-bold text-slate-900">Perempuan</p>
-                        <p className="text-[10px] text-slate-500">Avatar Perempuan</p>
+                        <p className="text-[10px] text-slate-500">Avatar Default</p>
                       </div>
                     </button>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={regCustomAvatarUrl || getDefaultAvatar(regGender)}
+                        alt="Pratinjau Foto"
+                        className="w-9 h-9 rounded-full object-cover border border-blue-300 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-slate-800 truncate">
+                          {regCustomAvatarUrl ? 'Foto Profil Kustom Terpilih' : 'Upload Foto Profil Resmi (Opsional)'}
+                        </p>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          Akan tampil pada Kartu Identitas Mitra
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {regCustomAvatarUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setRegCustomAvatarUrl('')}
+                          className="px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 rounded-md"
+                        >
+                          Reset
+                        </button>
+                      )}
+                      <label className="px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer flex items-center gap-1">
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Upload Foto</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleRegPhotoUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -938,44 +1025,51 @@ export const AuthView: React.FC<AuthViewProps> = ({
               </div>
             )}
 
-            {/* 4. EMAIL VERIFICATION FORM */}
+            {/* 4. EMAIL VERIFICATION FORM (1 Notifikasi Terpadu & Jelas) */}
             {authMode === 'verify' && (
               <div className="space-y-4">
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900">
+                <div
+                  className={`p-4 rounded-2xl border text-xs ${
+                    verifySuccess
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : verifyError
+                        ? 'bg-red-50 border-red-200 text-red-900'
+                        : 'bg-blue-50/80 border-blue-200 text-blue-950'
+                  }`}
+                >
                   <div className="flex items-start gap-2.5">
-                    <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                    {verifySuccess ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : verifyError ? (
+                      <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
+                    )}
                     <div>
-                      <p className="font-bold text-amber-900 text-sm">Verifikasi Email Akun Mitra</p>
-                      <p className="mt-1 text-amber-800 text-xs leading-relaxed">
-                        Sebelum dapat masuk, Anda diwajibkan melakukan verifikasi email. Kode verifikasi 6-digit telah dikirimkan ke alamat email:
+                      <p className="font-bold text-sm">
+                        {verifySuccess
+                          ? 'Verifikasi Email Berhasil'
+                          : verifyError
+                            ? 'Perhatian Verifikasi Email'
+                            : 'Verifikasi Email Akun Mitra'}
                       </p>
-                      <p className="font-mono font-bold text-amber-950 bg-white/70 px-2 py-1 rounded border border-amber-300 inline-block mt-1.5">
-                        {verifyEmail || 'Email Terdaftar'}
+                      <p className="mt-1 text-xs leading-relaxed">
+                        {verifySuccess
+                          ? verifySuccess
+                          : verifyError
+                            ? verifyError
+                            : resendMessage
+                              ? resendMessage
+                              : 'Pendaftaran berhasil disimpan! Kami telah mengirimkan kode OTP 6-digit ke alamat email di bawah ini. Silakan masukkan kode tersebut untuk mengaktifkan akun Anda:'}
                       </p>
+                      {verifyEmail && (
+                        <p className="font-mono font-bold bg-white/90 px-2.5 py-1 rounded-lg border border-slate-300 text-slate-900 inline-block mt-2">
+                          {verifyEmail}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
-
-                {verifySuccess && (
-                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="font-medium leading-relaxed">{verifySuccess}</span>
-                  </div>
-                )}
-
-                {verifyError && (
-                  <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                    <span className="leading-relaxed">{verifyError}</span>
-                  </div>
-                )}
-
-                {resendMessage && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs flex items-center gap-2">
-                    <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>{resendMessage}</span>
-                  </div>
-                )}
 
                 <form onSubmit={handleVerifyEmailSubmit} className="space-y-4 pt-1">
                   <div>

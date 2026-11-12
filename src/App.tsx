@@ -62,6 +62,7 @@ export default function App() {
   });
 
   const [clientRefCode, setClientRefCode] = useState<string | null>(null);
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
 
   const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>(() => {
     try {
@@ -335,6 +336,18 @@ export default function App() {
       const data = await res.json();
       if (data.success && data.data) {
         setMitras((prev) => prev.map((m) => (m.id === id ? data.data : m)));
+        if (currentUser && (currentUser.mitraId === id || currentUser.id === id)) {
+          const updatedUser: AuthUser = {
+            ...currentUser,
+            name: data.data.fullName || currentUser.name,
+            avatarUrl: data.data.avatarUrl || currentUser.avatarUrl,
+            gender: data.data.gender || currentUser.gender,
+          };
+          setCurrentUser(updatedUser);
+          try {
+            localStorage.setItem('nd_auth_user', JSON.stringify(updatedUser));
+          } catch {}
+        }
       }
     } catch (err) {
       console.error(err);
@@ -448,10 +461,18 @@ export default function App() {
             if (currentUser) {
               setViewMode('portal');
             } else {
+              setAuthInitialMode('login');
               setViewMode('auth');
             }
           }}
-          onOpenRegister={() => setIsRegisterOpen(true)}
+          onOpenRegister={() => {
+            if (currentUser) {
+              setViewMode('portal');
+            } else {
+              setAuthInitialMode('register');
+              setViewMode('auth');
+            }
+          }}
           onOpenClientRegister={() => setViewMode('client_register')}
         />
 
@@ -505,6 +526,7 @@ export default function App() {
             await handleRegisterMitra(formData);
           }}
           appEnvironment={settings?.appEnvironment || 'development'}
+          initialMode={authInitialMode}
         />
 
         <RegistrationModal
@@ -557,18 +579,8 @@ export default function App() {
               </span>
             </div>
 
-            {/* Mitra Action Bar (No switcher to other Mitra accounts) */}
-            {currentRole === 'mitra' ? (
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsClientModalOpen(true)}
-                  className="px-2.5 py-1 bg-amber-400 text-slate-950 font-bold rounded-md hover:bg-amber-300 transition-colors shadow-xs flex items-center gap-1.5 text-[11px] sm:text-xs"
-                >
-                  <span>+ Input Klien Baru</span>
-                </button>
-              </div>
-            ) : (
+            {/* Admin Action Bar */}
+            {currentRole === 'admin' && (
               <div className="flex items-center gap-2.5 shrink-0">
                 <button
                   type="button"
@@ -617,6 +629,7 @@ export default function App() {
               <ExclusiveIdCard
                 mitra={activeMitra}
                 onEditProfile={() => setIsProfileOpen(true)}
+                onUpdateProfile={handleUpdateProfile}
                 onOpenClientSelfRegister={(refCode) => {
                   setClientRefCode(refCode);
                   setViewMode('client_register');

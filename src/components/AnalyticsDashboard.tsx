@@ -90,6 +90,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   // Max value for SVG scale calculations
   const maxSales = Math.max(...salesHistory.map((s) => s.totalSales), 1);
+  const hasAnySalesInHistory = salesHistory.some((s) => s.totalSales > 0 || s.totalCommission > 0);
 
   // Live metrics from Supabase / active state
   const approvedDeals = allClientDeals.filter(
@@ -103,6 +104,49 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const verifiedMitrasCount = allMitras.filter((m) => m.status === 'verified').length;
   const pendingMitrasCount = allMitras.filter((m) => m.status === 'pending').length;
   const totalAdminCommissions = allMitras.reduce((sum, m) => sum + (Number(m.totalCommission) || 0), 0);
+
+  // Dynamic Service Composition from real deals in Supabase
+  const relevantDealsForBreakdown = userRole === 'admin' ? approvedDeals : myApprovedDeals;
+  const totalBreakdownValue = relevantDealsForBreakdown.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+
+  const serviceBreakdown = React.useMemo(() => {
+    const defaultCategories = [
+      { label: 'Pajak Korporasi & Transfer Pricing', color: 'bg-blue-700', value: 0, count: 0 },
+      { label: 'Pendirian PT PMA & Perizinan OSS', color: 'bg-indigo-600', value: 0, count: 0 },
+      { label: 'Pendampingan Audit & SP2DK Pajak', color: 'bg-emerald-600', value: 0, count: 0 },
+      { label: 'Legal Due Diligence & Retainer', color: 'bg-amber-600', value: 0, count: 0 },
+    ];
+
+    if (relevantDealsForBreakdown.length === 0) {
+      return defaultCategories.map((c) => ({ ...c, percent: 0 }));
+    }
+
+    const grouped = new Map<string, { value: number; count: number }>();
+    for (const deal of relevantDealsForBreakdown) {
+      const name = (deal.serviceName || 'Layanan Konsultasi Pajak & Hukum').trim();
+      const prev = grouped.get(name) || { value: 0, count: 0 };
+      grouped.set(name, {
+        value: prev.value + (Number(deal.dealValue) || 0),
+        count: prev.count + 1,
+      });
+    }
+
+    const colors = ['bg-blue-700', 'bg-indigo-600', 'bg-emerald-600', 'bg-amber-600'];
+    const sorted = Array.from(grouped.entries())
+      .sort((a, b) => b[1].value - a[1].value)
+      .slice(0, 4);
+
+    return sorted.map(([label, stats], idx) => ({
+      label,
+      color: colors[idx % colors.length],
+      value: stats.value,
+      count: stats.count,
+      percent:
+        totalBreakdownValue > 0
+          ? Math.round((stats.value / totalBreakdownValue) * 100)
+          : Math.round((stats.count / relevantDealsForBreakdown.length) * 100),
+    }));
+  }, [relevantDealsForBreakdown, totalBreakdownValue]);
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
@@ -242,7 +286,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 Grafik Penjualan &amp; Tren Pertumbuhan Omset (6 Bulan)
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Nilai kontrak bruto (Rupiah) dan akumulasi komisi mitra per periode.
+                Nilai kontrak bruto (Rupiah) dan akumulasi komisi mitra per periode (Realtime Database Supabase).
               </p>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
@@ -258,10 +302,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
 
           {/* Clean Interactive SVG Bar Chart with Tabular Numerals */}
-          <div className="h-64 w-full flex items-end gap-3 sm:gap-6 pt-6 pb-2 px-2 border-b border-slate-200">
+          <div className="h-64 w-full flex items-end gap-3 sm:gap-6 pt-6 pb-2 px-2 border-b border-slate-200 relative">
+            {!hasAnySalesInHistory && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500">
+                  Belum ada transaksi penjualan / deal disetujui pada database (Rp 0)
+                </span>
+              </div>
+            )}
             {salesHistory.map((item, idx) => {
-              const salesHeightPercent = (item.totalSales / maxSales) * 100;
-              const commHeightPercent = (item.totalCommission / maxSales) * 100;
+              const salesHeightPercent = item.totalSales > 0 ? Math.max((item.totalSales / maxSales) * 100, 4) : 2;
+              const commHeightPercent = item.totalCommission > 0 ? Math.max((item.totalCommission / maxSales) * 100, 4) : 2;
 
               return (
                 <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group relative">
@@ -277,12 +328,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     {/* Sales Bar */}
                     <div
                       style={{ height: `${salesHeightPercent}%` }}
-                      className="w-1/2 sm:w-8 bg-blue-700 hover:bg-blue-800 rounded-t-sm transition-all duration-300"
+                      className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
+                        item.totalSales > 0 ? 'bg-blue-700 hover:bg-blue-800' : 'bg-slate-200'
+                      }`}
                     />
                     {/* Commission Bar */}
                     <div
                       style={{ height: `${commHeightPercent}%` }}
-                      className="w-1/2 sm:w-8 bg-emerald-500 hover:bg-emerald-600 rounded-t-sm transition-all duration-300"
+                      className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
+                        item.totalCommission > 0 ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-slate-200'
+                      }`}
                     />
                   </div>
                 </div>
@@ -307,49 +362,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               Komposisi Layanan Terlaris
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Kontribusi portofolio hukum &amp; pajak Q3-Q4 2026.
+              {relevantDealsForBreakdown.length > 0
+                ? `Berdasarkan ${relevantDealsForBreakdown.length} kontrak deal aktif di database.`
+                : 'Belum ada transaksi deal disetujui di database (0%).'}
             </p>
 
             <div className="mt-5 space-y-4 text-xs">
-              <div>
-                <div className="flex justify-between font-semibold text-slate-800 mb-1">
-                  <span>Pajak Korporasi &amp; Transfer Pricing</span>
-                  <span className="font-mono">38%</span>
+              {serviceBreakdown.map((srv, idx) => (
+                <div key={idx}>
+                  <div className="flex justify-between font-semibold text-slate-800 mb-1 gap-2">
+                    <span className="truncate">{srv.label}</span>
+                    <span className="font-mono shrink-0">{srv.percent}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`${srv.color} h-full transition-all duration-300`}
+                      style={{ width: `${srv.percent}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-blue-700 h-full w-[38%]" />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between font-semibold text-slate-800 mb-1">
-                  <span>Pendirian PT PMA &amp; Perizinan OSS</span>
-                  <span className="font-mono">32%</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-indigo-600 h-full w-[32%]" />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between font-semibold text-slate-800 mb-1">
-                  <span>Pendampingan Audit &amp; SP2DK Pajak</span>
-                  <span className="font-mono">18%</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-emerald-600 h-full w-[18%]" />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between font-semibold text-slate-800 mb-1">
-                  <span>Legal Due Diligence &amp; Retainer</span>
-                  <span className="font-mono">12%</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-amber-600 h-full w-[12%]" />
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 

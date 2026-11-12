@@ -1,6 +1,0 @@
-{
-  "name": "NDTAXANDLAW",
-  "description": "Sistem Manajemen Kemitraan & Portal Pajak-Hukum Cerdas dengan Kartu Identitas Eksklusif, Manajemen Komisi, Marketing Tools Multimedia, dan Generator Analisis Kinerja AI.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
