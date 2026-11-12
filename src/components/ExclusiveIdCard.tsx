@@ -334,17 +334,19 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             </button>
           </div>
 
-          <div 
+          <div
             className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden transition-all duration-500 shadow-xl select-none"
             style={{
               background: isFlipped
                 ? 'linear-gradient(135deg, #07162c 0%, #0d274c 50%, #041020 100%)'
                 : 'linear-gradient(135deg, #092147 0%, #113872 45%, #061835 100%)',
               border: '1.5px solid rgba(212, 175, 55, 0.45)',
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
             }}
           >
             {/* Guilloche / Luxury security pattern background */}
-            <div 
+            <div
               className="absolute inset-0 opacity-10 pointer-events-none"
               style={{
                 backgroundImage: 'radial-gradient(circle at 50% 50%, #ffffff 1px, transparent 1px)',
@@ -359,47 +361,30 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             {!isFlipped ? (
               /* FRONT OF CARD */
               <div className="relative z-10 h-full flex flex-col justify-between text-white">
-                {/* Card Header */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-600 p-0.5 shadow-md shrink-0">
-                      <div className="w-full h-full bg-[#092147] rounded-[10px] flex items-center justify-center p-1 overflow-hidden">
-                        <img
-                          src="/assets/aistudio/logo_kotak_5ecb05e4.png"
-                          alt="ND Emblem"
-                          className="w-full h-full object-contain filter drop-shadow"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <img
-                        src="/assets/aistudio/logo_c3fdb6de.png"
-                        alt="ND TAX AND LAW"
-                        className="h-6 sm:h-7 w-auto object-contain filter brightness-110 drop-shadow"
-                      />
-                      <p className="text-[9px] tracking-widest uppercase font-semibold text-amber-300/90 mt-0.5">
-                        Tax &amp; Legal Consulting Partner
-                      </p>
-                    </div>
+                {/* Card Header: Hanya Logo & Nama NDTAXANDLAW tanpa teks Tax & Legal dan tanpa EXP */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <img
+                      src="/assets/aistudio/logo_c3fdb6de.png"
+                      alt="NDTAXANDLAW"
+                      className="h-8 sm:h-9 w-auto object-contain filter brightness-110 drop-shadow"
+                    />
                   </div>
 
-                  {/* Hologram / Status Badge */}
+                  {/* Status Badge (Tanpa Expired) */}
                   <div className="text-right">
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-amber-300/40 text-[10px] font-semibold text-amber-200 shadow-xs">
                       <Sparkles className="w-3 h-3 text-amber-300" />
                       <span>VERIFIED PARTNER</span>
                     </div>
-                    <p className="text-[9px] text-slate-300/80 mt-1 font-mono tracking-wider">
-                      EXP: 12/2028
-                    </p>
                   </div>
                 </div>
 
                 {/* Middle Section: Smart Chip Graphic & Member Details */}
                 <div className="my-auto py-2 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 min-w-0">
                     {/* Avatar Frame with Gold Rim */}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                       <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
                         <img
                           src={mitra.avatarUrl}
@@ -413,7 +398,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                     </div>
 
                     {/* Name and Designation */}
-                    <div>
+                    <div className="min-w-0">
                       <h2 className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug line-clamp-1 font-display">
                         {mitra.fullName}
                       </h2>
@@ -430,7 +415,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   </div>
 
                   {/* EMV Microchip Vector */}
-                  <div className="hidden sm:flex flex-col items-end">
+                  <div className="flex flex-col items-end shrink-0">
                     <div className="w-11 h-8 rounded-md bg-gradient-to-br from-amber-200 via-amber-300 to-amber-500 border border-amber-600/50 p-1 flex flex-col justify-between shadow-inner">
                       <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
                       <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
@@ -455,10 +440,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                     <div className="w-7 h-7 bg-white p-0.5 rounded flex items-center justify-center">
                       <QrCode className="w-6 h-6 text-slate-900" />
                     </div>
-                    <div className="hidden xs:block">
-                      <p className="text-[8px] text-amber-300 font-mono">SCAN TO VERIFY</p>
-                      <p className="text-[10px] text-white font-semibold">Otentikasi Klien</p>
-                    </div>
                   </button>
                 </div>
               </div>
@@ -468,9 +449,9 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 {/* Magnetic Strip */}
                 <div className="w-full h-9 bg-black/80 -mx-6 -mt-2 px-6 flex items-center justify-between">
                   <span className="text-[9px] font-mono tracking-widest text-slate-400">
-                    ND-TAX-LEGAL-SECURITY-ENCRYPTED-PARTNER-ID
+                    NDTAXANDLAW-SECURITY-ENCRYPTED-PARTNER-ID
                   </span>
-                  <span className="text-[9px] font-mono text-amber-400">2026.11</span>
+                  <span className="text-[9px] font-mono text-amber-400">OFFICIAL</span>
                 </div>
 
                 {/* Bank payout verification & Terms */}
@@ -599,7 +580,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             <div className="flex justify-center mb-3">
               <img
                 src="/assets/aistudio/logo_c3fdb6de.png"
-                alt="ND TAX AND LAW"
+                alt="NDTAXANDLAW"
                 className="h-8 w-auto object-contain"
               />
             </div>
@@ -663,13 +644,33 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
         </div>
       )}
 
-      {/* DUAL-SIDED PRINTABLE MODAL (Update 1: Download & Cetak Depan Belakang) */}
+      {/* DUAL-SIDED PRINTABLE MODAL (Kartu Tampil & Kartu Cetak 100% Sama Persis) */}
       {showDualSidedModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-auto animate-in fade-in zoom-in-95">
-            
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto print:static print:bg-white print:p-0 print:block">
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #mitra-id-card-print-area,
+              #mitra-id-card-print-area * {
+                visibility: visible !important;
+              }
+              #mitra-id-card-print-area {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                background: #ffffff !important;
+                border: none !important;
+                padding: 16px !important;
+                box-shadow: none !important;
+              }
+            }
+          `}</style>
+          <div className="bg-white rounded-3xl max-w-6xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-auto animate-in fade-in zoom-in-95 print:shadow-none print:p-0">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 print:hidden">
               <div>
                 <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded uppercase tracking-wider">
                   HIGH-DEFINITION PRINT READY
@@ -678,7 +679,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   Format Cetak Kartu Mitra (Depan &amp; Belakang)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Standar dimensi ISO/IEC 7810 ID-1 (85.60 mm &times; 53.98 mm) siap dicetak pada PVC Card atau kertas foto ganda.
+                  Tampilan cetak 100% identik dengan kartu digital resmi (Standar ISO/IEC 7810 ID-1).
                 </p>
               </div>
 
@@ -701,112 +702,190 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               </div>
             </div>
 
-            {/* Print Sheet Canvas with Cut Marks */}
-            <div className="bg-slate-100 p-6 sm:p-8 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col md:flex-row items-center justify-center gap-8">
-              
-              {/* SIDE 1: FRONT */}
-              <div className="space-y-2 text-center">
-                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+            {/* Print Sheet Canvas — Tampilan Depan & Belakang Sama Persis dengan Kartu Utama */}
+            <div
+              id="mitra-id-card-print-area"
+              className="bg-slate-100 p-6 sm:p-8 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col xl:flex-row items-center justify-center gap-8 print:bg-white print:border-none print:p-0"
+            >
+              {/* SIDE 1: FRONT (100% Identik dengan Kartu Tampil) */}
+              <div className="space-y-2 text-center w-full max-w-[520px]">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider print:mb-1">
                   [ SISI DEPAN (FRONT) ]
                 </div>
-                <div 
-                  className="w-[340px] sm:w-[380px] aspect-[1.586/1] rounded-xl p-5 relative overflow-hidden shadow-lg text-white text-left select-none border border-amber-400/50"
+                <div
+                  className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden shadow-xl select-none text-left mx-auto"
                   style={{
                     background: 'linear-gradient(135deg, #092147 0%, #113872 45%, #061835 100%)',
+                    border: '1.5px solid rgba(212, 175, 55, 0.45)',
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact',
                   }}
                 >
-                  <div className="h-full flex flex-col justify-between">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
+                  {/* Guilloche / Luxury security pattern background */}
+                  <div
+                    className="absolute inset-0 opacity-10 pointer-events-none"
+                    style={{
+                      backgroundImage: 'radial-gradient(circle at 50% 50%, #ffffff 1px, transparent 1px)',
+                      backgroundSize: '16px 16px',
+                    }}
+                  />
+                  <div className="absolute -right-20 -bottom-24 w-80 h-80 rounded-full bg-gradient-to-tr from-amber-500/20 via-blue-400/10 to-transparent blur-xl pointer-events-none" />
+                  <div className="absolute -left-20 -top-24 w-72 h-72 rounded-full bg-gradient-to-br from-blue-400/15 via-amber-400/10 to-transparent blur-xl pointer-events-none" />
+
+                  <div className="relative z-10 h-full flex flex-col justify-between text-white">
+                    {/* Card Header: Hanya Logo & Nama NDTAXANDLAW */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
                         <img
-                          src="/assets/aistudio/logo_kotak_5ecb05e4.png"
-                          alt="Logo ND"
-                          className="w-7 h-7 object-contain"
+                          src="/assets/aistudio/logo_c3fdb6de.png"
+                          alt="NDTAXANDLAW"
+                          className="h-8 sm:h-9 w-auto object-contain filter brightness-110 drop-shadow"
                         />
-                        <div>
-                          <img
-                            src="/assets/aistudio/logo_c3fdb6de.png"
-                            alt="ND TAX AND LAW"
-                            className="h-4 w-auto object-contain brightness-110"
-                          />
-                          <p className="text-[7px] text-amber-300 font-semibold tracking-wider uppercase">
-                            Tax &amp; Legal Consulting Partner
-                          </p>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-amber-300/40 text-[10px] font-semibold text-amber-200 shadow-xs">
+                          <Sparkles className="w-3 h-3 text-amber-300" />
+                          <span>VERIFIED PARTNER</span>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[8px] font-bold text-amber-200 bg-white/10 px-1.5 py-0.5 rounded border border-amber-300/30">
-                          VERIFIED PARTNER
-                        </span>
+                    </div>
+
+                    {/* Middle Section: Smart Chip Graphic & Member Details */}
+                    <div className="my-auto py-2 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="relative shrink-0">
+                          <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
+                            <img
+                              src={mitra.avatarUrl}
+                              alt={mitra.fullName}
+                              className="w-full h-full object-cover rounded-[10px]"
+                            />
+                          </div>
+                          <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-2 ring-[#092147] shadow-sm">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                        </div>
+
+                        <div className="min-w-0">
+                          <h2 className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug line-clamp-1 font-display">
+                            {mitra.fullName}
+                          </h2>
+                          <p className="text-xs text-amber-300/90 font-medium mt-0.5 line-clamp-1">
+                            {mitra.specialization}
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-[10px] uppercase font-semibold text-slate-300/80 tracking-wider">ID MITRA:</span>
+                            <span className="font-mono text-xs sm:text-sm font-bold text-white tracking-widest bg-white/10 px-2 py-0.5 rounded border border-white/10">
+                              {mitra.memberCode}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end shrink-0">
+                        <div className="w-11 h-8 rounded-md bg-gradient-to-br from-amber-200 via-amber-300 to-amber-500 border border-amber-600/50 p-1 flex flex-col justify-between shadow-inner">
+                          <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                          <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                          <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                        </div>
+                        <span className="text-[8px] text-amber-300/70 tracking-widest mt-1 font-mono">SECURE-CHIP</span>
                       </div>
                     </div>
 
-                    <div className="my-auto py-1 flex items-center gap-3">
-                      <img
-                        src={mitra.avatarUrl}
-                        alt={mitra.fullName}
-                        className="w-13 h-13 rounded-lg object-cover ring-1 ring-amber-400 shrink-0"
-                      />
+                    {/* Card Footer */}
+                    <div className="flex items-end justify-between pt-2 border-t border-white/10">
                       <div>
-                        <h4 className="text-xs font-bold text-white line-clamp-1">{mitra.fullName}</h4>
-                        <p className="text-[9px] text-amber-300 font-medium line-clamp-1">{mitra.specialization}</p>
-                        <p className="font-mono text-[9px] font-bold text-white mt-1 bg-white/10 px-1.5 py-0.5 rounded inline-block">
-                          {mitra.memberCode}
-                        </p>
+                        <p className="text-[9px] text-slate-400 uppercase tracking-wider">Kredensial Resmi</p>
+                        <p className="text-xs font-semibold text-slate-200">Mitra Konsultan NDTAXANDLAW</p>
                       </div>
-                    </div>
 
-                    <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[7px] text-slate-300">
-                      <span>Kredensial Resmi NDTAXANDLAW</span>
-                      <span className="font-mono">EXP: 12/2028</span>
+                      <div className="flex items-center gap-2 bg-white/10 px-2.5 py-1 rounded-lg border border-white/20 backdrop-blur-xs text-left">
+                        <div className="w-7 h-7 bg-white p-0.5 rounded flex items-center justify-center">
+                          <QrCode className="w-6 h-6 text-slate-900" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* SIDE 2: BACK */}
-              <div className="space-y-2 text-center">
-                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+              {/* SIDE 2: BACK (100% Identik dengan Sisi Belakang Kartu Tampil) */}
+              <div className="space-y-2 text-center w-full max-w-[520px]">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider print:mb-1">
                   [ SISI BELAKANG (BACK) ]
                 </div>
-                <div 
-                  className="w-[340px] sm:w-[380px] aspect-[1.586/1] rounded-xl p-5 relative overflow-hidden shadow-lg text-white text-left select-none border border-amber-400/50"
+                <div
+                  className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden shadow-xl select-none text-left mx-auto"
                   style={{
                     background: 'linear-gradient(135deg, #07162c 0%, #0d274c 50%, #041020 100%)',
+                    border: '1.5px solid rgba(212, 175, 55, 0.45)',
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact',
                   }}
                 >
-                  <div className="h-full flex flex-col justify-between text-[8px]">
-                    <div className="w-full h-6 bg-black/80 -mx-5 -mt-2 px-5 flex items-center justify-between text-[7px] font-mono text-slate-400">
-                      <span>ND-TAX-LEGAL-ENCRYPTED-ID</span>
-                      <span className="text-amber-400">2026.11</span>
+                  <div
+                    className="absolute inset-0 opacity-10 pointer-events-none"
+                    style={{
+                      backgroundImage: 'radial-gradient(circle at 50% 50%, #ffffff 1px, transparent 1px)',
+                      backgroundSize: '16px 16px',
+                    }}
+                  />
+                  <div className="absolute -right-20 -bottom-24 w-80 h-80 rounded-full bg-gradient-to-tr from-amber-500/20 via-blue-400/10 to-transparent blur-xl pointer-events-none" />
+                  <div className="absolute -left-20 -top-24 w-72 h-72 rounded-full bg-gradient-to-br from-blue-400/15 via-amber-400/10 to-transparent blur-xl pointer-events-none" />
+
+                  <div className="relative z-10 h-full flex flex-col justify-between text-white text-xs">
+                    {/* Magnetic Strip */}
+                    <div className="w-full h-9 bg-black/80 -mx-6 -mt-2 px-6 flex items-center justify-between">
+                      <span className="text-[9px] font-mono tracking-widest text-slate-400">
+                        NDTAXANDLAW-SECURITY-ENCRYPTED-PARTNER-ID
+                      </span>
+                      <span className="text-[9px] font-mono text-amber-400">OFFICIAL</span>
                     </div>
 
-                    <div className="p-2 rounded bg-white/5 border border-white/10 space-y-0.5 mt-2">
-                      <span className="text-[7px] text-amber-300 uppercase font-semibold">Rekening Pencairan Terdaftar:</span>
-                      <p className="text-[9px] font-bold text-white">{mitra.bankDetails.bankName}</p>
-                      <p className="font-mono text-[9px] text-amber-200">{mitra.bankDetails.accountNumber} - a.n. {mitra.bankDetails.accountHolder}</p>
+                    {/* Bank payout verification & Terms */}
+                    <div className="py-2 space-y-2 text-[10px] text-slate-300">
+                      <div className="p-2.5 rounded-lg bg-white/5 border border-white/10">
+                        <p className="text-[9px] text-amber-300 uppercase tracking-wider font-semibold">
+                          Rekening Pencairan Komisi Terdaftar:
+                        </p>
+                        <p className="font-semibold text-white mt-0.5">
+                          {mitra.bankDetails.bankName} - <span className="font-mono text-amber-200">{mitra.bankDetails.accountNumber}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          a.n. {mitra.bankDetails.accountHolder}
+                        </p>
+                      </div>
+
+                      <p className="text-[9px] text-slate-400 leading-relaxed">
+                        1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
+                        <br />
+                        2. Pindai QR Code untuk memvalidasi keabsahan surat tugas atau mandat pendampingan klien.
+                      </p>
                     </div>
 
-                    <p className="text-[7px] text-slate-400 leading-tight">
-                      1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW.<br/>
-                      2. Pindai QR Code untuk memvalidasi keabsahan mandat pendampingan.
-                    </p>
-
-                    <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[7px] text-slate-400">
-                      <span>Menara Kadin Indonesia, Jakarta Selatan</span>
-                      <span className="font-mono text-slate-300">||| | |||| | |||||</span>
+                    {/* Footer contact & Barcode */}
+                    <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[9px] text-slate-400">
+                      <div>
+                        <p className="font-semibold text-slate-200">Head Office NDTAXANDLAW</p>
+                        <p>Menara Kadin Indonesia, Jakarta Selatan</p>
+                        <p>Hotline: {supportPhone} | {supportEmail}</p>
+                      </div>
+                      <div className="text-right font-mono text-slate-300">
+                        <div className="text-xs tracking-widest">||| | |||| | ||||| ||</div>
+                        <p className="text-[8px] text-slate-400 mt-0.5">{mitra.memberCode}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-
             </div>
 
             {/* Print Guide Tips */}
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between text-xs text-slate-600">
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between text-xs text-slate-600 print:hidden">
               <div className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-600" />
-                <span>Tip: Pada dialog cetak, pilih <strong>Orientation: Landscape</strong> dan <strong>Scale: 100%</strong> untuk hasil ukuran ID Card presisi.</span>
+                <span>Tip: Pada dialog cetak, pilih <strong>Orientation: Landscape</strong>, <strong>Background Graphics: Checked</strong>, dan <strong>Scale: 100%</strong>.</span>
               </div>
               <button
                 type="button"
@@ -816,7 +895,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 Tutup
               </button>
             </div>
-
           </div>
         </div>
       )}
