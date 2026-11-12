@@ -40,7 +40,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   const [showQrModal, setShowQrModal] = useState(false);
   const [showDualSidedModal, setShowDualSidedModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
   const [isResubmitting, setIsResubmitting] = useState(false);
 
   const clientSelfRegisterLink = typeof window !== 'undefined'
@@ -188,22 +187,13 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 <span className="font-mono text-2xl font-black text-amber-300 tracking-wider bg-white/10 px-3.5 py-1 rounded-xl border border-white/15">
                   {mitra.referralCode || 'ND-REF-0042'}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(mitra.referralCode || 'ND-REF-0042');
-                    setCopiedCode(true);
-                    setTimeout(() => setCopiedCode(false), 2500);
-                  }}
-                  className="px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors border border-white/20"
-                >
-                  {copiedCode ? '✓ Kode Disalin!' : 'Salin Kode'}
-                </button>
                 <a
-                  href={`https://wa.me/?text=Halo,%20saya%20merekomendasikan%20layanan%20jasa%20keuangan%20dan%20laporan%20pajak%20terpercaya%20dari%20NDTAXANDLAW.%20Gunakan%20kode%20referral%20saya%20${mitra.referralCode || 'ND-REF-0042'}%20untuk%20konsultasi%20resmi.`}
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `Halo, saya merekomendasikan layanan jasa keuangan, perpajakan, dan hukum terpercaya dari NDTAXANDLAW.\n\nSilakan daftar langsung untuk konsultasi resmi melalui tautan berikut (Kode Referral: ${mitra.referralCode || 'ND-REF-0042'}):\n${clientSelfRegisterLink}`
+                  )}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
+                  className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
                 >
                   Bagikan via WA
                 </a>
