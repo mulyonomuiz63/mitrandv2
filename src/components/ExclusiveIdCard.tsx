@@ -16,6 +16,7 @@ import {
   Camera
 } from 'lucide-react';
 import { Mitra } from '../types';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface ExclusiveIdCardProps {
   mitra: Mitra;
@@ -29,15 +30,18 @@ interface ExclusiveIdCardProps {
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   mitra,
   onEditProfile,
+  onUpdateProfile,
   onOpenClientSelfRegister,
   supportPhone = '0812-8899-7711',
   supportEmail = 'advisory@ndtaxlaw.com',
 }) => {
+  const confirm = useConfirm();
   const [isFlipped, setIsFlipped] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [showDualSidedModal, setShowDualSidedModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [isResubmitting, setIsResubmitting] = useState(false);
 
   const clientSelfRegisterLink = typeof window !== 'undefined'
     ? `${window.location.origin}/?ref=${mitra.referralCode || 'ND-REF-0042'}`
@@ -50,6 +54,30 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   };
 
   const isVerified = mitra.status === 'verified';
+  const isRejected = mitra.status === 'rejected';
+
+  const handleResubmitVerification = async () => {
+    if (!onUpdateProfile) {
+      onEditProfile();
+      return;
+    }
+    const ok = await confirm({
+      title: 'Ajukan Ulang Verifikasi Data Mitra',
+      message: 'Apakah Anda sudah memastikan data diri, NIK KTP, dan rekening bank Anda benar untuk diajukan kembali ke Admin?',
+      detail: `Nama Lengkap: ${mitra.fullName}\nNIK KTP: ${mitra.nik}\nNo. WhatsApp: ${mitra.phone}\nRekening Bank: ${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber} (a.n. ${mitra.bankDetails.accountHolder})`,
+      confirmText: 'Ya, Ajukan Ulang ke Admin',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
+
+    setIsResubmitting(true);
+    try {
+      await onUpdateProfile(mitra.id, { resubmitVerification: true } as any);
+    } finally {
+      setIsResubmitting(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto py-6 px-4">
@@ -68,8 +96,64 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
         </p>
       </div>
 
-      {/* Pending status warning */}
-      {!isVerified && (
+      {/* Status Banner: Rejected vs Pending */}
+      {isRejected ? (
+        <div className="mb-6 p-5 rounded-2xl bg-red-50 border-2 border-red-300 text-red-950 shadow-xs space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-100 border border-red-300 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div className="flex-1 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-600 text-white rounded">
+                  VERIFIKASI DATA DITOLAK ADMIN
+                </span>
+                {mitra.rejectedAt && (
+                  <span className="text-xs font-mono text-red-700">
+                    Tanggal: {mitra.rejectedAt}
+                  </span>
+                )}
+              </div>
+              <p className="font-bold text-base text-red-950 mt-1">
+                Data Pendaftaran Anda Memerlukan Perbaikan Sebelum Dapat Disetujui
+              </p>
+
+              <div className="mt-2.5 p-3.5 rounded-xl bg-white border border-red-200 text-xs text-slate-800">
+                <span className="font-bold text-red-800 block uppercase tracking-wider text-[10px] mb-1">
+                  Keterangan / Alasan Penolakan dari Admin:
+                </span>
+                <p className="font-semibold text-slate-900 text-sm leading-relaxed">
+                  "{mitra.rejectionReason || 'Data pendaftaran belum sesuai dengan kriteria verifikasi Admin. Silakan periksa kembali kelengkapan data diri, NIK KTP, atau rekening bank Anda.'}"
+                </p>
+              </div>
+
+              <p className="text-xs text-red-800 mt-2.5 leading-relaxed">
+                Silakan klik tombol <strong>"Perbaiki Data Diri &amp; Rekening"</strong> di bawah untuk memperbarui data sesuai catatan Admin, lalu ajukan kembali untuk diverifikasi ulang oleh Admin.
+              </p>
+
+              <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={onEditProfile}
+                  className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm inline-flex items-center gap-1.5"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Perbaiki Data Diri &amp; Ajukan Ulang</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResubmitVerification}
+                  disabled={isResubmitting}
+                  className="px-4 py-2 text-xs font-bold text-red-800 bg-white hover:bg-red-100 border border-red-300 rounded-xl transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>{isResubmitting ? 'Mengirim Pengajuan...' : 'Ajukan Ulang Verifikasi Sekarang'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : !isVerified ? (
         <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-sm">
@@ -85,7 +169,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Referral Code & Dual Earning Showcase Banner */}
       {isVerified ? (
@@ -432,32 +516,77 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
           </p>
         </div>
       ) : (
-        /* LOCKED / UNAVAILABLE CARD PLACEHOLDER WHEN PENDING VERIFICATION */
+        /* LOCKED / UNAVAILABLE CARD PLACEHOLDER WHEN PENDING OR REJECTED */
         <div className="py-4">
-          <div className="w-full max-w-[540px] mx-auto bg-white border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center space-y-4 shadow-xs">
-            <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
-              <Clock className="w-7 h-7" />
+          <div
+            className={`w-full max-w-[540px] mx-auto bg-white border-2 border-dashed rounded-2xl p-8 text-center space-y-4 shadow-xs ${
+              isRejected ? 'border-red-300' : 'border-slate-300'
+            }`}
+          >
+            <div
+              className={`w-14 h-14 rounded-2xl border flex items-center justify-center mx-auto ${
+                isRejected
+                  ? 'bg-red-50 border-red-200 text-red-600'
+                  : 'bg-amber-50 border-amber-200 text-amber-600'
+              }`}
+            >
+              {isRejected ? <AlertCircle className="w-7 h-7" /> : <Clock className="w-7 h-7" />}
             </div>
             <div className="space-y-1.5">
-              <span className="inline-block px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 rounded-full">
-                Status: Sedang Dalam Verifikasi Admin
+              <span
+                className={`inline-block px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full ${
+                  isRejected
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {isRejected
+                  ? 'Status: Data Ditolak — Perlu Perbaikan & Pengajuan Ulang'
+                  : 'Status: Sedang Dalam Verifikasi Admin'}
               </span>
               <h3 className="text-base font-bold text-slate-900 font-display">
                 Kartu Identitas Eksklusif Belum Tersedia
               </h3>
               <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
-                Kartu Identitas Digital, Kode Referral Resmi, serta fitur Input Data Klien baru akan tersedia dan berfungsi penuh setelah akun Anda <strong>disetujui (Approve) oleh Admin</strong>.
+                {isRejected ? (
+                  <>
+                    Pendaftaran Anda ditolak sementara oleh Admin dengan alasan:{' '}
+                    <strong className="text-red-700">
+                      "{mitra.rejectionReason || 'Data belum sesuai kriteria verifikasi.'}"
+                    </strong>
+                    . Silakan perbaiki data diri Anda dan ajukan ulang agar dapat disetujui Admin.
+                  </>
+                ) : (
+                  <>
+                    Kartu Identitas Digital, Kode Referral Resmi, serta fitur Input Data Klien baru akan tersedia dan berfungsi penuh setelah akun Anda <strong>disetujui (Approve) oleh Admin</strong>.
+                  </>
+                )}
               </p>
             </div>
-            <div className="pt-2 flex items-center justify-center">
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5">
               <button
                 type="button"
                 onClick={onEditProfile}
-                className="px-4 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors inline-flex items-center gap-1.5"
+                className={`px-4 py-2 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 ${
+                  isRejected
+                    ? 'text-white bg-red-600 hover:bg-red-700 shadow-xs'
+                    : 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200'
+                }`}
               >
                 <Camera className="w-3.5 h-3.5" />
-                <span>Edit Data Diri &amp; Foto Profil</span>
+                <span>{isRejected ? 'Perbaiki Data Diri & Ajukan Ulang' : 'Edit Data Diri & Foto Profil'}</span>
               </button>
+              {isRejected && (
+                <button
+                  type="button"
+                  onClick={handleResubmitVerification}
+                  disabled={isResubmitting}
+                  className="px-4 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{isResubmitting ? 'Mengirim...' : 'Ajukan Ulang Verifikasi'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

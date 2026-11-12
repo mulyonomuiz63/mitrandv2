@@ -24,10 +24,12 @@ export interface Mitra {
   paidPayout: number;
   referredClientsCount: number;
   activeSubscribersCount: number;
-  // Email Verification Fields
+  // Email Verification & Admin Review Fields
   emailVerified?: boolean;
   verificationToken?: string;
   verificationTokenExpiry?: string;
+  rejectionReason?: string;
+  rejectedAt?: string;
 }
 
 export interface ServiceItem {

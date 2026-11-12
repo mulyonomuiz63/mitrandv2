@@ -30,6 +30,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 }) => {
   const confirm = useConfirm();
   const [fullName, setFullName] = useState(mitra.fullName);
+  const [nik, setNik] = useState(mitra.nik);
   const [phone, setPhone] = useState(mitra.phone);
   const [gender, setGender] = useState<'male' | 'female'>(mitra.gender || inferGenderFromName(mitra.fullName));
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string>(() => {
@@ -59,6 +60,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
   useEffect(() => {
     setFullName(mitra.fullName);
+    setNik(mitra.nik);
     setPhone(mitra.phone);
     setGender(mitra.gender || inferGenderFromName(mitra.fullName));
     if (
@@ -124,13 +126,18 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       return;
     }
 
+    const isRejected = mitra.status === 'rejected';
     const ok = await confirm({
-      title: 'Konfirmasi Simpan Perubahan Profil & Rekening',
-      message: 'Apakah Anda yakin ingin menyimpan perubahan data diri, foto profil, dan informasi rekening bank Anda?',
-      detail: `Nama Mitra: ${fullName}\nNo. WhatsApp: ${phone}\nRekening Pencairan: ${bankName} - ${accountNumber} (a.n. ${accountHolder})${newPassword ? '\nKata Sandi: Akan diperbarui' : ''}`,
-      confirmText: 'Ya, Simpan Perubahan',
+      title: isRejected
+        ? 'Simpan Perbaikan & Ajukan Ulang Verifikasi'
+        : 'Konfirmasi Simpan Perubahan Profil & Rekening',
+      message: isRejected
+        ? 'Apakah data yang Anda perbaiki sudah sesuai dengan catatan Admin dan siap diajukan kembali untuk diverifikasi?'
+        : 'Apakah Anda yakin ingin menyimpan perubahan data diri, foto profil, dan informasi rekening bank Anda?',
+      detail: `Nama Mitra: ${fullName}\nNIK KTP: ${nik}\nNo. WhatsApp: ${phone}\nRekening Pencairan: ${bankName} - ${accountNumber} (a.n. ${accountHolder})${newPassword ? '\nKata Sandi: Akan diperbarui' : ''}`,
+      confirmText: isRejected ? 'Ya, Simpan & Ajukan Ulang' : 'Ya, Simpan Perubahan',
       cancelText: 'Batalkan',
-      variant: 'primary',
+      variant: isRejected ? 'success' : 'primary',
     });
     if (!ok) return;
 
@@ -140,6 +147,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       await onUpdateProfile(mitra.id, {
         fullName,
         phone,
+        nik,
         gender,
         avatarUrl: resolvedAvatar,
         specialization,
@@ -148,10 +156,15 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
           accountNumber,
           accountHolder,
         },
+        ...(isRejected ? { resubmitVerification: true } : {}),
         ...(newPassword ? { newPassword } : {}),
-      });
+      } as any);
 
-      setStatusMessage('Data diri, foto profil, dan rekening bank berhasil diperbarui!');
+      setStatusMessage(
+        isRejected
+          ? 'Perbaikan data berhasil disimpan & diajukan ulang ke Admin untuk diverifikasi!'
+          : 'Data diri, foto profil, dan rekening bank berhasil diperbarui!'
+      );
       setTimeout(() => {
         setStatusMessage(null);
         onClose();
@@ -181,7 +194,12 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 Profil, Foto &amp; Data Rekening Mitra
               </h3>
               <p className="text-xs text-slate-500 font-mono">
-                {mitra.memberCode} · Status: {mitra.status === 'verified' ? 'Terverifikasi' : 'Menunggu Review'}
+                {mitra.memberCode} · Status:{' '}
+                {mitra.status === 'verified'
+                  ? 'Lulus Verifikasi'
+                  : mitra.status === 'rejected'
+                  ? 'Ditolak (Perlu Perbaikan Data)'
+                  : 'Menunggu Review Admin'}
               </p>
             </div>
           </div>
@@ -197,6 +215,21 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {/* SCROLLABLE BODY */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+            {mitra.status === 'rejected' && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs space-y-1">
+                <p className="font-bold text-red-800 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>Catatan Perbaikan dari Admin:</span>
+                </p>
+                <p className="font-semibold text-slate-900">
+                  "{mitra.rejectionReason || 'Silakan periksa dan perbaiki data diri atau rekening bank Anda.'}"
+                </p>
+                <p className="text-[11px] text-red-700">
+                  Perbaiki kolom yang diperlukan di bawah, lalu klik <strong>"Simpan &amp; Ajukan Ulang Verifikasi"</strong>.
+                </p>
+              </div>
+            )}
+
             {statusMessage && (
               <div className="p-3 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold flex items-center gap-2 border border-emerald-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -283,13 +316,18 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    NIK KTP
+                    NIK KTP {mitra.status !== 'verified' && <span className="text-blue-600">(Dapat Diperbaiki)</span>}
                   </label>
                   <input
                     type="text"
-                    disabled
-                    value={mitra.nik}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 bg-slate-50 text-slate-500"
+                    disabled={mitra.status === 'verified'}
+                    value={nik}
+                    onChange={(e) => setNik(e.target.value)}
+                    className={`w-full px-3 py-2 text-xs font-mono rounded-lg border ${
+                      mitra.status === 'verified'
+                        ? 'border-slate-200 bg-slate-50 text-slate-500'
+                        : 'border-slate-300 bg-white text-slate-900'
+                    }`}
                   />
                 </div>
               </div>
@@ -477,9 +515,17 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-xs disabled:opacity-50"
+              className={`px-5 py-2.5 text-xs font-bold text-white rounded-lg transition-colors shadow-xs disabled:opacity-50 ${
+                mitra.status === 'rejected'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-blue-700 hover:bg-blue-800'
+              }`}
             >
-              {isSubmitting ? 'Menyimpan...' : 'Simpan Perubahan'}
+              {isSubmitting
+                ? 'Menyimpan...'
+                : mitra.status === 'rejected'
+                ? 'Simpan & Ajukan Ulang Verifikasi'
+                : 'Simpan Perubahan'}
             </button>
           </div>
         </form>

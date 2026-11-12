@@ -309,12 +309,12 @@ export default function App() {
     return data;
   };
 
-  const handleVerifyMitra = async (id: string, status: 'verified' | 'rejected') => {
+  const handleVerifyMitra = async (id: string, status: 'verified' | 'rejected', rejectionReason?: string) => {
     try {
       const res = await fetch(`/api/mitra/${id}/verify`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, rejectionReason }),
       });
       const data = await res.json();
       if (data.success && data.data) {

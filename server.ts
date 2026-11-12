@@ -58,6 +58,8 @@ export interface Mitra {
   emailVerified?: boolean;
   verificationToken?: string;
   verificationTokenExpiry?: string;
+  rejectionReason?: string;
+  rejectedAt?: string;
 }
 
 export interface ServiceItem {
@@ -1418,10 +1420,13 @@ export const isProductionMode = (): boolean => {
 const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
   return list.map((m) => {
     const gender = m.gender || inferGenderFromName(m.fullName);
+    const bankMeta = (m.bankDetails || {}) as any;
     return {
       ...m,
       gender,
       avatarUrl: resolveAvatarUrl(m.avatarUrl, gender, m.fullName),
+      rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || undefined,
+      rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || undefined,
     };
   });
 };
@@ -2539,7 +2544,15 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
 app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { status } = req.body; // 'verified' | 'rejected'
+  const { status, rejectionReason } = req.body; // 'verified' | 'rejected'
+
+  if (supabase) {
+    try {
+      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
+
   const mitra = mitras.find((m) => m.id === id);
 
   if (!mitra) {
@@ -2547,18 +2560,80 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   }
 
   mitra.status = status;
+  const todayStr = new Date().toISOString().split('T')[0];
+
   if (status === 'verified') {
-    const randomCode = Math.floor(100 + Math.random() * 900);
-    mitra.memberCode = `ND-${new Date().getFullYear()}-LAW-${randomCode}`;
+    if (!mitra.memberCode || mitra.memberCode.includes('-PEN-')) {
+      const randomCode = Math.floor(100 + Math.random() * 900);
+      mitra.memberCode = `ND-${new Date().getFullYear()}-LAW-${randomCode}`;
+    }
+    mitra.rejectionReason = undefined;
+    mitra.rejectedAt = undefined;
+    if (mitra.bankDetails) {
+      const cleanedBank: any = { ...mitra.bankDetails };
+      delete cleanedBank.__rejectionReason;
+      delete cleanedBank.__rejectedAt;
+      mitra.bankDetails = cleanedBank;
+    }
+
     const notif: NotificationItem = {
       id: `notif-${Date.now()}`,
-      title: 'Status Kemitraan Disetujui',
-      message: `Pendaftaran ${mitra.fullName} telah disetujui. Kartu Identitas Eksklusif (${mitra.memberCode}) telah aktif.`,
+      title: 'Status Kemitraan Disetujui (Lulus Verifikasi)',
+      message: `Selamat! Pendaftaran Mitra ${mitra.fullName} telah disetujui oleh Admin. Kartu Identitas Eksklusif (${mitra.memberCode}), Kode Referral (${mitra.referralCode}), dan fitur Input Klien kini telah aktif penuh.`,
       type: 'verification',
       timestamp: new Date().toISOString(),
       isRead: false,
     };
     notifications.unshift(notif);
+
+    if (mitra.email) {
+      await sendSystemEmail({
+        recipient: mitra.email,
+        recipientName: mitra.fullName,
+        subject: `Selamat! Akun Mitra NDTAXANDLAW Anda Lulus Verifikasi (${mitra.memberCode})`,
+        category: 'registration_verify',
+        previewSnippet: `Pendaftaran kemitraan Anda atas nama ${mitra.fullName} telah diperiksa dan DISETUJUI (Lulus Verifikasi) oleh Admin NDTAXANDLAW.\n\nNomor Anggota Resmi: ${mitra.memberCode}\nKode Referral Resmi: ${mitra.referralCode}\n\nSekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta mengunduh Kartu Identitas Eksklusif Mitra di portal.`,
+      });
+    }
+
+    if (supabase) {
+      try {
+        await supabase.from('notifications').insert([notif]);
+      } catch (e) {
+        console.warn('Supabase insert error', e);
+      }
+    }
+  } else if (status === 'rejected') {
+    const reasonText =
+      (rejectionReason && String(rejectionReason).trim()) ||
+      'Data pendaftaran belum sesuai kriteria verifikasi Admin. Silakan periksa dan perbaiki data diri atau rekening bank Anda, lalu ajukan ulang verifikasi.';
+    mitra.rejectionReason = reasonText;
+    mitra.rejectedAt = todayStr;
+    mitra.bankDetails = {
+      ...mitra.bankDetails,
+      __rejectionReason: reasonText,
+      __rejectedAt: todayStr,
+    } as any;
+
+    const notif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: 'Verifikasi Pendaftaran Mitra Ditolak — Perlu Perbaikan Data',
+      message: `Pendaftaran Mitra ${mitra.fullName} ditolak oleh Admin. Alasan: "${reasonText}". Silakan perbaiki data diri Anda dan ajukan ulang verifikasi.`,
+      type: 'verification',
+      timestamp: new Date().toISOString(),
+      isRead: false,
+    };
+    notifications.unshift(notif);
+
+    if (mitra.email) {
+      await sendSystemEmail({
+        recipient: mitra.email,
+        recipientName: mitra.fullName,
+        subject: `Pemberitahuan Hasil Verifikasi Mitra NDTAXANDLAW: Perlu Perbaikan Data`,
+        category: 'registration_verify',
+        previewSnippet: `Hasil pemeriksaan data pendaftaran Mitra Anda (${mitra.fullName}) memerlukan perbaikan dengan keterangan dari Admin:\n\n"${reasonText}"\n\nSilakan masuk ke Portal Mitra, perbaiki data diri / rekening bank Anda, lalu klik tombol "Ajukan Ulang Verifikasi" agar dapat diperiksa kembali oleh Admin.`,
+      });
+    }
 
     if (supabase) {
       try {
@@ -2577,12 +2652,22 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
     actionType: 'mitra_verify',
     operation: 'UPDATE',
     targetEntity: 'Verifikasi Mitra',
-    description: `Admin memperbarui status verifikasi Mitra "${mitra.fullName}" menjadi ${status === 'verified' ? `TERVERIFIKASI (${mitra.memberCode})` : 'DITOLAK'}.`,
+    description:
+      status === 'verified'
+        ? `Admin menyetujui (Approve) verifikasi Mitra "${mitra.fullName}" menjadi TERVERIFIKASI (${mitra.memberCode}).`
+        : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`,
   });
 
   if (supabase) {
     try {
-      await supabase.from('mitras').update({ status, memberCode: mitra.memberCode }).eq('id', id);
+      await supabase
+        .from('mitras')
+        .update({
+          status,
+          memberCode: mitra.memberCode,
+          bankDetails: mitra.bankDetails,
+        })
+        .eq('id', id);
     } catch (e) {
       console.warn('Supabase update verify error', e);
     }
@@ -2595,17 +2680,35 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
 
 app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { fullName, phone, specialization, bankDetails, gender, avatarUrl, newPassword } = req.body;
+  const { fullName, phone, nik, specialization, bankDetails, gender, avatarUrl, newPassword, resubmitVerification } = req.body;
+
+  if (supabase) {
+    try {
+      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
+
   const mitra = mitras.find((m) => m.id === id);
 
   if (!mitra) {
     return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan' });
   }
 
+  const wasRejected = mitra.status === 'rejected';
+
   if (fullName) mitra.fullName = fullName;
   if (phone) mitra.phone = phone;
+  if (nik) mitra.nik = nik;
   if (specialization) mitra.specialization = specialization;
-  if (bankDetails) mitra.bankDetails = { ...mitra.bankDetails, ...bankDetails };
+  if (bankDetails) {
+    const mergedBank: any = { ...mitra.bankDetails, ...bankDetails };
+    if (wasRejected || resubmitVerification) {
+      delete mergedBank.__rejectionReason;
+      delete mergedBank.__rejectedAt;
+    }
+    mitra.bankDetails = mergedBank;
+  }
   if (gender === 'male' || gender === 'female') {
     mitra.gender = gender;
   }
@@ -2613,6 +2716,34 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     mitra.avatarUrl = avatarUrl.trim();
   } else if (gender === 'male' || gender === 'female') {
     mitra.avatarUrl = getDefaultAvatar(gender, mitra.fullName);
+  }
+
+  // Jika mitra yang sebelumnya ditolak memperbaiki data / mengajukan ulang verifikasi, kembalikan status ke 'pending'
+  if (wasRejected || resubmitVerification) {
+    mitra.status = 'pending';
+    mitra.rejectionReason = undefined;
+    mitra.rejectedAt = undefined;
+    if (mitra.bankDetails) {
+      const cleanedBank: any = { ...mitra.bankDetails };
+      delete cleanedBank.__rejectionReason;
+      delete cleanedBank.__rejectedAt;
+      mitra.bankDetails = cleanedBank;
+    }
+
+    const notif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: 'Pengajuan Ulang Verifikasi Data Mitra',
+      message: `Mitra "${mitra.fullName}" telah memperbaiki data pendaftaran dan mengajukan ulang verifikasi kepada Admin.`,
+      type: 'verification',
+      timestamp: new Date().toISOString(),
+      isRead: false,
+    };
+    notifications.unshift(notif);
+    if (supabase) {
+      try {
+        await supabase.from('notifications').insert([notif]);
+      } catch {}
+    }
   }
 
   if (newPassword && newPassword.length >= 6) {
@@ -2632,8 +2763,11 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     actorEmail: mitra.email,
     actionType: 'profile_update',
     operation: 'UPDATE',
-    targetEntity: 'Profil & Rekening Mitra',
-    description: `Mitra "${mitra.fullName}" memperbarui data profil dan rekening bank (${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber}).`,
+    targetEntity: wasRejected || resubmitVerification ? 'Pengajuan Ulang Verifikasi Mitra' : 'Profil & Rekening Mitra',
+    description:
+      wasRejected || resubmitVerification
+        ? `Mitra "${mitra.fullName}" memperbarui data diri/rekening dan mengajukan ulang verifikasi pendaftaran ke Admin.`
+        : `Mitra "${mitra.fullName}" memperbarui data profil dan rekening bank (${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber}).`,
   });
 
   if (supabase) {
@@ -2641,9 +2775,11 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
       await supabase.from('mitras').update({
         fullName: mitra.fullName,
         phone: mitra.phone,
+        nik: mitra.nik,
         specialization: mitra.specialization,
         bankDetails: mitra.bankDetails,
         avatarUrl: mitra.avatarUrl,
+        status: mitra.status,
       }).eq('id', id);
     } catch (e) {
       console.warn('Supabase update profile error', e);

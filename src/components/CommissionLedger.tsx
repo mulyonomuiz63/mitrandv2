@@ -178,6 +178,28 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         )}
       </div>
 
+      {/* Alert Banner if Mitra is Rejected */}
+      {userRole === 'mitra' && mitra.status === 'rejected' && (
+        <div className="mb-6 bg-red-50 border-2 border-red-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div>
+            <p className="text-xs font-extrabold text-red-900 uppercase tracking-wider">
+              Pengajuan Verifikasi Data Mitra Ditolak Admin
+            </p>
+            <p className="text-xs text-red-800 mt-1">
+              <span className="font-bold">Keterangan Penolakan:</span>{' '}
+              {mitra.rejectionReason || 'Mohon periksa dan lengkapi kembali data diri serta nomor rekening Anda.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onEditBankDetails}
+            className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs shrink-0 transition-colors"
+          >
+            Perbaiki Data &amp; Ajukan Ulang
+          </button>
+        </div>
+      )}
+
       {/* Stat Cards Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
@@ -310,7 +332,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             title={
               mitra.status === 'verified'
                 ? 'Input Klien Baru (Referral)'
-                : 'Akun Anda masih dalam proses verifikasi Admin. Input klien baru dapat dilakukan setelah akun di-approve Admin.'
+                : mitra.status === 'rejected'
+                  ? `Data verifikasi ditolak: ${mitra.rejectionReason || 'Silakan perbaiki data diri dan ajukan ulang.'}`
+                  : 'Akun Anda masih dalam proses verifikasi Admin. Input klien baru dapat dilakukan setelah akun di-approve Admin.'
             }
             className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg shadow-sm transition-all shrink-0 ${
               mitra.status === 'verified'
@@ -322,7 +346,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             <span>
               {mitra.status === 'verified'
                 ? 'Input Klien Baru (Referral)'
-                : '🔒 Input Klien Baru (Menunggu Approve Admin)'}
+                : mitra.status === 'rejected'
+                  ? '🔒 Input Klien Baru (Data Ditolak — Perbaiki Data)'
+                  : '🔒 Input Klien Baru (Menunggu Approve Admin)'}
             </span>
           </button>
         )}
