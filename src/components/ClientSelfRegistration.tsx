@@ -179,7 +179,33 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           </button>
         </div>
 
-        {submitted ? (
+        {!loading && (!mitra || mitra.status !== 'verified') ? (
+          <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
+            <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto border border-amber-500/30">
+              <Lock className="w-8 h-8" />
+            </div>
+            <div className="space-y-2 max-w-md mx-auto">
+              <span className="inline-block px-3 py-1 text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded-full uppercase">
+                Kode Referral Belum Aktif
+              </span>
+              <h2 className="text-xl font-extrabold text-white">
+                Tautan Referral Belum Dapat Digunakan
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Kode referral <span className="font-mono font-bold text-amber-300">{referralCode}</span> saat ini belum aktif karena akun mitra terkait masih dalam proses verifikasi oleh Admin NDTAXANDLAW.
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={onBackToHome}
+                className="px-6 py-2.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-lg transition-all"
+              >
+                Kembali ke Halaman Utama
+              </button>
+            </div>
+          </div>
+        ) : submitted ? (
           /* Submission Success Card */
           <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-8 text-center space-y-6 shadow-2xl animate-in fade-in zoom-in-95">
             <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">

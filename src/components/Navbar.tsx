@@ -108,14 +108,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               )}
 
-              {/* Primary Action CTA on Desktop/Tablet */}
+              {/* Primary Action CTA on Desktop/Tablet (Hanya Aktif Jika Mitra Sudah Di-Approve Admin) */}
               {currentRole === 'mitra' && onOpenClientInput && (
                 <button
                   type="button"
-                  onClick={onOpenClientInput}
-                  className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shadow-xs"
+                  onClick={() => {
+                    if (activeMitra.status === 'verified') {
+                      onOpenClientInput();
+                    }
+                  }}
+                  disabled={activeMitra.status !== 'verified'}
+                  title={
+                    activeMitra.status === 'verified'
+                      ? 'Input Data Klien Baru'
+                      : 'Akun Anda sedang dalam verifikasi Admin. Input klien baru aktif setelah di-approve Admin.'
+                  }
+                  className={`hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shadow-xs ${
+                    activeMitra.status === 'verified'
+                      ? 'text-white bg-blue-700 hover:bg-blue-800'
+                      : 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed'
+                  }`}
                 >
-                  <span>+ Input Klien</span>
+                  <span>{activeMitra.status === 'verified' ? '+ Input Klien' : '🔒 Input Klien (Menunggu Approve)'}</span>
                 </button>
               )}
 
@@ -279,19 +293,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <DollarSign className="w-3.5 h-3.5" />
                     <span>Komisi &amp; Payout</span>
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('ai-reports')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'ai-reports'
-                        ? 'bg-blue-700 text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${activeTab === 'ai-reports' ? 'text-amber-300' : 'text-blue-600'}`} />
-                    <span>Analisis Kinerja AI</span>
-                  </button>
                 </>
               ) : (
                 <>
@@ -426,8 +427,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               type="button"
-              onClick={onOpenClientInput}
-              className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl bg-blue-700 text-white shadow-sm font-bold"
+              onClick={() => {
+                if (activeMitra.status === 'verified' && onOpenClientInput) {
+                  onOpenClientInput();
+                }
+              }}
+              disabled={activeMitra.status !== 'verified'}
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl shadow-sm font-bold ${
+                activeMitra.status === 'verified'
+                  ? 'bg-blue-700 text-white'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
             >
               <PlusCircle className="w-4 h-4" />
               <span className="text-[10px] mt-0.5 truncate">+ Klien</span>
@@ -450,7 +460,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               onClick={() => onTabChange('marketing-tools')}
               className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'marketing-tools' || activeTab === 'ai-reports'
+                activeTab === 'marketing-tools'
                   ? 'text-blue-700 bg-blue-50 font-bold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}

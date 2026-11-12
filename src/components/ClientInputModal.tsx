@@ -198,7 +198,33 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
 
         {/* Modal Content / Form Area */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {submissionSuccess ? (
+          {currentMitra.status !== 'verified' ? (
+            <div className="flex-1 overflow-y-auto p-8 text-center space-y-4">
+              <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div className="space-y-2 max-w-md mx-auto">
+                <span className="inline-block px-3 py-1 text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded-full">
+                  Menunggu Verifikasi Admin
+                </span>
+                <h3 className="text-lg font-bold text-slate-900">
+                  Fitur Input Klien &amp; Kode Referral Belum Aktif
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Akun kemitraan Anda saat ini masih dalam proses peninjauan oleh Admin. Kode referral dan input data klien baru akan aktif secara otomatis setelah akun Anda <strong>di-approve oleh Admin</strong>.
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors"
+                >
+                  Tutup Jendela
+                </button>
+              </div>
+            </div>
+          ) : submissionSuccess ? (
             <div className="flex-1 overflow-y-auto p-6 py-8 text-center space-y-4">
               <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
                 <CheckCircle2 className="w-9 h-9" />

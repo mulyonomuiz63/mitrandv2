@@ -88,332 +88,380 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
       )}
 
       {/* Referral Code & Dual Earning Showcase Banner */}
-      <div className="mb-6 p-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl border border-blue-700/60 shadow-lg space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
+      {isVerified ? (
+        <div className="mb-6 p-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl border border-blue-700/60 shadow-lg space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-400 text-slate-950 rounded uppercase tracking-wider">
+                  KODE REFERRAL MITRA RESMI
+                </span>
+                <span className="text-xs text-blue-200">
+                  Gunakan saat mereferensikan calon klien
+                </span>
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <span className="font-mono text-2xl font-black text-amber-300 tracking-wider bg-white/10 px-3.5 py-1 rounded-xl border border-white/15">
+                  {mitra.referralCode || 'ND-REF-0042'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(mitra.referralCode || 'ND-REF-0042');
+                    setCopiedCode(true);
+                    setTimeout(() => setCopiedCode(false), 2500);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors border border-white/20"
+                >
+                  {copiedCode ? '✓ Kode Disalin!' : 'Salin Kode'}
+                </button>
+                <a
+                  href={`https://wa.me/?text=Halo,%20saya%20merekomendasikan%20layanan%20jasa%20keuangan%20dan%20laporan%20pajak%20terpercaya%20dari%20NDTAXANDLAW.%20Gunakan%20kode%20referral%20saya%20${mitra.referralCode || 'ND-REF-0042'}%20untuk%20konsultasi%20resmi.`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
+                >
+                  Bagikan via WA
+                </a>
+              </div>
+            </div>
+
+            {/* Quick Metrics */}
+            <div className="flex items-center gap-3 pt-2 md:pt-0 border-t md:border-t-0 md:border-l border-white/10 md:pl-5">
+              <div className="text-center px-2">
+                <div className="text-xl font-bold font-mono text-white">
+                  {mitra.referredClientsCount ?? 0}
+                </div>
+                <div className="text-[10px] text-blue-200 uppercase font-semibold">
+                  Klien Terdaftar
+                </div>
+              </div>
+              <div className="h-8 w-px bg-white/15"></div>
+              <div className="text-center px-2">
+                <div className="text-xl font-bold font-mono text-emerald-400">
+                  {mitra.activeSubscribersCount ?? 0}
+                </div>
+                <div className="text-[10px] text-emerald-200 uppercase font-semibold">
+                  Langganan Aktif
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Client Self-Registration Direct Link */}
+          <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="text-xs">
+              <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
+              <span className="font-mono text-slate-300 text-[11px] break-all">
+                {clientSelfRegisterLink}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyClientLink}
+                className="px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all"
+              >
+                {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
+              </button>
+              {onOpenClientSelfRegister && (
+                <button
+                  type="button"
+                  onClick={() => onOpenClientSelfRegister(mitra.referralCode || 'ND-REF-0042')}
+                  className="px-2.5 py-1.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-lg border border-white/20 transition-colors"
+                  title="Pratinjau formulir yang akan dilihat calon klien"
+                >
+                  Buka Form (Tes)
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Earning Rules Explain */}
+          <div className="mt-4 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 font-bold shrink-0">⚡ Case-by-case:</span>
+              <span>Mitra menerima komisi 1x penuh saat deal proyek closing (SP2DK, PT PMA, Audit).</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-emerald-400 font-bold shrink-0">🔄 Langganan Bulanan:</span>
+              <span>Mitra menerima komisi pasif rutin setiap bulan selama klien tetap aktif berlangganan jasa akuntansi &amp; pajak.</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-6 p-5 bg-slate-900 text-white rounded-2xl border border-slate-700 shadow-md space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded uppercase tracking-wider">
+                  KODE REFERRAL MITRA (BELUM AKTIF)
+                </span>
+                <span className="text-xs text-slate-400">
+                  Menunggu Persetujuan (Approve) Admin
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed pt-1">
+                Kode referral resmi dan tautan registrasi klien mandiri belum diterbitkan karena akun Anda sedang dalam proses verifikasi Admin.
+              </p>
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-mono text-amber-300 shrink-0 text-center">
+              🔒 MENUNGGU APPROVE ADMIN
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ID Card Presentation Area (Hanya Tersedia Setelah Di-Approve Admin) */}
+      {isVerified ? (
+        <div className="flex flex-col items-center justify-center py-4">
+          {/* Card Controls Toolbar (Berada Tepat di Sekitaran Kartu) */}
+          <div className="w-full max-w-[520px] mb-3 flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 shadow-xs">
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-400 text-slate-950 rounded uppercase tracking-wider">
-                KODE REFERRAL MITRA RESMI
-              </span>
-              <span className="text-xs text-blue-200">
-                Gunakan saat mereferensikan calon klien
-              </span>
-            </div>
-            <div className="flex items-center gap-3 pt-1">
-              <span className="font-mono text-2xl font-black text-amber-300 tracking-wider bg-white/10 px-3.5 py-1 rounded-xl border border-white/15">
-                {mitra.referralCode || 'ND-REF-0042'}
-              </span>
               <button
                 type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(mitra.referralCode || 'ND-REF-0042');
-                  setCopiedCode(true);
-                  setTimeout(() => setCopiedCode(false), 2500);
-                }}
-                className="px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors border border-white/20"
+                onClick={() => setIsFlipped(!isFlipped)}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 shadow-2xs"
               >
-                {copiedCode ? '✓ Kode Disalin!' : 'Salin Kode'}
+                <RotateCw className="w-3.5 h-3.5 text-blue-700" />
+                <span>{isFlipped ? 'Lihat Sisi Depan' : 'Lihat Sisi Belakang'}</span>
               </button>
-              <a
-                href={`https://wa.me/?text=Halo,%20saya%20merekomendasikan%20layanan%20jasa%20keuangan%20dan%20laporan%20pajak%20terpercaya%20dari%20NDTAXANDLAW.%20Gunakan%20kode%20referral%20saya%20${mitra.referralCode || 'ND-REF-0042'}%20untuk%20konsultasi%20resmi.`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
-              >
-                Bagikan via WA
-              </a>
-            </div>
-          </div>
 
-          {/* Quick Metrics */}
-          <div className="flex items-center gap-3 pt-2 md:pt-0 border-t md:border-t-0 md:border-l border-white/10 md:pl-5">
-            <div className="text-center px-2">
-              <div className="text-xl font-bold font-mono text-white">
-                {mitra.referredClientsCount ?? 0}
-              </div>
-              <div className="text-[10px] text-blue-200 uppercase font-semibold">
-                Klien Terdaftar
-              </div>
-            </div>
-            <div className="h-8 w-px bg-white/15"></div>
-            <div className="text-center px-2">
-              <div className="text-xl font-bold font-mono text-emerald-400">
-                {mitra.activeSubscribersCount ?? 0}
-              </div>
-              <div className="text-[10px] text-emerald-200 uppercase font-semibold">
-                Langganan Aktif
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Client Self-Registration Direct Link (Update 2) */}
-        <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="text-xs">
-            <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
-            <span className="font-mono text-slate-300 text-[11px] break-all">
-              {clientSelfRegisterLink}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleCopyClientLink}
-              className="px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all"
-            >
-              {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
-            </button>
-            {onOpenClientSelfRegister && (
               <button
                 type="button"
-                onClick={() => onOpenClientSelfRegister(mitra.referralCode || 'ND-REF-0042')}
-                className="px-2.5 py-1.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-lg border border-white/20 transition-colors"
-                title="Pratinjau formulir yang akan dilihat calon klien"
+                onClick={onEditProfile}
+                className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                title="Ubah Foto Profil & Data Diri Mitra"
               >
-                Buka Form (Tes)
+                <Camera className="w-3.5 h-3.5" />
+                <span>Edit Data Diri &amp; Foto</span>
               </button>
-            )}
-          </div>
-        </div>
-
-        {/* Earning Rules Explain */}
-        <div className="mt-4 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
-          <div className="flex items-start gap-2">
-            <span className="text-amber-400 font-bold shrink-0">⚡ Case-by-case:</span>
-            <span>Mitra menerima komisi 1x penuh saat deal proyek closing (SP2DK, PT PMA, Audit).</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="text-emerald-400 font-bold shrink-0">🔄 Langganan Bulanan:</span>
-            <span>Mitra menerima komisi pasif rutin setiap bulan selama klien tetap aktif berlangganan jasa akuntansi &amp; pajak.</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ID Card Presentation Area + Action Toolbar Right Around the Card */}
-      <div className="flex flex-col items-center justify-center py-4">
-        {/* Card Controls Toolbar (Berada Tepat di Sekitaran Kartu) */}
-        <div className="w-full max-w-[520px] mb-3 flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsFlipped(!isFlipped)}
-              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 shadow-2xs"
-            >
-              <RotateCw className="w-3.5 h-3.5 text-blue-700" />
-              <span>{isFlipped ? 'Lihat Sisi Depan' : 'Lihat Sisi Belakang'}</span>
-            </button>
+            </div>
 
             <button
               type="button"
-              onClick={onEditProfile}
-              className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
-              title="Ubah Foto Profil & Data Diri Mitra"
+              onClick={() => setShowDualSidedModal(true)}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs bg-amber-400 hover:bg-amber-300 text-slate-950"
+              title="Download / Cetak Kartu Tampak Depan & Belakang Sekaligus"
             >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Edit Data Diri &amp; Foto</span>
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak Depan &amp; Belakang</span>
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowDualSidedModal(true)}
-            disabled={!isVerified}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs ${
-              isVerified
-                ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold'
-                : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-            }`}
-            title="Download / Cetak Kartu Tampak Depan & Belakang Sekaligus"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Cetak Depan &amp; Belakang</span>
-          </button>
-        </div>
-
-        <div 
-          className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden transition-all duration-500 shadow-xl select-none"
-          style={{
-            background: isFlipped
-              ? 'linear-gradient(135deg, #07162c 0%, #0d274c 50%, #041020 100%)'
-              : 'linear-gradient(135deg, #092147 0%, #113872 45%, #061835 100%)',
-            border: '1.5px solid rgba(212, 175, 55, 0.45)',
-          }}
-        >
-          {/* Guilloche / Luxury security pattern background */}
           <div 
-            className="absolute inset-0 opacity-10 pointer-events-none"
+            className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden transition-all duration-500 shadow-xl select-none"
             style={{
-              backgroundImage: 'radial-gradient(circle at 50% 50%, #ffffff 1px, transparent 1px)',
-              backgroundSize: '16px 16px',
+              background: isFlipped
+                ? 'linear-gradient(135deg, #07162c 0%, #0d274c 50%, #041020 100%)'
+                : 'linear-gradient(135deg, #092147 0%, #113872 45%, #061835 100%)',
+              border: '1.5px solid rgba(212, 175, 55, 0.45)',
             }}
-          />
+          >
+            {/* Guilloche / Luxury security pattern background */}
+            <div 
+              className="absolute inset-0 opacity-10 pointer-events-none"
+              style={{
+                backgroundImage: 'radial-gradient(circle at 50% 50%, #ffffff 1px, transparent 1px)',
+                backgroundSize: '16px 16px',
+              }}
+            />
 
-          {/* Golden metallic wave accent */}
-          <div className="absolute -right-20 -bottom-24 w-80 h-80 rounded-full bg-gradient-to-tr from-amber-500/20 via-blue-400/10 to-transparent blur-xl pointer-events-none" />
-          <div className="absolute -left-20 -top-24 w-72 h-72 rounded-full bg-gradient-to-br from-blue-400/15 via-amber-400/10 to-transparent blur-xl pointer-events-none" />
+            {/* Golden metallic wave accent */}
+            <div className="absolute -right-20 -bottom-24 w-80 h-80 rounded-full bg-gradient-to-tr from-amber-500/20 via-blue-400/10 to-transparent blur-xl pointer-events-none" />
+            <div className="absolute -left-20 -top-24 w-72 h-72 rounded-full bg-gradient-to-br from-blue-400/15 via-amber-400/10 to-transparent blur-xl pointer-events-none" />
 
-          {!isFlipped ? (
-            /* FRONT OF CARD */
-            <div className="relative z-10 h-full flex flex-col justify-between text-white">
-              {/* Card Header */}
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-600 p-0.5 shadow-md shrink-0">
-                    <div className="w-full h-full bg-[#092147] rounded-[10px] flex items-center justify-center p-1 overflow-hidden">
+            {!isFlipped ? (
+              /* FRONT OF CARD */
+              <div className="relative z-10 h-full flex flex-col justify-between text-white">
+                {/* Card Header */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-600 p-0.5 shadow-md shrink-0">
+                      <div className="w-full h-full bg-[#092147] rounded-[10px] flex items-center justify-center p-1 overflow-hidden">
+                        <img
+                          src="/assets/aistudio/logo_kotak_5ecb05e4.png"
+                          alt="ND Emblem"
+                          className="w-full h-full object-contain filter drop-shadow"
+                        />
+                      </div>
+                    </div>
+                    <div>
                       <img
-                        src="/assets/aistudio/logo_kotak_5ecb05e4.png"
-                        alt="ND Emblem"
-                        className="w-full h-full object-contain filter drop-shadow"
+                        src="/assets/aistudio/logo_c3fdb6de.png"
+                        alt="ND TAX AND LAW"
+                        className="h-6 sm:h-7 w-auto object-contain filter brightness-110 drop-shadow"
                       />
+                      <p className="text-[9px] tracking-widest uppercase font-semibold text-amber-300/90 mt-0.5">
+                        Tax &amp; Legal Consulting Partner
+                      </p>
                     </div>
                   </div>
-                  <div>
-                    <img
-                      src="/assets/aistudio/logo_c3fdb6de.png"
-                      alt="ND TAX AND LAW"
-                      className="h-6 sm:h-7 w-auto object-contain filter brightness-110 drop-shadow"
-                    />
-                    <p className="text-[9px] tracking-widest uppercase font-semibold text-amber-300/90 mt-0.5">
-                      Tax &amp; Legal Consulting Partner
+
+                  {/* Hologram / Status Badge */}
+                  <div className="text-right">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-amber-300/40 text-[10px] font-semibold text-amber-200 shadow-xs">
+                      <Sparkles className="w-3 h-3 text-amber-300" />
+                      <span>VERIFIED PARTNER</span>
+                    </div>
+                    <p className="text-[9px] text-slate-300/80 mt-1 font-mono tracking-wider">
+                      EXP: 12/2028
                     </p>
                   </div>
                 </div>
 
-                {/* Hologram / Status Badge */}
-                <div className="text-right">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-amber-300/40 text-[10px] font-semibold text-amber-200 shadow-xs">
-                    <Sparkles className="w-3 h-3 text-amber-300" />
-                    <span>{isVerified ? 'VERIFIED PARTNER' : 'PENDING REVIEW'}</span>
-                  </div>
-                  <p className="text-[9px] text-slate-300/80 mt-1 font-mono tracking-wider">
-                    EXP: 12/2028
-                  </p>
-                </div>
-              </div>
-
-              {/* Middle Section: Smart Chip Graphic & Member Details */}
-              <div className="my-auto py-2 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  {/* Avatar Frame with Gold Rim */}
-                  <div className="relative">
-                    <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
-                      <img
-                        src={mitra.avatarUrl}
-                        alt={mitra.fullName}
-                        className="w-full h-full object-cover rounded-[10px]"
-                      />
-                    </div>
-                    {isVerified && (
+                {/* Middle Section: Smart Chip Graphic & Member Details */}
+                <div className="my-auto py-2 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    {/* Avatar Frame with Gold Rim */}
+                    <div className="relative">
+                      <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
+                        <img
+                          src={mitra.avatarUrl}
+                          alt={mitra.fullName}
+                          className="w-full h-full object-cover rounded-[10px]"
+                        />
+                      </div>
                       <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-2 ring-[#092147] shadow-sm">
                         <CheckCircle2 className="w-4 h-4" />
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  {/* Name and Designation */}
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug line-clamp-1 font-display">
-                      {mitra.fullName}
-                    </h2>
-                    <p className="text-xs text-amber-300/90 font-medium mt-0.5 line-clamp-1">
-                      {mitra.specialization}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[10px] uppercase font-semibold text-slate-300/80 tracking-wider">ID MITRA:</span>
-                      <span className="font-mono text-xs sm:text-sm font-bold text-white tracking-widest bg-white/10 px-2 py-0.5 rounded border border-white/10">
-                        {mitra.memberCode}
-                      </span>
+                    {/* Name and Designation */}
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug line-clamp-1 font-display">
+                        {mitra.fullName}
+                      </h2>
+                      <p className="text-xs text-amber-300/90 font-medium mt-0.5 line-clamp-1">
+                        {mitra.specialization}
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-semibold text-slate-300/80 tracking-wider">ID MITRA:</span>
+                        <span className="font-mono text-xs sm:text-sm font-bold text-white tracking-widest bg-white/10 px-2 py-0.5 rounded border border-white/10">
+                          {mitra.memberCode}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* EMV Microchip Vector */}
-                <div className="hidden sm:flex flex-col items-end">
-                  <div className="w-11 h-8 rounded-md bg-gradient-to-br from-amber-200 via-amber-300 to-amber-500 border border-amber-600/50 p-1 flex flex-col justify-between shadow-inner">
-                    <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                    <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                    <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                  {/* EMV Microchip Vector */}
+                  <div className="hidden sm:flex flex-col items-end">
+                    <div className="w-11 h-8 rounded-md bg-gradient-to-br from-amber-200 via-amber-300 to-amber-500 border border-amber-600/50 p-1 flex flex-col justify-between shadow-inner">
+                      <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                      <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                      <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
+                    </div>
+                    <span className="text-[8px] text-amber-300/70 tracking-widest mt-1 font-mono">SECURE-CHIP</span>
                   </div>
-                  <span className="text-[8px] text-amber-300/70 tracking-widest mt-1 font-mono">SECURE-CHIP</span>
-                </div>
-              </div>
-
-              {/* Card Footer: QR Code & Verification Tag */}
-              <div className="flex items-end justify-between pt-2 border-t border-white/10">
-                <div>
-                  <p className="text-[9px] text-slate-400 uppercase tracking-wider">Kredensial Resmi</p>
-                  <p className="text-xs font-semibold text-slate-200">Mitra Konsultan NDTAXANDLAW</p>
                 </div>
 
-                <button
-                  onClick={() => setShowQrModal(true)}
-                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 transition-colors px-2.5 py-1 rounded-lg border border-white/20 backdrop-blur-xs text-left"
-                  title="Klik untuk memindai QR Verifikasi"
-                >
-                  <div className="w-7 h-7 bg-white p-0.5 rounded flex items-center justify-center">
-                    <QrCode className="w-6 h-6 text-slate-900" />
+                {/* Card Footer: QR Code & Verification Tag */}
+                <div className="flex items-end justify-between pt-2 border-t border-white/10">
+                  <div>
+                    <p className="text-[9px] text-slate-400 uppercase tracking-wider">Kredensial Resmi</p>
+                    <p className="text-xs font-semibold text-slate-200">Mitra Konsultan NDTAXANDLAW</p>
                   </div>
-                  <div className="hidden xs:block">
-                    <p className="text-[8px] text-amber-300 font-mono">SCAN TO VERIFY</p>
-                    <p className="text-[10px] text-white font-semibold">Otentikasi Klien</p>
+
+                  <button
+                    onClick={() => setShowQrModal(true)}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 transition-colors px-2.5 py-1 rounded-lg border border-white/20 backdrop-blur-xs text-left"
+                    title="Klik untuk memindai QR Verifikasi"
+                  >
+                    <div className="w-7 h-7 bg-white p-0.5 rounded flex items-center justify-center">
+                      <QrCode className="w-6 h-6 text-slate-900" />
+                    </div>
+                    <div className="hidden xs:block">
+                      <p className="text-[8px] text-amber-300 font-mono">SCAN TO VERIFY</p>
+                      <p className="text-[10px] text-white font-semibold">Otentikasi Klien</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* BACK OF CARD */
+              <div className="relative z-10 h-full flex flex-col justify-between text-white text-xs">
+                {/* Magnetic Strip */}
+                <div className="w-full h-9 bg-black/80 -mx-6 -mt-2 px-6 flex items-center justify-between">
+                  <span className="text-[9px] font-mono tracking-widest text-slate-400">
+                    ND-TAX-LEGAL-SECURITY-ENCRYPTED-PARTNER-ID
+                  </span>
+                  <span className="text-[9px] font-mono text-amber-400">2026.11</span>
+                </div>
+
+                {/* Bank payout verification & Terms */}
+                <div className="py-2 space-y-2 text-[10px] text-slate-300">
+                  <div className="p-2.5 rounded-lg bg-white/5 border border-white/10">
+                    <p className="text-[9px] text-amber-300 uppercase tracking-wider font-semibold">
+                      Rekening Pencairan Komisi Terdaftar:
+                    </p>
+                    <p className="font-semibold text-white mt-0.5">
+                      {mitra.bankDetails.bankName} - <span className="font-mono text-amber-200">{mitra.bankDetails.accountNumber}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      a.n. {mitra.bankDetails.accountHolder}
+                    </p>
                   </div>
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* BACK OF CARD */
-            <div className="relative z-10 h-full flex flex-col justify-between text-white text-xs">
-              {/* Magnetic Strip */}
-              <div className="w-full h-9 bg-black/80 -mx-6 -mt-2 px-6 flex items-center justify-between">
-                <span className="text-[9px] font-mono tracking-widest text-slate-400">
-                  ND-TAX-LEGAL-SECURITY-ENCRYPTED-PARTNER-ID
-                </span>
-                <span className="text-[9px] font-mono text-amber-400">2026.11</span>
-              </div>
 
-              {/* Bank payout verification & Terms */}
-              <div className="py-2 space-y-2 text-[10px] text-slate-300">
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10">
-                  <p className="text-[9px] text-amber-300 uppercase tracking-wider font-semibold">
-                    Rekening Pencairan Komisi Terdaftar:
-                  </p>
-                  <p className="font-semibold text-white mt-0.5">
-                    {mitra.bankDetails.bankName} - <span className="font-mono text-amber-200">{mitra.bankDetails.accountNumber}</span>
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    a.n. {mitra.bankDetails.accountHolder}
+                  <p className="text-[9px] text-slate-400 leading-relaxed">
+                    1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
+                    <br />
+                    2. Pindai QR Code untuk memvalidasi keabsahan surat tugas atau mandat pendampingan klien.
                   </p>
                 </div>
 
-                <p className="text-[9px] text-slate-400 leading-relaxed">
-                  1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
-                  <br />
-                  2. Pindai QR Code untuk memvalidasi keabsahan surat tugas atau mandat pendampingan klien.
-                </p>
+                {/* Footer contact & Barcode */}
+                <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[9px] text-slate-400">
+                  <div>
+                    <p className="font-semibold text-slate-200">Head Office NDTAXANDLAW</p>
+                    <p>Menara Kadin Indonesia, Jakarta Selatan</p>
+                    <p>Hotline: {supportPhone} | {supportEmail}</p>
+                  </div>
+                  <div className="text-right font-mono text-slate-300">
+                    <div className="text-xs tracking-widest">||| | |||| | ||||| ||</div>
+                    <p className="text-[8px] text-slate-400 mt-0.5">{mitra.memberCode}</p>
+                  </div>
+                </div>
               </div>
+            )}
+          </div>
 
-              {/* Footer contact & Barcode */}
-              <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[9px] text-slate-400">
-                <div>
-                  <p className="font-semibold text-slate-200">Head Office NDTAXANDLAW</p>
-                  <p>Menara Kadin Indonesia, Jakarta Selatan</p>
-                  <p>Hotline: {supportPhone} | {supportEmail}</p>
-                </div>
-                <div className="text-right font-mono text-slate-300">
-                  <div className="text-xs tracking-widest">||| | |||| | ||||| ||</div>
-                  <p className="text-[8px] text-slate-400 mt-0.5">{mitra.memberCode}</p>
-                </div>
-              </div>
-            </div>
-          )}
+          <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+            <RotateCw className="w-3.5 h-3.5 text-slate-400" />
+            <span>Klik <strong>"Lihat Sisi Belakang"</strong> untuk melihat data rekening komisi dan verifikasi keamanan.</span>
+          </p>
         </div>
-
-        <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
-          <RotateCw className="w-3.5 h-3.5 text-slate-400" />
-          <span>Klik <strong>"Lihat Sisi Belakang"</strong> untuk melihat data rekening komisi dan verifikasi keamanan.</span>
-        </p>
-      </div>
+      ) : (
+        /* LOCKED / UNAVAILABLE CARD PLACEHOLDER WHEN PENDING VERIFICATION */
+        <div className="py-4">
+          <div className="w-full max-w-[540px] mx-auto bg-white border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center space-y-4 shadow-xs">
+            <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <Clock className="w-7 h-7" />
+            </div>
+            <div className="space-y-1.5">
+              <span className="inline-block px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 rounded-full">
+                Status: Sedang Dalam Verifikasi Admin
+              </span>
+              <h3 className="text-base font-bold text-slate-900 font-display">
+                Kartu Identitas Eksklusif Belum Tersedia
+              </h3>
+              <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+                Kartu Identitas Digital, Kode Referral Resmi, serta fitur Input Data Klien baru akan tersedia dan berfungsi penuh setelah akun Anda <strong>disetujui (Approve) oleh Admin</strong>.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={onEditProfile}
+                className="px-4 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors inline-flex items-center gap-1.5"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Edit Data Diri &amp; Foto Profil</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QR Verification Modal */}
       {showQrModal && (

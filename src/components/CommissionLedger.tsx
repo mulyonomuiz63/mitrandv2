@@ -284,11 +284,29 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         {userRole === 'mitra' && onOpenClientInput && (
           <button
             type="button"
-            onClick={onOpenClientInput}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all shrink-0"
+            onClick={() => {
+              if (mitra.status === 'verified') {
+                onOpenClientInput();
+              }
+            }}
+            disabled={mitra.status !== 'verified'}
+            title={
+              mitra.status === 'verified'
+                ? 'Input Klien Baru (Referral)'
+                : 'Akun Anda masih dalam proses verifikasi Admin. Input klien baru dapat dilakukan setelah akun di-approve Admin.'
+            }
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg shadow-sm transition-all shrink-0 ${
+              mitra.status === 'verified'
+                ? 'text-white bg-blue-700 hover:bg-blue-800'
+                : 'text-slate-400 bg-slate-200 cursor-not-allowed'
+            }`}
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Input Klien Baru (Referral)</span>
+            <span>
+              {mitra.status === 'verified'
+                ? 'Input Klien Baru (Referral)'
+                : '🔒 Input Klien Baru (Menunggu Approve Admin)'}
+            </span>
           </button>
         )}
       </div>

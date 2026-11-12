@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 
 const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'];
-const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions', 'ai-reports'];
+const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions'];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
@@ -230,7 +230,7 @@ export default function App() {
         phone: '-',
         nik: '-',
         specialization: 'Konsultan Bisnis & Pajak',
-        status: 'verified' as const,
+        status: 'pending' as const,
         gender: currentUser.gender || 'male',
         avatarUrl: resolveAvatarUrl(currentUser.avatarUrl, currentUser.gender, currentUser.name),
         joinedDate: new Date().toISOString().slice(0, 10),

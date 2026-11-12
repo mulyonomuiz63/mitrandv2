@@ -1745,7 +1745,7 @@ var systemRoles = [
     description: "Akses portal kemitraan eksklusif: kartu identitas mitra, input klien referral, pelacakan komisi, penarikan dana, dan materi promosi.",
     portalView: "mitra",
     defaultTab: "idcard",
-    allowedTabs: ["idcard", "dashboard", "marketing-tools", "commissions", "ai-reports"],
+    allowedTabs: ["idcard", "dashboard", "marketing-tools", "commissions"],
     permissions: ["view_idcard", "input_client", "view_commissions", "request_payout", "download_tools"],
     isSystem: true,
     isActive: true
@@ -2291,7 +2291,7 @@ app.post("/api/roles", async (req, res) => {
     description: description || `Role akses ${name}`,
     portalView: portalView === "admin" ? "admin" : "mitra",
     defaultTab: defaultTab || (portalView === "admin" ? "dashboard" : "idcard"),
-    allowedTabs: Array.isArray(allowedTabs) && allowedTabs.length > 0 ? allowedTabs : portalView === "admin" ? ["dashboard", "admin-operations", "verification", "activity-logs", "marketing-tools", "commissions", "ai-reports", "idcard"] : ["idcard", "dashboard", "marketing-tools", "commissions", "ai-reports"],
+    allowedTabs: Array.isArray(allowedTabs) && allowedTabs.length > 0 ? allowedTabs : portalView === "admin" ? ["dashboard", "admin-operations", "verification", "activity-logs", "marketing-tools", "commissions", "ai-reports", "idcard"] : ["idcard", "dashboard", "marketing-tools", "commissions"],
     permissions: Array.isArray(permissions) ? permissions : [],
     isSystem: false,
     isActive: true
@@ -3291,7 +3291,22 @@ app.post("/api/clients", async (req, res) => {
   if (!companyName || !picName || !serviceId) {
     return res.status(400).json({ success: false, message: "Nama perusahaan klien, PIC, dan layanan wajib diisi." });
   }
+  if (supabase) {
+    try {
+      const { data: supaMitras } = await supabase.from("mitras").select("*");
+      if (Array.isArray(supaMitras)) {
+        mitras = supaMitras;
+      }
+    } catch {
+    }
+  }
   const mitra = mitras.find((m) => m.id === mitraId || m.referralCode === req.body.referralCode);
+  if (!mitra || mitra.status !== "verified") {
+    return res.status(403).json({
+      success: false,
+      message: "Kode referral dan input data klien belum dapat digunakan karena akun mitra masih dalam proses verifikasi Admin."
+    });
+  }
   const service = services.find((s) => s.id === serviceId);
   const selectedPricingType = pricingType || (service ? service.pricingType : "case_by_case");
   const nominalValue = Number(dealValue) || (service ? service.defaultPrice : 1e7);
