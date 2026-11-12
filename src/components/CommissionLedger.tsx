@@ -203,11 +203,15 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             Dana Fix Siap Dicairkan
           </p>
           <p className="text-2xl font-bold text-amber-600 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? payouts.filter((p) => p.status === 'pending').reduce((s, p) => s + p.amount, 0) : availableFixCommission)}
+            {formatRupiah(
+              userRole === 'admin'
+                ? payouts.filter((p) => p.status === 'pending').reduce((s, p) => s + p.amount, 0)
+                : Number(mitra.pendingPayout) || 0
+            )}
           </p>
           <span className="text-[11px] text-slate-500 mt-1 block">
             {pendingRequestsAmount > 0
-              ? `Sedang diajukan pencairan: ${formatRupiah(pendingRequestsAmount)}`
+              ? `Sedang diajukan pencairan: ${formatRupiah(pendingRequestsAmount)} (Berkurang setelah di-approve)`
               : 'Hanya komisi yang telah di-approve Admin'}
           </span>
         </div>
@@ -623,7 +627,11 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                     const pph = pay.pph21Deduction || 0;
                     const admin = pay.adminFeeDeduction || 0;
                     const totalDeduction = pph + admin;
-                    const net = pay.netAmountTransferred !== undefined ? pay.netAmountTransferred : Math.max(0, gross - totalDeduction);
+                    const isApproved = pay.status === 'approved';
+                    const net =
+                      isApproved && pay.netAmountTransferred && pay.netAmountTransferred > 0
+                        ? pay.netAmountTransferred
+                        : Math.max(0, gross - totalDeduction);
 
                     return (
                       <tr key={pay.id} className="hover:bg-slate-50/70 transition-colors">
@@ -644,7 +652,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                           {formatRupiah(gross)}
                         </td>
                         <td className="py-3.5 px-6 text-right font-mono whitespace-nowrap">
-                          {totalDeduction > 0 ? (
+                          {!isApproved ? (
+                            <span className="text-slate-400 font-normal">Menunggu Hitung Admin</span>
+                          ) : totalDeduction > 0 ? (
                             <div>
                               <span className="font-bold text-rose-700">- {formatRupiah(totalDeduction)}</span>
                               <div className="text-[9px] text-slate-400">
@@ -656,11 +666,17 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                             <span className="text-slate-400 font-normal">Rp 0 (Tanpa Potongan)</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-6 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap text-sm">
-                          {formatRupiah(net)}
+                        <td className="py-3.5 px-6 text-right font-mono font-extrabold whitespace-nowrap text-sm">
+                          {isApproved ? (
+                            <span className="text-emerald-700">{formatRupiah(net)}</span>
+                          ) : (
+                            <span className="text-slate-500 font-semibold" title="Estimasi sebelum potongan PPh 21 / Admin">
+                              {formatRupiah(gross)}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-6 text-center whitespace-nowrap">
-                          {pay.status === 'approved' ? (
+                          {isApproved ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
                               <CheckCircle2 className="w-3.5 h-3.5" /> ✓ Selesai (Lunas Ditransfer)
                             </span>
@@ -671,14 +687,26 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                           )}
                         </td>
                         <td className="py-3.5 px-6 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedReceipt(pay)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-2xs"
-                          >
-                            <Receipt className="w-3.5 h-3.5" />
-                            <span>Lihat Detail &amp; Bukti Transfer</span>
-                          </button>
+                          {isApproved ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedReceipt(pay)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-2xs"
+                            >
+                              <Receipt className="w-3.5 h-3.5" />
+                              <span>Lihat Detail &amp; Bukti Transfer</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              title="Bukti transfer hanya dapat dibuka setelah pengajuan di-approve oleh Admin"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded-lg cursor-not-allowed opacity-75"
+                            >
+                              <Receipt className="w-3.5 h-3.5" />
+                              <span>Lihat Detail &amp; Bukti Transfer</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

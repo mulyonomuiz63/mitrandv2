@@ -1044,7 +1044,10 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     const pph = req.pph21Deduction || 0;
                     const admin = req.adminFeeDeduction || 0;
                     const totalDeduction = pph + admin;
-                    const net = req.netAmountTransferred !== undefined ? req.netAmountTransferred : Math.max(0, gross - totalDeduction);
+                    const net =
+                      req.status === 'approved' && req.netAmountTransferred && req.netAmountTransferred > 0
+                        ? req.netAmountTransferred
+                        : Math.max(0, gross - totalDeduction);
 
                     return (
                       <tr key={req.id} className="hover:bg-slate-50 transition-colors">
