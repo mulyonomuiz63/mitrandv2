@@ -1562,7 +1562,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <input
                     type="number"
                     min="0"
-                    step="1000"
+                    step="any"
                     value={pphNominal}
                     onChange={(e) => {
                       setPphNominal(Number(e.target.value));

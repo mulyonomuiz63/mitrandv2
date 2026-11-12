@@ -603,8 +603,8 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                       <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-500">Rp</span>
                       <input
                         type="number"
-                        min="1000000"
-                        step="500000"
+                        min="0"
+                        step="any"
                         value={dealValue}
                         onChange={(e) => setDealValue(Number(e.target.value))}
                         className="w-full pl-10 pr-3 py-2 text-sm font-semibold text-slate-900 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"

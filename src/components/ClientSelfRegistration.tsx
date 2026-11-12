@@ -518,7 +518,8 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                   </label>
                   <input
                     type="number"
-                    step="500000"
+                    min="0"
+                    step="any"
                     value={dealValue}
                     onChange={(e) => setDealValue(Number(e.target.value))}
                     className="w-full px-3 py-2 text-sm font-semibold font-mono bg-slate-800 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"

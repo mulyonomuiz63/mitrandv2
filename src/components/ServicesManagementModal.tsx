@@ -308,7 +308,8 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                   </label>
                   <input
                     type="number"
-                    step="500000"
+                    min="0"
+                    step="any"
                     value={defaultPrice}
                     onChange={(e) => setDefaultPrice(Number(e.target.value))}
                     className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg outline-none"
@@ -321,8 +322,9 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                   </label>
                   <input
                     type="number"
-                    min="1"
-                    max="50"
+                    min="0"
+                    max="100"
+                    step="any"
                     value={commissionRate}
                     onChange={(e) => setCommissionRate(Number(e.target.value))}
                     className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg outline-none"

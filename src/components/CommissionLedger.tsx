@@ -738,9 +738,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   </span>
                   <input
                     type="number"
-                    min="50000"
+                    min="10000"
                     max={availableFixCommission}
-                    step="10000"
+                    step="any"
                     required
                     value={payoutAmount}
                     onChange={(e) => setPayoutAmount(Number(e.target.value))}
