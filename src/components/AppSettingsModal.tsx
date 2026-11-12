@@ -195,10 +195,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
       const res = await fetch('/api/system/database-backup');
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Gagal mengunduh data backup dari server.');
+        throw new Error(data.message || 'Gagal mengunduh data backup dari Supabase.');
       }
       const dateStr = new Date().toISOString().slice(0, 10);
-      const fileName = `backup-database-${(settings.firmName || 'ndtaxandlaw').toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
+      const fileName = `supabase-backup-${(settings.firmName || 'ndtaxandlaw').toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -211,12 +211,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
       setBackupRestoreFeedback({
         success: true,
-        message: `File backup "${fileName}" berhasil diunduh (${data.counts?.mitras ?? 0} mitra, ${data.counts?.clientDeals ?? 0} klien/deal, ${data.counts?.commissions ?? 0} komisi).`,
+        message: `Backup Database Supabase "${fileName}" berhasil diunduh (${data.counts?.mitras ?? 0} mitra, ${data.counts?.client_deals ?? data.counts?.clientDeals ?? 0} klien/deal, ${data.counts?.commissions ?? 0} komisi).`,
       });
     } catch (err: any) {
       setBackupRestoreFeedback({
         success: false,
-        message: err.message || 'Terjadi kesalahan saat mengunduh backup database.',
+        message: err.message || 'Terjadi kesalahan saat mengunduh backup dari Supabase.',
       });
     } finally {
       setIsDownloadingBackup(false);
@@ -232,16 +232,16 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || '{}'));
-        const payloadData = parsed?.data || parsed;
+        const payloadData = parsed?.tables || parsed?.data || parsed;
         if (!payloadData || typeof payloadData !== 'object') {
-          throw new Error('Struktur JSON tidak dikenali.');
+          throw new Error('Struktur file backup Supabase tidak dikenali.');
         }
         setParsedBackupPayload(parsed);
       } catch (err: any) {
         setParsedBackupPayload(null);
         setBackupRestoreFeedback({
           success: false,
-          message: `File "${file.name}" bukan file JSON backup yang valid.`,
+          message: `File "${file.name}" bukan file backup Supabase yang valid.`,
         });
       }
     };
@@ -983,32 +983,32 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                 )}
               </div>
 
-              {/* BACKUP & RESTORE DATABASE (DOWNLOAD & UPLOAD JSON) */}
+              {/* BACKUP & RESTORE DATABASE SUPABASE (PRODUCTION) */}
               <div className="p-5 bg-white border-2 border-blue-600/25 rounded-xl space-y-4 shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
                   <div>
                     <div className="flex items-center gap-2">
                       <Database className="w-4 h-4 text-blue-700" />
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Pusat Backup &amp; Restore Database (.JSON)
+                        Backup &amp; Restore Database Supabase (Production)
                       </h4>
-                      <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 rounded">
-                        FULL CLOUD &amp; LOKAL
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 rounded">
+                        MURNI DATA SUPABASE
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-600 mt-1">
-                      Unduh salinan cadangan penuh seluruh tabel database (Mitra, Klien/Deal, Komisi, Payout, Layanan, Pengaturan, Log) atau pulihkan kembali ke Supabase kapan saja.
+                      Mengambil langsung seluruh isi tabel dari <strong>Database Production Supabase</strong> Anda (tanpa mencampur data lokal/dummy) ke dalam 1 file cadangan, serta memulihkan kembali langsung ke tabel-tabel di Supabase.
                     </p>
                   </div>
 
                   <button
                     type="button"
                     onClick={handleDownloadBackup}
-                    disabled={isDownloadingBackup}
+                    disabled={isDownloadingBackup || !supabaseStatus?.success}
                     className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs shrink-0 disabled:opacity-50"
                   >
                     <Download className="w-4 h-4" />
-                    <span>{isDownloadingBackup ? 'Menyiapkan File...' : 'Download Backup Database (.json)'}</span>
+                    <span>{isDownloadingBackup ? 'Mengambil dari Supabase...' : 'Backup Database Supabase'}</span>
                   </button>
                 </div>
 
@@ -1017,10 +1017,10 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                   <div className="md:col-span-7 space-y-2">
                     <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                       <Upload className="w-3.5 h-3.5 text-blue-700" />
-                      <span>Pulihkan / Restore Database dari File Backup (.json)</span>
+                      <span>Restore Data ke Tabel Supabase</span>
                     </p>
                     <p className="text-[11px] text-slate-600 leading-relaxed">
-                      Pilih file <code>.json</code> hasil backup sebelumnya, tentukan mode pemulihan, lalu klik <strong>Jalankan Restore Database</strong> untuk menyinkronkan ke Supabase.
+                      Pilih file hasil backup Supabase Anda, tentukan mode pemulihan, lalu klik <strong>Restore ke Supabase</strong> untuk mengembalikan seluruh baris tabel ke database Supabase.
                     </p>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1032,7 +1032,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           onChange={() => setRestoreMode('merge')}
                           className="text-blue-700"
                         />
-                        <span>Gabungkan Data (Aman / Merge)</span>
+                        <span>Gabungkan / Update ke Supabase (Merge)</span>
                       </label>
                       <label className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-300 cursor-pointer">
                         <input
@@ -1042,7 +1042,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           onChange={() => setRestoreMode('replace')}
                           className="text-amber-600"
                         />
-                        <span>Timpa Seluruh Data (Full Replace)</span>
+                        <span>Timpa Penuh Tabel Supabase (Full Replace)</span>
                       </label>
                     </div>
                   </div>
@@ -1051,7 +1051,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     <label className="w-full px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-dashed border-slate-300 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-2 transition-colors">
                       <Upload className="w-4 h-4 text-blue-700 shrink-0" />
                       <span className="truncate">
-                        {selectedBackupFileName || 'Pilih File Backup (.json)...'}
+                        {selectedBackupFileName || 'Pilih File Backup Supabase...'}
                       </span>
                       <input
                         type="file"
@@ -1064,13 +1064,13 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     {parsedBackupPayload && (
                       <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg text-[11px] text-blue-950 space-y-1">
                         <p className="font-bold">
-                          Siap Dipulihkan ({parsedBackupPayload.createdAt ? new Date(parsedBackupPayload.createdAt).toLocaleString('id-ID') : 'File Valid'}):
+                          Isi File Backup Supabase ({parsedBackupPayload.createdAt ? new Date(parsedBackupPayload.createdAt).toLocaleString('id-ID') : 'Siap Restore'}):
                         </p>
                         <p className="text-[10px] text-blue-800">
-                          {(parsedBackupPayload.data?.mitras || parsedBackupPayload.mitras || []).length} Mitra ·{' '}
-                          {(parsedBackupPayload.data?.clientDeals || parsedBackupPayload.clientDeals || []).length} Klien/Deal ·{' '}
-                          {(parsedBackupPayload.data?.commissions || parsedBackupPayload.commissions || []).length} Komisi ·{' '}
-                          {(parsedBackupPayload.data?.services || parsedBackupPayload.services || []).length} Layanan
+                          {(parsedBackupPayload.tables?.mitras || parsedBackupPayload.data?.mitras || []).length} Mitra ·{' '}
+                          {(parsedBackupPayload.tables?.client_deals || parsedBackupPayload.data?.clientDeals || []).length} Klien/Deal ·{' '}
+                          {(parsedBackupPayload.tables?.commissions || parsedBackupPayload.data?.commissions || []).length} Komisi ·{' '}
+                          {(parsedBackupPayload.tables?.services || parsedBackupPayload.data?.services || []).length} Layanan
                         </p>
                       </div>
                     )}
@@ -1078,11 +1078,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     <button
                       type="button"
                       onClick={handleExecuteRestore}
-                      disabled={!parsedBackupPayload || isRestoringBackup}
+                      disabled={!parsedBackupPayload || isRestoringBackup || !supabaseStatus?.success}
                       className="w-full py-2 px-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs disabled:cursor-not-allowed"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isRestoringBackup ? 'animate-spin' : ''}`} />
-                      <span>{isRestoringBackup ? 'Memulihkan ke Supabase...' : 'Jalankan Restore Database'}</span>
+                      <span>{isRestoringBackup ? 'Memulihkan ke Supabase...' : 'Restore ke Supabase'}</span>
                     </button>
                   </div>
                 </div>

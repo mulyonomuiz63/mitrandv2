@@ -4266,52 +4266,95 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
   }
 });
 
-// 8. Admin Full Database Backup (.json) & Restore Endpoints
+// 8. Admin Supabase Cloud Database Backup & Restore Endpoints (Strictly Supabase Only)
 app.get('/api/system/database-backup', async (req: Request, res: Response) => {
-  try {
-    if (supabase) {
-      await syncFromSupabase();
-    }
+  if (!supabase) {
+    return res.status(400).json({
+      success: false,
+      message: 'Koneksi Database Supabase belum aktif. Fitur Backup khusus untuk mem-backup data dari server Supabase.',
+    });
+  }
 
-    const passwordsObj: Record<string, string> = {};
-    for (const [k, v] of userPasswords.entries()) {
-      if (k.startsWith('__sys_') && k.endsWith('@ndtaxlaw.internal')) continue;
-      const role = k.toLowerCase() === adminAccount.email.toLowerCase() ? 'admin' : extractUserRole(v, 'mitra');
-      passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
-    }
+  try {
+    // Query 100% langsung dari seluruh tabel di Supabase (tanpa mencampur data lokal)
+    const [
+      resMitras,
+      resServices,
+      resDeals,
+      resCommissions,
+      resPayouts,
+      resTools,
+      resNotifs,
+      resSettings,
+      resRoles,
+      resActLogs,
+      resEmailLogs,
+      resPasswords,
+    ] = await Promise.all([
+      supabase.from('mitras').select('*'),
+      supabase.from('services').select('*'),
+      supabase.from('client_deals').select('*'),
+      supabase.from('commissions').select('*'),
+      supabase.from('payout_requests').select('*'),
+      supabase.from('marketing_tools').select('*'),
+      supabase.from('notifications').select('*'),
+      supabase.from('app_settings').select('*'),
+      supabase.from('system_roles').select('*'),
+      supabase.from('activity_logs').select('*').order('timestamp', { ascending: false }),
+      supabase.from('email_logs').select('*').order('timestamp', { ascending: false }),
+      supabase.from('user_passwords').select('*'),
+    ]);
+
+    const sbMitras = Array.isArray(resMitras.data) ? resMitras.data : [];
+    const sbServices = Array.isArray(resServices.data) ? resServices.data : [];
+    const sbDeals = Array.isArray(resDeals.data) ? resDeals.data : [];
+    const sbCommissions = Array.isArray(resCommissions.data) ? resCommissions.data : [];
+    const sbPayouts = Array.isArray(resPayouts.data) ? resPayouts.data : [];
+    const sbTools = Array.isArray(resTools.data) ? resTools.data : [];
+    const sbNotifs = Array.isArray(resNotifs.data) ? resNotifs.data : [];
+    const sbSettings = Array.isArray(resSettings.data) ? resSettings.data : [];
+    const sbRoles = Array.isArray(resRoles.data) ? resRoles.data : [];
+    const sbActLogs = Array.isArray(resActLogs.data) ? resActLogs.data : [];
+    const sbEmailLogs = Array.isArray(resEmailLogs.data) ? resEmailLogs.data : [];
+    const sbPasswords = Array.isArray(resPasswords.data) ? resPasswords.data : [];
+
+    const supabaseConfig = getSupabaseConfig();
 
     const backupPayload = {
       success: true,
-      backupVersion: '2.4-PRO',
+      source: 'SUPABASE_PRODUCTION_DATABASE',
+      supabaseUrl: supabaseConfig.url,
+      backupVersion: '2.4-SUPABASE',
       createdAt: new Date().toISOString(),
       firmName: appSettings.firmName || 'NDTAXANDLAW',
-      environment: appSettings.appEnvironment,
+      environment: 'production',
       counts: {
-        mitras: mitras.length,
-        services: services.length,
-        clientDeals: clientDeals.length,
-        commissions: commissions.length,
-        payoutRequests: payoutRequests.length,
-        marketingTools: marketingTools.length,
-        notifications: notifications.length,
-        activityLogs: activityLogs.length,
-        emailLogs: emailLogs.length,
-        roles: systemRoles.length,
-        userPasswords: Object.keys(passwordsObj).length,
+        mitras: sbMitras.length,
+        services: sbServices.length,
+        client_deals: sbDeals.length,
+        commissions: sbCommissions.length,
+        payout_requests: sbPayouts.length,
+        marketing_tools: sbTools.length,
+        notifications: sbNotifs.length,
+        app_settings: sbSettings.length,
+        system_roles: sbRoles.length,
+        activity_logs: sbActLogs.length,
+        email_logs: sbEmailLogs.length,
+        user_passwords: sbPasswords.length,
       },
-      data: {
-        mitras,
-        services,
-        clientDeals,
-        commissions,
-        payoutRequests,
-        marketingTools,
-        notifications,
-        activityLogs,
-        emailLogs,
-        appSettings,
-        roles: systemRoles,
-        userPasswords: passwordsObj,
+      tables: {
+        mitras: sbMitras,
+        services: sbServices,
+        client_deals: sbDeals,
+        commissions: sbCommissions,
+        payout_requests: sbPayouts,
+        marketing_tools: sbTools,
+        notifications: sbNotifs,
+        app_settings: sbSettings,
+        system_roles: sbRoles,
+        activity_logs: sbActLogs,
+        email_logs: sbEmailLogs,
+        user_passwords: sbPasswords,
       },
     };
 
@@ -4320,249 +4363,162 @@ app.get('/api/system/database-backup', async (req: Request, res: Response) => {
       actorName: 'Admin Operasional',
       actionType: 'settings_update',
       operation: 'CREATE',
-      targetEntity: 'Backup Database',
-      description: `Admin mengunduh file Backup Database lengkap (${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi, ${payoutRequests.length} payout).`,
+      targetEntity: 'Backup Database Supabase',
+      description: `Admin mengunduh Backup Database langsung dari Supabase (${sbMitras.length} mitra, ${sbDeals.length} klien/deal, ${sbCommissions.length} komisi, ${sbPayouts.length} payout).`,
     });
 
     res.json(backupPayload);
   } catch (err: any) {
     res.status(500).json({
       success: false,
-      message: `Gagal membuat file backup database: ${err.message || 'Unknown error'}`,
+      message: `Gagal mengambil data backup dari Supabase: ${err.message || 'Unknown error'}`,
     });
   }
 });
 
 app.post('/api/system/database-restore', async (req: Request, res: Response) => {
+  if (!supabase) {
+    return res.status(400).json({
+      success: false,
+      message: 'Koneksi Database Supabase belum aktif. Fitur Restore hanya dapat dijalankan langsung ke database Supabase.',
+    });
+  }
+
   try {
     const { backupData, mode = 'merge' } = req.body;
-    const rawData = backupData?.data || backupData;
+    // Support both new `tables` format and legacy `data` format
+    const rawTables = backupData?.tables || backupData?.data || backupData;
 
-    if (!rawData || typeof rawData !== 'object') {
+    if (!rawTables || typeof rawTables !== 'object') {
       return res.status(400).json({
         success: false,
-        message: 'Format file backup (.json) tidak valid atau kosong.',
+        message: 'Format file backup Supabase tidak valid atau kosong.',
       });
     }
 
     const isReplace = mode === 'replace';
 
-    // 1. Restore In-Memory State
-    if (Array.isArray(rawData.mitras)) {
-      if (isReplace) {
-        mitras = normalizeMitraAvatars(rawData.mitras);
-      } else {
-        const merged = new Map<string, Mitra>();
-        for (const m of mitras) merged.set(m.id, m);
-        for (const m of rawData.mitras) if (m && m.id) merged.set(m.id, m);
-        mitras = normalizeMitraAvatars(Array.from(merged.values()));
-      }
+    const tblMitras = Array.isArray(rawTables.mitras) ? rawTables.mitras : [];
+    const tblServices = Array.isArray(rawTables.services) ? rawTables.services : [];
+    const tblDeals = Array.isArray(rawTables.client_deals)
+      ? rawTables.client_deals
+      : Array.isArray(rawTables.clientDeals)
+        ? rawTables.clientDeals.map((d: ClientDeal) => toSupabaseClientDeal(d))
+        : [];
+    const tblCommissions = Array.isArray(rawTables.commissions) ? rawTables.commissions : [];
+    const tblPayouts = Array.isArray(rawTables.payout_requests)
+      ? rawTables.payout_requests
+      : Array.isArray(rawTables.payoutRequests)
+        ? rawTables.payoutRequests
+        : [];
+    const tblTools = Array.isArray(rawTables.marketing_tools)
+      ? rawTables.marketing_tools
+      : Array.isArray(rawTables.marketingTools)
+        ? rawTables.marketingTools
+        : [];
+    const tblNotifs = Array.isArray(rawTables.notifications) ? rawTables.notifications : [];
+    const tblSettings = Array.isArray(rawTables.app_settings) ? rawTables.app_settings : [];
+    const tblRoles = Array.isArray(rawTables.system_roles) ? rawTables.system_roles : [];
+    const tblActLogs = Array.isArray(rawTables.activity_logs)
+      ? rawTables.activity_logs
+      : Array.isArray(rawTables.activityLogs)
+        ? rawTables.activityLogs
+        : [];
+    const tblEmailLogs = Array.isArray(rawTables.email_logs)
+      ? rawTables.email_logs
+      : Array.isArray(rawTables.emailLogs)
+        ? rawTables.emailLogs.map(toSupabaseEmailLogRow)
+        : [];
+    const tblPasswords = Array.isArray(rawTables.user_passwords)
+      ? rawTables.user_passwords
+      : rawTables.userPasswords && typeof rawTables.userPasswords === 'object'
+        ? Object.entries(rawTables.userPasswords).map(([email, password]) => ({ email, password }))
+        : [];
+
+    // 1. Jika mode Timpa Penuh (Full Replace), kosongkan tabel di Supabase terlebih dahulu
+    if (isReplace) {
+      await Promise.allSettled([
+        supabase.from('mitras').delete().neq('id', ''),
+        supabase.from('services').delete().neq('id', ''),
+        supabase.from('client_deals').delete().neq('id', ''),
+        supabase.from('commissions').delete().neq('id', ''),
+        supabase.from('payout_requests').delete().neq('id', ''),
+        supabase.from('marketing_tools').delete().neq('id', ''),
+        supabase.from('notifications').delete().neq('id', ''),
+        supabase.from('activity_logs').delete().neq('id', ''),
+        supabase.from('email_logs').delete().neq('id', ''),
+      ]);
     }
 
-    if (Array.isArray(rawData.services)) {
-      if (isReplace) {
-        services = rawData.services;
-      } else {
-        const merged = new Map<string, ServiceItem>();
-        for (const s of services) merged.set(s.id, s);
-        for (const s of rawData.services) if (s && s.id) merged.set(s.id, s);
-        services = Array.from(merged.values());
-      }
+    // 2. Upsert seluruh tabel langsung ke Supabase
+    if (tblMitras.length > 0) {
+      await supabase.from('mitras').upsert(tblMitras);
+    }
+    if (tblServices.length > 0) {
+      await supabase.from('services').upsert(tblServices);
+    }
+    if (tblDeals.length > 0) {
+      await supabase.from('client_deals').upsert(tblDeals);
+    }
+    if (tblCommissions.length > 0) {
+      await supabase.from('commissions').upsert(tblCommissions);
+    }
+    if (tblPayouts.length > 0) {
+      await supabase.from('payout_requests').upsert(tblPayouts);
+    }
+    if (tblTools.length > 0) {
+      await supabase.from('marketing_tools').upsert(tblTools);
+    }
+    if (tblNotifs.length > 0) {
+      await supabase.from('notifications').upsert(tblNotifs);
+    }
+    if (tblSettings.length > 0) {
+      await supabase.from('app_settings').upsert(tblSettings);
+    }
+    if (tblRoles.length > 0) {
+      await supabase.from('system_roles').upsert(tblRoles);
+    }
+    if (tblActLogs.length > 0) {
+      await supabase.from('activity_logs').upsert(tblActLogs);
+    }
+    if (tblEmailLogs.length > 0) {
+      await supabase.from('email_logs').upsert(tblEmailLogs);
+    }
+    if (tblPasswords.length > 0) {
+      await supabase.from('user_passwords').upsert(tblPasswords);
     }
 
-    if (Array.isArray(rawData.clientDeals)) {
-      if (isReplace) {
-        clientDeals = normalizeClientDeals(rawData.clientDeals);
-      } else {
-        const merged = new Map<string, ClientDeal>();
-        for (const d of clientDeals) merged.set(d.id, d);
-        for (const d of rawData.clientDeals) if (d && d.id) merged.set(d.id, d);
-        clientDeals = normalizeClientDeals(Array.from(merged.values()));
-      }
-    }
-
-    if (Array.isArray(rawData.commissions)) {
-      if (isReplace) {
-        commissions = rawData.commissions;
-      } else {
-        const merged = new Map<string, CommissionTransaction>();
-        for (const c of commissions) merged.set(c.id, c);
-        for (const c of rawData.commissions) if (c && c.id) merged.set(c.id, c);
-        commissions = Array.from(merged.values());
-      }
-    }
-
-    if (Array.isArray(rawData.payoutRequests)) {
-      if (isReplace) {
-        payoutRequests = rawData.payoutRequests;
-      } else {
-        const merged = new Map<string, PayoutRequest>();
-        for (const p of payoutRequests) merged.set(p.id, p);
-        for (const p of rawData.payoutRequests) if (p && p.id) merged.set(p.id, p);
-        payoutRequests = Array.from(merged.values());
-      }
-    }
-
-    if (Array.isArray(rawData.marketingTools)) {
-      if (isReplace) {
-        marketingTools = rawData.marketingTools;
-      } else {
-        const merged = new Map<string, MarketingTool>();
-        for (const t of marketingTools) merged.set(t.id, t);
-        for (const t of rawData.marketingTools) if (t && t.id) merged.set(t.id, t);
-        marketingTools = Array.from(merged.values());
-      }
-    }
-
-    if (Array.isArray(rawData.notifications)) {
-      if (isReplace) {
-        notifications = rawData.notifications;
-      } else {
-        const merged = new Map<string, NotificationItem>();
-        for (const n of notifications) merged.set(n.id, n);
-        for (const n of rawData.notifications) if (n && n.id) merged.set(n.id, n);
-        notifications = Array.from(merged.values());
-      }
-    }
-
-    if (Array.isArray(rawData.activityLogs)) {
-      if (isReplace) {
-        activityLogs = rawData.activityLogs;
-      } else {
-        const merged = new Map<string, ActivityLogItem>();
-        for (const a of [...rawData.activityLogs, ...activityLogs]) {
-          if (a && a.id && !merged.has(a.id)) merged.set(a.id, a);
-        }
-        activityLogs = Array.from(merged.values()).sort(
-          (a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
-        );
-      }
-    }
-
-    if (Array.isArray(rawData.emailLogs)) {
-      if (isReplace) {
-        emailLogs = rawData.emailLogs;
-      } else {
-        const merged = new Map<string, EmailLogItem>();
-        for (const e of [...rawData.emailLogs, ...emailLogs]) {
-          if (e && e.id && !merged.has(e.id)) merged.set(e.id, e);
-        }
-        emailLogs = Array.from(merged.values()).sort(
-          (a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime()
-        );
-      }
-    }
-
-    if (rawData.appSettings && typeof rawData.appSettings === 'object') {
-      const incomingSettings = { ...rawData.appSettings };
-      if (incomingSettings.smtpPassword === '••••••••••••••••') {
-        delete incomingSettings.smtpPassword;
-      }
-      appSettings = { ...appSettings, ...incomingSettings };
-    }
-
-    if (Array.isArray(rawData.roles) && rawData.roles.length > 0) {
-      systemRoles = rawData.roles;
-    }
-
-    if (rawData.userPasswords && typeof rawData.userPasswords === 'object') {
-      if (isReplace) {
-        userPasswords.clear();
-        userPasswords.set(adminAccount.email.toLowerCase(), encryptUserPassword(adminAccount.password, 'admin'));
-      }
-      for (const [emailKey, pwdVal] of Object.entries(rawData.userPasswords)) {
-        if (typeof pwdVal === 'string' && emailKey) {
-          const cleanEmail = emailKey.toLowerCase();
-          if (cleanEmail.startsWith('__sys_') && cleanEmail.endsWith('@ndtaxlaw.internal')) continue;
-          const defaultRole = cleanEmail === adminAccount.email.toLowerCase() ? 'admin' : 'mitra';
-          userPasswords.set(cleanEmail, encryptUserPassword(pwdVal, defaultRole));
-        }
-      }
-    }
-
-    // 2. Sync Restored Data to Supabase Cloud Database
-    if (supabase) {
-      if (isReplace) {
-        await Promise.allSettled([
-          supabase.from('mitras').delete().neq('id', ''),
-          supabase.from('services').delete().neq('id', ''),
-          supabase.from('client_deals').delete().neq('id', ''),
-          supabase.from('commissions').delete().neq('id', ''),
-          supabase.from('payout_requests').delete().neq('id', ''),
-          supabase.from('marketing_tools').delete().neq('id', ''),
-          supabase.from('notifications').delete().neq('id', ''),
-          supabase.from('activity_logs').delete().neq('id', ''),
-          supabase.from('email_logs').delete().neq('id', ''),
-        ]);
-      }
-
-      if (mitras.length > 0) {
-        const cleanMitras = mitras.map(({ gender: _g, ...rest }) => rest);
-        await supabase.from('mitras').upsert(cleanMitras);
-      }
-      if (services.length > 0) {
-        await supabase.from('services').upsert(services);
-      }
-      if (clientDeals.length > 0) {
-        const cleanDeals = clientDeals.map((d) => toSupabaseClientDeal(d));
-        await supabase.from('client_deals').upsert(cleanDeals);
-      }
-      if (commissions.length > 0) {
-        await supabase.from('commissions').upsert(commissions);
-      }
-      if (payoutRequests.length > 0) {
-        await supabase.from('payout_requests').upsert(payoutRequests);
-      }
-      if (marketingTools.length > 0) {
-        await supabase.from('marketing_tools').upsert(marketingTools);
-      }
-      if (notifications.length > 0) {
-        await supabase.from('notifications').upsert(notifications);
-      }
-
-      const pwRows: { email: string; password: string }[] = [];
-      for (const [k, v] of userPasswords.entries()) {
-        pwRows.push({ email: k.toLowerCase(), password: v });
-      }
-      if (pwRows.length > 0) {
-        await supabase.from('user_passwords').upsert(pwRows);
-      }
-
-      await persistSettingsToSupabase();
-      await persistActivityLogsToSupabase();
-      await persistEmailLogsToSupabase();
-    }
-
-    saveDatabase();
+    // 3. Sinkronkan state aplikasi langsung dari Supabase yang baru di-restore
+    await syncFromSupabase();
 
     recordActivity({
       actorRole: 'admin',
       actorName: 'Admin Operasional',
       actionType: 'settings_update',
       operation: 'UPDATE',
-      targetEntity: 'Restore Database',
-      description: `Admin berhasil melakukan Restore Database (${isReplace ? 'Mode Timpa Penuh / Full Replace' : 'Mode Gabung / Merge'}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`,
+      targetEntity: 'Restore Database Supabase',
+      description: `Admin berhasil melakukan Restore Database langsung ke Supabase (${isReplace ? 'Mode Timpa Penuh' : 'Mode Gabung Data'}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`,
     });
 
     res.json({
       success: true,
-      message: `Database berhasil dipulihkan (${isReplace ? 'Timpa Penuh' : 'Gabung Data'}) dan disinkronkan ke Supabase! Total aktif: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
+      message: `Restore ke Database Supabase berhasil (${isReplace ? 'Timpa Penuh' : 'Gabung Data'})! Data di Supabase saat ini: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
       counts: {
         mitras: mitras.length,
         services: services.length,
-        clientDeals: clientDeals.length,
+        client_deals: clientDeals.length,
         commissions: commissions.length,
-        payoutRequests: payoutRequests.length,
-        marketingTools: marketingTools.length,
-        activityLogs: activityLogs.length,
-        emailLogs: emailLogs.length,
+        payout_requests: payoutRequests.length,
+        marketing_tools: marketingTools.length,
+        activity_logs: activityLogs.length,
+        email_logs: emailLogs.length,
       },
       settings: appSettings,
     });
   } catch (err: any) {
     res.status(500).json({
       success: false,
-      message: `Gagal memproses restore database: ${err.message || 'Unknown error'}`,
+      message: `Gagal memproses restore ke Supabase: ${err.message || 'Unknown error'}`,
     });
   }
 });
