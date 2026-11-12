@@ -26,7 +26,10 @@ import {
   CheckCheck,
   ExternalLink,
   Rocket,
-  Wrench
+  Wrench,
+  Download,
+  Upload,
+  Database
 } from 'lucide-react';
 import { AppSettings, EmailLogItem } from '../types';
 
@@ -104,6 +107,17 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const [copiedSql, setCopiedSql] = useState(false);
   const [sqlQueryMode, setSqlQueryMode] = useState<'migration' | 'full'>('migration');
 
+  // Backup & Restore Database States
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
+  const [selectedBackupFileName, setSelectedBackupFileName] = useState<string | null>(null);
+  const [parsedBackupPayload, setParsedBackupPayload] = useState<any | null>(null);
+  const [backupRestoreFeedback, setBackupRestoreFeedback] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
   // Test Email State
   const [testEmailTarget, setTestEmailTarget] = useState('mulyonoazza63@gmail.com');
   const [isSendingTest, setIsSendingTest] = useState(false);
@@ -171,6 +185,103 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
       });
     } finally {
       setIsSyncingSupabase(false);
+    }
+  };
+
+  const handleDownloadBackup = async () => {
+    setIsDownloadingBackup(true);
+    setBackupRestoreFeedback(null);
+    try {
+      const res = await fetch('/api/system/database-backup');
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Gagal mengunduh data backup dari server.');
+      }
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const fileName = `backup-database-${(settings.firmName || 'ndtaxandlaw').toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setBackupRestoreFeedback({
+        success: true,
+        message: `File backup "${fileName}" berhasil diunduh (${data.counts?.mitras ?? 0} mitra, ${data.counts?.clientDeals ?? 0} klien/deal, ${data.counts?.commissions ?? 0} komisi).`,
+      });
+    } catch (err: any) {
+      setBackupRestoreFeedback({
+        success: false,
+        message: err.message || 'Terjadi kesalahan saat mengunduh backup database.',
+      });
+    } finally {
+      setIsDownloadingBackup(false);
+    }
+  };
+
+  const handleSelectRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setBackupRestoreFeedback(null);
+    if (!file) return;
+    setSelectedBackupFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const payloadData = parsed?.data || parsed;
+        if (!payloadData || typeof payloadData !== 'object') {
+          throw new Error('Struktur JSON tidak dikenali.');
+        }
+        setParsedBackupPayload(parsed);
+      } catch (err: any) {
+        setParsedBackupPayload(null);
+        setBackupRestoreFeedback({
+          success: false,
+          message: `File "${file.name}" bukan file JSON backup yang valid.`,
+        });
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExecuteRestore = async () => {
+    if (!parsedBackupPayload) return;
+    setIsRestoringBackup(true);
+    setBackupRestoreFeedback(null);
+    try {
+      const res = await fetch('/api/system/database-restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          backupData: parsedBackupPayload,
+          mode: restoreMode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Gagal memulihkan database.');
+      }
+      setBackupRestoreFeedback({
+        success: true,
+        message: data.message,
+      });
+      if (data.settings) {
+        setSettings(data.settings);
+        if (onSettingsSaved) onSettingsSaved(data.settings);
+      }
+      checkSupabase();
+      fetchEmailLogs();
+    } catch (err: any) {
+      setBackupRestoreFeedback({
+        success: false,
+        message: err.message || 'Terjadi kesalahan saat melakukan restore database.',
+      });
+    } finally {
+      setIsRestoringBackup(false);
     }
   };
 
@@ -868,6 +979,128 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       : 'bg-red-50 border-red-200 text-red-800'
                   }`}>
                     {syncResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/* BACKUP & RESTORE DATABASE (DOWNLOAD & UPLOAD JSON) */}
+              <div className="p-5 bg-white border-2 border-blue-600/25 rounded-xl space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-blue-700" />
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Pusat Backup &amp; Restore Database (.JSON)
+                      </h4>
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 rounded">
+                        FULL CLOUD &amp; LOKAL
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      Unduh salinan cadangan penuh seluruh tabel database (Mitra, Klien/Deal, Komisi, Payout, Layanan, Pengaturan, Log) atau pulihkan kembali ke Supabase kapan saja.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadBackup}
+                    disabled={isDownloadingBackup}
+                    className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs shrink-0 disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{isDownloadingBackup ? 'Menyiapkan File...' : 'Download Backup Database (.json)'}</span>
+                  </button>
+                </div>
+
+                {/* Restore Section */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div className="md:col-span-7 space-y-2">
+                    <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5 text-blue-700" />
+                      <span>Pulihkan / Restore Database dari File Backup (.json)</span>
+                    </p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Pilih file <code>.json</code> hasil backup sebelumnya, tentukan mode pemulihan, lalu klik <strong>Jalankan Restore Database</strong> untuk menyinkronkan ke Supabase.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="restoreMode"
+                          checked={restoreMode === 'merge'}
+                          onChange={() => setRestoreMode('merge')}
+                          className="text-blue-700"
+                        />
+                        <span>Gabungkan Data (Aman / Merge)</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-300 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="restoreMode"
+                          checked={restoreMode === 'replace'}
+                          onChange={() => setRestoreMode('replace')}
+                          className="text-amber-600"
+                        />
+                        <span>Timpa Seluruh Data (Full Replace)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-5 flex flex-col gap-2">
+                    <label className="w-full px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-dashed border-slate-300 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-2 transition-colors">
+                      <Upload className="w-4 h-4 text-blue-700 shrink-0" />
+                      <span className="truncate">
+                        {selectedBackupFileName || 'Pilih File Backup (.json)...'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleSelectRestoreFile}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {parsedBackupPayload && (
+                      <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg text-[11px] text-blue-950 space-y-1">
+                        <p className="font-bold">
+                          Siap Dipulihkan ({parsedBackupPayload.createdAt ? new Date(parsedBackupPayload.createdAt).toLocaleString('id-ID') : 'File Valid'}):
+                        </p>
+                        <p className="text-[10px] text-blue-800">
+                          {(parsedBackupPayload.data?.mitras || parsedBackupPayload.mitras || []).length} Mitra ·{' '}
+                          {(parsedBackupPayload.data?.clientDeals || parsedBackupPayload.clientDeals || []).length} Klien/Deal ·{' '}
+                          {(parsedBackupPayload.data?.commissions || parsedBackupPayload.commissions || []).length} Komisi ·{' '}
+                          {(parsedBackupPayload.data?.services || parsedBackupPayload.services || []).length} Layanan
+                        </p>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleExecuteRestore}
+                      disabled={!parsedBackupPayload || isRestoringBackup}
+                      className="w-full py-2 px-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRestoringBackup ? 'animate-spin' : ''}`} />
+                      <span>{isRestoringBackup ? 'Memulihkan ke Supabase...' : 'Jalankan Restore Database'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {backupRestoreFeedback && (
+                  <div
+                    className={`p-3 rounded-xl text-xs border flex items-start gap-2 ${
+                      backupRestoreFeedback.success
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                        : 'bg-red-50 border-red-200 text-red-800'
+                    }`}
+                  >
+                    {backupRestoreFeedback.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{backupRestoreFeedback.message}</span>
                   </div>
                 )}
               </div>

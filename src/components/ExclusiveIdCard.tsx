@@ -22,79 +22,22 @@ interface ExclusiveIdCardProps {
   onEditProfile: () => void;
   onUpdateProfile?: (id: string, data: Partial<Mitra>) => Promise<void>;
   onOpenClientSelfRegister?: (refCode: string) => void;
+  supportPhone?: string;
+  supportEmail?: string;
 }
 
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   mitra,
   onEditProfile,
-  onUpdateProfile,
   onOpenClientSelfRegister,
+  supportPhone = '0812-8899-7711',
+  supportEmail = 'advisory@ndtaxlaw.com',
 }) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [showDualSidedModal, setShowDualSidedModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
-  const [downloadSuccess, setDownloadSuccess] = useState(false);
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-  const [photoSuccessMessage, setPhotoSuccessMessage] = useState<string | null>(null);
-
-  const handleDownload = () => {
-    setShowDualSidedModal(true);
-  };
-
-  const handlePrint = () => {
-    setShowDualSidedModal(true);
-  };
-
-  const handleDirectPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !onUpdateProfile) return;
-    setIsUploadingPhoto(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 360;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
-          try {
-            await onUpdateProfile(mitra.id, { avatarUrl: compressedDataUrl });
-            setPhotoSuccessMessage('Foto profil berhasil diperbarui!');
-            setTimeout(() => setPhotoSuccessMessage(null), 3000);
-          } finally {
-            setIsUploadingPhoto(false);
-          }
-        } else {
-          setIsUploadingPhoto(false);
-        }
-      };
-      if (typeof reader.result === 'string') {
-        img.src = reader.result;
-      } else {
-        setIsUploadingPhoto(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
 
   const clientSelfRegisterLink = typeof window !== 'undefined'
     ? `${window.location.origin}/?ref=${mitra.referralCode || 'ND-REF-0042'}`
@@ -261,19 +204,15 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               <span>{isFlipped ? 'Lihat Sisi Depan' : 'Lihat Sisi Belakang'}</span>
             </button>
 
-            {onUpdateProfile && (
-              <label className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs">
-                <Camera className="w-3.5 h-3.5" />
-                <span>{isUploadingPhoto ? 'Mengunggah...' : 'Upload Foto Profil'}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleDirectPhotoUpload}
-                  disabled={isUploadingPhoto}
-                  className="hidden"
-                />
-              </label>
-            )}
+            <button
+              type="button"
+              onClick={onEditProfile}
+              className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+              title="Ubah Foto Profil & Data Diri Mitra"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Edit Data Diri &amp; Foto</span>
+            </button>
           </div>
 
           <button
@@ -291,13 +230,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             <span>Cetak Depan &amp; Belakang</span>
           </button>
         </div>
-
-        {photoSuccessMessage && (
-          <div className="w-full max-w-[520px] mb-3 p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{photoSuccessMessage}</span>
-          </div>
-        )}
 
         <div 
           className="w-full max-w-[520px] aspect-[1.586/1] rounded-2xl p-6 sm:p-7 relative overflow-hidden transition-all duration-500 shadow-xl select-none"
@@ -466,7 +398,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 <div>
                   <p className="font-semibold text-slate-200">Head Office NDTAXANDLAW</p>
                   <p>Menara Kadin Indonesia, Jakarta Selatan</p>
-                  <p>Hotline: (021) 5299-8800 | support@ndtaxlaw.com</p>
+                  <p>Hotline: {supportPhone} | {supportEmail}</p>
                 </div>
                 <div className="text-right font-mono text-slate-300">
                   <div className="text-xs tracking-widest">||| | |||| | ||||| ||</div>

@@ -15,8 +15,7 @@ import {
   Eye,
   EyeOff,
   UserCheck,
-  Check,
-  Camera
+  Check
 } from 'lucide-react';
 import { AuthUser, BankDetails } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
@@ -36,6 +35,8 @@ interface AuthViewProps {
   }) => Promise<void>;
   appEnvironment?: 'development' | 'production';
   initialMode?: 'login' | 'register';
+  supportPhone?: string;
+  firmName?: string;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -43,6 +44,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
   onRegisterSubmit,
   appEnvironment = 'development',
   initialMode = 'login',
+  supportPhone = '0812-8899-7711',
+  firmName = 'NDTAXANDLAW',
 }) => {
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'verify'>(initialMode);
 
@@ -73,7 +76,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regNik, setRegNik] = useState('');
   const [regGender, setRegGender] = useState<'male' | 'female'>('male');
-  const [regCustomAvatarUrl, setRegCustomAvatarUrl] = useState<string>('');
   const [regSpecialization, setRegSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
   const [regBankName, setRegBankName] = useState('Bank Central Asia (BCA)');
   const [regAccountNumber, setRegAccountNumber] = useState('');
@@ -81,44 +83,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regSuccessMessage, setRegSuccessMessage] = useState<string | null>(null);
-
-  const handleRegPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 320;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.85);
-          setRegCustomAvatarUrl(compressed);
-        }
-      };
-      if (typeof reader.result === 'string') {
-        img.src = reader.result;
-      }
-    };
-    reader.readAsDataURL(file);
-  };
 
   // Forgot Password States
   const [forgotEmail, setForgotEmail] = useState('');
@@ -204,7 +168,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         nik: regNik || '3201000000000000',
         specialization: regSpecialization,
         gender: regGender,
-        avatarUrl: regCustomAvatarUrl || getDefaultAvatar(regGender),
+        avatarUrl: getDefaultAvatar(regGender),
         bankDetails: {
           bankName: regBankName,
           accountNumber: regAccountNumber,
@@ -359,26 +323,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
           />
           <div className="absolute -right-24 -bottom-24 w-80 h-80 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
 
-          {/* Top Brand Header */}
+          {/* Top Brand Header (Hanya Logo NDTAXANDLAW) */}
           <div className="relative z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-slate-900/80 p-2 border border-amber-300/30 flex items-center justify-center shadow-lg">
-                <img
-                  src="/assets/aistudio/logo_kotak_5ecb05e4.png"
-                  alt="ND Logo Emblem"
-                  className="w-full h-full object-contain filter drop-shadow"
-                />
-              </div>
-              <div>
-                <img
-                  src="/assets/aistudio/logo_c3fdb6de.png"
-                  alt="ND TAX AND LAW"
-                  className="h-8 w-auto object-contain filter brightness-110"
-                />
-                <p className="text-[10px] tracking-widest uppercase font-semibold text-amber-300/90 mt-0.5">
-                  Tax &amp; Legal Advisory
-                </p>
-              </div>
+            <div className="inline-flex items-center bg-slate-900/70 px-3.5 py-2 rounded-xl border border-amber-300/25 shadow-md">
+              <img
+                src="/assets/aistudio/logo_c3fdb6de.png"
+                alt="ND TAX AND LAW"
+                className="h-8 sm:h-9 w-auto object-contain filter brightness-110"
+              />
             </div>
 
             <h2 className="text-xl sm:text-2xl font-bold font-display mt-8 leading-snug">
@@ -739,17 +691,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                 </div>
 
-                {/* Gender / Default Avatar Selector + Custom Photo Upload */}
+                {/* Gender / Default Avatar Selector */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Pilih Jenis Kelamin &amp; Foto Profil Mitra
+                    Pilih Jenis Kelamin (Avatar Default)
                   </label>
                   <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       onClick={() => setRegGender('male')}
                       className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
-                        regGender === 'male' && !regCustomAvatarUrl
+                        regGender === 'male'
                           ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
@@ -764,7 +716,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       type="button"
                       onClick={() => setRegGender('female')}
                       className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
-                        regGender === 'female' && !regCustomAvatarUrl
+                        regGender === 'female'
                           ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
@@ -775,45 +727,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         <p className="text-[10px] text-slate-500">Avatar Default</p>
                       </div>
                     </button>
-                  </div>
-
-                  <div className="mt-2 flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <img
-                        src={regCustomAvatarUrl || getDefaultAvatar(regGender)}
-                        alt="Pratinjau Foto"
-                        className="w-9 h-9 rounded-full object-cover border border-blue-300 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">
-                          {regCustomAvatarUrl ? 'Foto Profil Kustom Terpilih' : 'Upload Foto Profil Resmi (Opsional)'}
-                        </p>
-                        <p className="text-[10px] text-slate-500 truncate">
-                          Akan tampil pada Kartu Identitas Mitra
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {regCustomAvatarUrl && (
-                        <button
-                          type="button"
-                          onClick={() => setRegCustomAvatarUrl('')}
-                          className="px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 rounded-md"
-                        >
-                          Reset
-                        </button>
-                      )}
-                      <label className="px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer flex items-center gap-1">
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>Upload Foto</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleRegPhotoUpload}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
                   </div>
                 </div>
 
@@ -1119,7 +1032,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
           {/* Footer Assistance */}
           <div className="mt-6 pt-4 border-t border-slate-100 text-center text-xs text-slate-400">
-            <span>Butuh bantuan akses akun? Hubungi hotline sekretariat NDTAXANDLAW di (021) 5299-8800.</span>
+            <span>Butuh bantuan akses akun? Hubungi hotline sekretariat {firmName || 'NDTAXANDLAW'} di {supportPhone || '0812-8899-7711'}.</span>
           </div>
         </div>
       </div>

@@ -31,6 +31,8 @@ interface LandingPageProps {
   onOpenClientRegister?: () => void;
   currentUser?: AuthUser | null;
   userAvatarUrl?: string;
+  supportPhone?: string;
+  supportEmail?: string;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
@@ -39,6 +41,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenClientRegister,
   currentUser,
   userAvatarUrl,
+  supportPhone = '0812-8899-7711',
+  supportEmail = 'advisory@ndtaxlaw.com',
 }) => {
   // Interactive Fee Estimator State
   const [companyTurnover, setCompanyTurnover] = useState<number>(3); // in Billion IDR
@@ -88,13 +92,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="flex items-center gap-3 text-[10px] sm:text-[11px] shrink-0 ml-auto">
             <a
-              href="https://wa.me/6281288997711?text=Halo%20NDTAXANDLAW,%20saya%20ingin%20konsultasi%20mengenai%20jasa%20keuangan%20dan%20laporan%20pajak."
+              href={`https://wa.me/${supportPhone.replace(/\D/g, '').replace(/^0/, '62')}?text=Halo%20NDTAXANDLAW,%20saya%20ingin%20konsultasi%20mengenai%20jasa%20keuangan%20dan%20laporan%20pajak.`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 whitespace-nowrap"
             >
               <Phone className="w-3 h-3 shrink-0" />
-              <span>Hotline: 0812-8899-7711</span>
+              <span>Hotline: {supportPhone}</span>
             </a>
             <span className="hidden sm:inline text-slate-600">|</span>
             <button
@@ -1022,11 +1026,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <ul className="space-y-2 text-[11px]">
                 <li className="flex items-center gap-2">
                   <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  <span>0812-8899-7711 (Hotline / WA)</span>
+                  <span>{supportPhone} (Hotline / WA)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Mail className="w-3.5 h-3.5 text-slate-400" />
-                  <span>advisory@ndtaxlaw.com</span>
+                  <span>{supportEmail}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />

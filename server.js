@@ -4291,6 +4291,277 @@ app.post("/api/system/supabase-sync", async (req, res) => {
     });
   }
 });
+app.get("/api/system/database-backup", async (req, res) => {
+  try {
+    if (supabase) {
+      await syncFromSupabase();
+    }
+    const passwordsObj = {};
+    for (const [k, v] of userPasswords.entries()) {
+      if (k.startsWith("__sys_") && k.endsWith("@ndtaxlaw.internal")) continue;
+      const role = k.toLowerCase() === adminAccount.email.toLowerCase() ? "admin" : extractUserRole(v, "mitra");
+      passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
+    }
+    const backupPayload = {
+      success: true,
+      backupVersion: "2.4-PRO",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      firmName: appSettings.firmName || "NDTAXANDLAW",
+      environment: appSettings.appEnvironment,
+      counts: {
+        mitras: mitras.length,
+        services: services.length,
+        clientDeals: clientDeals.length,
+        commissions: commissions.length,
+        payoutRequests: payoutRequests.length,
+        marketingTools: marketingTools.length,
+        notifications: notifications.length,
+        activityLogs: activityLogs.length,
+        emailLogs: emailLogs.length,
+        roles: systemRoles.length,
+        userPasswords: Object.keys(passwordsObj).length
+      },
+      data: {
+        mitras,
+        services,
+        clientDeals,
+        commissions,
+        payoutRequests,
+        marketingTools,
+        notifications,
+        activityLogs,
+        emailLogs,
+        appSettings,
+        roles: systemRoles,
+        userPasswords: passwordsObj
+      }
+    };
+    recordActivity({
+      actorRole: "admin",
+      actorName: "Admin Operasional",
+      actionType: "settings_update",
+      operation: "CREATE",
+      targetEntity: "Backup Database",
+      description: `Admin mengunduh file Backup Database lengkap (${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi, ${payoutRequests.length} payout).`
+    });
+    res.json(backupPayload);
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: `Gagal membuat file backup database: ${err.message || "Unknown error"}`
+    });
+  }
+});
+app.post("/api/system/database-restore", async (req, res) => {
+  try {
+    const { backupData, mode = "merge" } = req.body;
+    const rawData = backupData?.data || backupData;
+    if (!rawData || typeof rawData !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "Format file backup (.json) tidak valid atau kosong."
+      });
+    }
+    const isReplace = mode === "replace";
+    if (Array.isArray(rawData.mitras)) {
+      if (isReplace) {
+        mitras = normalizeMitraAvatars(rawData.mitras);
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const m of mitras) merged.set(m.id, m);
+        for (const m of rawData.mitras) if (m && m.id) merged.set(m.id, m);
+        mitras = normalizeMitraAvatars(Array.from(merged.values()));
+      }
+    }
+    if (Array.isArray(rawData.services)) {
+      if (isReplace) {
+        services = rawData.services;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const s of services) merged.set(s.id, s);
+        for (const s of rawData.services) if (s && s.id) merged.set(s.id, s);
+        services = Array.from(merged.values());
+      }
+    }
+    if (Array.isArray(rawData.clientDeals)) {
+      if (isReplace) {
+        clientDeals = normalizeClientDeals(rawData.clientDeals);
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const d of clientDeals) merged.set(d.id, d);
+        for (const d of rawData.clientDeals) if (d && d.id) merged.set(d.id, d);
+        clientDeals = normalizeClientDeals(Array.from(merged.values()));
+      }
+    }
+    if (Array.isArray(rawData.commissions)) {
+      if (isReplace) {
+        commissions = rawData.commissions;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const c of commissions) merged.set(c.id, c);
+        for (const c of rawData.commissions) if (c && c.id) merged.set(c.id, c);
+        commissions = Array.from(merged.values());
+      }
+    }
+    if (Array.isArray(rawData.payoutRequests)) {
+      if (isReplace) {
+        payoutRequests = rawData.payoutRequests;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const p of payoutRequests) merged.set(p.id, p);
+        for (const p of rawData.payoutRequests) if (p && p.id) merged.set(p.id, p);
+        payoutRequests = Array.from(merged.values());
+      }
+    }
+    if (Array.isArray(rawData.marketingTools)) {
+      if (isReplace) {
+        marketingTools = rawData.marketingTools;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const t of marketingTools) merged.set(t.id, t);
+        for (const t of rawData.marketingTools) if (t && t.id) merged.set(t.id, t);
+        marketingTools = Array.from(merged.values());
+      }
+    }
+    if (Array.isArray(rawData.notifications)) {
+      if (isReplace) {
+        notifications = rawData.notifications;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const n of notifications) merged.set(n.id, n);
+        for (const n of rawData.notifications) if (n && n.id) merged.set(n.id, n);
+        notifications = Array.from(merged.values());
+      }
+    }
+    if (Array.isArray(rawData.activityLogs)) {
+      if (isReplace) {
+        activityLogs = rawData.activityLogs;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const a of [...rawData.activityLogs, ...activityLogs]) {
+          if (a && a.id && !merged.has(a.id)) merged.set(a.id, a);
+        }
+        activityLogs = Array.from(merged.values()).sort(
+          (a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+        );
+      }
+    }
+    if (Array.isArray(rawData.emailLogs)) {
+      if (isReplace) {
+        emailLogs = rawData.emailLogs;
+      } else {
+        const merged = /* @__PURE__ */ new Map();
+        for (const e of [...rawData.emailLogs, ...emailLogs]) {
+          if (e && e.id && !merged.has(e.id)) merged.set(e.id, e);
+        }
+        emailLogs = Array.from(merged.values()).sort(
+          (a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime()
+        );
+      }
+    }
+    if (rawData.appSettings && typeof rawData.appSettings === "object") {
+      const incomingSettings = { ...rawData.appSettings };
+      if (incomingSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
+        delete incomingSettings.smtpPassword;
+      }
+      appSettings = { ...appSettings, ...incomingSettings };
+    }
+    if (Array.isArray(rawData.roles) && rawData.roles.length > 0) {
+      systemRoles = rawData.roles;
+    }
+    if (rawData.userPasswords && typeof rawData.userPasswords === "object") {
+      if (isReplace) {
+        userPasswords.clear();
+        userPasswords.set(adminAccount.email.toLowerCase(), encryptUserPassword(adminAccount.password, "admin"));
+      }
+      for (const [emailKey, pwdVal] of Object.entries(rawData.userPasswords)) {
+        if (typeof pwdVal === "string" && emailKey) {
+          const cleanEmail = emailKey.toLowerCase();
+          if (cleanEmail.startsWith("__sys_") && cleanEmail.endsWith("@ndtaxlaw.internal")) continue;
+          const defaultRole = cleanEmail === adminAccount.email.toLowerCase() ? "admin" : "mitra";
+          userPasswords.set(cleanEmail, encryptUserPassword(pwdVal, defaultRole));
+        }
+      }
+    }
+    if (supabase) {
+      if (isReplace) {
+        await Promise.allSettled([
+          supabase.from("mitras").delete().neq("id", ""),
+          supabase.from("services").delete().neq("id", ""),
+          supabase.from("client_deals").delete().neq("id", ""),
+          supabase.from("commissions").delete().neq("id", ""),
+          supabase.from("payout_requests").delete().neq("id", ""),
+          supabase.from("marketing_tools").delete().neq("id", ""),
+          supabase.from("notifications").delete().neq("id", ""),
+          supabase.from("activity_logs").delete().neq("id", ""),
+          supabase.from("email_logs").delete().neq("id", "")
+        ]);
+      }
+      if (mitras.length > 0) {
+        const cleanMitras = mitras.map(({ gender: _g, ...rest }) => rest);
+        await supabase.from("mitras").upsert(cleanMitras);
+      }
+      if (services.length > 0) {
+        await supabase.from("services").upsert(services);
+      }
+      if (clientDeals.length > 0) {
+        const cleanDeals = clientDeals.map((d) => toSupabaseClientDeal(d));
+        await supabase.from("client_deals").upsert(cleanDeals);
+      }
+      if (commissions.length > 0) {
+        await supabase.from("commissions").upsert(commissions);
+      }
+      if (payoutRequests.length > 0) {
+        await supabase.from("payout_requests").upsert(payoutRequests);
+      }
+      if (marketingTools.length > 0) {
+        await supabase.from("marketing_tools").upsert(marketingTools);
+      }
+      if (notifications.length > 0) {
+        await supabase.from("notifications").upsert(notifications);
+      }
+      const pwRows = [];
+      for (const [k, v] of userPasswords.entries()) {
+        pwRows.push({ email: k.toLowerCase(), password: v });
+      }
+      if (pwRows.length > 0) {
+        await supabase.from("user_passwords").upsert(pwRows);
+      }
+      await persistSettingsToSupabase();
+      await persistActivityLogsToSupabase();
+      await persistEmailLogsToSupabase();
+    }
+    saveDatabase();
+    recordActivity({
+      actorRole: "admin",
+      actorName: "Admin Operasional",
+      actionType: "settings_update",
+      operation: "UPDATE",
+      targetEntity: "Restore Database",
+      description: `Admin berhasil melakukan Restore Database (${isReplace ? "Mode Timpa Penuh / Full Replace" : "Mode Gabung / Merge"}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`
+    });
+    res.json({
+      success: true,
+      message: `Database berhasil dipulihkan (${isReplace ? "Timpa Penuh" : "Gabung Data"}) dan disinkronkan ke Supabase! Total aktif: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
+      counts: {
+        mitras: mitras.length,
+        services: services.length,
+        clientDeals: clientDeals.length,
+        commissions: commissions.length,
+        payoutRequests: payoutRequests.length,
+        marketingTools: marketingTools.length,
+        activityLogs: activityLogs.length,
+        emailLogs: emailLogs.length
+      },
+      settings: appSettings
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: `Gagal memproses restore database: ${err.message || "Unknown error"}`
+    });
+  }
+});
 async function startServer() {
   const distPath = path.join(__dirname, "dist");
   const hasDistBuild = fs.existsSync(path.join(distPath, "index.html"));

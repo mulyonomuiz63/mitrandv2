@@ -457,6 +457,8 @@ export default function App() {
         <LandingPage
           currentUser={currentUser}
           userAvatarUrl={loggedInAvatar}
+          supportPhone={settings?.supportPhone || '0812-8899-7711'}
+          supportEmail={settings?.supportEmail || 'advisory@ndtaxlaw.com'}
           onEnterPortal={() => {
             if (currentUser) {
               setViewMode('portal');
@@ -527,6 +529,8 @@ export default function App() {
           }}
           appEnvironment={settings?.appEnvironment || 'development'}
           initialMode={authInitialMode}
+          supportPhone={settings?.supportPhone || '0812-8899-7711'}
+          firmName={settings?.firmName || 'NDTAXANDLAW'}
         />
 
         <RegistrationModal
@@ -630,6 +634,8 @@ export default function App() {
                 mitra={activeMitra}
                 onEditProfile={() => setIsProfileOpen(true)}
                 onUpdateProfile={handleUpdateProfile}
+                supportPhone={settings?.supportPhone || '0812-8899-7711'}
+                supportEmail={settings?.supportEmail || 'advisory@ndtaxlaw.com'}
                 onOpenClientSelfRegister={(refCode) => {
                   setClientRefCode(refCode);
                   setViewMode('client_register');
