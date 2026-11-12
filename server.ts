@@ -776,6 +776,56 @@ export const persistSettingsToSupabase = async () => {
   }
 };
 
+export const getThreeMonthsAgoCutoff = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 3);
+  return {
+    cutoffMs: d.getTime(),
+    cutoffIso: d.toISOString(),
+  };
+};
+
+export const pruneOldLogs = async (syncSupabase = false) => {
+  const { cutoffMs, cutoffIso } = getThreeMonthsAgoCutoff();
+  const prevActLen = activityLogs.length;
+  const prevEmLen = emailLogs.length;
+
+  activityLogs = activityLogs.filter((item) => {
+    const t = new Date(item.timestamp || 0).getTime();
+    return !Number.isNaN(t) && t >= cutoffMs;
+  });
+
+  emailLogs = emailLogs.filter((item) => {
+    const t = new Date(item.sentAt || 0).getTime();
+    return !Number.isNaN(t) && t >= cutoffMs;
+  });
+
+  const changed = activityLogs.length !== prevActLen || emailLogs.length !== prevEmLen;
+  if (changed) {
+    saveDatabase();
+  }
+
+  if (supabase && (syncSupabase || changed)) {
+    try {
+      await Promise.all([
+        supabase.from('activity_logs').delete().lt('timestamp', cutoffIso),
+        supabase.from('email_logs').delete().lt('timestamp', cutoffIso),
+      ]);
+      if (changed) {
+        await supabase.from('user_passwords').upsert([
+          { email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) },
+          {
+            email: '__sys_email_logs__@ndtaxlaw.internal',
+            password: JSON.stringify(emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest)),
+          },
+        ]);
+      }
+    } catch {
+      // Ignore optional table cleanup errors
+    }
+  }
+};
+
 export const persistActivityLogsToSupabase = async (latestItem?: ActivityLogItem) => {
   if (!supabase) return;
   try {
@@ -834,6 +884,7 @@ export const fromSupabaseEmailLogRow = (row: any): EmailLogItem => {
 };
 
 export const persistEmailLogsToSupabase = async (latestItem?: EmailLogItem) => {
+  await pruneOldLogs(false);
   if (!supabase) return;
   try {
     const compactLogs = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
@@ -879,6 +930,7 @@ export const recordActivity = (params: {
     timestamp: new Date().toISOString(),
   };
   activityLogs.unshift(newItem);
+  void pruneOldLogs(false);
   if (activityLogs.length > 500) {
     activityLogs = activityLogs.slice(0, 500);
   }
@@ -4052,6 +4104,9 @@ app.post('/api/settings/test-email', async (req: Request, res: Response) => {
 app.get('/api/emails/logs', async (req: Request, res: Response) => {
   if (supabase) {
     try {
+      const { cutoffIso } = getThreeMonthsAgoCutoff();
+      await supabase.from('email_logs').delete().lt('timestamp', cutoffIso);
+
       const [{ data: tableLogs, error: errTable }, { data: kvRow, error: errKv }] = await Promise.all([
         supabase.from('email_logs').select('*').order('timestamp', { ascending: false }).limit(300),
         supabase
@@ -4081,6 +4136,7 @@ app.get('/api/emails/logs', async (req: Request, res: Response) => {
       emailLogs = Array.from(mergedMap.values()).sort(
         (a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime()
       );
+      await pruneOldLogs(false);
       saveDatabase();
 
       // Ensure public.email_logs table has all merged logs
@@ -4095,6 +4151,7 @@ app.get('/api/emails/logs', async (req: Request, res: Response) => {
       console.warn('Supabase email logs query error', e);
     }
   }
+  await pruneOldLogs(false);
   res.json({ success: true, data: emailLogs });
 });
 
@@ -4140,6 +4197,9 @@ app.delete('/api/emails/logs', async (req: Request, res: Response) => {
 app.get('/api/activity-logs', async (req: Request, res: Response) => {
   if (supabase) {
     try {
+      const { cutoffIso } = getThreeMonthsAgoCutoff();
+      await supabase.from('activity_logs').delete().lt('timestamp', cutoffIso);
+
       const { data: tableLogs, error: errTable } = await supabase
         .from('activity_logs')
         .select('*')
@@ -4147,6 +4207,7 @@ app.get('/api/activity-logs', async (req: Request, res: Response) => {
         .limit(500);
       if (!errTable && Array.isArray(tableLogs) && tableLogs.length > 0) {
         activityLogs = tableLogs;
+        await pruneOldLogs(false);
         saveDatabase();
         return res.json({ success: true, data: activityLogs });
       }
@@ -4159,6 +4220,7 @@ app.get('/api/activity-logs', async (req: Request, res: Response) => {
         const parsed = JSON.parse(kvRow.password);
         if (Array.isArray(parsed)) {
           activityLogs = parsed;
+          await pruneOldLogs(false);
           saveDatabase();
         }
       }
@@ -4166,6 +4228,7 @@ app.get('/api/activity-logs', async (req: Request, res: Response) => {
       console.warn('Supabase activity logs query error', e);
     }
   }
+  await pruneOldLogs(false);
   res.json({ success: true, data: activityLogs });
 });
 
