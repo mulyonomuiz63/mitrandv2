@@ -15,6 +15,7 @@ import {
   Clock
 } from 'lucide-react';
 import { Mitra } from '../types';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface MitraVerificationPanelProps {
   mitras: Mitra[];
@@ -27,6 +28,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   onVerifyMitra,
   onSelectMitraPreview,
 }) => {
+  const confirm = useConfirm();
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMitraDetail, setSelectedMitraDetail] = useState<Mitra | null>(null);
@@ -43,6 +45,22 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   });
 
   const handleAction = async (id: string, status: 'verified' | 'rejected') => {
+    const targetMitra = mitras.find((m) => m.id === id);
+    const isApprove = status === 'verified';
+    const ok = await confirm({
+      title: isApprove ? 'Setujui (Approve) Pendaftaran Mitra' : 'Tolak Pendaftaran Mitra',
+      message: isApprove
+        ? `Apakah Anda yakin ingin menyetujui pendaftaran Mitra "${targetMitra?.fullName || ''}"? Setelah disetujui, Kode Referral, Input Klien, dan Kartu Identitas Mitra akan langsung aktif.`
+        : `Apakah Anda yakin ingin menolak pendaftaran Mitra "${targetMitra?.fullName || ''}"?`,
+      detail: targetMitra
+        ? `Nama Mitra: ${targetMitra.fullName}\nEmail: ${targetMitra.email}\nSpesialisasi: ${targetMitra.specialization}\nRekening Bank: ${targetMitra.bankDetails.bankName} - ${targetMitra.bankDetails.accountNumber}`
+        : undefined,
+      confirmText: isApprove ? 'Ya, Setujui Mitra' : 'Ya, Tolak Pendaftaran',
+      cancelText: 'Batalkan',
+      variant: isApprove ? 'success' : 'danger',
+    });
+    if (!ok) return;
+
     setActionLoadingId(id);
     try {
       await onVerifyMitra(id, status);

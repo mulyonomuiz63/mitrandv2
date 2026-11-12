@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { Mitra, ClientDeal, CommissionTransaction, PayoutRequest, ActivityLogItem, EmailLogItem } from '../types';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
+import { useConfirm } from './ConfirmDialogModal';
 
 export type AdminSubTab = 'client_validation' | 'mitra_analysis' | 'payout_management' | 'activity_logs' | 'email_logs';
 
@@ -55,6 +56,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   onOpenSettings,
   initialSubTab = 'client_validation',
 }) => {
+  const confirm = useConfirm();
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(initialSubTab);
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequest[]>([]);
   const [loadingPayouts, setLoadingPayouts] = useState(false);
@@ -153,6 +155,16 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   };
 
   const handleResendEmailFromLog = async (logId: string) => {
+    const targetLog = emailLogs.find((l) => l.id === logId);
+    const ok = await confirm({
+      title: 'Kirim Ulang Email Notifikasi',
+      message: `Apakah Anda yakin ingin mengirim ulang email ini ke ${targetLog?.recipient || 'penerima'}?`,
+      detail: targetLog ? `Penerima: ${targetLog.recipientName} (${targetLog.recipient})\nSubjek: ${targetLog.subject}` : undefined,
+      confirmText: 'Ya, Kirim Ulang Email',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
     setResendingEmailId(logId);
     try {
       const res = await fetch(`/api/emails/resend/${logId}`, { method: 'POST' });
@@ -199,6 +211,19 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
   // 1.1 Approve Client Deal (Direct or from Review Modal)
   const handleAccClient = async (dealId: string, customStartDate?: string, customBillingDay?: number) => {
+    const targetDeal = clientDeals.find((d) => d.id === dealId);
+    const ok = await confirm({
+      title: 'Approve Deal Klien (ACC)',
+      message: `Apakah Anda yakin ingin menyetujui (Approve Deal) klien "${targetDeal?.companyName || ''}"? Komisi akan langsung masuk ke saldo akun Mitra.`,
+      detail: targetDeal
+        ? `Perusahaan Klien: ${targetDeal.companyName}\nLayanan: ${targetDeal.serviceName}\nMitra Perujuk: ${targetDeal.mitraName}\nNilai Kontrak: ${formatRupiah(targetDeal.dealValue)}\nKomisi Masuk Mitra: ${formatRupiah(targetDeal.commissionAmount)}`
+        : undefined,
+      confirmText: 'Ya, Approve Deal & Cairkan Komisi',
+      cancelText: 'Batalkan',
+      variant: 'success',
+    });
+    if (!ok) return;
+
     setProcessingId(dealId);
     setIsReviewSubmitting(true);
     try {
@@ -230,6 +255,20 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
   // 1.2 Reject Client Deal (Tidak Deal -> Mitra gets Rp 0 commission)
   const handleRejectClient = async (dealId: string, reasonText?: string) => {
+    const targetDeal = clientDeals.find((d) => d.id === dealId);
+    const finalReason = reasonText || rejectReason || 'Tidak deal setelah konfirmasi dengan calon klien';
+    const ok = await confirm({
+      title: 'Tolak Pengajuan Klien (Tidak Deal)',
+      message: `Apakah Anda yakin ingin menolak / menyatakan Tidak Deal untuk klien "${targetDeal?.companyName || ''}"?`,
+      detail: targetDeal
+        ? `Perusahaan Klien: ${targetDeal.companyName}\nMitra Perujuk: ${targetDeal.mitraName}\nAlasan: ${finalReason}\nKomisi Mitra: Rp 0`
+        : undefined,
+      confirmText: 'Ya, Tolak (Tidak Deal)',
+      cancelText: 'Batalkan',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
     setProcessingId(dealId);
     setIsReviewSubmitting(true);
     try {
@@ -237,7 +276,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reason: reasonText || rejectReason || 'Tidak deal setelah konfirmasi dengan calon klien',
+          reason: finalReason,
         }),
       });
       const data = await res.json();
@@ -260,6 +299,17 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
   // 1.9 Trigger Subscription Billing Time Arrived
   const handleTriggerBillingDue = async (dealId: string) => {
+    const targetDeal = clientDeals.find((d) => d.id === dealId);
+    const ok = await confirm({
+      title: 'Aktifkan Waktu Tagihan Langganan',
+      message: `Tandai bahwa waktu tagihan langganan untuk klien "${targetDeal?.companyName || ''}" telah tiba?`,
+      detail: targetDeal ? `Klien: ${targetDeal.companyName}\nLayanan: ${targetDeal.serviceName}` : undefined,
+      confirmText: 'Ya, Aktifkan Tagihan',
+      cancelText: 'Batalkan',
+      variant: 'warning',
+    });
+    if (!ok) return;
+
     setProcessingId(dealId);
     try {
       const res = await fetch(`/api/clients/${dealId}/trigger-billing-due`, {
@@ -280,6 +330,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
   // 2. Process Monthly or Annual Recurring Billing for Subscriber
   const handleConfirmRecurringBill = async (dealId: string, pricingType: string) => {
+    const targetDeal = clientDeals.find((d) => d.id === dealId);
+    const nextCycle =
+      pricingType === 'annual_subscription'
+        ? `Tahun Ke-${(targetDeal?.recurringPaidYears || 1) + 1}`
+        : `Bulan #${(targetDeal?.recurringPaidMonths || 1) + 1}`;
+    const ok = await confirm({
+      title: `Approve Pembayaran Langganan (${nextCycle})`,
+      message: `Apakah Anda yakin ingin meng-approve pembayaran langganan ${nextCycle} untuk klien "${targetDeal?.companyName || ''}"?`,
+      detail: targetDeal
+        ? `Perusahaan Klien: ${targetDeal.companyName}\nSiklus Pembayaran: ${nextCycle}\nNilai Tagihan: ${formatRupiah(targetDeal.dealValue)}\nKomisi Masuk ke Mitra (${targetDeal.mitraName}): + ${formatRupiah(targetDeal.commissionAmount)}`
+        : undefined,
+      confirmText: 'Ya, Approve Pembayaran & Tambah Komisi',
+      cancelText: 'Batalkan',
+      variant: 'success',
+    });
+    if (!ok) return;
+
     setProcessingId(dealId);
     try {
       const res = await fetch(`/api/clients/${dealId}/bill-cycle`, {
@@ -309,6 +376,16 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   const handleTerminateSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dealToTerminate) return;
+    const ok = await confirm({
+      title: 'Konfirmasi Pemutusan Langganan Klien',
+      message: `Apakah Anda yakin ingin memutus/menghentikan langganan klien "${dealToTerminate.companyName}"? Komisi berulang untuk Mitra akan dihentikan.`,
+      detail: `Perusahaan Klien: ${dealToTerminate.companyName}\nMitra Perujuk: ${dealToTerminate.mitraName}\nAlasan Pemutusan: ${terminationReason.trim() || 'Klien berhenti berlangganan layanan'}`,
+      confirmText: 'Ya, Putus Langganan Klien',
+      cancelText: 'Batalkan',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
     setIsTerminating(true);
     setProcessingId(dealToTerminate.id);
     try {
@@ -379,9 +456,20 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     e.preventDefault();
     if (!payoutToApprove) return;
 
-    setIsSubmittingApproval(true);
     const gross = payoutToApprove.amount || 0;
     const net = Math.max(0, gross - pphNominal - adminFee);
+
+    const ok = await confirm({
+      title: 'Konfirmasi Approve & Transfer Pencairan Komisi',
+      message: `Apakah Anda yakin ingin menyetujui dan menyelesaikan pencairan komisi untuk Mitra "${payoutToApprove.mitraName}"? Saldo siap cair Mitra akan otomatis dikurangi.`,
+      detail: `Nama Mitra: ${payoutToApprove.mitraName}\nRekening Tujuan: ${payoutToApprove.bankDetails.bankName} - ${payoutToApprove.bankDetails.accountNumber} (a.n. ${payoutToApprove.bankDetails.accountHolder})\nNominal Pengajuan (Kotor): ${formatRupiah(gross)}\nPotongan PPh 21 & Admin: - ${formatRupiah(pphNominal + adminFee)}\nTotal Bersih Ditransfer: ${formatRupiah(net)}`,
+      confirmText: 'Ya, Approve & Selesaikan Transfer',
+      cancelText: 'Batalkan',
+      variant: 'success',
+    });
+    if (!ok) return;
+
+    setIsSubmittingApproval(true);
 
     try {
       const res = await fetch(`/api/commissions/payout-requests/${payoutToApprove.id}/approve`, {

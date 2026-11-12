@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Edit2, Trash2, Check, ShieldCheck, Tag, DollarSign, Percent, Layers, CheckCircle } from 'lucide-react';
 import { ServiceItem } from '../types';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface ServicesManagementModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
   onClose,
   onServiceUpdated,
 }) => {
+  const confirm = useConfirm();
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -80,15 +82,26 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
   };
 
   const handleToggleActive = async (srv: ServiceItem) => {
+    const nextState = !srv.isActive;
+    const ok = await confirm({
+      title: nextState ? 'Aktifkan Paket Layanan' : 'Nonaktifkan Paket Layanan',
+      message: `Apakah Anda yakin ingin ${nextState ? 'mengaktifkan' : 'menonaktifkan'} paket layanan "${srv.name}"?`,
+      detail: `Nama Layanan: ${srv.name}\nKategori: ${srv.category}\nStatus Baru: ${nextState ? 'Aktif' : 'Nonaktif'}`,
+      confirmText: nextState ? 'Ya, Aktifkan Layanan' : 'Ya, Nonaktifkan Layanan',
+      cancelText: 'Batalkan',
+      variant: nextState ? 'success' : 'warning',
+    });
+    if (!ok) return;
+
     try {
       const res = await fetch(`/api/services/${srv.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !srv.isActive }),
+        body: JSON.stringify({ isActive: nextState }),
       });
       const data = await res.json();
       if (data.success) {
-        setServices(services.map((s) => (s.id === srv.id ? { ...s, isActive: !s.isActive } : s)));
+        setServices(services.map((s) => (s.id === srv.id ? { ...s, isActive: nextState } : s)));
         if (onServiceUpdated) onServiceUpdated();
       }
     } catch (e) {
@@ -97,7 +110,18 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
   };
 
   const handleDeleteService = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus layanan ini dari katalog?')) return;
+    const targetSrv = services.find((s) => s.id === id);
+    const ok = await confirm({
+      title: 'Hapus Paket Layanan dari Katalog',
+      message: `Apakah Anda yakin ingin menghapus layanan "${targetSrv?.name || id}" dari katalog?`,
+      detail: targetSrv
+        ? `Nama Layanan: ${targetSrv.name}\nKategori: ${targetSrv.category}\nHarga Default: Rp ${targetSrv.defaultPrice.toLocaleString('id-ID')}`
+        : undefined,
+      confirmText: 'Ya, Hapus Layanan',
+      cancelText: 'Batalkan',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/services/${id}`, { method: 'DELETE' });
       const data = await res.json();
@@ -118,6 +142,18 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
       setErrorMsg('Nama, kategori, dan nominal wajib diisi');
       return;
     }
+
+    const ok = await confirm({
+      title: editingServiceId ? 'Konfirmasi Simpan Perubahan Layanan' : 'Konfirmasi Tambah Layanan Baru',
+      message: editingServiceId
+        ? `Apakah Anda yakin ingin menyimpan perubahan pada layanan "${name.trim()}"?`
+        : `Apakah Anda yakin ingin menambahkan layanan baru "${name.trim()}" ke katalog?`,
+      detail: `Nama Layanan: ${name.trim()}\nKategori: ${category}\nHarga Default: Rp ${Number(defaultPrice).toLocaleString('id-ID')}\nKomisi Mitra: ${commissionRate}%`,
+      confirmText: editingServiceId ? 'Ya, Simpan Perubahan' : 'Ya, Tambah Layanan',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     try {
       if (editingServiceId) {

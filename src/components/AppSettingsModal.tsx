@@ -32,6 +32,7 @@ import {
   Database
 } from 'lucide-react';
 import { AppSettings, EmailLogItem } from '../types';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface AppSettingsModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   onClose,
   onSettingsSaved,
 }) => {
+  const confirm = useConfirm();
   const [settings, setSettings] = useState<AppSettings>({
     firmName: 'NDTAXANDLAW',
     tagline: 'Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi',
@@ -169,6 +171,15 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   };
 
   const syncDataToSupabase = async () => {
+    const ok = await confirm({
+      title: 'Konfirmasi Sinkronisasi Data Awal (Development)',
+      message: 'Apakah Anda yakin ingin menyinkronkan data sampel awal ke database Supabase?',
+      confirmText: 'Ya, Sinkronkan Data',
+      cancelText: 'Batalkan',
+      variant: 'warning',
+    });
+    if (!ok) return;
+
     setIsSyncingSupabase(true);
     setSyncResult(null);
     try {
@@ -189,6 +200,15 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   };
 
   const handleDownloadBackup = async () => {
+    const ok = await confirm({
+      title: 'Download Backup Database Supabase (.JSON)',
+      message: 'Apakah Anda yakin ingin mengunduh file backup seluruh tabel database Supabase saat ini?',
+      confirmText: 'Ya, Download Backup',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
+
     setIsDownloadingBackup(true);
     setBackupRestoreFeedback(null);
     try {
@@ -250,6 +270,19 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
   const handleExecuteRestore = async () => {
     if (!parsedBackupPayload) return;
+    const isReplace = restoreMode === 'replace';
+    const ok = await confirm({
+      title: isReplace ? 'Konfirmasi Timpa Penuh (Replace) Database Supabase' : 'Konfirmasi Gabungkan (Merge) Database Supabase',
+      message: isReplace
+        ? 'PERINGATAN: Seluruh data di tabel Supabase saat ini akan dihapus dan digantikan penuh dengan isi file backup. Apakah Anda yakin ingin melanjutkan?'
+        : 'Data dari file backup akan digabungkan (upsert) ke tabel Supabase tanpa menghapus data lain yang sudah ada. Lanjutkan proses restore?',
+      detail: `File Backup: ${selectedBackupFileName || 'backup.json'}\nMode Restore: ${isReplace ? 'Timpa Penuh (Replace All)' : 'Gabungkan Aman (Merge / Upsert)'}`,
+      confirmText: isReplace ? 'Ya, Timpa & Restore Database' : 'Ya, Gabungkan & Restore',
+      cancelText: 'Batalkan',
+      variant: isReplace ? 'danger' : 'warning',
+    });
+    if (!ok) return;
+
     setIsRestoringBackup(true);
     setBackupRestoreFeedback(null);
     try {
@@ -411,6 +444,16 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    const ok = await confirm({
+      title: 'Konfirmasi Simpan Pengaturan Sistem',
+      message: 'Apakah Anda yakin ingin menyimpan seluruh perubahan pengaturan aplikasi, profil firma, dan integrasi ke database?',
+      detail: `Nama Firma: ${settings.firmName}\nHotline: ${settings.supportPhone}\nMode Sistem: ${settings.appEnvironment === 'production' ? 'Production (Murni Supabase)' : 'Development'}`,
+      confirmText: 'Ya, Simpan Pengaturan',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
+
     setSaving(true);
     try {
       const res = await fetch('/api/settings', {

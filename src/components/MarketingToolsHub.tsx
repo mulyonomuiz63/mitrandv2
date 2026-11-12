@@ -17,6 +17,7 @@ import {
   Share2
 } from 'lucide-react';
 import { MarketingTool } from '../types';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface MarketingToolsHubProps {
   tools: MarketingTool[];
@@ -31,6 +32,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   onAddTool,
   onDeleteTool,
 }) => {
+  const confirm = useConfirm();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedPreviewTool, setSelectedPreviewTool] = useState<MarketingTool | null>(null);
@@ -68,6 +70,15 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const handleCreateTool = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
+    const ok = await confirm({
+      title: 'Konfirmasi Unggah Materi Promosi Baru',
+      message: `Apakah Anda yakin ingin mengunggah materi "${newTitle.trim()}" dan menyiarkan notifikasinya ke seluruh Mitra?`,
+      detail: `Judul Materi: ${newTitle.trim()}\nKategori: ${newCategory}\nFormat File: ${newFileType.toUpperCase()}`,
+      confirmText: 'Ya, Unggah Materi',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
     setIsSubmitting(true);
 
     try {
@@ -292,7 +303,19 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
 
                   {userRole === 'admin' && (
                     <button
-                      onClick={() => onDeleteTool(tool.id)}
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Hapus Materi Promosi & Pelatihan',
+                          message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
+                          detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
+                          confirmText: 'Ya, Hapus Materi',
+                          cancelText: 'Batalkan',
+                          variant: 'danger',
+                        });
+                        if (ok) {
+                          onDeleteTool(tool.id);
+                        }
+                      }}
                       className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
                       title="Hapus Materi"
                     >

@@ -19,6 +19,7 @@ import {
 import { Mitra, CommissionTransaction, ClientDeal, PayoutRequest } from '../types';
 import { UserCheck, Sparkles, Plus, Repeat } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface CommissionLedgerProps {
   mitra: Mitra;
@@ -39,6 +40,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
   onEditBankDetails,
   onOpenClientInput,
 }) => {
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState<'referrals' | 'transactions' | 'payouts'>('referrals');
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(mitra.pendingPayout || 0);
@@ -108,6 +110,17 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       setPayoutError(`Nominal pencairan tidak boleh melebihi dana komisi fix tersedia (${formatRupiah(availableFixCommission)}).`);
       return;
     }
+
+    const ok = await confirm({
+      title: 'Konfirmasi Pengajuan Pencairan Komisi',
+      message: `Apakah Anda yakin ingin mengajukan pencairan komisi sebesar ${formatRupiah(payoutAmount)}?`,
+      detail: `Nominal Pengajuan: ${formatRupiah(payoutAmount)}\nBank Tujuan: ${mitra.bankDetails.bankName}\nNo. Rekening: ${mitra.bankDetails.accountNumber}\nAtas Nama: ${mitra.bankDetails.accountHolder}`,
+      confirmText: 'Ya, Ajukan Pencairan',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
+
     setIsSubmitting(true);
     try {
       await onRequestPayout(mitra.id, payoutAmount);

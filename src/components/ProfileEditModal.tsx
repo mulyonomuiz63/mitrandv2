@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Mitra, BankDetails } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, inferGenderFromName } from '../avatars';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   mitra,
   onUpdateProfile,
 }) => {
+  const confirm = useConfirm();
   const [fullName, setFullName] = useState(mitra.fullName);
   const [phone, setPhone] = useState(mitra.phone);
   const [gender, setGender] = useState<'male' | 'female'>(mitra.gender || inferGenderFromName(mitra.fullName));
@@ -121,6 +123,16 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setErrorMessage('Konfirmasi kata sandi baru tidak cocok.');
       return;
     }
+
+    const ok = await confirm({
+      title: 'Konfirmasi Simpan Perubahan Profil & Rekening',
+      message: 'Apakah Anda yakin ingin menyimpan perubahan data diri, foto profil, dan informasi rekening bank Anda?',
+      detail: `Nama Mitra: ${fullName}\nNo. WhatsApp: ${phone}\nRekening Pencairan: ${bankName} - ${accountNumber} (a.n. ${accountHolder})${newPassword ? '\nKata Sandi: Akan diperbarui' : ''}`,
+      confirmText: 'Ya, Simpan Perubahan',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     setIsSubmitting(true);
     try {

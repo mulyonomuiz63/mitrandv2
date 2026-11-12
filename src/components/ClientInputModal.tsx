@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import { Mitra, ServiceItem, ClientDeal } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface ClientInputModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   currentMitra,
   onDealAdded,
 }) => {
+  const confirm = useConfirm();
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loadingServices, setLoadingServices] = useState(false);
   const [selectedServiceId, setSelectedServiceId] = useState('');
@@ -118,6 +120,16 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
       setErrorMessage('Mohon lengkapi nama perusahaan, penanggung jawab (PIC), dan jenis layanan.');
       return;
     }
+
+    const ok = await confirm({
+      title: 'Konfirmasi Input Data Klien Referral',
+      message: `Apakah Anda yakin ingin mendaftarkan klien "${companyName.trim()}" untuk direview dan di-approve oleh Admin?`,
+      detail: `Perusahaan Klien: ${companyName.trim()}\nNama PIC: ${picName.trim()} (${picPhone.trim() || '-'})\nLayanan: ${selectedService?.name || '-'}\nNilai Kontrak: Rp ${Number(dealValue).toLocaleString('id-ID')}\nEstimasi Komisi Mitra: Rp ${estimatedCommission.toLocaleString('id-ID')}`,
+      confirmText: 'Ya, Daftarkan Klien',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     setIsSubmitting(true);
     setErrorMessage('');

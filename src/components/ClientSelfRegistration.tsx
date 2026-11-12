@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { ServiceItem, Mitra } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
+import { useConfirm } from './ConfirmDialogModal';
 
 interface ClientSelfRegistrationProps {
   referralCode: string;
@@ -28,6 +29,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
   onSuccess,
   onBackToHome,
 }) => {
+  const confirm = useConfirm();
   const [mitra, setMitra] = useState<Mitra | null>(null);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +110,17 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
       setErrorMsg('Mohon lengkapi nama perusahaan, penanggung jawab (PIC), nomor telepon, dan layanan.');
       return;
     }
+
+    const selectedService = services.find((s) => s.id === selectedServiceId);
+    const ok = await confirm({
+      title: 'Konfirmasi Pendaftaran Layanan Klien',
+      message: `Apakah data perusahaan "${companyName.trim()}" yang Anda isi sudah benar dan siap dikirimkan ke tim konsultan NDTAXANDLAW?`,
+      detail: `Perusahaan: ${companyName.trim()}\nNama PIC: ${picName.trim()} (${picPhone.trim()})\nLayanan Dipilih: ${selectedService?.name || '-'}\nEstimasi Nilai Kontrak: Rp ${Number(dealValue).toLocaleString('id-ID')}`,
+      confirmText: 'Ya, Kirim Pendaftaran',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     setIsSubmitting(true);
     setErrorMsg('');
