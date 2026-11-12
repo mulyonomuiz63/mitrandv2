@@ -505,16 +505,16 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-slate-900 font-display">
-              Riwayat Transaksi Komisi Perikatan
+              Riwayat Hasil Komisi Klien (Deal &amp; Pembayaran Langganan)
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Rincian komisi per closing kontrak layanan klien yang di-ACC oleh Finance NDTAXANDLAW.
+              Rincian komisi otomatis setiap kali klien berhasil deal atau membayar tagihan langganan yang telah di-approve Admin.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">
-              Total {displayTransactions.length} transaksi
+            <span className="text-xs text-slate-500 font-medium">
+              Total {displayTransactions.length} komisi masuk
             </span>
           </div>
         </div>
@@ -523,59 +523,81 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
-                <th className="py-3 px-6">Tanggal</th>
+                <th className="py-3 px-6">Tanggal Approve</th>
                 {userRole === 'admin' && <th className="py-3 px-6">Mitra</th>}
                 <th className="py-3 px-6">Klien Perusahaan</th>
-                <th className="py-3 px-6">Layanan Pajak &amp; Hukum</th>
-                <th className="py-3 px-6 text-right">Nilai Deal</th>
-                <th className="py-3 px-6 text-right">Komisi Bersih</th>
+                <th className="py-3 px-6">Detail Layanan &amp; Siklus Pembayaran</th>
+                <th className="py-3 px-6 text-right">Nilai Pembayaran Klien</th>
+                <th className="py-3 px-6 text-right">Komisi Masuk</th>
                 <th className="py-3 px-6 text-right">Bonus Target</th>
-                <th className="py-3 px-6 text-center">Status</th>
+                <th className="py-3 px-6 text-center">Status Saldo Komisi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {displayTransactions.map((trx) => (
-                <tr key={trx.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="py-3.5 px-6 font-mono text-slate-600 tabular-nums whitespace-nowrap">
-                    {trx.date}
-                  </td>
-                  {userRole === 'admin' && (
-                    <td className="py-3.5 px-6 font-semibold text-slate-900 whitespace-nowrap">
-                      {trx.mitraName}
-                    </td>
-                  )}
-                  <td className="py-3.5 px-6 font-medium text-slate-900">
-                    {trx.clientName}
-                  </td>
-                  <td className="py-3.5 px-6 text-slate-600">
-                    {trx.serviceName}
-                  </td>
-                  <td className="py-3.5 px-6 text-right font-mono font-semibold text-slate-800 tabular-nums whitespace-nowrap">
-                    {formatRupiah(trx.dealValue)}
-                  </td>
-                  <td className="py-3.5 px-6 text-right font-mono font-bold text-emerald-700 tabular-nums whitespace-nowrap">
-                    {formatRupiah(trx.commissionAmount)}
-                  </td>
-                  <td className="py-3.5 px-6 text-right font-mono text-blue-700 tabular-nums whitespace-nowrap">
-                    {trx.bonusAmount > 0 ? formatRupiah(trx.bonusAmount) : '-'}
-                  </td>
-                  <td className="py-3.5 px-6 text-center whitespace-nowrap">
-                    {trx.status === 'paid' ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Ditransfer
-                      </span>
-                    ) : trx.status === 'processing' ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
-                        <Clock className="w-3.5 h-3.5" /> Diproses Bank
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                        <Clock className="w-3.5 h-3.5" /> Menunggu Payout
-                      </span>
-                    )}
+              {displayTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={userRole === 'admin' ? 8 : 7} className="py-8 text-center text-slate-500">
+                    Belum ada riwayat komisi masuk. Komisi akan otomatis tampil di sini setelah pengajuan klien atau pembayaran langganan klien di-approve oleh Admin.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                displayTransactions.map((trx) => {
+                  const matchedDeal = clientDeals.find(
+                    (d) =>
+                      d.mitraId === trx.mitraId &&
+                      d.companyName.toLowerCase() === trx.clientName.toLowerCase()
+                  );
+                  const hasCycleTag = /\((Bulan|Tahun|Deal)\s*#?\d*/i.test(trx.serviceName);
+                  const fallbackCycleBadge = !hasCycleTag
+                    ? matchedDeal?.pricingType === 'monthly_subscription'
+                      ? 'Pembayaran Langganan (Bulan #1)'
+                      : matchedDeal?.pricingType === 'annual_subscription'
+                      ? 'Pembayaran Langganan (Tahun #1)'
+                      : 'Pembayaran Deal Kontrak'
+                    : null;
+
+                  return (
+                    <tr key={trx.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3.5 px-6 font-mono text-slate-600 tabular-nums whitespace-nowrap">
+                        {trx.date}
+                      </td>
+                      {userRole === 'admin' && (
+                        <td className="py-3.5 px-6 font-semibold text-slate-900 whitespace-nowrap">
+                          {trx.mitraName}
+                        </td>
+                      )}
+                      <td className="py-3.5 px-6 font-semibold text-slate-900">
+                        {trx.clientName}
+                      </td>
+                      <td className="py-3.5 px-6 text-slate-700">
+                        <div className="font-medium text-slate-800">{trx.serviceName}</div>
+                        {fallbackCycleBadge && (
+                          <span className="inline-block mt-0.5 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                            {fallbackCycleBadge}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-6 text-right font-mono font-semibold text-slate-800 tabular-nums whitespace-nowrap">
+                        {formatRupiah(trx.dealValue)}
+                      </td>
+                      <td className="py-3.5 px-6 text-right font-mono font-bold text-emerald-700 tabular-nums whitespace-nowrap">
+                        + {formatRupiah(trx.commissionAmount)}
+                      </td>
+                      <td className="py-3.5 px-6 text-right font-mono text-blue-700 tabular-nums whitespace-nowrap">
+                        {trx.bonusAmount > 0 ? formatRupiah(trx.bonusAmount) : '-'}
+                      </td>
+                      <td className="py-3.5 px-6 text-center whitespace-nowrap">
+                        <div className="inline-flex flex-col items-center">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-300">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Komisi Masuk ke Saldo (Siap Ditarik)</span>
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

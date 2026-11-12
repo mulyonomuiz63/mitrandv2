@@ -3418,11 +3418,12 @@ app.put("/api/clients/:id/acc", async (req, res) => {
     mitra.totalCommission = (mitra.totalCommission || 0) + deal.commissionAmount;
     mitra.pendingPayout = (mitra.pendingPayout || 0) + deal.commissionAmount;
   }
+  const initialCycleLabel = deal.pricingType === "monthly_subscription" ? "Bulan #1" : deal.pricingType === "annual_subscription" ? "Tahun #1" : "Deal Kontrak";
   const newCommTrx = {
     id: `trx-${Date.now()}`,
     mitraId: deal.mitraId,
     mitraName: deal.mitraName,
-    serviceName: deal.serviceName,
+    serviceName: `${deal.serviceName} (${initialCycleLabel})`,
     clientName: deal.companyName,
     dealValue: deal.dealValue,
     commissionAmount: deal.commissionAmount,
