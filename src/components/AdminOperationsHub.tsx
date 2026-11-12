@@ -46,6 +46,7 @@ interface AdminOperationsHubProps {
   onRefreshData: () => void;
   onOpenSettings?: () => void;
   initialSubTab?: AdminSubTab;
+  mode?: 'operations' | 'logs';
 }
 
 export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
@@ -55,7 +56,10 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   onRefreshData,
   onOpenSettings,
   initialSubTab = 'client_validation',
+  mode,
 }) => {
+  const resolvedMode: 'operations' | 'logs' =
+    mode || (initialSubTab === 'activity_logs' || initialSubTab === 'email_logs' ? 'logs' : 'operations');
   const confirm = useConfirm();
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(initialSubTab);
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequest[]>([]);
@@ -530,17 +534,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 rounded">
-              PANEL ADMIN OPERASIONAL
+              {resolvedMode === 'logs' ? 'AUDIT & MONITORING SISTEM' : 'PANEL ADMIN OPERASIONAL'}
             </span>
             <span className="text-xs text-slate-500 font-mono">
-              Validasi Klien &amp; Manajemen Dana Komisi
+              {resolvedMode === 'logs'
+                ? 'Log Aktivitas & Pengiriman Email'
+                : 'Validasi Klien & Manajemen Dana Komisi'}
             </span>
           </div>
           <h1 className="text-2xl font-bold text-slate-900 font-display mt-1">
-            Pusat Operasional Klien &amp; Komisi Mitra
+            {resolvedMode === 'logs'
+              ? 'Pusat Log Aktivitas & Pengiriman Email'
+              : 'Pusat Operasional Klien & Komisi Mitra'}
           </h1>
           <p className="text-xs text-slate-600 mt-0.5">
-            Validasi deal referral mitra (case-by-case, langganan bulanan &amp; tahunan), atur ACC komisi, serta otorisasi pencairan saldo dengan bukti transfer &amp; rincian potongan PPh 21.
+            {resolvedMode === 'logs'
+              ? 'Pantau riwayat aktivitas login, perubahan data oleh Mitra & Admin, serta status pengiriman email notifikasi sistem secara real-time.'
+              : 'Validasi deal referral mitra (case-by-case, langganan bulanan & tahunan), atur ACC komisi, serta otorisasi pencairan saldo dengan bukti transfer & rincian potongan PPh 21.'}
           </p>
         </div>
 
@@ -572,96 +582,102 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
+      {/* Navigation Sub-Tabs (Terpisah Sesuai Menu Utama) */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('client_validation')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
-            activeSubTab === 'client_validation'
-              ? 'bg-blue-800 text-white shadow-xs'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>Validasi &amp; ACC Klien</span>
-          {pendingAccCount > 0 && (
-            <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black">
-              {pendingAccCount}
-            </span>
-          )}
-        </button>
+        {resolvedMode === 'operations' ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('client_validation')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+                activeSubTab === 'client_validation'
+                  ? 'bg-blue-800 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Validasi &amp; ACC Klien</span>
+              {pendingAccCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black">
+                  {pendingAccCount}
+                </span>
+              )}
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('mitra_analysis')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
-            activeSubTab === 'mitra_analysis'
-              ? 'bg-blue-800 text-white shadow-xs'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4" />
-          <span>Analisa Kinerja Mitra</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('mitra_analysis')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+                activeSubTab === 'mitra_analysis'
+                  ? 'bg-blue-800 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4" />
+              <span>Analisa Kinerja Mitra</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('payout_management')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
-            activeSubTab === 'payout_management'
-              ? 'bg-blue-800 text-white shadow-xs'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <DollarSign className="w-4 h-4" />
-          <span>Kelola Pencairan Komisi &amp; Bukti Transfer</span>
-          {pendingPayoutCount > 0 && (
-            <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black">
-              {pendingPayoutCount} Pending
-            </span>
-          )}
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('payout_management')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+                activeSubTab === 'payout_management'
+                  ? 'bg-blue-800 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <DollarSign className="w-4 h-4" />
+              <span>Kelola Pencairan Komisi &amp; Bukti Transfer</span>
+              {pendingPayoutCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black">
+                  {pendingPayoutCount} Pending
+                </span>
+              )}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubTab('activity_logs');
+                fetchActivityLogs();
+              }}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+                activeSubTab === 'activity_logs'
+                  ? 'bg-indigo-800 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              <span>Log Aktivitas Mitra &amp; Admin</span>
+              <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 rounded-full text-[10px] font-mono font-black">
+                {activityLogs.length}
+              </span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab('activity_logs');
-            fetchActivityLogs();
-          }}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
-            activeSubTab === 'activity_logs'
-              ? 'bg-indigo-800 text-white shadow-xs'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span>Log Aktivitas Mitra &amp; Admin</span>
-          <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 rounded-full text-[10px] font-mono font-black">
-            {activityLogs.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab('email_logs');
-            fetchEmailLogs();
-          }}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
-            activeSubTab === 'email_logs'
-              ? 'bg-indigo-800 text-white shadow-xs'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <Mail className="w-4 h-4" />
-          <span>Log Pengiriman Email</span>
-          {emailLogs.filter((e) => e.status === 'failed').length > 0 && (
-            <span className="px-1.5 py-0.2 bg-red-500 text-white rounded-full text-[10px] font-mono font-black">
-              {emailLogs.filter((e) => e.status === 'failed').length} Gagal
-            </span>
-          )}
-        </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubTab('email_logs');
+                fetchEmailLogs();
+              }}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+                activeSubTab === 'email_logs'
+                  ? 'bg-indigo-800 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Mail className="w-4 h-4" />
+              <span>Log Pengiriman Email</span>
+              {emailLogs.filter((e) => e.status === 'failed').length > 0 && (
+                <span className="px-1.5 py-0.2 bg-red-500 text-white rounded-full text-[10px] font-mono font-black">
+                  {emailLogs.filter((e) => e.status === 'failed').length} Gagal
+                </span>
+              )}
+            </button>
+          </>
+        )}
       </div>
 
       {/* VIEW 1: VALIDASI & ACC KLIEN */}

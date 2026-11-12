@@ -684,6 +684,7 @@ export default function App() {
               onRefreshData={fetchData}
               onOpenSettings={() => setIsSettingsOpen(true)}
               initialSubTab="client_validation"
+              mode="operations"
             />
           )}
 
@@ -695,6 +696,7 @@ export default function App() {
               onRefreshData={fetchData}
               onOpenSettings={() => setIsSettingsOpen(true)}
               initialSubTab="activity_logs"
+              mode="logs"
             />
           )}
 
