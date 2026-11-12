@@ -380,7 +380,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   </div>
                 </div>
 
-                {/* Middle Section: Smart Chip Graphic & Member Details */}
+                {/* Middle Section: Member Details */}
                 <div className="my-auto py-2 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4 min-w-0">
                     {/* Avatar Frame with Gold Rim */}
@@ -412,16 +412,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                         </span>
                       </div>
                     </div>
-                  </div>
-
-                  {/* EMV Microchip Vector */}
-                  <div className="flex flex-col items-end shrink-0">
-                    <div className="w-11 h-8 rounded-md bg-gradient-to-br from-amber-200 via-amber-300 to-amber-500 border border-amber-600/50 p-1 flex flex-col justify-between shadow-inner">
-                      <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                      <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                      <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                    </div>
-                    <span className="text-[8px] text-amber-300/70 tracking-widest mt-1 font-mono">SECURE-CHIP</span>
                   </div>
                 </div>
 
@@ -751,7 +741,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                       </div>
                     </div>
 
-                    {/* Middle Section: Smart Chip Graphic & Member Details */}
+                    {/* Middle Section: Member Details */}
                     <div className="my-auto py-2 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-4 min-w-0">
                         <div className="relative shrink-0">
@@ -781,15 +771,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                             </span>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="flex flex-col items-end shrink-0">
-                        <div className="w-11 h-8 rounded-md bg-gradient-to-br from-amber-200 via-amber-300 to-amber-500 border border-amber-600/50 p-1 flex flex-col justify-between shadow-inner">
-                          <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                          <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                          <div className="w-full h-0.5 bg-amber-700/40 rounded-full" />
-                        </div>
-                        <span className="text-[8px] text-amber-300/70 tracking-widest mt-1 font-mono">SECURE-CHIP</span>
                       </div>
                     </div>
 
