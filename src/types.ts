@@ -4,6 +4,33 @@ export interface BankDetails {
   accountHolder: string;
 }
 
+export interface SpecializationOptionItem {
+  id: string;
+  label: string;
+  isActive: boolean;
+}
+
+export interface DynamicFormField {
+  id: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'textarea';
+  placeholder?: string;
+  required: boolean;
+  options?: string[];
+  isActive: boolean;
+}
+
+export const DEFAULT_SPECIALIZATION_LABEL = 'Bidang Keahlian / Profesi Mitra';
+
+export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
+  { id: 'spec-1', label: 'Konsultan Perpajakan & Tax Planning', isActive: true },
+  { id: 'spec-2', label: 'Hukum Korporasi & Bisnis', isActive: true },
+  { id: 'spec-3', label: 'Akuntansi & Pembukuan Korporat', isActive: true },
+  { id: 'spec-4', label: 'Legalitas & Perizinan OSS-RBA', isActive: true },
+  { id: 'spec-5', label: 'Kuasa Hukum Pengadilan Pajak', isActive: true },
+  { id: 'spec-6', label: 'Business Partner / Referral Umum', isActive: true },
+];
+
 export interface Mitra {
   id: string;
   memberCode: string;
@@ -30,6 +57,7 @@ export interface Mitra {
   verificationTokenExpiry?: string;
   rejectionReason?: string;
   rejectedAt?: string;
+  customFields?: Record<string, string>;
 }
 
 export interface ServiceItem {
@@ -79,6 +107,7 @@ export interface ClientDeal {
   terminationReason?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  customFields?: Record<string, string>;
 }
 
 export interface PayoutRequest {
@@ -118,6 +147,13 @@ export interface AppSettings {
 
   // Environment Mode (Development vs Production)
   appEnvironment: 'development' | 'production';
+
+  // Dynamic Mitra Specialization & Custom Form Fields Configuration
+  specializationEnabled?: boolean;
+  specializationLabel?: string;
+  specializationOptions?: SpecializationOptionItem[];
+  mitraCustomFields?: DynamicFormField[];
+  clientCustomFields?: DynamicFormField[];
 
   // SMTP Email Server Configuration
   smtpEnabled: boolean;

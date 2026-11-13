@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
-import { Mitra, ServiceItem, ClientDeal } from '../types';
+import { Mitra, ServiceItem, ClientDeal, AppSettings, DynamicFormField } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
 
@@ -9,6 +9,7 @@ interface ClientInputModalProps {
   onClose: () => void;
   currentMitra: Mitra;
   onDealAdded?: (newDeal: ClientDeal) => void;
+  settings?: AppSettings | null;
 }
 
 export const ClientInputModal: React.FC<ClientInputModalProps> = ({
@@ -16,9 +17,11 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   onClose,
   currentMitra,
   onDealAdded,
+  settings,
 }) => {
   const confirm = useConfirm();
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [dynamicSettings, setDynamicSettings] = useState<AppSettings | null>(settings || null);
   const [loadingServices, setLoadingServices] = useState(false);
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -36,6 +39,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   const [endYear, setEndYear] = useState<number>(2025);
   
   const [notes, setNotes] = useState('');
+  const [customFields, setCustomFields] = useState<Record<string, string>>({});
   const [subscriptionStartDate, setSubscriptionStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [billingDayOfMonth, setBillingDayOfMonth] = useState<number>(() => new Date().getDate());
   const [copiedReferral, setCopiedReferral] = useState(false);
@@ -44,12 +48,19 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   const [lastSubmittedDeal, setLastSubmittedDeal] = useState<ClientDeal | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
+  useEffect(() => {
+    if (settings) setDynamicSettings(settings);
+  }, [settings]);
+
+  const activeClientCustomFields: DynamicFormField[] = (dynamicSettings?.clientCustomFields || []).filter((f) => f.isActive !== false);
+
   const resetFormFields = (serviceList: ServiceItem[] = services) => {
     setCompanyName('');
     setPicName('');
     setPicPhone('');
     setPicEmail('');
     setNotes('');
+    setCustomFields({});
     setIsCustomPeriod(false);
     setStartMonth(2);
     setStartYear(2024);
@@ -73,12 +84,17 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
       setLastSubmittedDeal(null);
       resetFormFields();
       setLoadingServices(true);
-      fetch('/api/services')
-        .then((res) => res.json())
-        .then((data) => {
+      Promise.all([
+        fetch('/api/services').then((res) => res.json()),
+        fetch('/api/settings').then((res) => res.json()).catch(() => null),
+      ])
+        .then(([data, settingsRes]) => {
           if (data.success && data.data && data.data.length > 0) {
             setServices(data.data);
             resetFormFields(data.data);
+          }
+          if (settingsRes?.success && settingsRes?.data) {
+            setDynamicSettings(settingsRes.data);
           }
         })
         .catch((err) => console.error('Error fetching services:', err))
@@ -121,6 +137,19 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
       return;
     }
 
+    for (const field of activeClientCustomFields) {
+      if (field.required && !String(customFields[field.label] || '').trim()) {
+        setErrorMessage(`Mohon lengkapi kolom wajib: "${field.label}".`);
+        return;
+      }
+    }
+
+    const cleanedCustomFields: Record<string, string> = {};
+    for (const field of activeClientCustomFields) {
+      const val = String(customFields[field.label] || '').trim();
+      if (val) cleanedCustomFields[field.label] = val;
+    }
+
     const ok = await confirm({
       title: 'Konfirmasi Input Data Klien Referral',
       message: `Apakah Anda yakin ingin mendaftarkan klien "${companyName.trim()}" untuk direview dan di-approve oleh Admin?`,
@@ -155,6 +184,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
           durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
           paymentTermType: 'one_time',
           notes: notes.trim(),
+          customFields: Object.keys(cleanedCustomFields).length > 0 ? cleanedCustomFields : undefined,
         }),
       });
 
@@ -416,6 +446,54 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Dynamic Custom Fields for Client (Managed by Admin) */}
+                {activeClientCustomFields.map((field) => (
+                  <div key={field.id} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {field.label} {field.required && <span className="text-rose-500">*</span>}
+                    </label>
+                    {field.type === 'select' ? (
+                      <select
+                        required={field.required}
+                        value={customFields[field.label] || ''}
+                        onChange={(e) =>
+                          setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
+                      >
+                        <option value="">-- Pilih {field.label} --</option>
+                        {(field.options || []).map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : field.type === 'textarea' ? (
+                      <textarea
+                        rows={2}
+                        required={field.required}
+                        value={customFields[field.label] || ''}
+                        onChange={(e) =>
+                          setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
+                        }
+                        placeholder={field.placeholder || `Masukkan ${field.label}`}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
+                      />
+                    ) : (
+                      <input
+                        type={field.type === 'number' ? 'number' : 'text'}
+                        required={field.required}
+                        value={customFields[field.label] || ''}
+                        onChange={(e) =>
+                          setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
+                        }
+                        placeholder={field.placeholder || `Masukkan ${field.label}`}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
+                      />
+                    )}
+                  </div>
+                ))}
               </div>
 
               {/* Service Selection & Pricing Type */}

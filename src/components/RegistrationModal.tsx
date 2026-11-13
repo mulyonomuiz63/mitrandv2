@@ -10,12 +10,18 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { BankDetails } from '../types';
+import {
+  BankDetails,
+  AppSettings,
+  DEFAULT_SPECIALIZATION_LABEL,
+  DEFAULT_SPECIALIZATION_OPTIONS,
+} from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
 
 interface RegistrationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  settings?: AppSettings | null;
   onRegister: (data: {
     fullName: string;
     email: string;
@@ -26,20 +32,38 @@ interface RegistrationModalProps {
     password?: string;
     gender?: 'male' | 'female';
     avatarUrl?: string;
+    customFields?: Record<string, string>;
   }) => Promise<any>;
 }
 
 export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   isOpen,
   onClose,
+  settings,
   onRegister,
 }) => {
+  const activeSpecOptions = React.useMemo(() => {
+    const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+    const filtered = raw.filter((o) => o.isActive);
+    return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
+  }, [settings]);
+
+  const specEnabled = settings?.specializationEnabled !== false;
+  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const activeMitraCustomFields = React.useMemo(
+    () => (settings?.mitraCustomFields || []).filter((f) => f.isActive),
+    [settings]
+  );
+
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [nik, setNik] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
-  const [specialization, setSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
+  const [specialization, setSpecialization] = useState(
+    activeSpecOptions[0]?.label || 'Konsultan Perpajakan & Tax Planning'
+  );
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   
@@ -51,6 +75,12 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (activeSpecOptions.length > 0 && !activeSpecOptions.some((o) => o.label === specialization)) {
+      setSpecialization(activeSpecOptions[0].label);
+    }
+  }, [activeSpecOptions, specialization]);
 
   if (!isOpen) return null;
 
@@ -64,7 +94,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
         email,
         phone,
         nik: nik || '3201000000000000',
-        specialization,
+        specialization: specEnabled ? specialization : 'Mitra Referral & Konsultan Bisnis',
         gender,
         avatarUrl: getDefaultAvatar(gender),
         bankDetails: {
@@ -73,6 +103,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
           accountHolder: accountHolder || fullName,
         },
         password: password || 'mitraND2026!',
+        customFields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
       });
       setIsDone(true);
     } catch (err: any) {
@@ -151,7 +182,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className={`grid grid-cols-1 ${specEnabled ? 'sm:grid-cols-2' : ''} gap-3`}>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Nomor KTP / NIK *
@@ -166,22 +197,24 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                         className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Spesialisasi Bisnis
-                      </label>
-                      <select
-                        value={specialization}
-                        onChange={(e) => setSpecialization(e.target.value)}
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
-                      >
-                        <option value="Konsultan Hukum Korporasi & Bisnis">Konsultan Hukum Korporasi &amp; Bisnis</option>
-                        <option value="Konsultan Perpajakan & Tax Planning">Konsultan Perpajakan &amp; Tax Planning</option>
-                        <option value="Pendirian Legalitas PT / PMA & OSS">Pendirian Legalitas PT / PMA &amp; OSS</option>
-                        <option value="Litigasi & Penyelesaian Sengketa">Litigasi &amp; Penyelesaian Sengketa</option>
-                        <option value="Audit Pajak & Pendampingan SP2DK">Audit Pajak &amp; Pendampingan SP2DK</option>
-                      </select>
-                    </div>
+                    {specEnabled && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {specLabel}
+                        </label>
+                        <select
+                          value={specialization}
+                          onChange={(e) => setSpecialization(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                        >
+                          {activeSpecOptions.map((opt) => (
+                            <option key={opt.id} value={opt.label}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   {/* Gender / Avatar Default Selector */}
@@ -251,6 +284,70 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                       />
                     </div>
                   </div>
+
+                  {/* Dynamic Mitra Custom Fields configured by Admin */}
+                  {activeMitraCustomFields.length > 0 && (
+                    <div className="pt-2 border-t border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {activeMitraCustomFields.map((field) => (
+                        <div
+                          key={field.id}
+                          className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                        >
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            {field.label} {field.required && <span className="text-rose-500">*</span>}
+                          </label>
+                          {field.type === 'select' ? (
+                            <select
+                              required={field.required}
+                              value={customFieldValues[field.label] || ''}
+                              onChange={(e) =>
+                                setCustomFieldValues((prev) => ({
+                                  ...prev,
+                                  [field.label]: e.target.value,
+                                }))
+                              }
+                              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-blue-600 outline-none"
+                            >
+                              <option value="">-- Pilih {field.label} --</option>
+                              {(field.options || []).map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                          ) : field.type === 'textarea' ? (
+                            <textarea
+                              rows={2}
+                              required={field.required}
+                              placeholder={field.placeholder || `Isi ${field.label}`}
+                              value={customFieldValues[field.label] || ''}
+                              onChange={(e) =>
+                                setCustomFieldValues((prev) => ({
+                                  ...prev,
+                                  [field.label]: e.target.value,
+                                }))
+                              }
+                              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 outline-none"
+                            />
+                          ) : (
+                            <input
+                              type={field.type === 'number' ? 'number' : 'text'}
+                              required={field.required}
+                              placeholder={field.placeholder || `Isi ${field.label}`}
+                              value={customFieldValues[field.label] || ''}
+                              onChange={(e) =>
+                                setCustomFieldValues((prev) => ({
+                                  ...prev,
+                                  [field.label]: e.target.value,
+                                }))
+                              }
+                              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 outline-none"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

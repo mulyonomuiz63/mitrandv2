@@ -14,7 +14,7 @@ import {
   Calendar,
   Lock
 } from 'lucide-react';
-import { ServiceItem, Mitra } from '../types';
+import { ServiceItem, Mitra, AppSettings, DynamicFormField } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
 
@@ -22,16 +22,19 @@ interface ClientSelfRegistrationProps {
   referralCode: string;
   onSuccess: () => void;
   onBackToHome: () => void;
+  settings?: AppSettings | null;
 }
 
 export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
   referralCode,
   onSuccess,
   onBackToHome,
+  settings,
 }) => {
   const confirm = useConfirm();
   const [mitra, setMitra] = useState<Mitra | null>(null);
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [dynamicSettings, setDynamicSettings] = useState<AppSettings | null>(settings || null);
   const [loading, setLoading] = useState(true);
 
   // Form State
@@ -51,18 +54,26 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
   
   const [dealValue, setDealValue] = useState<number>(7500000);
   const [notes, setNotes] = useState('');
+  const [customFields, setCustomFields] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (settings) setDynamicSettings(settings);
+  }, [settings]);
+
+  const activeClientCustomFields: DynamicFormField[] = (dynamicSettings?.clientCustomFields || []).filter((f) => f.isActive !== false);
 
   useEffect(() => {
     // Fetch Mitra by referralCode and available services
     const loadInitialData = async () => {
       setLoading(true);
       try {
-        const [resMitras, resServices] = await Promise.all([
+        const [resMitras, resServices, resSettings] = await Promise.all([
           fetch('/api/mitra').then((r) => r.json()),
           fetch('/api/services').then((r) => r.json()),
+          fetch('/api/settings').then((r) => r.json()).catch(() => null),
         ]);
 
         if (resMitras.success && resMitras.data) {
@@ -79,6 +90,10 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           setSelectedServiceId(resServices.data[0].id);
           setDealValue(resServices.data[0].defaultPrice);
           setPricingType(resServices.data[0].pricingType);
+        }
+
+        if (resSettings?.success && resSettings?.data) {
+          setDynamicSettings(resSettings.data);
         }
       } catch (err) {
         console.error('Error fetching referral details:', err);
@@ -109,6 +124,19 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
     if (!companyName.trim() || !picName.trim() || !picPhone.trim() || !selectedServiceId) {
       setErrorMsg('Mohon lengkapi nama perusahaan, penanggung jawab (PIC), nomor telepon, dan layanan.');
       return;
+    }
+
+    for (const field of activeClientCustomFields) {
+      if (field.required && !String(customFields[field.label] || '').trim()) {
+        setErrorMsg(`Mohon lengkapi kolom wajib: "${field.label}".`);
+        return;
+      }
+    }
+
+    const cleanedCustomFields: Record<string, string> = {};
+    for (const field of activeClientCustomFields) {
+      const val = String(customFields[field.label] || '').trim();
+      if (val) cleanedCustomFields[field.label] = val;
     }
 
     const selectedService = services.find((s) => s.id === selectedServiceId);
@@ -143,6 +171,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           periodEnd: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
           durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
           notes: notes.trim(),
+          customFields: Object.keys(cleanedCustomFields).length > 0 ? cleanedCustomFields : undefined,
           submittedBy: 'client_self',
           status: 'pending_acc',
         }),
@@ -379,6 +408,56 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Dynamic Custom Fields for Client (Managed by Admin) */}
+                {activeClientCustomFields.map((field) => (
+                  <div key={field.id} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      {field.label} {field.required && <span className="text-rose-400">*</span>}
+                    </label>
+                    {field.type === 'select' ? (
+                      <select
+                        required={field.required}
+                        value={customFields[field.label] || ''}
+                        onChange={(e) =>
+                          setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
+                        }
+                        className="w-full px-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="" className="bg-slate-900 text-slate-400">
+                          -- Pilih {field.label} --
+                        </option>
+                        {(field.options || []).map((opt) => (
+                          <option key={opt} value={opt} className="bg-slate-900 text-white">
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : field.type === 'textarea' ? (
+                      <textarea
+                        rows={2}
+                        required={field.required}
+                        value={customFields[field.label] || ''}
+                        onChange={(e) =>
+                          setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
+                        }
+                        placeholder={field.placeholder || `Masukkan ${field.label}`}
+                        className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    ) : (
+                      <input
+                        type={field.type === 'number' ? 'number' : 'text'}
+                        required={field.required}
+                        value={customFields[field.label] || ''}
+                        onChange={(e) =>
+                          setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
+                        }
+                        placeholder={field.placeholder || `Masukkan ${field.label}`}
+                        className="w-full px-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    )}
+                  </div>
+                ))}
               </div>
 
               {/* Service Selection */}

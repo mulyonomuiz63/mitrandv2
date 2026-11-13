@@ -291,6 +291,7 @@ export default function App() {
     specialization: string;
     bankDetails: BankDetails;
     password?: string;
+    customFields?: Record<string, string>;
   }) => {
     const res = await fetch('/api/mitra/register', {
       method: 'POST',
@@ -483,6 +484,7 @@ export default function App() {
           isOpen={isRegisterOpen}
           onClose={() => setIsRegisterOpen(false)}
           onRegister={handleRegisterMitra}
+          settings={settings}
         />
       </div>
     );
@@ -495,6 +497,7 @@ export default function App() {
         <ClientSelfRegistration
           referralCode={clientRefCode || (activeMitra?.referralCode || 'ND-REF-0042')}
           onBackToHome={() => setViewMode('landing')}
+          settings={settings}
           onSuccess={() => {
             fetchData();
             if (currentUser) {
@@ -531,12 +534,14 @@ export default function App() {
           initialMode={authInitialMode}
           supportPhone={settings?.supportPhone || '0812-8899-7711'}
           firmName={settings?.firmName || 'NDTAXANDLAW'}
+          settings={settings}
         />
 
         <RegistrationModal
           isOpen={isRegisterOpen}
           onClose={() => setIsRegisterOpen(false)}
           onRegister={handleRegisterMitra}
+          settings={settings}
         />
       </div>
     );
@@ -749,6 +754,7 @@ export default function App() {
         isOpen={isRegisterOpen}
         onClose={() => setIsRegisterOpen(false)}
         onRegister={handleRegisterMitra}
+        settings={settings}
       />
 
       <ProfileEditModal
@@ -756,6 +762,7 @@ export default function App() {
         onClose={() => setIsProfileOpen(false)}
         mitra={activeMitra}
         onUpdateProfile={handleUpdateProfile}
+        settings={settings}
       />
 
       <NotificationDrawer
@@ -770,6 +777,7 @@ export default function App() {
         isOpen={isClientModalOpen}
         onClose={() => setIsClientModalOpen(false)}
         currentMitra={activeMitra}
+        settings={settings}
         onDealAdded={() => {
           fetchData();
         }}

@@ -616,7 +616,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-2xs"
             >
               <Settings className="w-3.5 h-3.5 text-blue-600" />
-              <span>Pengaturan SMTP &amp; Sistem</span>
+              <span>Pengaturan Sistem, Form &amp; Spesialisasi</span>
             </button>
           )}
 
@@ -810,6 +810,18 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                             <div className="text-[11px] font-normal text-slate-600">
                               {deal.picName} ({deal.picPhone})
                             </div>
+                            {deal.customFields && Object.keys(deal.customFields).length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {Object.entries(deal.customFields).map(([k, v]) => (
+                                  <span
+                                    key={k}
+                                    className="inline-block px-1.5 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200 rounded"
+                                  >
+                                    {k}: <strong>{v}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             {deal.submittedBy === 'client_self' && (
                               <span className="inline-block px-1.5 py-0.2 mt-0.5 text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded">
                                 Registrasi Mandiri Klien
@@ -2092,6 +2104,19 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     {formatRupiah(dealToReview.dealValue)} → Komisi {formatRupiah(dealToReview.commissionAmount)}
                   </span>
                 </div>
+                {dealToReview.customFields && Object.keys(dealToReview.customFields).length > 0 && (
+                  <div className="pt-2 mt-2 border-t border-slate-200 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+                      Data Tambahan Klien:
+                    </span>
+                    {Object.entries(dealToReview.customFields).map(([k, v]) => (
+                      <div key={k} className="flex justify-between text-[11px]">
+                        <span className="text-slate-500">{k}:</span>
+                        <span className="font-semibold text-slate-800">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Pengaturan Jadwal Langganan (Jika Bulanan / Tahunan) */}

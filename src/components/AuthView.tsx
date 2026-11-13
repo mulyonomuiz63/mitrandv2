@@ -17,7 +17,13 @@ import {
   UserCheck,
   Check
 } from 'lucide-react';
-import { AuthUser, BankDetails } from '../types';
+import {
+  AuthUser,
+  BankDetails,
+  AppSettings,
+  DEFAULT_SPECIALIZATION_LABEL,
+  DEFAULT_SPECIALIZATION_OPTIONS,
+} from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
 
 interface AuthViewProps {
@@ -32,11 +38,13 @@ interface AuthViewProps {
     password?: string;
     gender?: 'male' | 'female';
     avatarUrl?: string;
+    customFields?: Record<string, string>;
   }) => Promise<void>;
   appEnvironment?: 'development' | 'production';
   initialMode?: 'login' | 'register';
   supportPhone?: string;
   firmName?: string;
+  settings?: AppSettings | null;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -46,12 +54,26 @@ export const AuthView: React.FC<AuthViewProps> = ({
   initialMode = 'login',
   supportPhone = '0812-8899-7711',
   firmName = 'NDTAXANDLAW',
+  settings,
 }) => {
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'verify'>(initialMode);
 
   useEffect(() => {
     setAuthMode(initialMode);
   }, [initialMode]);
+
+  const activeSpecOptions = React.useMemo(() => {
+    const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+    const filtered = raw.filter((o) => o.isActive);
+    return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
+  }, [settings]);
+
+  const specEnabled = settings?.specializationEnabled !== false;
+  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const activeMitraCustomFields = React.useMemo(
+    () => (settings?.mitraCustomFields || []).filter((f) => f.isActive),
+    [settings]
+  );
   
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -76,13 +98,22 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regNik, setRegNik] = useState('');
   const [regGender, setRegGender] = useState<'male' | 'female'>('male');
-  const [regSpecialization, setRegSpecialization] = useState('Konsultan Hukum Korporasi & Bisnis');
+  const [regSpecialization, setRegSpecialization] = useState(
+    activeSpecOptions[0]?.label || 'Konsultan Perpajakan & Tax Planning'
+  );
+  const [regCustomFields, setRegCustomFields] = useState<Record<string, string>>({});
   const [regBankName, setRegBankName] = useState('Bank Central Asia (BCA)');
   const [regAccountNumber, setRegAccountNumber] = useState('');
   const [regAccountHolder, setRegAccountHolder] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regSuccessMessage, setRegSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeSpecOptions.length > 0 && !activeSpecOptions.some((o) => o.label === regSpecialization)) {
+      setRegSpecialization(activeSpecOptions[0].label);
+    }
+  }, [activeSpecOptions, regSpecialization]);
 
   // Forgot Password States
   const [forgotEmail, setForgotEmail] = useState('');
@@ -166,7 +197,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         email: regEmail,
         phone: regPhone,
         nik: regNik || '3201000000000000',
-        specialization: regSpecialization,
+        specialization: specEnabled ? regSpecialization : 'Mitra Referral & Konsultan Bisnis',
         gender: regGender,
         avatarUrl: getDefaultAvatar(regGender),
         bankDetails: {
@@ -175,6 +206,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           accountHolder: regAccountHolder || regFullName,
         },
         password: regPassword || 'mitraND2026!',
+        customFields: Object.keys(regCustomFields).length > 0 ? regCustomFields : undefined,
       });
 
       setVerifyEmail(regEmail);
@@ -659,7 +691,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className={`grid grid-cols-1 ${specEnabled ? 'sm:grid-cols-2' : ''} gap-3`}>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Nomor NIK KTP *
@@ -674,22 +706,89 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Spesialisasi Bisnis
-                    </label>
-                    <select
-                      value={regSpecialization}
-                      onChange={(e) => setRegSpecialization(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                    >
-                      <option value="Konsultan Hukum Korporasi & Bisnis">Hukum Korporasi &amp; Bisnis</option>
-                      <option value="Konsultan Perpajakan & Tax Planning">Perpajakan &amp; Tax Planning</option>
-                      <option value="Pendirian Legalitas PT / PMA & OSS">Pendirian PT / PMA &amp; OSS</option>
-                      <option value="Audit Pajak & SP2DK">Audit Pajak &amp; SP2DK</option>
-                    </select>
-                  </div>
+                  {specEnabled && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {specLabel}
+                      </label>
+                      <select
+                        value={regSpecialization}
+                        onChange={(e) => setRegSpecialization(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                      >
+                        {activeSpecOptions.map((opt) => (
+                          <option key={opt.id} value={opt.label}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
+
+                {/* Dynamic Mitra Custom Fields configured by Admin */}
+                {activeMitraCustomFields.length > 0 && (
+                  <div className="pt-2 border-t border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {activeMitraCustomFields.map((field) => (
+                      <div
+                        key={field.id}
+                        className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                      >
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {field.label} {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        {field.type === 'select' ? (
+                          <select
+                            required={field.required}
+                            value={regCustomFields[field.label] || ''}
+                            onChange={(e) =>
+                              setRegCustomFields((prev) => ({
+                                ...prev,
+                                [field.label]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                          >
+                            <option value="">-- Pilih {field.label} --</option>
+                            {(field.options || []).map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        ) : field.type === 'textarea' ? (
+                          <textarea
+                            rows={2}
+                            required={field.required}
+                            placeholder={field.placeholder || `Isi ${field.label}`}
+                            value={regCustomFields[field.label] || ''}
+                            onChange={(e) =>
+                              setRegCustomFields((prev) => ({
+                                ...prev,
+                                [field.label]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                          />
+                        ) : (
+                          <input
+                            type={field.type === 'number' ? 'number' : 'text'}
+                            required={field.required}
+                            placeholder={field.placeholder || `Isi ${field.label}`}
+                            value={regCustomFields[field.label] || ''}
+                            onChange={(e) =>
+                              setRegCustomFields((prev) => ({
+                                ...prev,
+                                [field.label]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Gender / Default Avatar Selector */}
                 <div>

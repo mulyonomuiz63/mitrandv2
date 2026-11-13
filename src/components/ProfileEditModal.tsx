@@ -11,7 +11,13 @@ import {
   Camera,
   AlertCircle
 } from 'lucide-react';
-import { Mitra, BankDetails } from '../types';
+import {
+  Mitra,
+  BankDetails,
+  AppSettings,
+  DEFAULT_SPECIALIZATION_LABEL,
+  DEFAULT_SPECIALIZATION_OPTIONS,
+} from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, inferGenderFromName } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 
@@ -19,6 +25,7 @@ interface ProfileEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   mitra: Mitra;
+  settings?: AppSettings | null;
   onUpdateProfile: (id: string, data: Partial<Mitra> & { newPassword?: string }) => Promise<void>;
 }
 
@@ -26,9 +33,23 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   isOpen,
   onClose,
   mitra,
+  settings,
   onUpdateProfile,
 }) => {
   const confirm = useConfirm();
+  const activeSpecOptions = React.useMemo(() => {
+    const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+    const filtered = raw.filter((o) => o.isActive);
+    return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
+  }, [settings]);
+
+  const specEnabled = settings?.specializationEnabled !== false;
+  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const activeMitraCustomFields = React.useMemo(
+    () => (settings?.mitraCustomFields || []).filter((f) => f.isActive),
+    [settings]
+  );
+
   const [fullName, setFullName] = useState(mitra.fullName);
   const [nik, setNik] = useState(mitra.nik);
   const [phone, setPhone] = useState(mitra.phone);
@@ -44,6 +65,9 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     return '';
   });
   const [specialization, setSpecialization] = useState(mitra.specialization);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>(
+    mitra.customFields || {}
+  );
   const [bankName, setBankName] = useState(mitra.bankDetails.bankName);
   const [accountNumber, setAccountNumber] = useState(mitra.bankDetails.accountNumber);
   const [accountHolder, setAccountHolder] = useState(mitra.bankDetails.accountHolder);
@@ -73,6 +97,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setCustomAvatarUrl('');
     }
     setSpecialization(mitra.specialization);
+    setCustomFieldValues(mitra.customFields || {});
     setBankName(mitra.bankDetails.bankName);
     setAccountNumber(mitra.bankDetails.accountNumber);
     setAccountHolder(mitra.bankDetails.accountHolder);
@@ -151,6 +176,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         gender,
         avatarUrl: resolvedAvatar,
         specialization,
+        customFields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
         bankDetails: {
           bankName,
           accountNumber,
@@ -332,17 +358,91 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Spesialisasi Bisnis
-                </label>
-                <input
-                  type="text"
-                  value={specialization}
-                  onChange={(e) => setSpecialization(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                />
-              </div>
+              {specEnabled && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {specLabel}
+                  </label>
+                  <select
+                    value={specialization}
+                    onChange={(e) => setSpecialization(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                  >
+                    {!activeSpecOptions.some((o) => o.label === specialization) && specialization && (
+                      <option value={specialization}>{specialization}</option>
+                    )}
+                    {activeSpecOptions.map((opt) => (
+                      <option key={opt.id} value={opt.label}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Dynamic Mitra Custom Fields configured by Admin */}
+              {activeMitraCustomFields.length > 0 && (
+                <div className="pt-2 border-t border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {activeMitraCustomFields.map((field) => (
+                    <div
+                      key={field.id}
+                      className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                    >
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      {field.type === 'select' ? (
+                        <select
+                          required={field.required}
+                          value={customFieldValues[field.label] || ''}
+                          onChange={(e) =>
+                            setCustomFieldValues((prev) => ({
+                              ...prev,
+                              [field.label]: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                        >
+                          <option value="">-- Pilih {field.label} --</option>
+                          {(field.options || []).map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.type === 'textarea' ? (
+                        <textarea
+                          rows={2}
+                          required={field.required}
+                          placeholder={field.placeholder || `Isi ${field.label}`}
+                          value={customFieldValues[field.label] || ''}
+                          onChange={(e) =>
+                            setCustomFieldValues((prev) => ({
+                              ...prev,
+                              [field.label]: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                        />
+                      ) : (
+                        <input
+                          type={field.type === 'number' ? 'number' : 'text'}
+                          required={field.required}
+                          placeholder={field.placeholder || `Isi ${field.label}`}
+                          value={customFieldValues[field.label] || ''}
+                          onChange={(e) =>
+                            setCustomFieldValues((prev) => ({
+                              ...prev,
+                              [field.label]: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Gender / Avatar Default Selector */}
               <div>

@@ -29,9 +29,19 @@ import {
   Wrench,
   Download,
   Upload,
-  Database
+  Database,
+  Plus,
+  Trash2,
+  ListChecks
 } from 'lucide-react';
-import { AppSettings, EmailLogItem } from '../types';
+import {
+  AppSettings,
+  EmailLogItem,
+  SpecializationOptionItem,
+  DynamicFormField,
+  DEFAULT_SPECIALIZATION_LABEL,
+  DEFAULT_SPECIALIZATION_OPTIONS,
+} from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 
 interface AppSettingsModalProps {
@@ -75,9 +85,28 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     emailOnClientAcc: true,
     emailOnPasswordReset: true,
     emailOnRecurringInvoice: true,
+    specializationEnabled: true,
+    specializationLabel: DEFAULT_SPECIALIZATION_LABEL,
+    specializationOptions: DEFAULT_SPECIALIZATION_OPTIONS,
+    mitraCustomFields: [],
+    clientCustomFields: [],
   });
 
-  const [activeTab, setActiveTab] = useState<'general' | 'environment' | 'supabase' | 'smtp' | 'oauth' | 'ai'>('supabase');
+  const [activeTab, setActiveTab] = useState<'general' | 'forms' | 'environment' | 'supabase' | 'smtp' | 'oauth' | 'ai'>('forms');
+
+  // Dynamic Form Builder Local Inputs
+  const [newSpecLabel, setNewSpecLabel] = useState('');
+  const [newMitraFieldLabel, setNewMitraFieldLabel] = useState('');
+  const [newMitraFieldType, setNewMitraFieldType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [newMitraFieldPlaceholder, setNewMitraFieldPlaceholder] = useState('');
+  const [newMitraFieldOptions, setNewMitraFieldOptions] = useState('');
+  const [newMitraFieldRequired, setNewMitraFieldRequired] = useState(false);
+
+  const [newClientFieldLabel, setNewClientFieldLabel] = useState('');
+  const [newClientFieldType, setNewClientFieldType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [newClientFieldPlaceholder, setNewClientFieldPlaceholder] = useState('');
+  const [newClientFieldOptions, setNewClientFieldOptions] = useState('');
+  const [newClientFieldRequired, setNewClientFieldRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successToast, setSuccessToast] = useState(false);
@@ -137,7 +166,17 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
         .then((r) => r.json())
         .then((data) => {
           if (data.success && data.data) {
-            setSettings(data.data);
+            setSettings({
+              ...data.data,
+              specializationEnabled: data.data.specializationEnabled ?? true,
+              specializationLabel: data.data.specializationLabel || DEFAULT_SPECIALIZATION_LABEL,
+              specializationOptions:
+                Array.isArray(data.data.specializationOptions) && data.data.specializationOptions.length > 0
+                  ? data.data.specializationOptions
+                  : DEFAULT_SPECIALIZATION_OPTIONS,
+              mitraCustomFields: Array.isArray(data.data.mitraCustomFields) ? data.data.mitraCustomFields : [],
+              clientCustomFields: Array.isArray(data.data.clientCustomFields) ? data.data.clientCustomFields : [],
+            });
             if (data.data.supportEmail) {
               setTestEmailTarget(data.data.supportEmail);
             }
@@ -582,6 +621,19 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
 
           <button
             type="button"
+            onClick={() => setActiveTab('forms')}
+            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'forms'
+                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ListChecks className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Form &amp; Spesialisasi Dinamis</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('environment')}
             className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'environment'
@@ -758,6 +810,532 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     </div>
                   </label>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1.5: DYNAMIC FORMS & SPECIALIZATION MANAGEMENT */}
+          {activeTab === 'forms' && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {/* Section A: Manajemen Bidang Keahlian / Spesialisasi Mitra */}
+              <div className="p-4 sm:p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        1. Pendaftaran Mitra
+                      </span>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Manajemen Pilihan Bidang Keahlian / Profesi Mitra
+                      </h4>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Secara default bernama <strong>"Bidang Keahlian / Profesi Mitra"</strong> (lebih tepat dibanding "Spesialisasi Bisnis" karena mencakup Konsultan Pajak, Kuasa Hukum, Legalitas, maupun Mitra Referral). Admin dapat mengubah label, menambah/menonaktifkan daftar pilihan, atau menonaktifkan seluruh kolom ini.
+                    </p>
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-2xs">
+                    <input
+                      type="checkbox"
+                      checked={settings.specializationEnabled !== false}
+                      onChange={(e) =>
+                        setSettings({ ...settings, specializationEnabled: e.target.checked })
+                      }
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-slate-800">
+                      {settings.specializationEnabled !== false ? 'Input Aktif' : 'Input Nonaktif'}
+                    </span>
+                  </label>
+                </div>
+
+                {settings.specializationEnabled !== false && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Nama Label Input pada Form Pendaftaran &amp; Profil Mitra
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}
+                        onChange={(e) =>
+                          setSettings({ ...settings, specializationLabel: e.target.value })
+                        }
+                        placeholder="Contoh: Bidang Keahlian / Profesi Mitra"
+                        className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
+                      />
+                    </div>
+
+                    {/* Add New Specialization Option */}
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={newSpecLabel}
+                        onChange={(e) => setNewSpecLabel(e.target.value)}
+                        placeholder="Tambah pilihan bidang keahlian / spesialisasi baru..."
+                        className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const trimmed = newSpecLabel.trim();
+                          if (!trimmed) return;
+                          const currentList =
+                            settings.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+                          const newItem: SpecializationOptionItem = {
+                            id: `spec-${Date.now()}`,
+                            label: trimmed,
+                            isActive: true,
+                          };
+                          setSettings({
+                            ...settings,
+                            specializationOptions: [...currentList, newItem],
+                          });
+                          setNewSpecLabel('');
+                        }}
+                        className="px-4 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg flex items-center justify-center gap-1.5 shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Tambah Pilihan</span>
+                      </button>
+                    </div>
+
+                    {/* List of Specialization Options */}
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {(settings.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS).map(
+                        (opt) => (
+                          <div
+                            key={opt.id}
+                            className={`flex items-center justify-between gap-3 p-2.5 rounded-lg border text-xs ${
+                              opt.isActive
+                                ? 'bg-white border-slate-200 text-slate-900'
+                                : 'bg-slate-100 border-slate-200 text-slate-400 line-through'
+                            }`}
+                          >
+                            <span className="font-medium truncate">{opt.label}</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = (
+                                    settings.specializationOptions ||
+                                    DEFAULT_SPECIALIZATION_OPTIONS
+                                  ).map((item) =>
+                                    item.id === opt.id
+                                      ? { ...item, isActive: !item.isActive }
+                                      : item
+                                  );
+                                  setSettings({ ...settings, specializationOptions: updated });
+                                }}
+                                className={`px-2.5 py-1 rounded text-[11px] font-bold border ${
+                                  opt.isActive
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                }`}
+                              >
+                                {opt.isActive ? 'Aktif' : 'Nonaktif'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = (
+                                    settings.specializationOptions ||
+                                    DEFAULT_SPECIALIZATION_OPTIONS
+                                  ).filter((item) => item.id !== opt.id);
+                                  setSettings({ ...settings, specializationOptions: updated });
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                                title="Hapus pilihan"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section B: Inputan Tambahan Dinamis untuk Pendaftaran Mitra */}
+              <div className="p-4 sm:p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                <div className="border-b border-slate-200 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-blue-100 text-blue-800 border border-blue-200">
+                      2. Inputan Tambahan Mitra
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Kelola Field Input Tambahan Pendaftaran Mitra (Dinamis)
+                    </h4>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Secara default form pendaftaran Mitra menggunakan input standar saat ini (Nama, NIK, Email, WhatsApp, Rekening Bank). Tambahkan field baru di bawah ini jika Admin memerlukan data tambahan dari Mitra (misal: NPWP Pribadi, Domisili Kota, Nama Kantor/Instansi, dll).
+                  </p>
+                </div>
+
+                {/* Add Mitra Custom Field Form */}
+                <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Nama Field / Label Input
+                      </label>
+                      <input
+                        type="text"
+                        value={newMitraFieldLabel}
+                        onChange={(e) => setNewMitraFieldLabel(e.target.value)}
+                        placeholder="Contoh: Nomor NPWP / Kota Domisili"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Tipe Input
+                      </label>
+                      <select
+                        value={newMitraFieldType}
+                        onChange={(e: any) => setNewMitraFieldType(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                      >
+                        <option value="text">Teks Singkat (Text)</option>
+                        <option value="number">Angka / Nomor (Number)</option>
+                        <option value="select">Pilihan Dropdown (Select)</option>
+                        <option value="textarea">Catatan Panjang (Textarea)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Placeholder / Petunjuk
+                      </label>
+                      <input
+                        type="text"
+                        value={newMitraFieldPlaceholder}
+                        onChange={(e) => setNewMitraFieldPlaceholder(e.target.value)}
+                        placeholder="Contoh: Masukkan 15/16 digit NPWP"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+
+                  {newMitraFieldType === 'select' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Opsi Pilihan Dropdown (Pisahkan dengan koma)
+                      </label>
+                      <input
+                        type="text"
+                        value={newMitraFieldOptions}
+                        onChange={(e) => setNewMitraFieldOptions(e.target.value)}
+                        placeholder="Contoh: Perorangan, Firma Hukum, Kantor Akuntan Publik"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newMitraFieldRequired}
+                        onChange={(e) => setNewMitraFieldRequired(e.target.checked)}
+                        className="rounded text-blue-600"
+                      />
+                      <span>Wajib diisi oleh Mitra saat mendaftar</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const label = newMitraFieldLabel.trim();
+                        if (!label) return;
+                        const newField: DynamicFormField = {
+                          id: `mfield-${Date.now()}`,
+                          label,
+                          type: newMitraFieldType,
+                          placeholder: newMitraFieldPlaceholder.trim() || `Isi ${label}`,
+                          options:
+                            newMitraFieldType === 'select'
+                              ? newMitraFieldOptions
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean)
+                              : undefined,
+                          required: newMitraFieldRequired,
+                          isActive: true,
+                        };
+                        setSettings({
+                          ...settings,
+                          mitraCustomFields: [...(settings.mitraCustomFields || []), newField],
+                        });
+                        setNewMitraFieldLabel('');
+                        setNewMitraFieldPlaceholder('');
+                        setNewMitraFieldOptions('');
+                        setNewMitraFieldRequired(false);
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Input Mitra</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Existing Mitra Custom Fields List */}
+                {(settings.mitraCustomFields || []).length === 0 ? (
+                  <p className="text-xs text-slate-500 italic bg-white p-3 rounded-lg border border-dashed border-slate-300 text-center">
+                    Menggunakan form pendaftaran Mitra default (belum ada input tambahan khusus).
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {(settings.mitraCustomFields || []).map((field) => (
+                      <div
+                        key={field.id}
+                        className={`flex items-center justify-between gap-3 p-2.5 rounded-lg border text-xs ${
+                          field.isActive
+                            ? 'bg-white border-slate-200 text-slate-900'
+                            : 'bg-slate-100 border-slate-200 text-slate-400'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-bold">{field.label}</span>
+                          <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 uppercase font-mono">
+                            {field.type}
+                          </span>
+                          {field.required && (
+                            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-rose-50 text-rose-700 font-semibold">
+                              Wajib
+                            </span>
+                          )}
+                          {field.options && field.options.length > 0 && (
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Opsi: {field.options.join(', ')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (settings.mitraCustomFields || []).map((f) =>
+                                f.id === field.id ? { ...f, isActive: !f.isActive } : f
+                              );
+                              setSettings({ ...settings, mitraCustomFields: updated });
+                            }}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border ${
+                              field.isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            {field.isActive ? 'Aktif' : 'Nonaktif'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (settings.mitraCustomFields || []).filter(
+                                (f) => f.id !== field.id
+                              );
+                              setSettings({ ...settings, mitraCustomFields: updated });
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Section C: Inputan Tambahan Dinamis untuk Data Klien */}
+              <div className="p-4 sm:p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                <div className="border-b border-slate-200 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      3. Inputan Tambahan Klien
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Kelola Field Input Tambahan Data Klien (Dinamis)
+                    </h4>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Secara default form input Klien menggunakan field standar saat ini (Nama Perusahaan, Nama PIC, No. WhatsApp, Email, Paket Layanan, &amp; Nilai Kontrak). Tambahkan input baru di bawah ini jika ada data tambahan klien yang perlu diisi (misal: NPWP Perusahaan, KPP Terdaftar, Bidang Industri, atau Omzet Tahunan).
+                  </p>
+                </div>
+
+                {/* Add Client Custom Field Form */}
+                <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Nama Field / Label Input Klien
+                      </label>
+                      <input
+                        type="text"
+                        value={newClientFieldLabel}
+                        onChange={(e) => setNewClientFieldLabel(e.target.value)}
+                        placeholder="Contoh: NPWP Badan / KPP Terdaftar"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Tipe Input
+                      </label>
+                      <select
+                        value={newClientFieldType}
+                        onChange={(e: any) => setNewClientFieldType(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                      >
+                        <option value="text">Teks Singkat (Text)</option>
+                        <option value="number">Angka / Nomor (Number)</option>
+                        <option value="select">Pilihan Dropdown (Select)</option>
+                        <option value="textarea">Catatan Panjang (Textarea)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Placeholder / Petunjuk
+                      </label>
+                      <input
+                        type="text"
+                        value={newClientFieldPlaceholder}
+                        onChange={(e) => setNewClientFieldPlaceholder(e.target.value)}
+                        placeholder="Contoh: KPP Pratama Jakarta Setiabudi"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+
+                  {newClientFieldType === 'select' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Opsi Pilihan Dropdown (Pisahkan dengan koma)
+                      </label>
+                      <input
+                        type="text"
+                        value={newClientFieldOptions}
+                        onChange={(e) => setNewClientFieldOptions(e.target.value)}
+                        placeholder="Contoh: PKP, Non-PKP, UMKM Final"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newClientFieldRequired}
+                        onChange={(e) => setNewClientFieldRequired(e.target.checked)}
+                        className="rounded text-blue-600"
+                      />
+                      <span>Wajib diisi saat input data klien</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const label = newClientFieldLabel.trim();
+                        if (!label) return;
+                        const newField: DynamicFormField = {
+                          id: `cfield-${Date.now()}`,
+                          label,
+                          type: newClientFieldType,
+                          placeholder: newClientFieldPlaceholder.trim() || `Isi ${label}`,
+                          options:
+                            newClientFieldType === 'select'
+                              ? newClientFieldOptions
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean)
+                              : undefined,
+                          required: newClientFieldRequired,
+                          isActive: true,
+                        };
+                        setSettings({
+                          ...settings,
+                          clientCustomFields: [...(settings.clientCustomFields || []), newField],
+                        });
+                        setNewClientFieldLabel('');
+                        setNewClientFieldPlaceholder('');
+                        setNewClientFieldOptions('');
+                        setNewClientFieldRequired(false);
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Input Klien</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Existing Client Custom Fields List */}
+                {(settings.clientCustomFields || []).length === 0 ? (
+                  <p className="text-xs text-slate-500 italic bg-white p-3 rounded-lg border border-dashed border-slate-300 text-center">
+                    Menggunakan form input Klien default (belum ada input tambahan khusus).
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {(settings.clientCustomFields || []).map((field) => (
+                      <div
+                        key={field.id}
+                        className={`flex items-center justify-between gap-3 p-2.5 rounded-lg border text-xs ${
+                          field.isActive
+                            ? 'bg-white border-slate-200 text-slate-900'
+                            : 'bg-slate-100 border-slate-200 text-slate-400'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-bold">{field.label}</span>
+                          <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 uppercase font-mono">
+                            {field.type}
+                          </span>
+                          {field.required && (
+                            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-rose-50 text-rose-700 font-semibold">
+                              Wajib
+                            </span>
+                          )}
+                          {field.options && field.options.length > 0 && (
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Opsi: {field.options.join(', ')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (settings.clientCustomFields || []).map((f) =>
+                                f.id === field.id ? { ...f, isActive: !f.isActive } : f
+                              );
+                              setSettings({ ...settings, clientCustomFields: updated });
+                            }}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border ${
+                              field.isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            {field.isActive ? 'Aktif' : 'Nonaktif'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (settings.clientCustomFields || []).filter(
+                                (f) => f.id !== field.id
+                              );
+                              setSettings({ ...settings, clientCustomFields: updated });
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

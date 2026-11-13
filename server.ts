@@ -60,7 +60,35 @@ export interface Mitra {
   verificationTokenExpiry?: string;
   rejectionReason?: string;
   rejectedAt?: string;
+  customFields?: Record<string, string>;
 }
+
+export interface SpecializationOptionItem {
+  id: string;
+  label: string;
+  isActive: boolean;
+}
+
+export interface DynamicFormField {
+  id: string;
+  label: string;
+  placeholder?: string;
+  type: 'text' | 'number' | 'select' | 'textarea';
+  options?: string[];
+  required: boolean;
+  isActive: boolean;
+}
+
+export const DEFAULT_SPECIALIZATION_LABEL = 'Bidang Keahlian / Profesi Mitra';
+
+export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
+  { id: 'spec-1', label: 'Konsultan Perpajakan & Tax Planning', isActive: true },
+  { id: 'spec-2', label: 'Konsultan Hukum Korporasi & Kontrak Bisnis', isActive: true },
+  { id: 'spec-3', label: 'Pendirian Legalitas PT / PMA & OSS-RBA', isActive: true },
+  { id: 'spec-4', label: 'Kuasa Hukum Pengadilan Pajak & Sengketa DJP', isActive: true },
+  { id: 'spec-5', label: 'Restrukturisasi Keuangan, Audit & M&A', isActive: true },
+  { id: 'spec-6', label: 'Mitra Referral Bisnis & Jaringan Korporasi Umum', isActive: true },
+];
 
 export interface ServiceItem {
   id: string;
@@ -106,6 +134,7 @@ export interface ClientDeal {
   terminationReason?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  customFields?: Record<string, string>;
 }
 
 export interface PayoutRequest {
@@ -156,6 +185,11 @@ export interface AppSettings {
   emailOnClientAcc: boolean;
   emailOnPasswordReset: boolean;
   emailOnRecurringInvoice: boolean;
+  specializationEnabled?: boolean;
+  specializationLabel?: string;
+  specializationOptions?: SpecializationOptionItem[];
+  mitraCustomFields?: DynamicFormField[];
+  clientCustomFields?: DynamicFormField[];
 }
 
 export interface EmailLogItem {
@@ -713,6 +747,11 @@ let appSettings: AppSettings = {
   emailOnClientAcc: true,
   emailOnPasswordReset: true,
   emailOnRecurringInvoice: true,
+  specializationEnabled: true,
+  specializationLabel: DEFAULT_SPECIALIZATION_LABEL,
+  specializationOptions: DEFAULT_SPECIALIZATION_OPTIONS,
+  mitraCustomFields: [],
+  clientCustomFields: [],
 };
 
 let emailLogs: EmailLogItem[] = [];
@@ -1479,6 +1518,7 @@ const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
       avatarUrl: resolveAvatarUrl(m.avatarUrl, gender, m.fullName),
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || undefined,
       rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || undefined,
+      customFields: m.customFields || bankMeta.__customFields || undefined,
     };
   });
 };
@@ -1523,6 +1563,7 @@ export const toSupabaseClientDeal = (deal: ClientDeal) => {
     terminationReason: deal.terminationReason,
     rejectedAt: deal.rejectedAt,
     rejectionReason: deal.rejectionReason,
+    customFields: deal.customFields,
   };
   const encodedNotes = `${cleanNotes}${cleanNotes ? ' ' : ''}<!--ND_META:${JSON.stringify(metaObj)}-->`;
 
@@ -1577,6 +1618,7 @@ export const fromSupabaseClientDeal = (row: any): ClientDeal => {
     terminationReason: row.terminationReason || meta.terminationReason,
     rejectedAt: row.rejectedAt || meta.rejectedAt,
     rejectionReason: row.rejectionReason || meta.rejectionReason,
+    customFields: row.customFields || meta.customFields,
   };
 };
 
@@ -2504,7 +2546,7 @@ app.get('/api/mitra', async (req: Request, res: Response) => {
 });
 
 app.post('/api/mitra/register', async (req: Request, res: Response) => {
-  const { fullName, email, phone, nik, specialization, bankDetails, password, gender, role } = req.body;
+  const { fullName, email, phone, nik, specialization, bankDetails, password, gender, role, customFields } = req.body;
   if (!fullName || !email || !phone) {
     return res.status(400).json({ success: false, message: 'Nama lengkap, Email, dan No WhatsApp wajib diisi.' });
   }
@@ -2534,6 +2576,13 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   const generatedReferralCode = `ND-REF-${Math.floor(1000 + Math.random() * 9000)}`;
   const resolvedGender: 'male' | 'female' = gender === 'female' ? 'female' : (gender === 'male' ? 'male' : inferGenderFromName(fullName));
   const assignedRole = getRoleDefinition(role || 'mitra').code;
+  const cleanCustomFields = customFields && typeof customFields === 'object' && Object.keys(customFields).length > 0 ? customFields : undefined;
+
+  const baseBank = bankDetails || {
+    bankName: 'Bank Central Asia (BCA)',
+    accountNumber: '',
+    accountHolder: fullName,
+  };
 
   const newMitra: Mitra = {
     id: `mitra-${Date.now()}`,
@@ -2543,16 +2592,16 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     email: normalizedEmail,
     phone,
     nik: nik || '3201000000000000',
-    specialization: specialization || 'Konsultan Bisnis, Pajak & Hukum',
+    specialization:
+      appSettings.specializationEnabled === false
+        ? (specialization || 'Mitra Referral & Konsultan Bisnis')
+        : (specialization || 'Konsultan Perpajakan & Tax Planning'),
     status: 'pending',
     gender: resolvedGender,
     avatarUrl: req.body.avatarUrl || getDefaultAvatar(resolvedGender, fullName),
     joinedDate: new Date().toISOString().split('T')[0],
-    bankDetails: bankDetails || {
-      bankName: 'Bank Central Asia (BCA)',
-      accountNumber: '',
-      accountHolder: fullName,
-    },
+    bankDetails: cleanCustomFields ? ({ ...baseBank, __customFields: cleanCustomFields } as any) : baseBank,
+    customFields: cleanCustomFields,
     totalCommission: 0,
     totalBonus: 0,
     pendingPayout: 0,
@@ -2577,12 +2626,12 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     actionType: 'register',
     operation: 'CREATE',
     targetEntity: 'Pendaftaran Mitra',
-    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan Spesialisasi Bisnis: ${newMitra.specialization}. Password dienkripsi (scrypt + AES-256-GCM).`,
+    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Password dienkripsi (scrypt + AES-256-GCM).`,
   });
 
   if (supabase) {
     try {
-      const { gender: _g, ...supabaseMitraPayload } = newMitra;
+      const { gender: _g, customFields: _cf, ...supabaseMitraPayload } = newMitra;
       const { error: insertErr } = await supabase.from('mitras').insert([supabaseMitraPayload]);
       if (insertErr) {
         console.warn('Supabase mitra insert warning:', insertErr.message);
@@ -2772,7 +2821,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
 
 app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { fullName, phone, nik, specialization, bankDetails, gender, avatarUrl, newPassword, resubmitVerification } = req.body;
+  const { fullName, phone, nik, specialization, bankDetails, gender, avatarUrl, newPassword, resubmitVerification, customFields } = req.body;
 
   if (supabase) {
     try {
@@ -2793,8 +2842,14 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   if (phone) mitra.phone = phone;
   if (nik) mitra.nik = nik;
   if (specialization) mitra.specialization = specialization;
-  if (bankDetails) {
-    const mergedBank: any = { ...mitra.bankDetails, ...bankDetails };
+  if (customFields && typeof customFields === 'object') {
+    mitra.customFields = { ...(mitra.customFields || {}), ...customFields };
+  }
+  if (bankDetails || mitra.customFields) {
+    const mergedBank: any = { ...mitra.bankDetails, ...(bankDetails || {}) };
+    if (mitra.customFields && Object.keys(mitra.customFields).length > 0) {
+      mergedBank.__customFields = mitra.customFields;
+    }
     if (wasRejected || resubmitVerification) {
       delete mergedBank.__rejectionReason;
       delete mergedBank.__rejectedAt;
@@ -3310,6 +3365,7 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     durationMonths,
     paymentTermType,
     notes,
+    customFields,
   } = req.body;
 
   if (!companyName || !picName || !serviceId) {
@@ -3320,7 +3376,7 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     try {
       const { data: supaMitras } = await supabase.from('mitras').select('*');
       if (Array.isArray(supaMitras)) {
-        mitras = supaMitras;
+        mitras = normalizeMitraAvatars(supaMitras);
       }
     } catch {}
   }
@@ -3348,6 +3404,10 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   const billingDay = isSubscription
     ? (Number(billingDayOfMonth) || Number((startSubDate || todayStr).split('-')[2]) || 1)
     : undefined;
+  const cleanClientCustomFields =
+    customFields && typeof customFields === 'object' && Object.keys(customFields).length > 0
+      ? customFields
+      : undefined;
 
   const newDeal: ClientDeal = {
     id: `deal-${Date.now()}`,
@@ -3373,6 +3433,7 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     paymentTermType: paymentTermType || 'one_time',
     notes: notes || '',
     submittedBy: req.body.submittedBy || 'mitra',
+    customFields: cleanClientCustomFields,
   };
 
   clientDeals.unshift(newDeal);

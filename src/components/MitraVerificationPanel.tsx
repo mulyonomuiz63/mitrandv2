@@ -436,6 +436,23 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                   <p><span className="text-slate-600">Nama Pemilik Rekening:</span> <strong className="text-slate-900">{selectedMitraDetail.bankDetails.accountHolder}</strong></p>
                 </div>
               </div>
+
+              {/* Dynamic Custom Fields Section (if any) */}
+              {selectedMitraDetail.customFields && Object.keys(selectedMitraDetail.customFields).length > 0 && (
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-800 uppercase tracking-wider">
+                    Data Tambahan Pendaftaran Mitra
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {Object.entries(selectedMitraDetail.customFields).map(([k, v]) => (
+                      <div key={k} className="bg-white p-2 rounded-lg border border-slate-200/80">
+                        <span className="text-[10px] text-slate-500 block">{k}</span>
+                        <span className="font-semibold text-slate-900 text-xs">{v || '-'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
