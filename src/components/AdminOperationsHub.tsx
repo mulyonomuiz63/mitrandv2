@@ -81,6 +81,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   const [terminationReason, setTerminationReason] = useState<string>('Klien berhenti berlangganan layanan');
   const [isTerminating, setIsTerminating] = useState(false);
 
+  // Full Client & Package Detail Modal State (Available before & after approval)
+  const [selectedClientDetail, setSelectedClientDetail] = useState<ClientDeal | null>(null);
+
   // Activity & Email Logs States
   const [activityLogs, setActivityLogs] = useState<ActivityLogItem[]>([]);
   const [loadingActivityLogs, setLoadingActivityLogs] = useState(false);
@@ -559,13 +562,27 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     }
   };
 
-  // Filter clients
+  // Filter clients (searches company, PIC, phone, email, package/service name, referral, mitra, notes & custom fields)
   const filteredDeals = clientDeals.filter((deal) => {
     const matchFilter = clientFilter === 'all' || deal.status === clientFilter;
-    const matchSearch = deal.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      deal.picName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      deal.referralCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      deal.mitraName.toLowerCase().includes(searchTerm.toLowerCase());
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return matchFilter;
+    const customFieldsText = deal.customFields
+      ? Object.entries(deal.customFields)
+          .map(([k, v]) => `${k} ${v}`)
+          .join(' ')
+          .toLowerCase()
+      : '';
+    const matchSearch =
+      deal.companyName.toLowerCase().includes(q) ||
+      deal.picName.toLowerCase().includes(q) ||
+      (deal.picPhone || '').toLowerCase().includes(q) ||
+      (deal.picEmail || '').toLowerCase().includes(q) ||
+      deal.serviceName.toLowerCase().includes(q) ||
+      deal.referralCode.toLowerCase().includes(q) ||
+      deal.mitraName.toLowerCase().includes(q) ||
+      (deal.notes || '').toLowerCase().includes(q) ||
+      customFieldsText.includes(q);
     return matchFilter && matchSearch;
   });
 
@@ -573,7 +590,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   const pendingPayoutCount = payoutRequests.filter((p) => p.status === 'pending').length;
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+    <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8 space-y-6">
       
       {/* Toast Notification */}
       {actionSuccessMsg && (
@@ -738,11 +755,11 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
       {activeSubTab === 'client_validation' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
+            <div className="relative flex-1 max-w-lg">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="Cari nama perusahaan klien, PIC, mitra, atau kode referral..."
+                placeholder="Cari perusahaan klien, PIC, paket layanan pajak, mitra, atau kode referral..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
@@ -771,14 +788,14 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
-                    <th className="py-3 px-4">Entitas Klien &amp; PIC</th>
-                    <th className="py-3 px-4">Mitra / Referral</th>
-                    <th className="py-3 px-4">Layanan</th>
+                    <th className="py-3 px-4 min-w-[200px]">Entitas Klien &amp; PIC</th>
+                    <th className="py-3 px-4 min-w-[140px]">Mitra / Referral</th>
+                    <th className="py-3 px-4 min-w-[250px]">Paket Layanan Diambil</th>
                     <th className="py-3 px-4">Skema &amp; Jadwal Langganan</th>
                     <th className="py-3 px-4 text-right">Nilai Kontrak</th>
                     <th className="py-3 px-4 text-right">Komisi Mitra</th>
                     <th className="py-3 px-4 text-center">Status</th>
-                    <th className="py-3 px-4 text-right">Tindakan Admin</th>
+                    <th className="py-3 px-4 text-right">Tindakan &amp; Detail</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -806,10 +823,22 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                           }`}
                         >
                           <td className="py-3.5 px-4 font-semibold text-slate-900">
-                            <div>{deal.companyName}</div>
-                            <div className="text-[11px] font-normal text-slate-600">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedClientDetail(deal)}
+                              className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline transition-colors"
+                              title="Klik untuk melihat detail lengkap klien & paket layanan"
+                            >
+                              {deal.companyName}
+                            </button>
+                            <div className="text-[11px] font-normal text-slate-600 mt-0.5">
                               {deal.picName} ({deal.picPhone})
                             </div>
+                            {deal.picEmail && (
+                              <div className="text-[10px] font-mono text-slate-500">
+                                ✉️ {deal.picEmail}
+                              </div>
+                            )}
                             {deal.customFields && Object.keys(deal.customFields).length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {Object.entries(deal.customFields).map(([k, v]) => (
@@ -831,28 +860,58 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                           <td className="py-3.5 px-4 text-slate-700">
                             <div className="font-semibold text-slate-900">{deal.mitraName}</div>
                             <div className="font-mono text-[10px] text-blue-700 font-bold">{deal.referralCode}</div>
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">Tgl Input: {deal.date}</div>
                           </td>
-                          <td className="py-3.5 px-4 text-slate-600 max-w-xs">
-                            <div className="line-clamp-2">{deal.serviceName}</div>
+                          <td className="py-3.5 px-4 text-slate-800 min-w-[250px] max-w-sm">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedClientDetail(deal)}
+                              className="text-left font-bold text-slate-900 hover:text-blue-700 hover:underline leading-snug block transition-colors"
+                              title="Klik nama paket untuk melihat rincian paket layanan & informasi klien"
+                            >
+                              {deal.serviceName}
+                            </button>
+                            {deal.notes && (
+                              <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 italic">
+                                &ldquo;{deal.notes}&rdquo;
+                              </p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedClientDetail(deal)}
+                              className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 px-2 py-0.5 rounded transition-colors"
+                            >
+                              <FileCheck2 className="w-3 h-3" />
+                              <span>
+                                {deal.pricingType === 'monthly_subscription'
+                                  ? 'Detail Paket Langganan Bulanan'
+                                  : deal.pricingType === 'annual_subscription'
+                                    ? 'Detail Paket Langganan Tahunan'
+                                    : 'Detail Paket Case-by-Case'}
+                              </span>
+                            </button>
                           </td>
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             {deal.pricingType === 'annual_subscription' ? (
                               <div className="space-y-0.5">
-                                <span
-                                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  title="Klik untuk membuka informasi langganan tahunan klien"
+                                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
                                     deal.status === 'cancelled' || deal.status === 'rejected'
-                                      ? 'text-slate-500 bg-slate-100 border-slate-300'
-                                      : 'text-purple-800 bg-purple-50 border-purple-200'
+                                      ? 'text-slate-500 bg-slate-100 border-slate-300 hover:bg-slate-200'
+                                      : 'text-purple-800 bg-purple-50 border-purple-200 hover:bg-purple-100'
                                   }`}
                                 >
                                   <Calendar className="w-3 h-3 text-purple-600" />
-                                  Langganan Tahunan ({deal.recurringPaidYears ?? 1} thn)
-                                </span>
+                                  <span>Langganan Tahunan ({deal.recurringPaidYears ?? 1} thn)</span>
+                                </button>
                                 <div className="text-[10px] text-slate-600 font-mono pt-0.5">
                                   <div>Mulai: <strong className="text-slate-800">{startSubDate}</strong></div>
                                   <div>Tagihan: <strong className="text-purple-800">Setiap Tanggal {billDay}</strong></div>
                                   {deal.status === 'active_subscription' && deal.nextBillingDate && (
-                                    <div className="text-slate-500">Berikutnya: {deal.nextBillingDate}</div>
+                                    <div className="text-emerald-700 font-semibold">Berjalan • Tagihan: {deal.nextBillingDate}</div>
                                   )}
                                   {deal.status === 'cancelled' && deal.terminatedAt && (
                                     <div className="text-rose-700 font-bold">Diputus: {deal.terminatedAt}</div>
@@ -861,21 +920,24 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                               </div>
                             ) : deal.pricingType === 'monthly_subscription' ? (
                               <div className="space-y-0.5">
-                                <span
-                                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  title="Klik untuk membuka informasi langganan bulanan klien"
+                                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
                                     deal.status === 'cancelled' || deal.status === 'rejected'
-                                      ? 'text-slate-500 bg-slate-100 border-slate-300'
-                                      : 'text-blue-700 bg-blue-50 border-blue-200'
+                                      ? 'text-slate-500 bg-slate-100 border-slate-300 hover:bg-slate-200'
+                                      : 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'
                                   }`}
                                 >
                                   <Repeat className="w-3 h-3 text-blue-600" />
-                                  Langganan Bulanan ({deal.recurringPaidMonths ?? 1} bln)
-                                </span>
+                                  <span>Langganan Bulanan ({deal.recurringPaidMonths ?? 1} bln)</span>
+                                </button>
                                 <div className="text-[10px] text-slate-600 font-mono pt-0.5">
                                   <div>Mulai: <strong className="text-slate-800">{startSubDate}</strong></div>
                                   <div>Tagihan: <strong className="text-blue-700">Setiap Tanggal {billDay}</strong></div>
                                   {deal.status === 'active_subscription' && deal.nextBillingDate && (
-                                    <div className="text-slate-500">Berikutnya: {deal.nextBillingDate}</div>
+                                    <div className="text-emerald-700 font-semibold">Berjalan • Tagihan: {deal.nextBillingDate}</div>
                                   )}
                                   {deal.status === 'cancelled' && deal.terminatedAt && (
                                     <div className="text-rose-700 font-bold">Diputus: {deal.terminatedAt}</div>
@@ -884,9 +946,14 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                               </div>
                             ) : (
                               <div>
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                                  ⚡ Case-by-Case (Sekali Bayar)
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  title="Klik untuk membuka informasi paket case-by-case klien"
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-2 py-0.5 rounded transition-colors"
+                                >
+                                  <span>⚡ Case-by-Case (Sekali Bayar)</span>
+                                </button>
                                 {deal.periodStart && deal.periodEnd && (
                                   <p className="text-[10px] text-slate-500 font-mono mt-0.5">
                                     {deal.periodStart} s/d {deal.periodEnd} {deal.durationMonths ? `(${deal.durationMonths} bln)` : ''}
@@ -970,73 +1037,111 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                             ) : deal.status === 'active_subscription' ? (
                               <div className="flex flex-col items-center gap-1">
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-800 bg-blue-100 border border-blue-300 px-2 py-0.5 rounded-full">
-                                  <CheckCircle2 className="w-3 h-3" /> Langganan Aktif
+                                  <CheckCircle2 className="w-3 h-3" /> Langganan Masih Berjalan
                                 </span>
                                 {isPaymentDue && (
                                   <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-amber-900 bg-amber-200 border border-amber-400 px-2 py-0.5 rounded-full animate-pulse">
-                                    🔔 Waktu Tagihan Tiba
+                                    🔔 Jadwal Tagihan Tiba
                                   </span>
                                 )}
                               </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
-                                <CheckCircle2 className="w-3 h-3" /> Deal Closed
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full">
+                                <CheckCircle2 className="w-3 h-3" /> Deal Closed (Case-by-Case)
                               </span>
                             )}
                           </td>
                           <td className="py-3.5 px-4 text-right whitespace-nowrap">
                             {deal.status === 'pending_acc' ? (
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => openReviewModal(deal)}
-                                  disabled={processingId === deal.id}
-                                  className="px-2.5 py-1.5 text-[11px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all"
-                                >
-                                  🔍 Review &amp; Konfirmasi
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleAccClient(deal.id, deal.subscriptionStartDate, deal.billingDayOfMonth)}
-                                  disabled={processingId === deal.id}
-                                  className="px-2.5 py-1.5 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-all disabled:opacity-50"
-                                >
-                                  ✓ Approve (Deal)
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openReviewModal(deal)}
-                                  disabled={processingId === deal.id}
-                                  className="px-2.5 py-1.5 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all"
-                                >
-                                  ✕ Tolak
-                                </button>
+                              <div className="flex flex-col items-end gap-1.5">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedClientDetail(deal)}
+                                    className="px-2.5 py-1.5 text-[11px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all"
+                                  >
+                                    📋 Informasi Paket &amp; Detail Klien
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openReviewModal(deal)}
+                                    disabled={processingId === deal.id}
+                                    className="px-2.5 py-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-all"
+                                  >
+                                    🔍 Review &amp; Konfirmasi
+                                  </button>
+                                </div>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAccClient(deal.id, deal.subscriptionStartDate, deal.billingDayOfMonth)}
+                                    disabled={processingId === deal.id}
+                                    className="px-2.5 py-1.5 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-all disabled:opacity-50"
+                                  >
+                                    ✓ Approve (Deal)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openReviewModal(deal)}
+                                    disabled={processingId === deal.id}
+                                    className="px-2.5 py-1.5 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all"
+                                  >
+                                    ✕ Tolak
+                                  </button>
+                                </div>
                               </div>
                             ) : deal.status === 'rejected' ? (
-                              <div className="text-right">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-1 rounded-md">
+                              <div className="flex flex-col items-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  className="px-2.5 py-1.5 text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                                >
+                                  📋 Informasi Pengajuan &amp; Detail Klien
+                                </button>
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
                                   Tidak Deal • Komisi Rp 0
                                 </span>
                                 {deal.rejectionReason && (
-                                  <p className="text-[10px] text-slate-500 mt-0.5 max-w-[200px] truncate ml-auto" title={deal.rejectionReason}>
+                                  <p className="text-[10px] text-slate-500 max-w-[200px] truncate ml-auto" title={deal.rejectionReason}>
                                     {deal.rejectionReason}
                                   </p>
                                 )}
                               </div>
                             ) : deal.status === 'cancelled' ? (
-                              <div className="text-right">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-1 rounded-md">
+                              <div className="flex flex-col items-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  className="px-2.5 py-1.5 text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                                >
+                                  📋 Informasi Riwayat Langganan &amp; Klien
+                                </button>
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
                                   Pemutusan Di-Approve • Komisi Berhenti
                                 </span>
                                 {deal.terminationReason && (
-                                  <p className="text-[10px] text-slate-500 mt-0.5 max-w-[200px] truncate ml-auto" title={deal.terminationReason}>
+                                  <p className="text-[10px] text-slate-500 max-w-[200px] truncate ml-auto" title={deal.terminationReason}>
                                     {deal.terminationReason}
                                   </p>
                                 )}
                               </div>
                             ) : deal.pricingType === 'annual_subscription' || deal.pricingType === 'monthly_subscription' ? (
                               <div className="flex flex-col items-end gap-1.5">
-                                {isPaymentDue ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  className="px-2.5 py-1.5 text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
+                                  title="Klik untuk melihat detail lengkap informasi langganan yang sedang berjalan dan data klien"
+                                >
+                                  <span>
+                                    📋{' '}
+                                    {deal.pricingType === 'annual_subscription'
+                                      ? 'Informasi Langganan Tahunan Berjalan'
+                                      : 'Informasi Langganan Bulanan Berjalan'}
+                                  </span>
+                                </button>
+                                {isPaymentDue && (
                                   <button
                                     type="button"
                                     onClick={() => handleConfirmRecurringBill(deal.id, deal.pricingType)}
@@ -1052,21 +1157,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                                         : `Bulan #${(deal.recurringPaidMonths || 1) + 1}`}
                                     </span>
                                   </button>
-                                ) : (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[10px] font-mono text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                                      ⏳ Tagihan Tgl {deal.nextBillingDate}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleTriggerBillingDue(deal.id)}
-                                      disabled={processingId === deal.id}
-                                      className="px-2 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition-colors"
-                                      title="Tandai waktu pembayaran langganan telah tiba untuk meng-approve tagihan"
-                                    >
-                                      ⚡ Waktu Tagihan Tiba
-                                    </button>
-                                  </div>
                                 )}
                                 <button
                                   type="button"
@@ -1087,7 +1177,19 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-[11px] text-slate-400 font-medium">Selesai (1x Bayar)</span>
+                              <div className="flex flex-col items-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientDetail(deal)}
+                                  className="px-2.5 py-1.5 text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
+                                  title="Klik untuk melihat detail lengkap paket case-by-case dan data klien"
+                                >
+                                  <span>📋 Informasi Paket Case-by-Case &amp; Klien</span>
+                                </button>
+                                <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
+                                  ✓ Kontrak Case-by-Case Aktif (1x Bayar)
+                                </span>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -2289,6 +2391,395 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: DETAIL LENGKAP INFORMASI KLIEN & PAKET LAYANAN (TERSEDIA SEBELUM MAUPUN SETELAH DI-APPROVE) */}
+      {selectedClientDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+            {/* Header */}
+            <div className="shrink-0 p-5 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white flex items-center justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-blue-500/25 border border-blue-400/40 text-blue-200 rounded">
+                    {selectedClientDetail.status === 'active_subscription'
+                      ? selectedClientDetail.pricingType === 'annual_subscription'
+                        ? 'INFORMASI LANGGANAN TAHUNAN BERJALAN'
+                        : 'INFORMASI LANGGANAN BULANAN BERJALAN'
+                      : selectedClientDetail.status === 'deal_closed'
+                        ? 'INFORMASI PAKET CASE-BY-CASE AKTIF'
+                        : selectedClientDetail.status === 'pending_acc'
+                          ? 'DETAIL PENGAJUAN KLIEN & PAKET'
+                          : 'ARSIP & RIWAYAT KONTRAK KLIEN'}
+                  </span>
+                  <span className="font-mono text-[11px] text-slate-300">
+                    ID: {selectedClientDetail.id}
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-bold font-display mt-1">
+                  {selectedClientDetail.companyName}
+                </h3>
+                <p className="text-[11px] text-blue-200 font-medium mt-0.5">
+                  Paket Diambil: {selectedClientDetail.serviceName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedClientDetail(null)}
+                className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                aria-label="Tutup Detail Klien"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 text-xs">
+              {/* Status Strip */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-medium">Status Kontrak &amp; Layanan:</span>
+                  {selectedClientDetail.status === 'pending_acc' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full">
+                      <Clock className="w-3.5 h-3.5" /> Sedang Ditinjau Admin
+                    </span>
+                  ) : selectedClientDetail.status === 'active_subscription' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800 bg-blue-100 border border-blue-300 px-2.5 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Langganan Masih Berjalan (
+                      {selectedClientDetail.pricingType === 'annual_subscription'
+                        ? `Tahun Ke-${selectedClientDetail.recurringPaidYears || 1}`
+                        : `Bulan Ke-${selectedClientDetail.recurringPaidMonths || 1}`}
+                      )
+                    </span>
+                  ) : selectedClientDetail.status === 'deal_closed' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Kontrak Case-by-Case Aktif / Selesai (1x Bayar)
+                    </span>
+                  ) : selectedClientDetail.status === 'cancelled' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 border border-rose-300 px-2.5 py-0.5 rounded-full">
+                      <X className="w-3.5 h-3.5" /> Langganan Diputus / Berakhir
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 border border-rose-300 px-2.5 py-0.5 rounded-full">
+                      <X className="w-3.5 h-3.5" /> Tidak Deal / Ditolak
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-500 font-mono text-[11px]">
+                  Tanggal Pendaftaran: <strong className="text-slate-900">{selectedClientDetail.date}</strong>
+                </div>
+              </div>
+
+              {/* Section 1: Detail Paket Layanan Pajak & Hukum yang Diambil */}
+              <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                    <FileCheck2 className="w-4 h-4 text-blue-700" />
+                    Rincian Paket Layanan &amp; Skema Pembayaran
+                  </span>
+                  <span className="px-2.5 py-0.5 text-[10px] font-bold rounded bg-blue-700 text-white">
+                    {selectedClientDetail.pricingType === 'monthly_subscription'
+                      ? '🔄 Paket Langganan Bulanan'
+                      : selectedClientDetail.pricingType === 'annual_subscription'
+                        ? '📅 Paket Langganan Tahunan'
+                        : '⚡ Paket Case-by-Case (Sekali Bayar)'}
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-white rounded-xl border border-blue-200/80 space-y-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block">
+                      Nama Paket Layanan Diambil:
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 leading-snug mt-0.5">
+                      {selectedClientDetail.serviceName}
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Nilai Kontrak Paket</span>
+                      <span className="font-mono text-sm font-black text-slate-900">
+                        {formatRupiah(selectedClientDetail.dealValue)}
+                        {selectedClientDetail.pricingType === 'monthly_subscription'
+                          ? ' / bln'
+                          : selectedClientDetail.pricingType === 'annual_subscription'
+                            ? ' / thn'
+                            : ''}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Hak Komisi Mitra</span>
+                      <span className="font-mono text-sm font-black text-emerald-700">
+                        {formatRupiah(selectedClientDetail.commissionAmount)}
+                        {selectedClientDetail.pricingType === 'monthly_subscription'
+                          ? ' / bln'
+                          : selectedClientDetail.pricingType === 'annual_subscription'
+                            ? ' / thn'
+                            : ''}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Jadwal / Siklus Kontrak</span>
+                      {selectedClientDetail.pricingType === 'monthly_subscription' ||
+                      selectedClientDetail.pricingType === 'annual_subscription' ? (
+                        <div className="font-mono text-[11px] text-slate-800 font-semibold">
+                          <div>Mulai: {selectedClientDetail.subscriptionStartDate || selectedClientDetail.date}</div>
+                          <div className="text-blue-700">
+                            Tagihan: Setiap Tgl {selectedClientDetail.billingDayOfMonth || 1}
+                          </div>
+                          {selectedClientDetail.nextBillingDate && (
+                            <div className="text-emerald-700">Tagihan Berikutnya: {selectedClientDetail.nextBillingDate}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="font-mono text-[11px] text-slate-800 font-semibold">
+                          {selectedClientDetail.periodStart && selectedClientDetail.periodEnd
+                            ? `${selectedClientDetail.periodStart} s/d ${selectedClientDetail.periodEnd}`
+                            : 'Kontrak Proyek 1x Bayar'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Ringkasan Siklus Langganan Berjalan (Khusus Paket Langganan) */}
+                  {(selectedClientDetail.pricingType === 'monthly_subscription' ||
+                    selectedClientDetail.pricingType === 'annual_subscription') &&
+                    selectedClientDetail.status !== 'pending_acc' &&
+                    selectedClientDetail.status !== 'rejected' && (
+                      <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-lg">
+                        <div className="text-[11px] text-slate-700">
+                          Total Siklus Terbayar:{' '}
+                          <strong className="text-blue-800 font-mono">
+                            {selectedClientDetail.pricingType === 'annual_subscription'
+                              ? `${selectedClientDetail.recurringPaidYears || 1} Tahun`
+                              : `${selectedClientDetail.recurringPaidMonths || 1} Bulan`}
+                          </strong>
+                        </div>
+                        <div className="text-[11px] text-slate-700">
+                          Total Akumulasi Komisi Diterima Mitra:{' '}
+                          <strong className="text-emerald-700 font-mono">
+                            {formatRupiah(
+                              selectedClientDetail.commissionAmount *
+                                (selectedClientDetail.pricingType === 'annual_subscription'
+                                  ? selectedClientDetail.recurringPaidYears || 1
+                                  : selectedClientDetail.recurringPaidMonths || 1)
+                            )}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+                </div>
+              </div>
+
+              {/* Section 2: Informasi Lengkap Perusahaan & PIC Klien */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2.5">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-blue-700" />
+                    Identitas Perusahaan &amp; Kontak PIC
+                  </span>
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500">Nama Entitas:</span>
+                      <span className="font-bold text-slate-900 text-right">{selectedClientDetail.companyName}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500">Nama PIC / Jabatan:</span>
+                      <span className="font-semibold text-slate-900 text-right">{selectedClientDetail.picName}</span>
+                    </div>
+                    <div className="flex justify-between gap-2 items-center">
+                      <span className="text-slate-500">No. WhatsApp PIC:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-slate-900">{selectedClientDetail.picPhone}</span>
+                        {selectedClientDetail.picPhone && selectedClientDetail.picPhone !== '-' && (
+                          <a
+                            href={`https://wa.me/${selectedClientDetail.picPhone.replace(/\D/g, '').replace(/^0/, '62')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+                          >
+                            Chat WA
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500">Email Klien / PIC:</span>
+                      <span className="font-mono text-slate-800 text-right">
+                        {selectedClientDetail.picEmail || '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500">Metode Pendaftaran:</span>
+                      <span className="font-semibold text-indigo-700 text-right">
+                        {selectedClientDetail.submittedBy === 'client_self'
+                          ? 'Registrasi Mandiri via Tautan Referral'
+                          : 'Diinput oleh Mitra Konsultan'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Informasi Mitra Perujuk */}
+                <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2.5">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-emerald-600" />
+                    Mitra Perujuk (Referral)
+                  </span>
+                  {(() => {
+                    const refMitra = mitras.find(
+                      (m) =>
+                        m.id === selectedClientDetail.mitraId ||
+                        m.referralCode === selectedClientDetail.referralCode
+                    );
+                    return (
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">Nama Mitra:</span>
+                          <span className="font-bold text-slate-900 text-right">
+                            {selectedClientDetail.mitraName}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">Kode Referral:</span>
+                          <span className="font-mono font-bold text-blue-700">
+                            {selectedClientDetail.referralCode}
+                          </span>
+                        </div>
+                        {refMitra && (
+                          <>
+                            <div className="flex justify-between gap-2">
+                              <span className="text-slate-500">Nomor Anggota:</span>
+                              <span className="font-mono text-slate-800">{refMitra.memberCode}</span>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                              <span className="text-slate-500">WhatsApp Mitra:</span>
+                              <span className="font-mono text-slate-800">{refMitra.phone}</span>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                              <span className="text-slate-500">Email Mitra:</span>
+                              <span className="font-mono text-slate-800 truncate max-w-[180px]">
+                                {refMitra.email}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Section 4: Data Inputan Tambahan Klien (Dynamic Custom Fields) */}
+              {selectedClientDetail.customFields &&
+                Object.keys(selectedClientDetail.customFields).length > 0 && (
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-800 block">
+                      Informasi &amp; Data Inputan Tambahan Klien
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {Object.entries(selectedClientDetail.customFields).map(([label, val]) => (
+                        <div
+                          key={label}
+                          className="p-2.5 bg-white rounded-lg border border-slate-200 flex flex-col justify-between"
+                        >
+                          <span className="text-[10px] text-slate-500 font-medium">{label}</span>
+                          <span className="font-bold text-slate-900 mt-0.5">{val || '-'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Section 5: Catatan & Kebutuhan Spesifik Klien */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-800 block">
+                  Catatan Kebutuhan Klien &amp; Riwayat Verifikasi
+                </span>
+                <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                  {selectedClientDetail.notes || 'Tidak ada catatan tambahan khusus pada pengajuan klien ini.'}
+                </p>
+                {selectedClientDetail.rejectionReason && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800">
+                    <strong>Alasan Ditolak ({selectedClientDetail.rejectedAt || '-'}):</strong>{' '}
+                    {selectedClientDetail.rejectionReason}
+                  </div>
+                )}
+                {selectedClientDetail.terminationReason && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800">
+                    <strong>Alasan Pemutusan Langganan ({selectedClientDetail.terminatedAt || '-'}):</strong>{' '}
+                    {selectedClientDetail.terminationReason}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] text-slate-500">
+                Informasi detail paket &amp; data klien tersimpan permanen di sistem.
+              </div>
+              <div className="flex flex-wrap items-center gap-2 ml-auto">
+                {selectedClientDetail.status === 'pending_acc' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = selectedClientDetail;
+                      setSelectedClientDetail(null);
+                      openReviewModal(target);
+                    }}
+                    className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors"
+                  >
+                    🔍 Lanjut Review &amp; Approve Klien
+                  </button>
+                )}
+                {selectedClientDetail.status === 'active_subscription' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = selectedClientDetail;
+                        setSelectedClientDetail(null);
+                        handleConfirmRecurringBill(target.id, target.pricingType);
+                      }}
+                      className="px-3 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors"
+                      title="Catat & approve pembayaran siklus langganan berikutnya untuk mencairkan komisi rutin Mitra"
+                    >
+                      ✓ Approve Pembayaran{' '}
+                      {selectedClientDetail.pricingType === 'annual_subscription'
+                        ? `Tahun Ke-${(selectedClientDetail.recurringPaidYears || 1) + 1}`
+                        : `Bulan #${(selectedClientDetail.recurringPaidMonths || 1) + 1}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = selectedClientDetail;
+                        setSelectedClientDetail(null);
+                        setDealToTerminate(target);
+                        setTerminationReason(
+                          target.pricingType === 'annual_subscription'
+                            ? 'Klien mengakhiri / putus langganan layanan tahunan'
+                            : 'Klien mengakhiri / putus langganan layanan bulanan'
+                        );
+                      }}
+                      className="px-3 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
+                    >
+                      ✕ Putus Langganan
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedClientDetail(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors"
+                >
+                  Tutup Detail
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -118,7 +118,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const rejectedCount = mitras.filter((m) => m.status === 'rejected').length;
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+    <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8 space-y-6">
       {/* Title */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

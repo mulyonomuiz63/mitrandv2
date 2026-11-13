@@ -88,31 +88,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Row 1: Brand Identity (Left) & User Actions / Profile (Right) */}
           <div className="flex items-center justify-between gap-2 sm:gap-4 h-14 sm:h-16">
             
-            {/* Left: Official Logo & Portal Title */}
+            {/* Left: Official Logo */}
             <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink">
               <button
                 type="button"
                 onClick={() => onTabChange(currentRole === 'admin' ? 'dashboard' : 'idcard')}
-                className="flex items-center gap-2.5 focus:outline-hidden text-left min-w-0"
+                className="flex items-center focus:outline-hidden text-left min-w-0"
               >
-                <div className="bg-slate-50 border border-slate-200/80 px-2 py-1 rounded-xl shrink-0">
+                <div className="bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-xl shrink-0">
                   <img
                     src="/assets/aistudio/logo_c3fdb6de.png"
                     alt="ND TAX AND LAW"
                     className="h-7 sm:h-8 w-auto object-contain"
                   />
-                </div>
-                <div className="hidden sm:flex flex-col justify-center border-l-2 border-amber-400 pl-2.5 min-w-0">
-                  <span className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider truncate">
-                    {currentRole === 'admin'
-                      ? isStaff
-                        ? 'Panel Operasional Staf'
-                        : 'Panel Operasional Admin'
-                      : 'Portal Resmi Mitra'}
-                  </span>
-                  <span className="text-[10px] text-slate-500 truncate">
-                    NDTAXANDLAW Advisory System
-                  </span>
                 </div>
               </button>
             </div>
@@ -296,28 +284,28 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Row 2: DESKTOP NAVIGATION BAR (Tampil di Atas Khusus Layar Desktop md+) */}
+          {/* Row 2: RESPONSIVE NAVIGATION MENU BAR (Rapi & Responsif di Mobile, Tablet, dan Desktop) */}
           <nav
-            aria-label="Navigasi Utama Desktop"
-            className="hidden md:flex items-center justify-between gap-2 py-2 border-t border-slate-100"
+            aria-label="Navigasi Utama"
+            className="flex items-center justify-between gap-2 py-2 border-t border-slate-100 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex items-center gap-1 sm:gap-1.5 min-w-max">
               {currentRole === 'mitra' ? (
                 <>
                   <button
                     type="button"
                     data-tour="tour-nav-idcard"
                     onClick={() => onTabChange('idcard')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                    className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                       activeTab === 'idcard'
                         ? 'bg-blue-700 text-white shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    <CreditCard className="w-3.5 h-3.5" />
+                    <CreditCard className="w-3.5 h-3.5 shrink-0" />
                     <span>Kartu Identitas Eksklusif</span>
                     {activeMitra.status === 'verified' && (
-                      <CheckCircle2 className={`w-3.5 h-3.5 ${activeTab === 'idcard' ? 'text-emerald-300' : 'text-emerald-600'}`} />
+                      <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'idcard' ? 'text-emerald-300' : 'text-emerald-600'}`} />
                     )}
                   </button>
 
@@ -325,13 +313,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     data-tour="tour-nav-dashboard"
                     onClick={() => onTabChange('dashboard')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                    className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                       activeTab === 'dashboard'
                         ? 'bg-blue-700 text-white shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    <LayoutDashboard className="w-3.5 h-3.5" />
+                    <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />
                     <span>Dashboard Mitra</span>
                   </button>
 
@@ -339,13 +327,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     data-tour="tour-nav-marketing"
                     onClick={() => onTabChange('marketing-tools')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                    className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                       activeTab === 'marketing-tools'
                         ? 'bg-blue-700 text-white shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    <Briefcase className="w-3.5 h-3.5" />
+                    <Briefcase className="w-3.5 h-3.5 shrink-0" />
                     <span>Tools Marketing &amp; Pelatihan</span>
                   </button>
 
@@ -353,13 +341,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     data-tour="tour-nav-commissions"
                     onClick={() => onTabChange('commissions')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                    className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                       activeTab === 'commissions'
                         ? 'bg-blue-700 text-white shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    <DollarSign className="w-3.5 h-3.5" />
+                    <DollarSign className="w-3.5 h-3.5 shrink-0" />
                     <span>Komisi &amp; Payout</span>
                   </button>
                 </>
@@ -370,13 +358,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-dashboard"
                       onClick={() => onTabChange('dashboard')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'dashboard'
                           ? 'bg-blue-700 text-white shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      <LayoutDashboard className="w-3.5 h-3.5" />
+                      <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />
                       <span>{isStaff ? 'Dashboard Operasional' : 'Dashboard Admin'}</span>
                     </button>
                   )}
@@ -386,13 +374,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-operations"
                       onClick={() => onTabChange('admin-operations')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'admin-operations'
                           ? 'bg-blue-800 text-white shadow-2xs'
                           : 'text-slate-700 bg-blue-50/70 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/80'
                       }`}
                     >
-                      <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                      <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                       <span>Validasi Klien &amp; Payout</span>
                     </button>
                   )}
@@ -402,13 +390,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-verification"
                       onClick={() => onTabChange('verification')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'verification'
                           ? 'bg-blue-700 text-white shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      <UserCheck className="w-3.5 h-3.5" />
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
                       <span>Verifikasi Mitra</span>
                     </button>
                   )}
@@ -419,13 +407,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-logs"
                       onClick={() => onTabChange('activity-logs')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'activity-logs'
                           ? 'bg-indigo-700 text-white shadow-2xs'
                           : 'text-slate-700 bg-indigo-50/60 hover:bg-indigo-100 hover:text-indigo-900 border border-indigo-200/80'
                       }`}
                     >
-                      <Activity className={`w-3.5 h-3.5 ${activeTab === 'activity-logs' ? 'text-amber-300' : 'text-indigo-600'}`} />
+                      <Activity className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'activity-logs' ? 'text-amber-300' : 'text-indigo-600'}`} />
                       <span>Log Aktivitas &amp; Email</span>
                     </button>
                   )}
@@ -435,13 +423,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-marketing"
                       onClick={() => onTabChange('marketing-tools')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'marketing-tools'
                           ? 'bg-blue-700 text-white shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      <Briefcase className="w-3.5 h-3.5" />
+                      <Briefcase className="w-3.5 h-3.5 shrink-0" />
                       <span>Tools Marketing</span>
                     </button>
                   )}
@@ -451,13 +439,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-commissions"
                       onClick={() => onTabChange('commissions')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'commissions'
                           ? 'bg-blue-700 text-white shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      <DollarSign className="w-3.5 h-3.5" />
+                      <DollarSign className="w-3.5 h-3.5 shrink-0" />
                       <span>Komisi &amp; Payout</span>
                     </button>
                   )}
@@ -468,13 +456,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-staff"
                       onClick={() => onTabChange('staff-management')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         activeTab === 'staff-management'
                           ? 'bg-emerald-700 text-white shadow-2xs'
                           : 'text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
                       }`}
                     >
-                      <Users className={`w-3.5 h-3.5 ${activeTab === 'staff-management' ? 'text-white' : 'text-emerald-700'}`} />
+                      <Users className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'staff-management' ? 'text-white' : 'text-emerald-700'}`} />
                       <span>Manajemen Staf &amp; Admin</span>
                     </button>
                   )}
@@ -486,10 +474,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onViewLandingPage}
-                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 border border-slate-200 flex items-center gap-1"
+                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-semibold text-slate-700 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 border border-slate-200 flex items-center gap-1 ml-auto"
                 title="Buka Landing Page Publik Jasa Keuangan & Pajak"
               >
-                <Globe className="w-3.5 h-3.5 text-blue-600" />
+                <Globe className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 <span>Web Layanan ↗</span>
               </button>
             )}
@@ -503,7 +491,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_20px_rgba(15,23,42,0.1)] px-2 py-1.5"
       >
         {currentRole === 'mitra' ? (
-          <div className="max-w-md mx-auto grid grid-cols-5 gap-1 items-center">
+          <div className="max-w-lg mx-auto grid grid-cols-5 gap-1 items-center">
             <button
               type="button"
               data-tour="tour-nav-idcard"
@@ -580,13 +568,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         ) : (
-          <div className="max-w-md mx-auto flex items-center justify-around gap-1">
+          <div className="max-w-lg mx-auto flex items-center justify-between gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {canAccessMenu('dashboard') && (
               <button
                 type="button"
                 data-tour="tour-nav-dashboard"
                 onClick={() => onTabChange('dashboard')}
-                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                className={`flex-1 min-w-[60px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'dashboard'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -602,7 +590,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-tour="tour-nav-operations"
                 onClick={() => onTabChange('admin-operations')}
-                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                className={`flex-1 min-w-[60px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'admin-operations'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -618,7 +606,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-tour="tour-nav-verification"
                 onClick={() => onTabChange('verification')}
-                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                className={`flex-1 min-w-[60px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'verification'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -634,7 +622,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-tour="tour-nav-logs"
                 onClick={() => onTabChange('activity-logs')}
-                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                className={`flex-1 min-w-[56px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'activity-logs'
                     ? 'text-indigo-700 bg-indigo-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -645,12 +633,44 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {!isStaff ? (
+            {canAccessMenu('marketing-tools') && (
+              <button
+                type="button"
+                data-tour="tour-nav-marketing"
+                onClick={() => onTabChange('marketing-tools')}
+                className={`flex-1 min-w-[56px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                  activeTab === 'marketing-tools'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Briefcase className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Tools</span>
+              </button>
+            )}
+
+            {canAccessMenu('commissions') && (
+              <button
+                type="button"
+                data-tour="tour-nav-commissions"
+                onClick={() => onTabChange('commissions')}
+                className={`flex-1 min-w-[56px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                  activeTab === 'commissions'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Komisi</span>
+              </button>
+            )}
+
+            {!isStaff && (
               <button
                 type="button"
                 data-tour="tour-nav-staff"
                 onClick={() => onTabChange('staff-management')}
-                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                className={`flex-1 min-w-[56px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'staff-management'
                     ? 'text-emerald-700 bg-emerald-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -659,22 +679,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Users className="w-4 h-4" />
                 <span className="text-[10px] mt-0.5 truncate">Staf</span>
               </button>
-            ) : (
-              canAccessMenu('commissions') && (
-                <button
-                  type="button"
-                  data-tour="tour-nav-commissions"
-                  onClick={() => onTabChange('commissions')}
-                  className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                    activeTab === 'commissions' || activeTab === 'marketing-tools'
-                      ? 'text-blue-700 bg-blue-50 font-bold'
-                      : 'text-slate-500 hover:text-slate-900'
-                  }`}
-                >
-                  <Layers className="w-4 h-4" />
-                  <span className="text-[10px] mt-0.5 truncate">Komisi</span>
-                </button>
-              )
             )}
           </div>
         )}

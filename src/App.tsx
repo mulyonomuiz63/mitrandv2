@@ -664,11 +664,11 @@ export default function App() {
           appEnvironment={settings?.appEnvironment || 'development'}
         />
 
-        {/* Executive Sub-Header / Persona Context Bar */}
-        <div className="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 text-white border-b border-blue-900/50 py-2.5 px-3 sm:px-6 lg:px-8">
-          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
+        {/* Executive Sub-Header / Persona Context Bar (Symmetrically aligned with Navbar max-w-7xl px-3 sm:px-6 lg:px-8) */}
+        <div className="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 text-white border-b border-blue-900/50 py-2.5">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="px-2 py-0.5 rounded font-mono font-bold uppercase text-[10px] bg-blue-700/60 border border-blue-400/30 text-blue-200 shrink-0">
+              <span className="px-2.5 py-1 rounded-md font-mono font-bold uppercase text-[10px] bg-blue-700/60 border border-blue-400/30 text-blue-200 shrink-0">
                 {currentRole === 'admin'
                   ? currentUser?.roleCode === 'staff'
                     ? 'PANEL OPERASIONAL STAF'
@@ -685,20 +685,33 @@ export default function App() {
               </span>
             </div>
 
-            {/* Admin / Staff Action Bar */}
-            {currentRole === 'admin' && (
-              <div className="flex items-center gap-2.5 shrink-0">
+            {/* Symmetrical Right-Side Action / Info Bar for Admin, Staf, & Mitra */}
+            {currentRole === 'admin' ? (
+              <div className="flex items-center gap-2.5 shrink-0 ml-auto">
                 {(currentUser?.roleCode !== 'staff' ||
                   (currentUser?.allowedMenus || DEFAULT_STAFF_ALLOWED_MENUS).includes('manage-services')) && (
                   <button
                     type="button"
                     data-tour="tour-action-services"
                     onClick={() => setIsServicesModalOpen(true)}
-                    className="px-2.5 py-1 bg-blue-700 text-white font-bold rounded-md hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
+                    className="px-3 py-1 bg-blue-700 text-white font-bold rounded-lg hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
                   >
                     Kelola Layanan Pajak
                   </button>
                 )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 shrink-0 ml-auto">
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-[11px] font-mono text-amber-300 font-bold">
+                  <span>Referral: {activeMitra.referralCode || 'ND-REF-0042'}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('commissions')}
+                  className="px-3 py-1 bg-blue-700 text-white font-bold rounded-lg hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
+                >
+                  Ringkasan Komisi
+                </button>
               </div>
             )}
           </div>
@@ -720,7 +733,7 @@ export default function App() {
           {activeTab === 'idcard' && (
             <div>
               {currentRole === 'admin' && (
-                <div className="max-w-7xl mx-auto pt-4 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+                <div className="max-w-7xl mx-auto pt-4 px-3 sm:px-6 lg:px-8 flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-600">
                     Pratinjau Kartu Identitas Mitra: <strong>{activeMitra.fullName}</strong>
                   </span>
@@ -844,8 +857,8 @@ export default function App() {
       </div>
 
       {/* Corporate Modern Footer */}
-      <footer className="bg-white border-t border-slate-200 py-6 px-4 sm:px-8 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="bg-white border-t border-slate-200 py-6 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <img
               src="/assets/aistudio/logo_c3fdb6de.png"
