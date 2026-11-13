@@ -2034,8 +2034,28 @@ var normalizeClientDeals = (list) => {
 };
 var DATA_DIR = path.join(process.cwd(), "data");
 var DB_FILE = path.join(DATA_DIR, "database.json");
+var cleanupLocalDatabaseFileInProduction = () => {
+  if (!isProductionMode() || !supabase) return;
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      fs.unlinkSync(DB_FILE);
+      console.log("[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan Supabase).");
+    }
+    if (fs.existsSync(DATA_DIR)) {
+      const remaining = fs.readdirSync(DATA_DIR);
+      if (remaining.length === 0) {
+        fs.rmdirSync(DATA_DIR);
+      }
+    }
+  } catch {
+  }
+};
 var saveDatabase = () => {
   try {
+    if (isProductionMode() && supabase) {
+      cleanupLocalDatabaseFileInProduction();
+      return;
+    }
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
@@ -2045,13 +2065,13 @@ var saveDatabase = () => {
       passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
     }
     const payload = {
-      mitras: isProductionMode() ? [] : mitras,
-      services: isProductionMode() ? [] : services,
-      clientDeals: isProductionMode() ? [] : clientDeals,
-      payoutRequests: isProductionMode() ? [] : payoutRequests,
-      marketingTools: isProductionMode() ? [] : marketingTools,
-      commissions: isProductionMode() ? [] : commissions,
-      notifications: isProductionMode() ? [] : notifications,
+      mitras,
+      services,
+      clientDeals,
+      payoutRequests,
+      marketingTools,
+      commissions,
+      notifications,
       emailLogs,
       activityLogs,
       appSettings,
@@ -2065,6 +2085,20 @@ var saveDatabase = () => {
 };
 var loadDatabase = () => {
   try {
+    if (isProductionMode() && supabase) {
+      mitras = [];
+      services = [];
+      clientDeals = [];
+      payoutRequests = [];
+      marketingTools = [];
+      commissions = [];
+      notifications = [];
+      activityLogs = [];
+      emailLogs = [];
+      cleanupLocalDatabaseFileInProduction();
+      console.log("[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Cloud Supabase 100%.");
+      return;
+    }
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
@@ -2104,6 +2138,7 @@ var loadDatabase = () => {
         marketingTools = [];
         commissions = [];
         notifications = [];
+        cleanupLocalDatabaseFileInProduction();
         console.log("[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).");
       } else {
         if (Array.isArray(data.mitras)) mitras = normalizeMitraAvatars(data.mitras);
@@ -2113,7 +2148,7 @@ var loadDatabase = () => {
         if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
         if (Array.isArray(data.commissions)) commissions = data.commissions;
         if (Array.isArray(data.notifications)) notifications = data.notifications;
-        console.log(`[Development Mode] Konfigurasi lokal dimuat dari ${DB_FILE}`);
+        console.log(`[Development Mode] Database lokal dimuat dari ${DB_FILE}`);
       }
     } else if (isProductionMode()) {
       mitras = [];
@@ -2125,6 +2160,7 @@ var loadDatabase = () => {
       notifications = [];
       activityLogs = [];
       emailLogs = [];
+      cleanupLocalDatabaseFileInProduction();
     }
   } catch (err) {
     console.error("[Storage Error] Gagal memuat konfigurasi disk:", err);
@@ -4716,6 +4752,7 @@ async function startServer() {
 }
 startServer();
 export {
+  cleanupLocalDatabaseFileInProduction,
   computeDynamicSalesHistory,
   encryptUserPassword,
   extractUserRole,

@@ -1618,14 +1618,39 @@ const normalizeClientDeals = (list: ClientDeal[]): ClientDeal[] => {
 
 // ========================================================
 // STORAGE ENGINE:
-// - PRODUCTION MODE: STRICTLY SUPABASE ONLY (No local database.json fallback)
-// - DEVELOPMENT MODE: Local database.json fallback only if Supabase is offline
+// - PRODUCTION MODE: STRICTLY SUPABASE ONLY (No local database.json file created or stored on disk)
+// - DEVELOPMENT MODE: Local data/database.json used for local development (git-ignored)
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 
+export const cleanupLocalDatabaseFileInProduction = () => {
+  if (!isProductionMode() || !supabase) return;
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      fs.unlinkSync(DB_FILE);
+      console.log('[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan Supabase).');
+    }
+    if (fs.existsSync(DATA_DIR)) {
+      const remaining = fs.readdirSync(DATA_DIR);
+      if (remaining.length === 0) {
+        fs.rmdirSync(DATA_DIR);
+      }
+    }
+  } catch {
+    // Ignore cleanup errors
+  }
+};
+
 export const saveDatabase = () => {
   try {
+    // PENTING: Saat Mode Production & Supabase aktif, JANGAN simpan file database lokal ke disk server!
+    // Seluruh data disimpan 100% di Cloud Supabase agar penyimpanan server tidak penuh dan lebih aman.
+    if (isProductionMode() && supabase) {
+      cleanupLocalDatabaseFileInProduction();
+      return;
+    }
+
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
@@ -1634,15 +1659,15 @@ export const saveDatabase = () => {
       const role = k.toLowerCase() === adminAccount.email.toLowerCase() ? 'admin' : extractUserRole(v, 'mitra');
       passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
     }
-    // Always persist appSettings, logs, and encrypted passwords; only persist entity caches in development mode
+    // Hanya dijalankan pada Development Mode (atau saat Supabase belum dikonfigurasi)
     const payload = {
-      mitras: isProductionMode() ? [] : mitras,
-      services: isProductionMode() ? [] : services,
-      clientDeals: isProductionMode() ? [] : clientDeals,
-      payoutRequests: isProductionMode() ? [] : payoutRequests,
-      marketingTools: isProductionMode() ? [] : marketingTools,
-      commissions: isProductionMode() ? [] : commissions,
-      notifications: isProductionMode() ? [] : notifications,
+      mitras,
+      services,
+      clientDeals,
+      payoutRequests,
+      marketingTools,
+      commissions,
+      notifications,
       emailLogs,
       activityLogs,
       appSettings,
@@ -1657,6 +1682,22 @@ export const saveDatabase = () => {
 
 export const loadDatabase = () => {
   try {
+    // Jika Mode Production & Supabase aktif, jangan buat atau baca file database lokal dari disk
+    if (isProductionMode() && supabase) {
+      mitras = [];
+      services = [];
+      clientDeals = [];
+      payoutRequests = [];
+      marketingTools = [];
+      commissions = [];
+      notifications = [];
+      activityLogs = [];
+      emailLogs = [];
+      cleanupLocalDatabaseFileInProduction();
+      console.log('[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Cloud Supabase 100%.');
+      return;
+    }
+
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
@@ -1669,7 +1710,6 @@ export const loadDatabase = () => {
         if (appSettings.smtpPassword === '••••••••••••••••') {
           appSettings.smtpPassword = process.env.SMTP_PASS || '';
         }
-        // Default to production if supabase is configured unless explicitly set by env
         if (process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production') {
           appSettings.appEnvironment = 'production';
         }
@@ -1694,8 +1734,6 @@ export const loadDatabase = () => {
         }
       }
 
-      // PENTING: Jika Mode Production aktif, JANGAN muat data entitas lokal/dummy dari database.json!
-      // Seluruh data wajib 100% berasal dari Supabase Database.
       if (isProductionMode()) {
         mitras = [];
         services = [];
@@ -1704,6 +1742,7 @@ export const loadDatabase = () => {
         marketingTools = [];
         commissions = [];
         notifications = [];
+        cleanupLocalDatabaseFileInProduction();
         console.log('[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).');
       } else {
         if (Array.isArray(data.mitras)) mitras = normalizeMitraAvatars(data.mitras);
@@ -1713,7 +1752,7 @@ export const loadDatabase = () => {
         if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
         if (Array.isArray(data.commissions)) commissions = data.commissions;
         if (Array.isArray(data.notifications)) notifications = data.notifications;
-        console.log(`[Development Mode] Konfigurasi lokal dimuat dari ${DB_FILE}`);
+        console.log(`[Development Mode] Database lokal dimuat dari ${DB_FILE}`);
       }
     } else if (isProductionMode()) {
       mitras = [];
@@ -1725,6 +1764,7 @@ export const loadDatabase = () => {
       notifications = [];
       activityLogs = [];
       emailLogs = [];
+      cleanupLocalDatabaseFileInProduction();
     }
   } catch (err) {
     console.error('[Storage Error] Gagal memuat konfigurasi disk:', err);
