@@ -446,6 +446,19 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                     <p className="text-[10px] text-slate-400">
                       a.n. {mitra.bankDetails.accountHolder}
                     </p>
+                    {mitra.bankDetails.customBankFields &&
+                      Object.keys(mitra.bankDetails.customBankFields).length > 0 && (
+                        <div className="mt-1 pt-1 border-t border-white/10 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-slate-300">
+                          {Object.entries(mitra.bankDetails.customBankFields).map(([k, v]) =>
+                            v ? (
+                              <span key={k}>
+                                <span className="text-slate-400">{k}:</span>{' '}
+                                <strong className="text-white">{v}</strong>
+                              </span>
+                            ) : null
+                          )}
+                        </div>
+                      )}
                   </div>
 
                   <p className="text-[9px] text-slate-400 leading-relaxed">
@@ -826,6 +839,19 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                         <p className="text-[10px] text-slate-400">
                           a.n. {mitra.bankDetails.accountHolder}
                         </p>
+                        {mitra.bankDetails.customBankFields &&
+                          Object.keys(mitra.bankDetails.customBankFields).length > 0 && (
+                            <div className="mt-1 pt-1 border-t border-white/10 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-slate-300">
+                              {Object.entries(mitra.bankDetails.customBankFields).map(([k, v]) =>
+                                v ? (
+                                  <span key={k}>
+                                    <span className="text-slate-400">{k}:</span>{' '}
+                                    <strong className="text-white">{v}</strong>
+                                  </span>
+                                ) : null
+                              )}
+                            </div>
+                          )}
                       </div>
 
                       <p className="text-[9px] text-slate-400 leading-relaxed">

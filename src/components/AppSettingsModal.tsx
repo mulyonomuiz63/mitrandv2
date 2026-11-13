@@ -43,8 +43,11 @@ import {
   DynamicFormField,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  DEFAULT_BANK_OPTIONS,
   DEFAULT_MITRA_FORM_FIELDS,
   DEFAULT_CLIENT_FORM_FIELDS,
+  isBankFormField,
+  getBankOptionUsageCount,
   resolveMitraFormFields,
   resolveClientFormFields,
   getSpecializationOptionUsageCount,
@@ -119,6 +122,13 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const [newMitraFieldPlaceholder, setNewMitraFieldPlaceholder] = useState('');
   const [newMitraFieldOptions, setNewMitraFieldOptions] = useState('');
   const [newMitraFieldRequired, setNewMitraFieldRequired] = useState(false);
+
+  const [newBankOptionName, setNewBankOptionName] = useState('');
+  const [newBankFieldLabel, setNewBankFieldLabel] = useState('');
+  const [newBankFieldType, setNewBankFieldType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [newBankFieldPlaceholder, setNewBankFieldPlaceholder] = useState('');
+  const [newBankFieldOptions, setNewBankFieldOptions] = useState('');
+  const [newBankFieldRequired, setNewBankFieldRequired] = useState(false);
 
   const [editingMitraFieldId, setEditingMitraFieldId] = useState<string | null>(null);
   const [editMitraLabel, setEditMitraLabel] = useState('');
@@ -1178,20 +1188,20 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                 )}
               </div>
 
-              {/* Section B: Seluruh Field Input Pendaftaran Mitra (Default & Tambahan) */}
+              {/* Section B: Field Input Data Diri Pendaftaran Mitra (Default & Tambahan) */}
               <div className="p-4 sm:p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-blue-100 text-blue-800 border border-blue-200">
-                        2. Seluruh Inputan Pendaftaran Mitra (Default &amp; Dinamis)
+                        2. Inputan Data Diri Pendaftaran Mitra (Default &amp; Dinamis)
                       </span>
                       <h4 className="text-sm font-bold text-slate-900">
-                        Kelola Field Input Pendaftaran Mitra
+                        Kelola Field Input Data Diri Mitra
                       </h4>
                     </div>
                     <p className="text-xs text-slate-600 mt-1">
-                      Semua field input <strong>Default Bawaan</strong> (Nama, Email, WhatsApp, NIK, Bidang Keahlian, Rekening Bank) maupun <strong>Input Tambahan</strong> ditampilkan di bawah ini. Anda dapat mengedit, menonaktifkan/mengurangi, atau menghapus field yang belum digunakan oleh Mitra terdaftar.
+                      Semua field input <strong>Data Diri Default Bawaan</strong> (Nama Lengkap, Email, No. WhatsApp, NIK, Bidang Keahlian) maupun <strong>Input Tambahan Data Diri</strong> ditampilkan di bawah ini. Anda dapat mengedit, menonaktifkan/mengurangi, atau menghapus field yang belum digunakan oleh Mitra terdaftar.
                     </p>
                   </div>
 
@@ -1199,7 +1209,8 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     type="button"
                     onClick={() => {
                       const current = resolveMitraFormFields(settings);
-                      const missingDefaults = DEFAULT_MITRA_FORM_FIELDS.filter(
+                      const profileDefaults = DEFAULT_MITRA_FORM_FIELDS.filter((def) => !isBankFormField(def));
+                      const missingDefaults = profileDefaults.filter(
                         (def) => !current.some((c) => c.id === def.id || c.systemKey === def.systemKey)
                       );
                       if (missingDefaults.length === 0) return;
@@ -1211,14 +1222,14 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     }}
                     className="px-3 py-2 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shrink-0"
                   >
-                    ↺ Pulihkan Input Default Mitra
+                    ↺ Pulihkan Input Default Data Diri
                   </button>
                 </div>
 
-                {/* Add Mitra Custom Field Form */}
+                {/* Add Mitra Profile Custom Field Form */}
                 <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
                   <p className="text-xs font-bold text-slate-800">
-                    + Tambah Field Input Pendaftaran Mitra Baru
+                    + Tambah Field Input Data Diri Mitra Baru
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div>
@@ -1295,6 +1306,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         const newField: DynamicFormField = {
                           id: `mfield-${Date.now()}`,
                           isDefault: false,
+                          section: 'profile',
                           label,
                           type: newMitraFieldType,
                           placeholder: newMitraFieldPlaceholder.trim() || `Isi ${label}`,
@@ -1321,305 +1333,899 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg flex items-center gap-1.5"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Tambah Input Mitra</span>
+                      <span>Tambah Input Data Diri</span>
                     </button>
                   </div>
                 </div>
 
-                {/* All Mitra Fields List (Default + Custom) */}
+                {/* Mitra Profile Fields List (Default + Custom) */}
                 <div className="space-y-2">
-                  {resolveMitraFormFields(settings).map((field) => {
-                    const usageCount = getMitraFieldUsageCount(field, registeredMitras);
-                    const isDefaultField = Boolean(field.isDefault || field.systemKey);
-                    const isEditing = editingMitraFieldId === field.id;
+                  {resolveMitraFormFields(settings)
+                    .filter((f) => !isBankFormField(f))
+                    .map((field) => {
+                      const usageCount = getMitraFieldUsageCount(field, registeredMitras);
+                      const isDefaultField = Boolean(field.isDefault || field.systemKey);
+                      const isEditing = editingMitraFieldId === field.id;
 
-                    return (
-                      <div
-                        key={field.id}
-                        className={`p-3 rounded-xl border text-xs transition-all ${
-                          field.isActive
-                            ? 'bg-white border-slate-200 text-slate-900'
-                            : 'bg-slate-100 border-slate-200 text-slate-400'
-                        }`}
-                      >
-                        {isEditing ? (
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                                  Nama Label Input
-                                </label>
-                                <input
-                                  type="text"
-                                  value={editMitraLabel}
-                                  onChange={(e) => setEditMitraLabel(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 text-xs font-semibold border border-blue-400 rounded-lg"
-                                />
+                      return (
+                        <div
+                          key={field.id}
+                          className={`p-3 rounded-xl border text-xs transition-all ${
+                            field.isActive
+                              ? 'bg-white border-slate-200 text-slate-900'
+                              : 'bg-slate-100 border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          {isEditing ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Nama Label Input
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editMitraLabel}
+                                    onChange={(e) => setEditMitraLabel(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs font-semibold border border-blue-400 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Tipe Input
+                                  </label>
+                                  <select
+                                    value={editMitraType}
+                                    disabled={isDefaultField}
+                                    onChange={(e: any) => setEditMitraType(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white disabled:bg-slate-100"
+                                  >
+                                    <option value="text">Teks Singkat (Text)</option>
+                                    <option value="number">Angka / Nomor (Number)</option>
+                                    <option value="select">Pilihan Dropdown (Select)</option>
+                                    <option value="textarea">Catatan Panjang (Textarea)</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Placeholder / Petunjuk
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editMitraPlaceholder}
+                                    onChange={(e) => setEditMitraPlaceholder(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                                  />
+                                </div>
                               </div>
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                                  Tipe Input
+
+                              {editMitraType === 'select' && field.systemKey !== 'specialization' && (
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Opsi Dropdown (Pisahkan dengan koma)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editMitraOptions}
+                                    onChange={(e) => setEditMitraOptions(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                                  />
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-1">
+                                <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editMitraRequired}
+                                    onChange={(e) => setEditMitraRequired(e.target.checked)}
+                                    className="rounded text-blue-600"
+                                  />
+                                  <span>Wajib diisi (Required)</span>
                                 </label>
-                                <select
-                                  value={editMitraType}
-                                  disabled={isDefaultField}
-                                  onChange={(e: any) => setEditMitraType(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white disabled:bg-slate-100"
-                                >
-                                  <option value="text">Teks Singkat (Text)</option>
-                                  <option value="number">Angka / Nomor (Number)</option>
-                                  <option value="select">Pilihan Dropdown (Select)</option>
-                                  <option value="textarea">Catatan Panjang (Textarea)</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                                  Placeholder / Petunjuk
-                                </label>
-                                <input
-                                  type="text"
-                                  value={editMitraPlaceholder}
-                                  onChange={(e) => setEditMitraPlaceholder(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
-                                />
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const trimmed = editMitraLabel.trim();
+                                      if (!trimmed) return;
+                                      const updated = resolveMitraFormFields(settings).map((f) =>
+                                        f.id === field.id
+                                          ? {
+                                              ...f,
+                                              label: trimmed,
+                                              type: isDefaultField ? f.type : editMitraType,
+                                              placeholder: editMitraPlaceholder.trim(),
+                                              required: editMitraRequired,
+                                              options:
+                                                editMitraType === 'select' &&
+                                                f.systemKey !== 'specialization'
+                                                  ? editMitraOptions
+                                                      .split(',')
+                                                      .map((s) => s.trim())
+                                                      .filter(Boolean)
+                                                  : f.options,
+                                            }
+                                          : f
+                                      );
+                                      setSettings({
+                                        ...settings,
+                                        specializationLabel:
+                                          field.systemKey === 'specialization'
+                                            ? trimmed
+                                            : settings.specializationLabel,
+                                        mitraCustomFields: updated,
+                                        mitraFieldsInitialized: true,
+                                      });
+                                      setEditingMitraFieldId(null);
+                                    }}
+                                    className="px-3 py-1 bg-blue-700 text-white font-bold rounded-md text-[11px]"
+                                  >
+                                    Simpan Perubahan
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingMitraFieldId(null)}
+                                    className="px-2.5 py-1 bg-slate-200 text-slate-700 font-semibold rounded-md text-[11px]"
+                                  >
+                                    Batal
+                                  </button>
+                                </div>
                               </div>
                             </div>
-
-                            {editMitraType === 'select' && field.systemKey !== 'specialization' && (
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                                  Opsi Dropdown (Pisahkan dengan koma)
-                                </label>
-                                <input
-                                  type="text"
-                                  value={editMitraOptions}
-                                  onChange={(e) => setEditMitraOptions(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
-                                />
+                          ) : (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span
+                                    className={`font-bold text-xs ${
+                                      !field.isActive ? 'line-through text-slate-400' : 'text-slate-900'
+                                    }`}
+                                  >
+                                    {field.label}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                                      isDefaultField
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                        : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                    }`}
+                                  >
+                                    {isDefaultField ? 'Default Bawaan' : 'Input Tambahan'}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 uppercase font-mono">
+                                    {field.type}
+                                  </span>
+                                  {field.required ? (
+                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-rose-50 text-rose-700 font-semibold border border-rose-200">
+                                      Wajib
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">
+                                      Opsional
+                                    </span>
+                                  )}
+                                  {usageCount > 0 ? (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                                      <Lock className="w-2.5 h-2.5" />
+                                      Digunakan {usageCount} Mitra (Tidak Dapat Dihapus)
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      Belum Digunakan (0 Mitra • Dapat Dihapus)
+                                    </span>
+                                  )}
+                                </div>
+                                {field.placeholder && (
+                                  <p className="text-[11px] text-slate-500">
+                                    Placeholder: "{field.placeholder}"
+                                  </p>
+                                )}
+                                {field.systemKey === 'specialization' ? (
+                                  <p className="text-[11px] text-indigo-600 font-medium">
+                                    Opsi diambil otomatis dari daftar "Pilihan Spesialisasi / Keahlian Mitra" di atas.
+                                  </p>
+                                ) : (
+                                  field.options &&
+                                  field.options.length > 0 && (
+                                    <p className="text-[11px] text-slate-500">
+                                      Opsi: {field.options.join(', ')}
+                                    </p>
+                                  )
+                                )}
                               </div>
-                            )}
 
-                            <div className="flex items-center justify-between pt-1">
-                              <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={editMitraRequired}
-                                  onChange={(e) => setEditMitraRequired(e.target.checked)}
-                                  className="rounded text-blue-600"
-                                />
-                                <span>Wajib diisi (Required)</span>
-                              </label>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const trimmed = editMitraLabel.trim();
-                                    if (!trimmed) return;
-                                    const updated = resolveMitraFormFields(settings).map((f) =>
-                                      f.id === field.id
-                                        ? {
-                                            ...f,
-                                            label: trimmed,
-                                            type: isDefaultField ? f.type : editMitraType,
-                                            placeholder: editMitraPlaceholder.trim(),
-                                            required: editMitraRequired,
-                                            options:
-                                              editMitraType === 'select' &&
-                                              f.systemKey !== 'specialization'
-                                                ? editMitraOptions
-                                                    .split(',')
-                                                    .map((s) => s.trim())
-                                                    .filter(Boolean)
-                                                : f.options,
-                                          }
-                                        : f
-                                    );
-                                    setSettings({
-                                      ...settings,
-                                      specializationLabel:
-                                        field.systemKey === 'specialization'
-                                          ? trimmed
-                                          : settings.specializationLabel,
-                                      mitraCustomFields: updated,
-                                      mitraFieldsInitialized: true,
-                                    });
-                                    setEditingMitraFieldId(null);
+                                    setEditingMitraFieldId(field.id);
+                                    setEditMitraLabel(field.label);
+                                    setEditMitraType(field.type);
+                                    setEditMitraPlaceholder(field.placeholder || '');
+                                    setEditMitraOptions((field.options || []).join(', '));
+                                    setEditMitraRequired(field.required);
                                   }}
-                                  className="px-3 py-1 bg-blue-700 text-white font-bold rounded-md text-[11px]"
+                                  className="px-2.5 py-1 rounded text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
                                 >
-                                  Simpan Perubahan
+                                  Edit
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setEditingMitraFieldId(null)}
-                                  className="px-2.5 py-1 bg-slate-200 text-slate-700 font-semibold rounded-md text-[11px]"
+                                  onClick={() => {
+                                    const nextActive = !field.isActive;
+                                    const updated = resolveMitraFormFields(settings).map((f) =>
+                                      f.id === field.id ? { ...f, isActive: nextActive } : f
+                                    );
+                                    setSettings({
+                                      ...settings,
+                                      specializationEnabled:
+                                        field.systemKey === 'specialization'
+                                          ? nextActive
+                                          : settings.specializationEnabled,
+                                      mitraCustomFields: updated,
+                                      mitraFieldsInitialized: true,
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded text-[11px] font-bold border ${
+                                    field.isActive
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  }`}
                                 >
-                                  Batal
+                                  {field.isActive ? 'Aktif' : 'Nonaktif'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (usageCount > 0) {
+                                      await confirm({
+                                        title: 'Input Tidak Dapat Dihapus (Sudah Digunakan)',
+                                        message: `Input "${field.label}" tidak dapat dihapus karena sudah ada ${usageCount} Mitra terdaftar yang menggunakan data input ini.`,
+                                        detail:
+                                          'Sesuai aturan integritas data: Input yang sudah pernah diisi oleh Mitra tidak boleh dihapus. Anda tetap dapat mengedit nama label/pengaturannya atau menonaktifkannya (klik tombol Aktif/Nonaktif) jika tidak ingin ditampilkan lagi di form pendaftaran baru.',
+                                        confirmText: 'Mengerti',
+                                        cancelText: 'Tutup',
+                                        variant: 'warning',
+                                      });
+                                      return;
+                                    }
+                                    const ok = await confirm({
+                                      title: 'Konfirmasi Hapus Field Input Mitra',
+                                      message: `Apakah Anda yakin ingin menghapus field "${field.label}" dari form pendaftaran Mitra? (Field ini belum digunakan oleh Mitra mana pun).`,
+                                      confirmText: 'Ya, Hapus Field',
+                                      cancelText: 'Batalkan',
+                                      variant: 'danger',
+                                    });
+                                    if (!ok) return;
+                                    const updated = resolveMitraFormFields(settings).filter(
+                                      (f) => f.id !== field.id
+                                    );
+                                    setSettings({
+                                      ...settings,
+                                      specializationEnabled:
+                                        field.systemKey === 'specialization'
+                                          ? false
+                                          : settings.specializationEnabled,
+                                      mitraCustomFields: updated,
+                                      mitraFieldsInitialized: true,
+                                    });
+                                  }}
+                                  className={`p-1.5 rounded border transition-colors ${
+                                    usageCount > 0
+                                      ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
+                                      : 'bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 border-slate-200'
+                                  }`}
+                                  title={
+                                    usageCount > 0
+                                      ? `Terkunci: Sudah digunakan oleh ${usageCount} Mitra`
+                                      : 'Hapus input (Belum digunakan)'
+                                  }
+                                >
+                                  {usageCount > 0 ? (
+                                    <Lock className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
                                 </button>
                               </div>
                             </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span
-                                  className={`font-bold text-xs ${
-                                    !field.isActive ? 'line-through text-slate-400' : 'text-slate-900'
-                                  }`}
-                                >
-                                  {field.label}
-                                </span>
-                                <span
-                                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
-                                    isDefaultField
-                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                      : 'bg-purple-50 text-purple-700 border border-purple-200'
-                                  }`}
-                                >
-                                  {isDefaultField ? 'Default Bawaan' : 'Input Tambahan'}
-                                </span>
-                                <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 uppercase font-mono">
-                                  {field.type}
-                                </span>
-                                {field.required ? (
-                                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-rose-50 text-rose-700 font-semibold border border-rose-200">
-                                    Wajib
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">
-                                    Opsional
-                                  </span>
-                                )}
-                                {usageCount > 0 ? (
-                                  <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
-                                    <Lock className="w-2.5 h-2.5" />
-                                    Digunakan {usageCount} Mitra (Tidak Dapat Dihapus)
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    Belum Digunakan (0 Mitra • Dapat Dihapus)
-                                  </span>
-                                )}
-                              </div>
-                              {field.placeholder && (
-                                <p className="text-[11px] text-slate-500">
-                                  Placeholder: "{field.placeholder}"
-                                </p>
-                              )}
-                              {field.systemKey === 'specialization' ? (
-                                <p className="text-[11px] text-indigo-600 font-medium">
-                                  Opsi diambil otomatis dari daftar "Pilihan Spesialisasi / Keahlian Mitra" di atas.
-                                </p>
-                              ) : (
-                                field.options &&
-                                field.options.length > 0 && (
-                                  <p className="text-[11px] text-slate-500">
-                                    Opsi: {field.options.join(', ')}
-                                  </p>
-                                )
-                              )}
-                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingMitraFieldId(field.id);
-                                  setEditMitraLabel(field.label);
-                                  setEditMitraType(field.type);
-                                  setEditMitraPlaceholder(field.placeholder || '');
-                                  setEditMitraOptions((field.options || []).join(', '));
-                                  setEditMitraRequired(field.required);
-                                }}
-                                className="px-2.5 py-1 rounded text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const nextActive = !field.isActive;
-                                  const updated = resolveMitraFormFields(settings).map((f) =>
-                                    f.id === field.id ? { ...f, isActive: nextActive } : f
-                                  );
-                                  setSettings({
-                                    ...settings,
-                                    specializationEnabled:
-                                      field.systemKey === 'specialization'
-                                        ? nextActive
-                                        : settings.specializationEnabled,
-                                    mitraCustomFields: updated,
-                                    mitraFieldsInitialized: true,
-                                  });
-                                }}
-                                className={`px-2.5 py-1 rounded text-[11px] font-bold border ${
-                                  field.isActive
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : 'bg-amber-50 text-amber-700 border-amber-200'
-                                }`}
-                              >
-                                {field.isActive ? 'Aktif' : 'Nonaktif'}
-                              </button>
+              {/* Section B.2: Manajemen Inputan Data Rekening Pencairan Komisi Mitra (Default & Dinamis) */}
+              <div className="p-4 sm:p-5 bg-amber-50/40 border border-amber-200 rounded-xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/80 pb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-amber-100 text-amber-900 border border-amber-300">
+                        3. Inputan Data Rekening Komisi Mitra (Default &amp; Dinamis)
+                      </span>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Kelola Field &amp; Pilihan Bank Rekening Pencairan Komisi Mitra
+                      </h4>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Kelola seluruh input pada bagian <strong>Data Rekening Pencairan Komisi Mitra</strong> secara dinamis: Anda dapat <strong>menambah/mengurangi pilihan Nama Bank</strong>, <strong>menambah field rekening baru</strong> (misal: Cabang Bank/KCP, Kode Swift/BI-FAST, Nomor E-Wallet Cadangan, NPWP Rekening), maupun <strong>mengedit, mengurangi (menonaktifkan), atau menghapus</strong> field rekening bawaan selama belum digunakan oleh Mitra terdaftar.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = resolveMitraFormFields(settings);
+                      const bankDefaults = DEFAULT_MITRA_FORM_FIELDS.filter((def) => isBankFormField(def));
+                      const missingDefaults = bankDefaults.filter(
+                        (def) => !current.some((c) => c.id === def.id || c.systemKey === def.systemKey)
+                      );
+                      if (missingDefaults.length === 0) return;
+                      setSettings({
+                        ...settings,
+                        mitraCustomFields: [...current, ...missingDefaults],
+                        mitraFieldsInitialized: true,
+                      });
+                    }}
+                    className="px-3 py-2 text-[11px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg shrink-0"
+                  >
+                    ↺ Pulihkan Input Default Rekening
+                  </button>
+                </div>
+
+                {/* Quick Manager for Daftar Pilihan Nama Bank */}
+                {(() => {
+                  const allFields = resolveMitraFormFields(settings);
+                  const bankNameField = allFields.find((f) => f.systemKey === 'bankName');
+                  const currentBankOptions =
+                    bankNameField?.options && bankNameField.options.length > 0
+                      ? bankNameField.options
+                      : DEFAULT_BANK_OPTIONS;
+
+                  if (!bankNameField) return null;
+
+                  return (
+                    <div className="p-3.5 bg-white border border-amber-200 rounded-xl space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">
+                            Daftar Pilihan Nama Bank Pencairan Komisi ({currentBankOptions.length} Bank)
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            Tambah bank baru atau kurangi/hapus bank dari dropdown <strong>"{bankNameField.label}"</strong>. Bank yang sudah dipilih oleh Mitra terdaftar terkunci dari penghapusan.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const missingBanks = DEFAULT_BANK_OPTIONS.filter(
+                              (defBank) =>
+                                !currentBankOptions.some(
+                                  (b) => b.toLowerCase() === defBank.toLowerCase()
+                                )
+                            );
+                            if (missingBanks.length === 0) return;
+                            const nextOpts = [...currentBankOptions, ...missingBanks];
+                            const updated = allFields.map((f) =>
+                              f.systemKey === 'bankName' ? { ...f, options: nextOpts } : f
+                            );
+                            setSettings({
+                              ...settings,
+                              mitraCustomFields: updated,
+                              mitraFieldsInitialized: true,
+                            });
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg shrink-0"
+                        >
+                          ↺ Pulihkan Pilihan Bank Default
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          value={newBankOptionName}
+                          onChange={(e) => setNewBankOptionName(e.target.value)}
+                          placeholder="Tambah pilihan Nama Bank / E-Wallet baru (Contoh: Bank Permata, Bank Danamon, SeaBank)..."
+                          className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = newBankOptionName.trim();
+                            if (!trimmed) return;
+                            if (
+                              currentBankOptions.some(
+                                (b) => b.toLowerCase() === trimmed.toLowerCase()
+                              )
+                            ) {
+                              setNewBankOptionName('');
+                              return;
+                            }
+                            const nextOpts = [...currentBankOptions, trimmed];
+                            const updated = allFields.map((f) =>
+                              f.systemKey === 'bankName' ? { ...f, options: nextOpts } : f
+                            );
+                            setSettings({
+                              ...settings,
+                              mitraCustomFields: updated,
+                              mitraFieldsInitialized: true,
+                            });
+                            setNewBankOptionName('');
+                          }}
+                          className="px-3.5 py-1.5 text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg flex items-center justify-center gap-1.5 shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Tambah Bank</span>
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {currentBankOptions.map((bankOpt) => {
+                          const bankUsage = getBankOptionUsageCount(bankOpt, registeredMitras);
+                          return (
+                            <div
+                              key={bankOpt}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800"
+                            >
+                              <span className="font-semibold">{bankOpt}</span>
+                              {bankUsage > 0 ? (
+                                <span
+                                  className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-100 text-amber-800 flex items-center gap-0.5"
+                                  title={`Digunakan oleh ${bankUsage} Mitra`}
+                                >
+                                  <Lock className="w-2.5 h-2.5" />
+                                  {bankUsage}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-medium">
+                                  0 Mitra
+                                </span>
+                              )}
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  if (usageCount > 0) {
+                                  if (bankUsage > 0) {
                                     await confirm({
-                                      title: 'Input Tidak Dapat Dihapus (Sudah Digunakan)',
-                                      message: `Input "${field.label}" tidak dapat dihapus karena sudah ada ${usageCount} Mitra terdaftar yang menggunakan data input ini.`,
-                                      detail:
-                                        'Sesuai aturan integritas data: Input yang sudah pernah diisi oleh Mitra tidak boleh dihapus. Anda tetap dapat mengedit nama label/pengaturannya atau menonaktifkannya (klik tombol Aktif/Nonaktif) jika tidak ingin ditampilkan lagi di form pendaftaran baru.',
+                                      title: 'Pilihan Bank Tidak Dapat Dihapus (Sudah Digunakan)',
+                                      message: `Bank "${bankOpt}" tidak dapat dihapus karena sedang digunakan sebagai rekening pencairan komisi oleh ${bankUsage} Mitra terdaftar.`,
                                       confirmText: 'Mengerti',
                                       cancelText: 'Tutup',
                                       variant: 'warning',
                                     });
                                     return;
                                   }
-                                  const ok = await confirm({
-                                    title: 'Konfirmasi Hapus Field Input Mitra',
-                                    message: `Apakah Anda yakin ingin menghapus field "${field.label}" dari form pendaftaran Mitra? (Field ini belum digunakan oleh Mitra mana pun).`,
-                                    confirmText: 'Ya, Hapus Field',
-                                    cancelText: 'Batalkan',
-                                    variant: 'danger',
-                                  });
-                                  if (!ok) return;
-                                  const updated = resolveMitraFormFields(settings).filter(
-                                    (f) => f.id !== field.id
+                                  if (currentBankOptions.length <= 1) {
+                                    await confirm({
+                                      title: 'Minimal 1 Pilihan Bank',
+                                      message: 'Daftar pilihan bank harus menyisakan minimal 1 bank aktif.',
+                                      confirmText: 'Mengerti',
+                                      cancelText: 'Tutup',
+                                      variant: 'warning',
+                                    });
+                                    return;
+                                  }
+                                  const nextOpts = currentBankOptions.filter((b) => b !== bankOpt);
+                                  const updated = allFields.map((f) =>
+                                    f.systemKey === 'bankName' ? { ...f, options: nextOpts } : f
                                   );
                                   setSettings({
                                     ...settings,
-                                    specializationEnabled:
-                                      field.systemKey === 'specialization'
-                                        ? false
-                                        : settings.specializationEnabled,
                                     mitraCustomFields: updated,
                                     mitraFieldsInitialized: true,
                                   });
                                 }}
-                                className={`p-1.5 rounded border transition-colors ${
-                                  usageCount > 0
-                                    ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
-                                    : 'bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 border-slate-200'
+                                className={`p-0.5 rounded transition-colors ${
+                                  bankUsage > 0
+                                    ? 'text-slate-300 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
                                 }`}
                                 title={
-                                  usageCount > 0
-                                    ? `Terkunci: Sudah digunakan oleh ${usageCount} Mitra`
-                                    : 'Hapus input (Belum digunakan)'
+                                  bankUsage > 0
+                                    ? `Terkunci: Digunakan ${bankUsage} Mitra`
+                                    : `Hapus/kurangi ${bankOpt}`
                                 }
                               >
-                                {usageCount > 0 ? (
-                                  <Lock className="w-3.5 h-3.5" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
+                                <X className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </div>
+                  );
+                })()}
+
+                {/* Add New Bank Custom Field Form */}
+                <div className="p-3.5 bg-white border border-amber-200 rounded-xl space-y-3">
+                  <p className="text-xs font-bold text-slate-800">
+                    + Tambah Field Input Data Rekening Komisi Baru
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Nama Field / Label Input Rekening
+                      </label>
+                      <input
+                        type="text"
+                        value={newBankFieldLabel}
+                        onChange={(e) => setNewBankFieldLabel(e.target.value)}
+                        placeholder="Contoh: Cabang Bank (KCP) / Kode Swift"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Tipe Input
+                      </label>
+                      <select
+                        value={newBankFieldType}
+                        onChange={(e: any) => setNewBankFieldType(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                      >
+                        <option value="text">Teks Singkat (Text)</option>
+                        <option value="number">Angka / Nomor (Number)</option>
+                        <option value="select">Pilihan Dropdown (Select)</option>
+                        <option value="textarea">Catatan Panjang (Textarea)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Placeholder / Petunjuk
+                      </label>
+                      <input
+                        type="text"
+                        value={newBankFieldPlaceholder}
+                        onChange={(e) => setNewBankFieldPlaceholder(e.target.value)}
+                        placeholder="Contoh: KCP Sudirman Jakarta"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+
+                  {newBankFieldType === 'select' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Opsi Pilihan Dropdown Rekening (Pisahkan dengan koma)
+                      </label>
+                      <input
+                        type="text"
+                        value={newBankFieldOptions}
+                        onChange={(e) => setNewBankFieldOptions(e.target.value)}
+                        placeholder="Contoh: Rekening Pribadi, Rekening Perusahaan / Firma"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newBankFieldRequired}
+                        onChange={(e) => setNewBankFieldRequired(e.target.checked)}
+                        className="rounded text-amber-600"
+                      />
+                      <span>Wajib diisi pada bagian Data Rekening Komisi</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const label = newBankFieldLabel.trim();
+                        if (!label) return;
+                        const newField: DynamicFormField = {
+                          id: `mbank-${Date.now()}`,
+                          isDefault: false,
+                          section: 'bank',
+                          label,
+                          type: newBankFieldType,
+                          placeholder: newBankFieldPlaceholder.trim() || `Isi ${label}`,
+                          options:
+                            newBankFieldType === 'select'
+                              ? newBankFieldOptions
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean)
+                              : undefined,
+                          required: newBankFieldRequired,
+                          isActive: true,
+                        };
+                        setSettings({
+                          ...settings,
+                          mitraCustomFields: [...resolveMitraFormFields(settings), newField],
+                          mitraFieldsInitialized: true,
+                        });
+                        setNewBankFieldLabel('');
+                        setNewBankFieldPlaceholder('');
+                        setNewBankFieldOptions('');
+                        setNewBankFieldRequired(false);
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Input Rekening</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* All Bank Account Fields List (Default + Custom Bank Fields) */}
+                <div className="space-y-2">
+                  {resolveMitraFormFields(settings)
+                    .filter((f) => isBankFormField(f))
+                    .map((field) => {
+                      const usageCount = getMitraFieldUsageCount(field, registeredMitras);
+                      const isDefaultField = Boolean(field.isDefault || field.systemKey);
+                      const isEditing = editingMitraFieldId === field.id;
+
+                      return (
+                        <div
+                          key={field.id}
+                          className={`p-3 rounded-xl border text-xs transition-all ${
+                            field.isActive
+                              ? 'bg-white border-amber-200 text-slate-900'
+                              : 'bg-slate-100 border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          {isEditing ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Nama Label Input Rekening
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editMitraLabel}
+                                    onChange={(e) => setEditMitraLabel(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs font-semibold border border-amber-400 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Tipe Input
+                                  </label>
+                                  <select
+                                    value={editMitraType}
+                                    disabled={isDefaultField}
+                                    onChange={(e: any) => setEditMitraType(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white disabled:bg-slate-100"
+                                  >
+                                    <option value="text">Teks Singkat (Text)</option>
+                                    <option value="number">Angka / Nomor (Number)</option>
+                                    <option value="select">Pilihan Dropdown (Select)</option>
+                                    <option value="textarea">Catatan Panjang (Textarea)</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Placeholder / Petunjuk
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editMitraPlaceholder}
+                                    onChange={(e) => setEditMitraPlaceholder(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                                  />
+                                </div>
+                              </div>
+
+                              {editMitraType === 'select' && (
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                    Opsi Dropdown (Pisahkan dengan koma)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editMitraOptions}
+                                    onChange={(e) => setEditMitraOptions(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                                  />
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-1">
+                                <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editMitraRequired}
+                                    onChange={(e) => setEditMitraRequired(e.target.checked)}
+                                    className="rounded text-amber-600"
+                                  />
+                                  <span>Wajib diisi (Required)</span>
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const trimmed = editMitraLabel.trim();
+                                      if (!trimmed) return;
+                                      const updated = resolveMitraFormFields(settings).map((f) =>
+                                        f.id === field.id
+                                          ? {
+                                              ...f,
+                                              label: trimmed,
+                                              type: isDefaultField ? f.type : editMitraType,
+                                              placeholder: editMitraPlaceholder.trim(),
+                                              required: editMitraRequired,
+                                              options:
+                                                editMitraType === 'select'
+                                                  ? editMitraOptions
+                                                      .split(',')
+                                                      .map((s) => s.trim())
+                                                      .filter(Boolean)
+                                                  : f.options,
+                                            }
+                                          : f
+                                      );
+                                      setSettings({
+                                        ...settings,
+                                        mitraCustomFields: updated,
+                                        mitraFieldsInitialized: true,
+                                      });
+                                      setEditingMitraFieldId(null);
+                                    }}
+                                    className="px-3 py-1 bg-amber-700 text-white font-bold rounded-md text-[11px]"
+                                  >
+                                    Simpan Perubahan
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingMitraFieldId(null)}
+                                    className="px-2.5 py-1 bg-slate-200 text-slate-700 font-semibold rounded-md text-[11px]"
+                                  >
+                                    Batal
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span
+                                    className={`font-bold text-xs ${
+                                      !field.isActive ? 'line-through text-slate-400' : 'text-slate-900'
+                                    }`}
+                                  >
+                                    {field.label}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                                      isDefaultField
+                                        ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                        : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                    }`}
+                                  >
+                                    {isDefaultField ? 'Default Rekening' : 'Rekening Tambahan'}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 uppercase font-mono">
+                                    {field.type}
+                                  </span>
+                                  {field.required ? (
+                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-rose-50 text-rose-700 font-semibold border border-rose-200">
+                                      Wajib
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">
+                                      Opsional
+                                    </span>
+                                  )}
+                                  {usageCount > 0 ? (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                                      <Lock className="w-2.5 h-2.5" />
+                                      Digunakan {usageCount} Mitra (Tidak Dapat Dihapus)
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      Belum Digunakan (0 Mitra • Dapat Dihapus)
+                                    </span>
+                                  )}
+                                </div>
+                                {field.placeholder && (
+                                  <p className="text-[11px] text-slate-500">
+                                    Placeholder: "{field.placeholder}"
+                                  </p>
+                                )}
+                                {field.options && field.options.length > 0 && (
+                                  <p className="text-[11px] text-slate-500">
+                                    Opsi: {field.options.join(', ')}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMitraFieldId(field.id);
+                                    setEditMitraLabel(field.label);
+                                    setEditMitraType(field.type);
+                                    setEditMitraPlaceholder(field.placeholder || '');
+                                    setEditMitraOptions((field.options || []).join(', '));
+                                    setEditMitraRequired(field.required);
+                                  }}
+                                  className="px-2.5 py-1 rounded text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextActive = !field.isActive;
+                                    const updated = resolveMitraFormFields(settings).map((f) =>
+                                      f.id === field.id ? { ...f, isActive: nextActive } : f
+                                    );
+                                    setSettings({
+                                      ...settings,
+                                      mitraCustomFields: updated,
+                                      mitraFieldsInitialized: true,
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded text-[11px] font-bold border ${
+                                    field.isActive
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  }`}
+                                >
+                                  {field.isActive ? 'Aktif' : 'Nonaktif'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (usageCount > 0) {
+                                      await confirm({
+                                        title: 'Input Rekening Tidak Dapat Dihapus (Sudah Digunakan)',
+                                        message: `Input "${field.label}" tidak dapat dihapus karena sudah ada ${usageCount} Mitra terdaftar yang menggunakan data rekening ini.`,
+                                        detail:
+                                          'Anda tetap dapat mengedit nama label/pengaturannya atau menonaktifkannya (klik tombol Aktif/Nonaktif) untuk mengurangi field dari form pendaftaran baru.',
+                                        confirmText: 'Mengerti',
+                                        cancelText: 'Tutup',
+                                        variant: 'warning',
+                                      });
+                                      return;
+                                    }
+                                    const ok = await confirm({
+                                      title: 'Konfirmasi Hapus Field Rekening Komisi',
+                                      message: `Apakah Anda yakin ingin menghapus field "${field.label}" dari bagian Data Rekening Komisi Mitra? (Field ini belum digunakan oleh Mitra mana pun).`,
+                                      confirmText: 'Ya, Hapus Field',
+                                      cancelText: 'Batalkan',
+                                      variant: 'danger',
+                                    });
+                                    if (!ok) return;
+                                    const updated = resolveMitraFormFields(settings).filter(
+                                      (f) => f.id !== field.id
+                                    );
+                                    setSettings({
+                                      ...settings,
+                                      mitraCustomFields: updated,
+                                      mitraFieldsInitialized: true,
+                                    });
+                                  }}
+                                  className={`p-1.5 rounded border transition-colors ${
+                                    usageCount > 0
+                                      ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
+                                      : 'bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 border-slate-200'
+                                  }`}
+                                  title={
+                                    usageCount > 0
+                                      ? `Terkunci: Sudah digunakan oleh ${usageCount} Mitra`
+                                      : 'Hapus input rekening (Belum digunakan)'
+                                  }
+                                >
+                                  {usageCount > 0 ? (
+                                    <Lock className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -1629,7 +2235,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        3. Seluruh Inputan Data Klien (Default &amp; Dinamis)
+                        4. Seluruh Inputan Data Klien (Default &amp; Dinamis)
                       </span>
                       <h4 className="text-sm font-bold text-slate-900">
                         Kelola Field Input Data Klien

@@ -2,6 +2,7 @@ export interface BankDetails {
   bankName: string;
   accountNumber: string;
   accountHolder: string;
+  customBankFields?: Record<string, string>;
 }
 
 export interface SpecializationOptionItem {
@@ -30,6 +31,7 @@ export type ClientSystemFieldKey =
 export interface DynamicFormField {
   id: string;
   systemKey?: MitraSystemFieldKey | ClientSystemFieldKey;
+  section?: 'profile' | 'bank';
   isDefault?: boolean;
   label: string;
   type: 'text' | 'number' | 'select' | 'textarea';
@@ -50,10 +52,20 @@ export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
   { id: 'spec-6', label: 'Business Partner / Referral Umum', isActive: true },
 ];
 
+export const DEFAULT_BANK_OPTIONS: string[] = [
+  'Bank Central Asia (BCA)',
+  'Bank Mandiri',
+  'Bank Rakyat Indonesia (BRI)',
+  'Bank Negara Indonesia (BNI)',
+  'Bank Syariah Indonesia (BSI)',
+  'CIMB Niaga',
+];
+
 export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-fullName',
     systemKey: 'fullName',
+    section: 'profile',
     isDefault: true,
     label: 'Nama Lengkap & Gelar',
     type: 'text',
@@ -64,6 +76,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-email',
     systemKey: 'email',
+    section: 'profile',
     isDefault: true,
     label: 'Email Resmi',
     type: 'text',
@@ -74,6 +87,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-phone',
     systemKey: 'phone',
+    section: 'profile',
     isDefault: true,
     label: 'No. WhatsApp Aktif',
     type: 'text',
@@ -84,6 +98,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-nik',
     systemKey: 'nik',
+    section: 'profile',
     isDefault: true,
     label: 'Nomor KTP / NIK',
     type: 'text',
@@ -94,6 +109,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-specialization',
     systemKey: 'specialization',
+    section: 'profile',
     isDefault: true,
     label: DEFAULT_SPECIALIZATION_LABEL,
     type: 'select',
@@ -104,23 +120,18 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-bankName',
     systemKey: 'bankName',
+    section: 'bank',
     isDefault: true,
     label: 'Nama Bank Pencairan Komisi',
     type: 'select',
-    options: [
-      'Bank Central Asia (BCA)',
-      'Bank Mandiri',
-      'Bank Rakyat Indonesia (BRI)',
-      'Bank Negara Indonesia (BNI)',
-      'Bank Syariah Indonesia (BSI)',
-      'CIMB Niaga',
-    ],
+    options: DEFAULT_BANK_OPTIONS,
     required: true,
     isActive: true,
   },
   {
     id: 'mitra-def-accountNumber',
     systemKey: 'accountNumber',
+    section: 'bank',
     isDefault: true,
     label: 'Nomor Rekening Bank',
     type: 'text',
@@ -131,6 +142,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
     id: 'mitra-def-accountHolder',
     systemKey: 'accountHolder',
+    section: 'bank',
     isDefault: true,
     label: 'Nama Pemilik Rekening',
     type: 'text',
@@ -458,28 +470,61 @@ export interface AuthUser {
   gender?: 'male' | 'female';
 }
 
+export function isBankFormField(field: DynamicFormField): boolean {
+  if (!field) return false;
+  if (field.section === 'bank') return true;
+  if (field.section === 'profile') return false;
+  return (
+    field.systemKey === 'bankName' ||
+    field.systemKey === 'accountNumber' ||
+    field.systemKey === 'accountHolder'
+  );
+}
+
+export function getBankOptionUsageCount(bankLabel: string, mitras: Mitra[]): number {
+  const target = (bankLabel || '').trim().toLowerCase();
+  if (!target) return 0;
+  return (mitras || []).filter(
+    (m) => (m.bankDetails?.bankName || '').trim().toLowerCase() === target
+  ).length;
+}
+
 export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFormField[] {
   const existing = Array.isArray(settings?.mitraCustomFields) ? settings!.mitraCustomFields! : [];
   const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
   const specEnabled = settings?.specializationEnabled !== false;
 
+  const normalizeField = (f: DynamicFormField): DynamicFormField => {
+    const inferredSection: 'profile' | 'bank' =
+      f.section ||
+      (f.systemKey === 'bankName' ||
+      f.systemKey === 'accountNumber' ||
+      f.systemKey === 'accountHolder'
+        ? 'bank'
+        : 'profile');
+
+    if (f.systemKey === 'specialization') {
+      return {
+        ...f,
+        section: inferredSection,
+        label: f.label || specLabel,
+        isActive: settings?.specializationEnabled !== undefined ? specEnabled : f.isActive,
+      };
+    }
+    return {
+      ...f,
+      section: inferredSection,
+    };
+  };
+
   if (settings?.mitraFieldsInitialized) {
-    return existing.map((f) => {
-      if (f.systemKey === 'specialization') {
-        return {
-          ...f,
-          label: f.label || specLabel,
-          isActive: settings.specializationEnabled !== undefined ? specEnabled : f.isActive,
-        };
-      }
-      return f;
-    });
+    return existing.map(normalizeField);
   }
 
   // Merge default fields with any existing custom fields (when not initialized yet)
   const hasAnyDefault = existing.some((f) => Boolean(f.systemKey || f.isDefault));
   if (hasAnyDefault) {
-    return existing;
+    return existing.map(normalizeField);
   }
 
   const defaults = DEFAULT_MITRA_FORM_FIELDS.map((df) => {
@@ -488,7 +533,7 @@ export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFo
     }
     return { ...df };
   });
-  return [...defaults, ...existing];
+  return [...defaults, ...existing.map(normalizeField)];
 }
 
 export function resolveClientFormFields(settings?: AppSettings | null): DynamicFormField[] {
@@ -549,10 +594,14 @@ export function getMitraFieldUsageCount(field: DynamicFormField, mitras: Mitra[]
       ).length;
     default:
       return list.filter((m) => {
-        if (!m.customFields) return false;
-        const byLabel = m.customFields[field.label];
-        const byId = m.customFields[field.id];
-        return Boolean((byLabel && String(byLabel).trim() !== '') || (byId && String(byId).trim() !== ''));
+        const fromCustom = m.customFields?.[field.label] ?? m.customFields?.[field.id];
+        const fromBankCustom =
+          m.bankDetails?.customBankFields?.[field.label] ??
+          m.bankDetails?.customBankFields?.[field.id];
+        return Boolean(
+          (fromCustom && String(fromCustom).trim() !== '') ||
+            (fromBankCustom && String(fromBankCustom).trim() !== '')
+        );
       }).length;
   }
 }
@@ -579,4 +628,5 @@ export function getClientFieldUsageCount(field: DynamicFormField, clientDeals: C
       }).length;
   }
 }
+
 

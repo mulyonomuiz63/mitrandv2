@@ -434,6 +434,15 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                   <p><span className="text-slate-600">Institusi Bank:</span> <strong className="text-blue-950">{selectedMitraDetail.bankDetails.bankName}</strong></p>
                   <p><span className="text-slate-600">Nomor Rekening:</span> <strong className="font-mono text-slate-900 text-sm">{selectedMitraDetail.bankDetails.accountNumber}</strong></p>
                   <p><span className="text-slate-600">Nama Pemilik Rekening:</span> <strong className="text-slate-900">{selectedMitraDetail.bankDetails.accountHolder}</strong></p>
+                  {selectedMitraDetail.bankDetails.customBankFields &&
+                    Object.entries(selectedMitraDetail.bankDetails.customBankFields).map(([k, v]) =>
+                      v ? (
+                        <p key={k}>
+                          <span className="text-slate-600">{k}:</span>{' '}
+                          <strong className="text-slate-900">{v}</strong>
+                        </p>
+                      ) : null
+                    )}
                 </div>
               </div>
 

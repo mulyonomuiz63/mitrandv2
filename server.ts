@@ -33,6 +33,7 @@ export interface BankDetails {
   bankName: string;
   accountNumber: string;
   accountHolder: string;
+  customBankFields?: Record<string, string>;
 }
 
 export interface Mitra {
@@ -73,6 +74,7 @@ export interface DynamicFormField {
   id: string;
   systemKey?: string;
   isDefault?: boolean;
+  section?: 'profile' | 'bank';
   label: string;
   placeholder?: string;
   type: 'text' | 'number' | 'select' | 'textarea';
@@ -97,6 +99,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-fullName',
     systemKey: 'fullName',
     isDefault: true,
+    section: 'profile',
     label: 'Nama Lengkap & Gelar',
     type: 'text',
     placeholder: 'Contoh: Muhammad Reza, S.H., M.H.',
@@ -107,6 +110,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-email',
     systemKey: 'email',
     isDefault: true,
+    section: 'profile',
     label: 'Email Resmi',
     type: 'text',
     placeholder: 'nama@email.com',
@@ -117,6 +121,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-phone',
     systemKey: 'phone',
     isDefault: true,
+    section: 'profile',
     label: 'No. WhatsApp Aktif',
     type: 'text',
     placeholder: '0812-xxxx-xxxx',
@@ -127,6 +132,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-nik',
     systemKey: 'nik',
     isDefault: true,
+    section: 'profile',
     label: 'Nomor KTP / NIK',
     type: 'text',
     placeholder: '16 digit NIK resmi',
@@ -137,6 +143,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-specialization',
     systemKey: 'specialization',
     isDefault: true,
+    section: 'profile',
     label: DEFAULT_SPECIALIZATION_LABEL,
     type: 'select',
     placeholder: 'Pilih Bidang Keahlian / Profesi Mitra',
@@ -147,6 +154,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-bankName',
     systemKey: 'bankName',
     isDefault: true,
+    section: 'bank',
     label: 'Nama Bank Pencairan Komisi',
     type: 'select',
     options: [
@@ -164,6 +172,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-accountNumber',
     systemKey: 'accountNumber',
     isDefault: true,
+    section: 'bank',
     label: 'Nomor Rekening Bank',
     type: 'text',
     placeholder: 'Contoh: 8830192837',
@@ -174,6 +183,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     id: 'mitra-def-accountHolder',
     systemKey: 'accountHolder',
     isDefault: true,
+    section: 'bank',
     label: 'Nama Pemilik Rekening',
     type: 'text',
     placeholder: 'Harus sesuai buku tabungan',

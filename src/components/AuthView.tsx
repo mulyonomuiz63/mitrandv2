@@ -24,6 +24,7 @@ import {
   MitraSystemFieldKey,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  isBankFormField,
   resolveMitraFormFields,
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
@@ -99,7 +100,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const specLabel =
     specSysField?.label || settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
   const activeMitraCustomFields = React.useMemo(
-    () => allMitraFields.filter((f) => !f.systemKey && f.isActive !== false),
+    () => allMitraFields.filter((f) => !f.systemKey && !isBankFormField(f) && f.isActive !== false),
+    [allMitraFields]
+  );
+  const activeMitraBankCustomFields = React.useMemo(
+    () => allMitraFields.filter((f) => !f.systemKey && isBankFormField(f) && f.isActive !== false),
     [allMitraFields]
   );
 
@@ -136,6 +141,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
     activeSpecOptions[0]?.label || 'Konsultan Perpajakan & Tax Planning'
   );
   const [regCustomFields, setRegCustomFields] = useState<Record<string, string>>({});
+  const [regBankCustomFields, setRegBankCustomFields] = useState<Record<string, string>>({});
   const [regBankName, setRegBankName] = useState(bankOptions[0] || 'Bank Central Asia (BCA)');
   const [regAccountNumber, setRegAccountNumber] = useState('');
   const [regAccountHolder, setRegAccountHolder] = useState('');
@@ -148,6 +154,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
       setRegSpecialization(activeSpecOptions[0].label);
     }
   }, [activeSpecOptions, regSpecialization]);
+
+  useEffect(() => {
+    if (bankOptions.length > 0 && !bankOptions.includes(regBankName)) {
+      setRegBankName(bankOptions[0]);
+    }
+  }, [bankOptions, regBankName]);
 
   // Forgot Password States
   const [forgotEmail, setForgotEmail] = useState('');
@@ -226,6 +238,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setLoginError(null);
 
     try {
+      const mergedCustom = {
+        ...regCustomFields,
+        ...regBankCustomFields,
+      };
       await onRegisterSubmit({
         fullName: regFullName || (regEmail ? regEmail.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email: regEmail,
@@ -241,9 +257,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
             isSysActive('accountHolder') && regAccountHolder
               ? regAccountHolder
               : regFullName || 'Mitra NDTAXANDLAW',
+          customBankFields:
+            Object.keys(regBankCustomFields).length > 0 ? regBankCustomFields : undefined,
         },
         password: regPassword || 'mitraND2026!',
-        customFields: Object.keys(regCustomFields).length > 0 ? regCustomFields : undefined,
+        customFields: Object.keys(mergedCustom).length > 0 ? mergedCustom : undefined,
       });
 
       setVerifyEmail(regEmail);
@@ -896,7 +914,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 {/* Bank Details Strip */}
                 {(isSysActive('bankName') ||
                   isSysActive('accountNumber') ||
-                  isSysActive('accountHolder')) && (
+                  isSysActive('accountHolder') ||
+                  activeMitraBankCustomFields.length > 0) && (
                   <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200">
                     <p className="text-[11px] font-bold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1">
                       <CreditCard className="w-3.5 h-3.5 text-blue-700" />
@@ -960,6 +979,70 @@ export const AuthView: React.FC<AuthViewProps> = ({
                           onChange={(e) => setRegAccountHolder(e.target.value)}
                           className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
                         />
+                      </div>
+                    )}
+
+                    {/* Dynamic Bank Custom Fields configured by Admin */}
+                    {activeMitraBankCustomFields.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-blue-200/70 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {activeMitraBankCustomFields.map((field) => (
+                          <div
+                            key={field.id}
+                            className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                          >
+                            <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                              {field.label} {field.required && <span className="text-rose-500">*</span>}
+                            </label>
+                            {field.type === 'select' ? (
+                              <select
+                                required={field.required}
+                                value={regBankCustomFields[field.label] || ''}
+                                onChange={(e) =>
+                                  setRegBankCustomFields((prev) => ({
+                                    ...prev,
+                                    [field.label]: e.target.value,
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                              >
+                                <option value="">-- Pilih {field.label} --</option>
+                                {(field.options || []).map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : field.type === 'textarea' ? (
+                              <textarea
+                                rows={2}
+                                required={field.required}
+                                placeholder={field.placeholder || `Isi ${field.label}`}
+                                value={regBankCustomFields[field.label] || ''}
+                                onChange={(e) =>
+                                  setRegBankCustomFields((prev) => ({
+                                    ...prev,
+                                    [field.label]: e.target.value,
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                              />
+                            ) : (
+                              <input
+                                type={field.type === 'number' ? 'number' : 'text'}
+                                required={field.required}
+                                placeholder={field.placeholder || `Isi ${field.label}`}
+                                value={regBankCustomFields[field.label] || ''}
+                                onChange={(e) =>
+                                  setRegBankCustomFields((prev) => ({
+                                    ...prev,
+                                    [field.label]: e.target.value,
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                              />
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
