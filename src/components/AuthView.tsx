@@ -21,8 +21,10 @@ import {
   AuthUser,
   BankDetails,
   AppSettings,
+  MitraSystemFieldKey,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  resolveMitraFormFields,
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
 
@@ -47,6 +49,15 @@ interface AuthViewProps {
   settings?: AppSettings | null;
 }
 
+const DEFAULT_BANK_OPTIONS = [
+  'Bank Central Asia (BCA)',
+  'Bank Mandiri',
+  'Bank Rakyat Indonesia (BRI)',
+  'Bank Negara Indonesia (BNI)',
+  'Bank Syariah Indonesia (BSI)',
+  'CIMB Niaga',
+];
+
 export const AuthView: React.FC<AuthViewProps> = ({
   onLoginSuccess,
   onRegisterSubmit,
@@ -62,18 +73,41 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setAuthMode(initialMode);
   }, [initialMode]);
 
+  const allMitraFields = React.useMemo(() => resolveMitraFormFields(settings), [settings]);
+  const getSysField = React.useCallback(
+    (key: MitraSystemFieldKey) => allMitraFields.find((f) => f.systemKey === key),
+    [allMitraFields]
+  );
+  const isSysActive = React.useCallback(
+    (key: MitraSystemFieldKey) => {
+      const f = getSysField(key);
+      return f ? f.isActive !== false : false;
+    },
+    [getSysField]
+  );
+
   const activeSpecOptions = React.useMemo(() => {
     const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
     const filtered = raw.filter((o) => o.isActive);
     return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
   }, [settings]);
 
-  const specEnabled = settings?.specializationEnabled !== false;
-  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const specSysField = getSysField('specialization');
+  const specEnabled =
+    settings?.specializationEnabled !== false &&
+    (specSysField ? specSysField.isActive !== false : true);
+  const specLabel =
+    specSysField?.label || settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
   const activeMitraCustomFields = React.useMemo(
-    () => (settings?.mitraCustomFields || []).filter((f) => f.isActive),
-    [settings]
+    () => allMitraFields.filter((f) => !f.systemKey && f.isActive !== false),
+    [allMitraFields]
   );
+
+  const bankField = getSysField('bankName');
+  const bankOptions =
+    bankField?.options && bankField.options.length > 0
+      ? bankField.options
+      : DEFAULT_BANK_OPTIONS;
   
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -102,7 +136,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
     activeSpecOptions[0]?.label || 'Konsultan Perpajakan & Tax Planning'
   );
   const [regCustomFields, setRegCustomFields] = useState<Record<string, string>>({});
-  const [regBankName, setRegBankName] = useState('Bank Central Asia (BCA)');
+  const [regBankName, setRegBankName] = useState(bankOptions[0] || 'Bank Central Asia (BCA)');
   const [regAccountNumber, setRegAccountNumber] = useState('');
   const [regAccountHolder, setRegAccountHolder] = useState('');
   const [regPassword, setRegPassword] = useState('');
@@ -193,17 +227,20 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
     try {
       await onRegisterSubmit({
-        fullName: regFullName,
+        fullName: regFullName || (regEmail ? regEmail.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email: regEmail,
-        phone: regPhone,
-        nik: regNik || '3201000000000000',
+        phone: isSysActive('phone') ? regPhone : '-',
+        nik: isSysActive('nik') && regNik ? regNik : '3201000000000000',
         specialization: specEnabled ? regSpecialization : 'Mitra Referral & Konsultan Bisnis',
         gender: regGender,
         avatarUrl: getDefaultAvatar(regGender),
         bankDetails: {
-          bankName: regBankName,
-          accountNumber: regAccountNumber,
-          accountHolder: regAccountHolder || regFullName,
+          bankName: isSysActive('bankName') ? regBankName : '-',
+          accountNumber: isSysActive('accountNumber') ? regAccountNumber : '-',
+          accountHolder:
+            isSysActive('accountHolder') && regAccountHolder
+              ? regAccountHolder
+              : regFullName || 'Mitra NDTAXANDLAW',
         },
         password: regPassword || 'mitraND2026!',
         customFields: Object.keys(regCustomFields).length > 0 ? regCustomFields : undefined,
@@ -645,86 +682,113 @@ export const AuthView: React.FC<AuthViewProps> = ({
             {/* 2. REGISTRATION FORM */}
             {authMode === 'register' && (
               <form onSubmit={handleRegisterSubmit} className="space-y-3.5 max-h-[60vh] overflow-y-auto pr-1">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nama Lengkap &amp; Gelar *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Adv. Hendra Wijaya, S.H., M.H."
-                    value={regFullName}
-                    onChange={(e) => {
-                      setRegFullName(e.target.value);
-                      if (!regAccountHolder) setRegAccountHolder(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
+                {isSysActive('fullName') && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Email Resmi *
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="email@domain.com"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      No. WhatsApp *
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="0812-xxxx-xxxx"
-                      value={regPhone}
-                      onChange={(e) => setRegPhone(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
-                    />
-                  </div>
-                </div>
-
-                <div className={`grid grid-cols-1 ${specEnabled ? 'sm:grid-cols-2' : ''} gap-3`}>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Nomor NIK KTP *
+                      {getSysField('fullName')?.label || 'Nama Lengkap & Gelar'}{' '}
+                      {getSysField('fullName')?.required !== false && '*'}
                     </label>
                     <input
                       type="text"
-                      required
-                      maxLength={16}
-                      placeholder="16 digit NIK"
-                      value={regNik}
-                      onChange={(e) => setRegNik(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                      required={getSysField('fullName')?.required !== false}
+                      placeholder={
+                        getSysField('fullName')?.placeholder ||
+                        'Contoh: Adv. Hendra Wijaya, S.H., M.H.'
+                      }
+                      value={regFullName}
+                      onChange={(e) => {
+                        setRegFullName(e.target.value);
+                        if (!regAccountHolder) setRegAccountHolder(e.target.value);
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                     />
                   </div>
-                  {specEnabled && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        {specLabel}
-                      </label>
-                      <select
-                        value={regSpecialization}
-                        onChange={(e) => setRegSpecialization(e.target.value)}
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
-                      >
-                        {activeSpecOptions.map((opt) => (
-                          <option key={opt.id} value={opt.label}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
+                )}
+
+                {(isSysActive('email') || isSysActive('phone')) && (
+                  <div
+                    className={`grid ${
+                      isSysActive('email') && isSysActive('phone') ? 'grid-cols-2' : 'grid-cols-1'
+                    } gap-3`}
+                  >
+                    {isSysActive('email') && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {getSysField('email')?.label || 'Email Resmi'}{' '}
+                          {getSysField('email')?.required !== false && '*'}
+                        </label>
+                        <input
+                          type="email"
+                          required={getSysField('email')?.required !== false}
+                          placeholder={getSysField('email')?.placeholder || 'email@domain.com'}
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
+                    {isSysActive('phone') && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {getSysField('phone')?.label || 'No. WhatsApp'}{' '}
+                          {getSysField('phone')?.required !== false && '*'}
+                        </label>
+                        <input
+                          type="tel"
+                          required={getSysField('phone')?.required !== false}
+                          placeholder={getSysField('phone')?.placeholder || '0812-xxxx-xxxx'}
+                          value={regPhone}
+                          onChange={(e) => setRegPhone(e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(isSysActive('nik') || specEnabled) && (
+                  <div
+                    className={`grid grid-cols-1 ${
+                      isSysActive('nik') && specEnabled ? 'sm:grid-cols-2' : ''
+                    } gap-3`}
+                  >
+                    {isSysActive('nik') && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {getSysField('nik')?.label || 'Nomor NIK KTP'}{' '}
+                          {getSysField('nik')?.required !== false && '*'}
+                        </label>
+                        <input
+                          type="text"
+                          required={getSysField('nik')?.required !== false}
+                          maxLength={16}
+                          placeholder={getSysField('nik')?.placeholder || '16 digit NIK'}
+                          value={regNik}
+                          onChange={(e) => setRegNik(e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                        />
+                      </div>
+                    )}
+                    {specEnabled && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {specLabel} {specSysField?.required !== false && '*'}
+                        </label>
+                        <select
+                          value={regSpecialization}
+                          onChange={(e) => setRegSpecialization(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                        >
+                          {activeSpecOptions.map((opt) => (
+                            <option key={opt.id} value={opt.label}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Dynamic Mitra Custom Fields configured by Admin */}
                 {activeMitraCustomFields.length > 0 && (
@@ -830,52 +894,76 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 </div>
 
                 {/* Bank Details Strip */}
-                <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200">
-                  <p className="text-[11px] font-bold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <CreditCard className="w-3.5 h-3.5 text-blue-700" />
-                    Data Rekening Pencairan Komisi
-                  </p>
+                {(isSysActive('bankName') ||
+                  isSysActive('accountNumber') ||
+                  isSysActive('accountHolder')) && (
+                  <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200">
+                    <p className="text-[11px] font-bold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1">
+                      <CreditCard className="w-3.5 h-3.5 text-blue-700" />
+                      Data Rekening Pencairan Komisi
+                    </p>
 
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-1">
-                      <label className="block text-[10px] font-semibold text-slate-700 mb-1">Nama Bank</label>
-                      <select
-                        value={regBankName}
-                        onChange={(e) => setRegBankName(e.target.value)}
-                        className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
-                      >
-                        <option value="Bank Central Asia (BCA)">BCA</option>
-                        <option value="Bank Mandiri">Mandiri</option>
-                        <option value="Bank Rakyat Indonesia (BRI)">BRI</option>
-                        <option value="Bank Negara Indonesia (BNI)">BNI</option>
-                        <option value="Bank Syariah Indonesia (BSI)">BSI</option>
-                      </select>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-semibold text-slate-700 mb-1">Nomor Rekening</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Contoh: 8830192837"
-                        value={regAccountNumber}
-                        onChange={(e) => setRegAccountNumber(e.target.value)}
-                        className="w-full px-2 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white"
-                      />
-                    </div>
-                  </div>
+                    {(isSysActive('bankName') || isSysActive('accountNumber')) && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {isSysActive('bankName') && (
+                          <div className={isSysActive('accountNumber') ? 'col-span-1' : 'col-span-3'}>
+                            <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                              {getSysField('bankName')?.label || 'Nama Bank'}
+                            </label>
+                            <select
+                              value={regBankName}
+                              onChange={(e) => setRegBankName(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                            >
+                              {bankOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {isSysActive('accountNumber') && (
+                          <div className={isSysActive('bankName') ? 'col-span-2' : 'col-span-3'}>
+                            <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                              {getSysField('accountNumber')?.label || 'Nomor Rekening'}{' '}
+                              {getSysField('accountNumber')?.required !== false && '*'}
+                            </label>
+                            <input
+                              type="text"
+                              required={getSysField('accountNumber')?.required !== false}
+                              placeholder={
+                                getSysField('accountNumber')?.placeholder || 'Contoh: 8830192837'
+                              }
+                              value={regAccountNumber}
+                              onChange={(e) => setRegAccountNumber(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  <div className="mt-2">
-                    <label className="block text-[10px] font-semibold text-slate-700 mb-1">Nama Pemilik Rekening</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Sesuai buku tabungan"
-                      value={regAccountHolder}
-                      onChange={(e) => setRegAccountHolder(e.target.value)}
-                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
-                    />
+                    {isSysActive('accountHolder') && (
+                      <div className="mt-2">
+                        <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                          {getSysField('accountHolder')?.label || 'Nama Pemilik Rekening'}{' '}
+                          {getSysField('accountHolder')?.required !== false && '*'}
+                        </label>
+                        <input
+                          type="text"
+                          required={getSysField('accountHolder')?.required !== false}
+                          placeholder={
+                            getSysField('accountHolder')?.placeholder || 'Sesuai buku tabungan'
+                          }
+                          value={regAccountHolder}
+                          onChange={(e) => setRegAccountHolder(e.target.value)}
+                          className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                        />
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">

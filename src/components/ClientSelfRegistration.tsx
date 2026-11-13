@@ -14,7 +14,14 @@ import {
   Calendar,
   Lock
 } from 'lucide-react';
-import { ServiceItem, Mitra, AppSettings, DynamicFormField } from '../types';
+import {
+  ServiceItem,
+  Mitra,
+  AppSettings,
+  DynamicFormField,
+  ClientSystemFieldKey,
+  resolveClientFormFields,
+} from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
 
@@ -63,7 +70,26 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
     if (settings) setDynamicSettings(settings);
   }, [settings]);
 
-  const activeClientCustomFields: DynamicFormField[] = (dynamicSettings?.clientCustomFields || []).filter((f) => f.isActive !== false);
+  const allClientFields = React.useMemo(
+    () => resolveClientFormFields(dynamicSettings),
+    [dynamicSettings]
+  );
+  const getSysField = React.useCallback(
+    (key: ClientSystemFieldKey) => allClientFields.find((f) => f.systemKey === key),
+    [allClientFields]
+  );
+  const isSysActive = React.useCallback(
+    (key: ClientSystemFieldKey) => {
+      const f = getSysField(key);
+      return f ? f.isActive !== false : false;
+    },
+    [getSysField]
+  );
+
+  const activeClientCustomFields: DynamicFormField[] = React.useMemo(
+    () => allClientFields.filter((f) => !f.systemKey && f.isActive !== false),
+    [allClientFields]
+  );
 
   useEffect(() => {
     // Fetch Mitra by referralCode and available services
@@ -121,8 +147,8 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyName.trim() || !picName.trim() || !picPhone.trim() || !selectedServiceId) {
-      setErrorMsg('Mohon lengkapi nama perusahaan, penanggung jawab (PIC), nomor telepon, dan layanan.');
+    if (!selectedServiceId || (isSysActive('companyName') && !companyName.trim())) {
+      setErrorMsg('Mohon lengkapi nama perusahaan dan layanan.');
       return;
     }
 
@@ -139,11 +165,17 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
       if (val) cleanedCustomFields[field.label] = val;
     }
 
+    const finalCompanyName = companyName.trim() || picName.trim() || 'Klien Referral NDTAXANDLAW';
+    const finalPicName = isSysActive('picName') ? picName.trim() || finalCompanyName : '-';
+    const finalPicPhone = isSysActive('picPhone') ? picPhone.trim() : '-';
+    const finalPicEmail = isSysActive('picEmail') ? picEmail.trim() : '';
+    const finalNotes = isSysActive('notes') ? notes.trim() : '';
+
     const selectedService = services.find((s) => s.id === selectedServiceId);
     const ok = await confirm({
       title: 'Konfirmasi Pendaftaran Layanan Klien',
-      message: `Apakah data perusahaan "${companyName.trim()}" yang Anda isi sudah benar dan siap dikirimkan ke tim konsultan NDTAXANDLAW?`,
-      detail: `Perusahaan: ${companyName.trim()}\nNama PIC: ${picName.trim()} (${picPhone.trim()})\nLayanan Dipilih: ${selectedService?.name || '-'}\nEstimasi Nilai Kontrak: Rp ${Number(dealValue).toLocaleString('id-ID')}`,
+      message: `Apakah data perusahaan "${finalCompanyName}" yang Anda isi sudah benar dan siap dikirimkan ke tim konsultan NDTAXANDLAW?`,
+      detail: `Perusahaan: ${finalCompanyName}\nNama PIC: ${finalPicName} (${finalPicPhone})\nLayanan Dipilih: ${selectedService?.name || '-'}\nEstimasi Nilai Kontrak: Rp ${Number(dealValue).toLocaleString('id-ID')}`,
       confirmText: 'Ya, Kirim Pendaftaran',
       cancelText: 'Batalkan',
       variant: 'primary',
@@ -160,17 +192,17 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
         body: JSON.stringify({
           mitraId: mitra ? mitra.id : 'mitra-01',
           referralCode: referralCode || (mitra ? mitra.referralCode : 'ND-REF-0042'),
-          companyName: companyName.trim(),
-          picName: picName.trim(),
-          picPhone: picPhone.trim(),
-          picEmail: picEmail.trim(),
+          companyName: finalCompanyName,
+          picName: finalPicName,
+          picPhone: finalPicPhone,
+          picEmail: finalPicEmail,
           serviceId: selectedServiceId,
           dealValue: Number(dealValue),
           pricingType,
           periodStart: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodStart : undefined,
           periodEnd: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
           durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
-          notes: notes.trim(),
+          notes: finalNotes,
           customFields: Object.keys(cleanedCustomFields).length > 0 ? cleanedCustomFields : undefined,
           submittedBy: 'client_self',
           status: 'pending_acc',
@@ -259,7 +291,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 Pendaftaran Klien Berhasil Diterima!
               </h2>
               <p className="text-xs sm:text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
-                Terima kasih, data perusahaan <strong>{companyName}</strong> telah berhasil didaftarkan dan terhubung secara resmi melalui kode referral <span className="font-mono font-bold text-amber-300">{referralCode}</span>.
+                Terima kasih, data perusahaan <strong>{companyName || picName || 'Klien'}</strong> telah berhasil didaftarkan dan terhubung secara resmi melalui kode referral <span className="font-mono font-bold text-amber-300">{referralCode}</span>.
               </p>
             </div>
 
@@ -281,7 +313,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Tim Konsultan Pajak NDTAXANDLAW akan segera menghubungi nomor WhatsApp <strong>{picPhone}</strong> untuk konfirmasi berkas dan jadwal kickoff konsultasi.
+              Tim Konsultan Pajak NDTAXANDLAW akan segera menghubungi nomor WhatsApp <strong>{picPhone || 'PIC'}</strong> untuk konfirmasi berkas dan jadwal kickoff konsultasi.
             </p>
 
             <div className="pt-2 flex justify-center gap-3">
@@ -342,72 +374,98 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               
               {/* Company & PIC Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Nama Perusahaan / Entitas Bisnis <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <Building2 className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      required
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Contoh: PT Sumber Pangan Makmur"
-                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                {isSysActive('companyName') && (
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      {getSysField('companyName')?.label || 'Nama Perusahaan / Entitas Bisnis'}{' '}
+                      {getSysField('companyName')?.required !== false && (
+                        <span className="text-rose-400">*</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <Building2 className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <input
+                        type="text"
+                        required={getSysField('companyName')?.required !== false}
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        placeholder={
+                          getSysField('companyName')?.placeholder ||
+                          'Contoh: PT Sumber Pangan Makmur'
+                        }
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Nama PIC / Penanggung Jawab <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      required
-                      value={picName}
-                      onChange={(e) => setPicName(e.target.value)}
-                      placeholder="Contoh: Budi Santoso (Direktur)"
-                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                {isSysActive('picName') && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      {getSysField('picName')?.label || 'Nama PIC / Penanggung Jawab'}{' '}
+                      {getSysField('picName')?.required !== false && (
+                        <span className="text-rose-400">*</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <input
+                        type="text"
+                        required={getSysField('picName')?.required !== false}
+                        value={picName}
+                        onChange={(e) => setPicName(e.target.value)}
+                        placeholder={
+                          getSysField('picName')?.placeholder || 'Contoh: Budi Santoso (Direktur)'
+                        }
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Nomor WhatsApp / HP PIC <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="tel"
-                      required
-                      value={picPhone}
-                      onChange={(e) => setPicPhone(e.target.value)}
-                      placeholder="0812-XXXX-XXXX"
-                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                {isSysActive('picPhone') && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      {getSysField('picPhone')?.label || 'Nomor WhatsApp / HP PIC'}{' '}
+                      {getSysField('picPhone')?.required !== false && (
+                        <span className="text-rose-400">*</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <input
+                        type="tel"
+                        required={getSysField('picPhone')?.required !== false}
+                        value={picPhone}
+                        onChange={(e) => setPicPhone(e.target.value)}
+                        placeholder={getSysField('picPhone')?.placeholder || '0812-XXXX-XXXX'}
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Email Kantor / PIC
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="email"
-                      value={picEmail}
-                      onChange={(e) => setPicEmail(e.target.value)}
-                      placeholder="finance@sumberpangan.com"
-                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                {isSysActive('picEmail') && (
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      {getSysField('picEmail')?.label || 'Email Kantor / PIC'}{' '}
+                      {getSysField('picEmail')?.required && <span className="text-rose-400">*</span>}
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <input
+                        type="email"
+                        required={Boolean(getSysField('picEmail')?.required)}
+                        value={picEmail}
+                        onChange={(e) => setPicEmail(e.target.value)}
+                        placeholder={
+                          getSysField('picEmail')?.placeholder || 'finance@sumberpangan.com'
+                        }
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Dynamic Custom Fields for Client (Managed by Admin) */}
                 {activeClientCustomFields.map((field) => (
@@ -627,18 +685,25 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               </div>
 
               {/* Notes */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Kebutuhan Spesifik / Batas Waktu Klien
-                </label>
-                <textarea
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Contoh: Perlu pendampingan untuk membalas surat SP2DK atau persiapan audit laporan keuangan akhir tahun."
-                  className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
+              {isSysActive('notes') && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {getSysField('notes')?.label || 'Kebutuhan Spesifik / Batas Waktu Klien'}{' '}
+                    {getSysField('notes')?.required && <span className="text-rose-400">*</span>}
+                  </label>
+                  <textarea
+                    rows={2}
+                    required={Boolean(getSysField('notes')?.required)}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder={
+                      getSysField('notes')?.placeholder ||
+                      'Contoh: Perlu pendampingan untuk membalas surat SP2DK atau persiapan audit laporan keuangan akhir tahun.'
+                    }
+                    className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              )}
 
               {/* Submit CTA */}
               <div className="pt-3">

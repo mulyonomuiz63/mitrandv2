@@ -71,6 +71,8 @@ export interface SpecializationOptionItem {
 
 export interface DynamicFormField {
   id: string;
+  systemKey?: string;
+  isDefault?: boolean;
   label: string;
   placeholder?: string;
   type: 'text' | 'number' | 'select' | 'textarea';
@@ -83,11 +85,155 @@ export const DEFAULT_SPECIALIZATION_LABEL = 'Bidang Keahlian / Profesi Mitra';
 
 export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
   { id: 'spec-1', label: 'Konsultan Perpajakan & Tax Planning', isActive: true },
-  { id: 'spec-2', label: 'Konsultan Hukum Korporasi & Kontrak Bisnis', isActive: true },
-  { id: 'spec-3', label: 'Pendirian Legalitas PT / PMA & OSS-RBA', isActive: true },
-  { id: 'spec-4', label: 'Kuasa Hukum Pengadilan Pajak & Sengketa DJP', isActive: true },
-  { id: 'spec-5', label: 'Restrukturisasi Keuangan, Audit & M&A', isActive: true },
-  { id: 'spec-6', label: 'Mitra Referral Bisnis & Jaringan Korporasi Umum', isActive: true },
+  { id: 'spec-2', label: 'Hukum Korporasi & Bisnis', isActive: true },
+  { id: 'spec-3', label: 'Akuntansi & Pembukuan Korporat', isActive: true },
+  { id: 'spec-4', label: 'Legalitas & Perizinan OSS-RBA', isActive: true },
+  { id: 'spec-5', label: 'Kuasa Hukum Pengadilan Pajak', isActive: true },
+  { id: 'spec-6', label: 'Business Partner / Referral Umum', isActive: true },
+];
+
+export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
+  {
+    id: 'mitra-def-fullName',
+    systemKey: 'fullName',
+    isDefault: true,
+    label: 'Nama Lengkap & Gelar',
+    type: 'text',
+    placeholder: 'Contoh: Muhammad Reza, S.H., M.H.',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-email',
+    systemKey: 'email',
+    isDefault: true,
+    label: 'Email Resmi',
+    type: 'text',
+    placeholder: 'nama@email.com',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-phone',
+    systemKey: 'phone',
+    isDefault: true,
+    label: 'No. WhatsApp Aktif',
+    type: 'text',
+    placeholder: '0812-xxxx-xxxx',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-nik',
+    systemKey: 'nik',
+    isDefault: true,
+    label: 'Nomor KTP / NIK',
+    type: 'text',
+    placeholder: '16 digit NIK resmi',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-specialization',
+    systemKey: 'specialization',
+    isDefault: true,
+    label: DEFAULT_SPECIALIZATION_LABEL,
+    type: 'select',
+    placeholder: 'Pilih Bidang Keahlian / Profesi Mitra',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-bankName',
+    systemKey: 'bankName',
+    isDefault: true,
+    label: 'Nama Bank Pencairan Komisi',
+    type: 'select',
+    options: [
+      'Bank Central Asia (BCA)',
+      'Bank Mandiri',
+      'Bank Rakyat Indonesia (BRI)',
+      'Bank Negara Indonesia (BNI)',
+      'Bank Syariah Indonesia (BSI)',
+      'CIMB Niaga',
+    ],
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-accountNumber',
+    systemKey: 'accountNumber',
+    isDefault: true,
+    label: 'Nomor Rekening Bank',
+    type: 'text',
+    placeholder: 'Contoh: 8830192837',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-accountHolder',
+    systemKey: 'accountHolder',
+    isDefault: true,
+    label: 'Nama Pemilik Rekening',
+    type: 'text',
+    placeholder: 'Harus sesuai buku tabungan',
+    required: true,
+    isActive: true,
+  },
+];
+
+export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
+  {
+    id: 'client-def-companyName',
+    systemKey: 'companyName',
+    isDefault: true,
+    label: 'Nama Perusahaan / Entitas Klien',
+    type: 'text',
+    placeholder: 'Contoh: PT Surya Kencana Abadi',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'client-def-picName',
+    systemKey: 'picName',
+    isDefault: true,
+    label: 'Nama PIC / Direktur Penanggung Jawab',
+    type: 'text',
+    placeholder: 'Contoh: Bpk. Bambang Gunawan (Direktur Keuangan)',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'client-def-picPhone',
+    systemKey: 'picPhone',
+    isDefault: true,
+    label: 'Nomor WhatsApp / HP PIC',
+    type: 'text',
+    placeholder: '0812-XXXX-XXXX',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'client-def-picEmail',
+    systemKey: 'picEmail',
+    isDefault: true,
+    label: 'Email PIC / Kantor Klien',
+    type: 'text',
+    placeholder: 'finance@suryakencana.co.id',
+    required: false,
+    isActive: true,
+  },
+  {
+    id: 'client-def-notes',
+    systemKey: 'notes',
+    isDefault: true,
+    label: 'Catatan Tambahan & Kebutuhan Spesifik Klien',
+    type: 'textarea',
+    placeholder:
+      'Contoh: Klien membutuhkan pendampingan segera karena jatuh tempo SPT Badan tanggal 30 atau sedang menerima surat panggilan klarifikasi SP2DK dari KPP.',
+    required: false,
+    isActive: true,
+  },
 ];
 
 export interface ServiceItem {
@@ -190,6 +336,8 @@ export interface AppSettings {
   specializationOptions?: SpecializationOptionItem[];
   mitraCustomFields?: DynamicFormField[];
   clientCustomFields?: DynamicFormField[];
+  mitraFieldsInitialized?: boolean;
+  clientFieldsInitialized?: boolean;
 }
 
 export interface EmailLogItem {
@@ -750,8 +898,10 @@ let appSettings: AppSettings = {
   specializationEnabled: true,
   specializationLabel: DEFAULT_SPECIALIZATION_LABEL,
   specializationOptions: DEFAULT_SPECIALIZATION_OPTIONS,
-  mitraCustomFields: [],
-  clientCustomFields: [],
+  mitraCustomFields: DEFAULT_MITRA_FORM_FIELDS,
+  clientCustomFields: DEFAULT_CLIENT_FORM_FIELDS,
+  mitraFieldsInitialized: true,
+  clientFieldsInitialized: true,
 };
 
 let emailLogs: EmailLogItem[] = [];
@@ -2547,9 +2697,11 @@ app.get('/api/mitra', async (req: Request, res: Response) => {
 
 app.post('/api/mitra/register', async (req: Request, res: Response) => {
   const { fullName, email, phone, nik, specialization, bankDetails, password, gender, role, customFields } = req.body;
-  if (!fullName || !email || !phone) {
-    return res.status(400).json({ success: false, message: 'Nama lengkap, Email, dan No WhatsApp wajib diisi.' });
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email wajib diisi untuk kredensial akun.' });
   }
+  const safeFullName = (fullName || '').trim() || email.split('@')[0];
+  const safePhone = (phone || '').trim() || '-';
 
   const normalizedEmail = (email || '').trim().toLowerCase();
 
@@ -2574,31 +2726,31 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
   const generatedReferralCode = `ND-REF-${Math.floor(1000 + Math.random() * 9000)}`;
-  const resolvedGender: 'male' | 'female' = gender === 'female' ? 'female' : (gender === 'male' ? 'male' : inferGenderFromName(fullName));
+  const resolvedGender: 'male' | 'female' = gender === 'female' ? 'female' : (gender === 'male' ? 'male' : inferGenderFromName(safeFullName));
   const assignedRole = getRoleDefinition(role || 'mitra').code;
   const cleanCustomFields = customFields && typeof customFields === 'object' && Object.keys(customFields).length > 0 ? customFields : undefined;
 
   const baseBank = bankDetails || {
     bankName: 'Bank Central Asia (BCA)',
-    accountNumber: '',
-    accountHolder: fullName,
+    accountNumber: '-',
+    accountHolder: safeFullName,
   };
 
   const newMitra: Mitra = {
     id: `mitra-${Date.now()}`,
     memberCode: `ND-${new Date().getFullYear()}-PEN-${Math.floor(1000 + Math.random() * 9000)}`,
     referralCode: generatedReferralCode,
-    fullName,
+    fullName: safeFullName,
     email: normalizedEmail,
-    phone,
-    nik: nik || '3201000000000000',
+    phone: safePhone,
+    nik: (nik || '').trim() || '-',
     specialization:
       appSettings.specializationEnabled === false
         ? (specialization || 'Mitra Referral & Konsultan Bisnis')
         : (specialization || 'Konsultan Perpajakan & Tax Planning'),
     status: 'pending',
     gender: resolvedGender,
-    avatarUrl: req.body.avatarUrl || getDefaultAvatar(resolvedGender, fullName),
+    avatarUrl: req.body.avatarUrl || getDefaultAvatar(resolvedGender, safeFullName),
     joinedDate: new Date().toISOString().split('T')[0],
     bankDetails: cleanCustomFields ? ({ ...baseBank, __customFields: cleanCustomFields } as any) : baseBank,
     customFields: cleanCustomFields,
@@ -3368,9 +3520,11 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     customFields,
   } = req.body;
 
-  if (!companyName || !picName || !serviceId) {
-    return res.status(400).json({ success: false, message: 'Nama perusahaan klien, PIC, dan layanan wajib diisi.' });
+  if (!serviceId) {
+    return res.status(400).json({ success: false, message: 'Pilihan paket layanan wajib diisi.' });
   }
+  const safeCompanyName = (companyName || '').trim() || (picName || '').trim() || 'Klien Referral NDTAXANDLAW';
+  const safePicName = (picName || '').trim() || safeCompanyName;
 
   if (supabase) {
     try {
@@ -3414,8 +3568,8 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     mitraId: mitra ? mitra.id : (mitraId || 'mitra-01'),
     mitraName: mitra ? mitra.fullName : 'Mitra Terdaftar',
     referralCode: mitra ? mitra.referralCode : (req.body.referralCode || 'ND-REF-0000'),
-    companyName,
-    picName,
+    companyName: safeCompanyName,
+    picName: safePicName,
     picPhone: picPhone || '-',
     picEmail: picEmail || '-',
     serviceId,
@@ -4106,6 +4260,22 @@ app.get('/api/settings', async (req: Request, res: Response) => {
     } catch (e) {
       console.warn('Supabase settings query error', e);
     }
+  }
+  if (!appSettings.mitraFieldsInitialized) {
+    const existingMitra = Array.isArray(appSettings.mitraCustomFields) ? appSettings.mitraCustomFields : [];
+    const hasDef = existingMitra.some((f) => Boolean(f.systemKey || f.isDefault));
+    if (!hasDef) {
+      appSettings.mitraCustomFields = [...DEFAULT_MITRA_FORM_FIELDS, ...existingMitra];
+    }
+    appSettings.mitraFieldsInitialized = true;
+  }
+  if (!appSettings.clientFieldsInitialized) {
+    const existingClient = Array.isArray(appSettings.clientCustomFields) ? appSettings.clientCustomFields : [];
+    const hasDef = existingClient.some((f) => Boolean(f.systemKey || f.isDefault));
+    if (!hasDef) {
+      appSettings.clientCustomFields = [...DEFAULT_CLIENT_FORM_FIELDS, ...existingClient];
+    }
+    appSettings.clientFieldsInitialized = true;
   }
   res.json({ success: true, data: appSettings, roles: systemRoles });
 });

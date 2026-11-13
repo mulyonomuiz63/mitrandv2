@@ -10,8 +10,27 @@ export interface SpecializationOptionItem {
   isActive: boolean;
 }
 
+export type MitraSystemFieldKey =
+  | 'fullName'
+  | 'email'
+  | 'phone'
+  | 'nik'
+  | 'specialization'
+  | 'bankName'
+  | 'accountNumber'
+  | 'accountHolder';
+
+export type ClientSystemFieldKey =
+  | 'companyName'
+  | 'picName'
+  | 'picPhone'
+  | 'picEmail'
+  | 'notes';
+
 export interface DynamicFormField {
   id: string;
+  systemKey?: MitraSystemFieldKey | ClientSystemFieldKey;
+  isDefault?: boolean;
   label: string;
   type: 'text' | 'number' | 'select' | 'textarea';
   placeholder?: string;
@@ -29,6 +48,150 @@ export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
   { id: 'spec-4', label: 'Legalitas & Perizinan OSS-RBA', isActive: true },
   { id: 'spec-5', label: 'Kuasa Hukum Pengadilan Pajak', isActive: true },
   { id: 'spec-6', label: 'Business Partner / Referral Umum', isActive: true },
+];
+
+export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
+  {
+    id: 'mitra-def-fullName',
+    systemKey: 'fullName',
+    isDefault: true,
+    label: 'Nama Lengkap & Gelar',
+    type: 'text',
+    placeholder: 'Contoh: Muhammad Reza, S.H., M.H.',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-email',
+    systemKey: 'email',
+    isDefault: true,
+    label: 'Email Resmi',
+    type: 'text',
+    placeholder: 'nama@email.com',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-phone',
+    systemKey: 'phone',
+    isDefault: true,
+    label: 'No. WhatsApp Aktif',
+    type: 'text',
+    placeholder: '0812-xxxx-xxxx',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-nik',
+    systemKey: 'nik',
+    isDefault: true,
+    label: 'Nomor KTP / NIK',
+    type: 'text',
+    placeholder: '16 digit NIK resmi',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-specialization',
+    systemKey: 'specialization',
+    isDefault: true,
+    label: DEFAULT_SPECIALIZATION_LABEL,
+    type: 'select',
+    placeholder: 'Pilih Bidang Keahlian / Profesi Mitra',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-bankName',
+    systemKey: 'bankName',
+    isDefault: true,
+    label: 'Nama Bank Pencairan Komisi',
+    type: 'select',
+    options: [
+      'Bank Central Asia (BCA)',
+      'Bank Mandiri',
+      'Bank Rakyat Indonesia (BRI)',
+      'Bank Negara Indonesia (BNI)',
+      'Bank Syariah Indonesia (BSI)',
+      'CIMB Niaga',
+    ],
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-accountNumber',
+    systemKey: 'accountNumber',
+    isDefault: true,
+    label: 'Nomor Rekening Bank',
+    type: 'text',
+    placeholder: 'Contoh: 8830192837',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-accountHolder',
+    systemKey: 'accountHolder',
+    isDefault: true,
+    label: 'Nama Pemilik Rekening',
+    type: 'text',
+    placeholder: 'Harus sesuai buku tabungan',
+    required: true,
+    isActive: true,
+  },
+];
+
+export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
+  {
+    id: 'client-def-companyName',
+    systemKey: 'companyName',
+    isDefault: true,
+    label: 'Nama Perusahaan / Entitas Klien',
+    type: 'text',
+    placeholder: 'Contoh: PT Surya Kencana Abadi',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'client-def-picName',
+    systemKey: 'picName',
+    isDefault: true,
+    label: 'Nama PIC / Direktur Penanggung Jawab',
+    type: 'text',
+    placeholder: 'Contoh: Bpk. Bambang Gunawan (Direktur Keuangan)',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'client-def-picPhone',
+    systemKey: 'picPhone',
+    isDefault: true,
+    label: 'Nomor WhatsApp / HP PIC',
+    type: 'text',
+    placeholder: '0812-XXXX-XXXX',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'client-def-picEmail',
+    systemKey: 'picEmail',
+    isDefault: true,
+    label: 'Email PIC / Kantor Klien',
+    type: 'text',
+    placeholder: 'finance@suryakencana.co.id',
+    required: false,
+    isActive: true,
+  },
+  {
+    id: 'client-def-notes',
+    systemKey: 'notes',
+    isDefault: true,
+    label: 'Catatan Tambahan & Kebutuhan Spesifik Klien',
+    type: 'textarea',
+    placeholder:
+      'Contoh: Klien membutuhkan pendampingan segera karena jatuh tempo SPT Badan tanggal 30 atau sedang menerima surat panggilan klarifikasi SP2DK dari KPP.',
+    required: false,
+    isActive: true,
+  },
 ];
 
 export interface Mitra {
@@ -154,6 +317,8 @@ export interface AppSettings {
   specializationOptions?: SpecializationOptionItem[];
   mitraCustomFields?: DynamicFormField[];
   clientCustomFields?: DynamicFormField[];
+  mitraFieldsInitialized?: boolean;
+  clientFieldsInitialized?: boolean;
 
   // SMTP Email Server Configuration
   smtpEnabled: boolean;
@@ -292,3 +457,126 @@ export interface AuthUser {
   avatarUrl?: string;
   gender?: 'male' | 'female';
 }
+
+export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFormField[] {
+  const existing = Array.isArray(settings?.mitraCustomFields) ? settings!.mitraCustomFields! : [];
+  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const specEnabled = settings?.specializationEnabled !== false;
+
+  if (settings?.mitraFieldsInitialized) {
+    return existing.map((f) => {
+      if (f.systemKey === 'specialization') {
+        return {
+          ...f,
+          label: f.label || specLabel,
+          isActive: settings.specializationEnabled !== undefined ? specEnabled : f.isActive,
+        };
+      }
+      return f;
+    });
+  }
+
+  // Merge default fields with any existing custom fields (when not initialized yet)
+  const hasAnyDefault = existing.some((f) => Boolean(f.systemKey || f.isDefault));
+  if (hasAnyDefault) {
+    return existing;
+  }
+
+  const defaults = DEFAULT_MITRA_FORM_FIELDS.map((df) => {
+    if (df.systemKey === 'specialization') {
+      return { ...df, label: specLabel, isActive: specEnabled };
+    }
+    return { ...df };
+  });
+  return [...defaults, ...existing];
+}
+
+export function resolveClientFormFields(settings?: AppSettings | null): DynamicFormField[] {
+  const existing = Array.isArray(settings?.clientCustomFields) ? settings!.clientCustomFields! : [];
+  if (settings?.clientFieldsInitialized) {
+    return existing;
+  }
+  const hasAnyDefault = existing.some((f) => Boolean(f.systemKey || f.isDefault));
+  if (hasAnyDefault) {
+    return existing;
+  }
+  return [...DEFAULT_CLIENT_FORM_FIELDS.map((df) => ({ ...df })), ...existing];
+}
+
+export function getSpecializationOptionUsageCount(optionLabel: string, mitras: Mitra[]): number {
+  const target = (optionLabel || '').trim().toLowerCase();
+  if (!target) return 0;
+  return (mitras || []).filter((m) => (m.specialization || '').trim().toLowerCase() === target).length;
+}
+
+export function getMitraFieldUsageCount(field: DynamicFormField, mitras: Mitra[]): number {
+  const list = mitras || [];
+  switch (field.systemKey) {
+    case 'fullName':
+      return list.filter((m) => Boolean(m.fullName && m.fullName.trim() && m.fullName !== '-')).length;
+    case 'email':
+      return list.filter((m) => Boolean(m.email && m.email.trim() && m.email !== '-')).length;
+    case 'phone':
+      return list.filter((m) => Boolean(m.phone && m.phone.trim() && m.phone !== '-')).length;
+    case 'nik':
+      return list.filter(
+        (m) => Boolean(m.nik && m.nik.trim() && m.nik !== '-' && m.nik !== '0000000000000000')
+      ).length;
+    case 'specialization':
+      return list.filter((m) => Boolean(m.specialization && m.specialization.trim() && m.specialization !== '-'))
+        .length;
+    case 'bankName':
+      return list.filter(
+        (m) => Boolean(m.bankDetails?.bankName && m.bankDetails.bankName.trim() && m.bankDetails.bankName !== '-')
+      ).length;
+    case 'accountNumber':
+      return list.filter(
+        (m) =>
+          Boolean(
+            m.bankDetails?.accountNumber &&
+              m.bankDetails.accountNumber.trim() &&
+              m.bankDetails.accountNumber !== '-'
+          )
+      ).length;
+    case 'accountHolder':
+      return list.filter(
+        (m) =>
+          Boolean(
+            m.bankDetails?.accountHolder &&
+              m.bankDetails.accountHolder.trim() &&
+              m.bankDetails.accountHolder !== '-'
+          )
+      ).length;
+    default:
+      return list.filter((m) => {
+        if (!m.customFields) return false;
+        const byLabel = m.customFields[field.label];
+        const byId = m.customFields[field.id];
+        return Boolean((byLabel && String(byLabel).trim() !== '') || (byId && String(byId).trim() !== ''));
+      }).length;
+  }
+}
+
+export function getClientFieldUsageCount(field: DynamicFormField, clientDeals: ClientDeal[]): number {
+  const list = clientDeals || [];
+  switch (field.systemKey) {
+    case 'companyName':
+      return list.filter((c) => Boolean(c.companyName && c.companyName.trim() && c.companyName !== '-')).length;
+    case 'picName':
+      return list.filter((c) => Boolean(c.picName && c.picName.trim() && c.picName !== '-')).length;
+    case 'picPhone':
+      return list.filter((c) => Boolean(c.picPhone && c.picPhone.trim() && c.picPhone !== '-')).length;
+    case 'picEmail':
+      return list.filter((c) => Boolean(c.picEmail && c.picEmail.trim() && c.picEmail !== '-')).length;
+    case 'notes':
+      return list.filter((c) => Boolean(c.notes && c.notes.trim() !== '')).length;
+    default:
+      return list.filter((c) => {
+        if (!c.customFields) return false;
+        const byLabel = c.customFields[field.label];
+        const byId = c.customFields[field.id];
+        return Boolean((byLabel && String(byLabel).trim() !== '') || (byId && String(byId).trim() !== ''));
+      }).length;
+  }
+}
+

@@ -15,8 +15,10 @@ import {
   Mitra,
   BankDetails,
   AppSettings,
+  MitraSystemFieldKey,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  resolveMitraFormFields,
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, inferGenderFromName } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
@@ -29,6 +31,15 @@ interface ProfileEditModalProps {
   onUpdateProfile: (id: string, data: Partial<Mitra> & { newPassword?: string }) => Promise<void>;
 }
 
+const DEFAULT_BANK_OPTIONS = [
+  'Bank Central Asia (BCA)',
+  'Bank Mandiri',
+  'Bank Rakyat Indonesia (BRI)',
+  'Bank Negara Indonesia (BNI)',
+  'Bank Syariah Indonesia (BSI)',
+  'CIMB Niaga',
+];
+
 export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   isOpen,
   onClose,
@@ -37,18 +48,41 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   onUpdateProfile,
 }) => {
   const confirm = useConfirm();
+  const allMitraFields = React.useMemo(() => resolveMitraFormFields(settings), [settings]);
+  const getSysField = React.useCallback(
+    (key: MitraSystemFieldKey) => allMitraFields.find((f) => f.systemKey === key),
+    [allMitraFields]
+  );
+  const isSysActive = React.useCallback(
+    (key: MitraSystemFieldKey) => {
+      const f = getSysField(key);
+      return f ? f.isActive !== false : false;
+    },
+    [getSysField]
+  );
+
   const activeSpecOptions = React.useMemo(() => {
     const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
     const filtered = raw.filter((o) => o.isActive);
     return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
   }, [settings]);
 
-  const specEnabled = settings?.specializationEnabled !== false;
-  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const specSysField = getSysField('specialization');
+  const specEnabled =
+    settings?.specializationEnabled !== false &&
+    (specSysField ? specSysField.isActive !== false : true);
+  const specLabel =
+    specSysField?.label || settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
   const activeMitraCustomFields = React.useMemo(
-    () => (settings?.mitraCustomFields || []).filter((f) => f.isActive),
-    [settings]
+    () => allMitraFields.filter((f) => !f.systemKey && f.isActive !== false),
+    [allMitraFields]
   );
+
+  const bankField = getSysField('bankName');
+  const bankOptions =
+    bankField?.options && bankField.options.length > 0
+      ? bankField.options
+      : DEFAULT_BANK_OPTIONS;
 
   const [fullName, setFullName] = useState(mitra.fullName);
   const [nik, setNik] = useState(mitra.nik);
@@ -314,49 +348,64 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
               Data Diri Mitra
             </h4>
             <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nama Lengkap &amp; Gelar
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
-                />
-              </div>
+              {isSysActive('fullName') && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {getSysField('fullName')?.label || 'Nama Lengkap & Gelar'}
+                  </label>
+                  <input
+                    type="text"
+                    required={getSysField('fullName')?.required !== false}
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                  />
+                </div>
+              )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    No. WhatsApp
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
-                  />
+              {(isSysActive('phone') || isSysActive('nik')) && (
+                <div
+                  className={`grid ${
+                    isSysActive('phone') && isSysActive('nik') ? 'grid-cols-2' : 'grid-cols-1'
+                  } gap-3`}
+                >
+                  {isSysActive('phone') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {getSysField('phone')?.label || 'No. WhatsApp'}
+                      </label>
+                      <input
+                        type="text"
+                        required={getSysField('phone')?.required !== false}
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                      />
+                    </div>
+                  )}
+                  {isSysActive('nik') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {getSysField('nik')?.label || 'NIK KTP'}{' '}
+                        {mitra.status !== 'verified' && (
+                          <span className="text-blue-600">(Dapat Diperbaiki)</span>
+                        )}
+                      </label>
+                      <input
+                        type="text"
+                        disabled={mitra.status === 'verified'}
+                        value={nik}
+                        onChange={(e) => setNik(e.target.value)}
+                        className={`w-full px-3 py-2 text-xs font-mono rounded-lg border ${
+                          mitra.status === 'verified'
+                            ? 'border-slate-200 bg-slate-50 text-slate-500'
+                            : 'border-slate-300 bg-white text-slate-900'
+                        }`}
+                      />
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    NIK KTP {mitra.status !== 'verified' && <span className="text-blue-600">(Dapat Diperbaiki)</span>}
-                  </label>
-                  <input
-                    type="text"
-                    disabled={mitra.status === 'verified'}
-                    value={nik}
-                    onChange={(e) => setNik(e.target.value)}
-                    className={`w-full px-3 py-2 text-xs font-mono rounded-lg border ${
-                      mitra.status === 'verified'
-                        ? 'border-slate-200 bg-slate-50 text-slate-500'
-                        : 'border-slate-300 bg-white text-slate-900'
-                    }`}
-                  />
-                </div>
-              </div>
+              )}
 
               {specEnabled && (
                 <div>
@@ -492,62 +541,82 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
           </div>
 
           {/* Data Bank */}
-          <div className="pt-3 border-t border-slate-200">
-            <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-              <CreditCard className="w-3.5 h-3.5 text-blue-700" />
-              <span>Data Rekening Bank Pencairan Komisi</span>
-            </h4>
-            <p className="text-[11px] text-slate-500 mb-2">
-              Pastikan nomor rekening tepat agar transfer pencairan komisi tidak tertunda.
-            </p>
+          {(isSysActive('bankName') ||
+            isSysActive('accountNumber') ||
+            isSysActive('accountHolder')) && (
+            <div className="pt-3 border-t border-slate-200">
+              <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5 text-blue-700" />
+                <span>Data Rekening Bank Pencairan Komisi</span>
+              </h4>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Pastikan nomor rekening tepat agar transfer pencairan komisi tidak tertunda.
+              </p>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Bank Penerima
-                </label>
-                <select
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                >
-                  <option value="Bank Central Asia (BCA)">Bank Central Asia (BCA)</option>
-                  <option value="Bank Mandiri">Bank Mandiri</option>
-                  <option value="Bank Rakyat Indonesia (BRI)">Bank Rakyat Indonesia (BRI)</option>
-                  <option value="Bank Negara Indonesia (BNI)">Bank Negara Indonesia (BNI)</option>
-                  <option value="Bank Syariah Indonesia (BSI)">Bank Syariah Indonesia (BSI)</option>
-                  <option value="CIMB Niaga">CIMB Niaga</option>
-                </select>
-              </div>
+              <div className="space-y-3">
+                {isSysActive('bankName') && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {getSysField('bankName')?.label || 'Bank Penerima'}
+                    </label>
+                    <select
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                    >
+                      {!bankOptions.includes(bankName) && bankName && (
+                        <option value={bankName}>{bankName}</option>
+                      )}
+                      {bankOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nomor Rekening
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nama Pemilik Rekening
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={accountHolder}
-                    onChange={(e) => setAccountHolder(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                  />
-                </div>
+                {(isSysActive('accountNumber') || isSysActive('accountHolder')) && (
+                  <div
+                    className={`grid ${
+                      isSysActive('accountNumber') && isSysActive('accountHolder')
+                        ? 'grid-cols-2'
+                        : 'grid-cols-1'
+                    } gap-3`}
+                  >
+                    {isSysActive('accountNumber') && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {getSysField('accountNumber')?.label || 'Nomor Rekening'}
+                        </label>
+                        <input
+                          type="text"
+                          required={getSysField('accountNumber')?.required !== false}
+                          value={accountNumber}
+                          onChange={(e) => setAccountNumber(e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                        />
+                      </div>
+                    )}
+                    {isSysActive('accountHolder') && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          {getSysField('accountHolder')?.label || 'Nama Pemilik Rekening'}
+                        </label>
+                        <input
+                          type="text"
+                          required={getSysField('accountHolder')?.required !== false}
+                          value={accountHolder}
+                          onChange={(e) => setAccountHolder(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Ganti Password */}
           <div className="pt-3 border-t border-slate-200">
