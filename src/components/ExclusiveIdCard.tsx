@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { 
   ShieldCheck, 
   Download, 
@@ -13,7 +14,8 @@ import {
   ExternalLink,
   X,
   Check,
-  Camera
+  Camera,
+  Lock
 } from 'lucide-react';
 import { Mitra } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
@@ -23,6 +25,8 @@ interface ExclusiveIdCardProps {
   onEditProfile: () => void;
   onUpdateProfile?: (id: string, data: Partial<Mitra>) => Promise<void>;
   onOpenClientSelfRegister?: (refCode: string) => void;
+  onOpenVerifyPreview?: (memberCode: string) => void;
+  allowClientSelfRegister?: boolean;
   supportPhone?: string;
   supportEmail?: string;
 }
@@ -32,6 +36,8 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   onEditProfile,
   onUpdateProfile,
   onOpenClientSelfRegister,
+  onOpenVerifyPreview,
+  allowClientSelfRegister = true,
   supportPhone = '0812-8899-7711',
   supportEmail = 'advisory@ndtaxlaw.com',
 }) => {
@@ -40,16 +46,48 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   const [showQrModal, setShowQrModal] = useState(false);
   const [showDualSidedModal, setShowDualSidedModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedVerifyLink, setCopiedVerifyLink] = useState(false);
   const [isResubmitting, setIsResubmitting] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   const clientSelfRegisterLink = typeof window !== 'undefined'
     ? `${window.location.origin}/?ref=${mitra.referralCode || 'ND-REF-0042'}`
     : `https://ndtaxlaw.com/?ref=${mitra.referralCode || 'ND-REF-0042'}`;
 
+  const mitraVerificationLink = typeof window !== 'undefined'
+    ? `${window.location.origin}/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`
+    : `https://ndtaxlaw.com/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`;
+
+  useEffect(() => {
+    let active = true;
+    QRCode.toDataURL(mitraVerificationLink, {
+      width: 360,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#092147',
+        light: '#FFFFFF',
+      },
+    })
+      .then((url) => {
+        if (active) setQrDataUrl(url);
+      })
+      .catch((err) => console.error('QR generation error:', err));
+    return () => {
+      active = false;
+    };
+  }, [mitraVerificationLink]);
+
   const handleCopyClientLink = () => {
     navigator.clipboard.writeText(clientSelfRegisterLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 3000);
+  };
+
+  const handleCopyVerifyLink = () => {
+    navigator.clipboard.writeText(mitraVerificationLink);
+    setCopiedVerifyLink(true);
+    setTimeout(() => setCopiedVerifyLink(false), 3000);
   };
 
   const isVerified = mitra.status === 'verified';
@@ -187,16 +225,18 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 <span className="font-mono text-2xl font-black text-amber-300 tracking-wider bg-white/10 px-3.5 py-1 rounded-xl border border-white/15">
                   {mitra.referralCode || 'ND-REF-0042'}
                 </span>
-                <a
-                  href={`https://wa.me/?text=${encodeURIComponent(
-                    `Halo, saya merekomendasikan layanan jasa keuangan, perpajakan, dan hukum terpercaya dari NDTAXANDLAW.\n\nSilakan daftar langsung untuk konsultasi resmi melalui tautan berikut (Kode Referral: ${mitra.referralCode || 'ND-REF-0042'}):\n${clientSelfRegisterLink}`
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
-                >
-                  Bagikan via WA
-                </a>
+                {allowClientSelfRegister !== false && (
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(
+                      `Halo, saya merekomendasikan layanan jasa keuangan, perpajakan, dan hukum terpercaya dari NDTAXANDLAW.\n\nSilakan daftar langsung untuk konsultasi resmi melalui tautan berikut (Kode Referral: ${mitra.referralCode || 'ND-REF-0042'}):\n${clientSelfRegisterLink}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
+                  >
+                    Bagikan via WA
+                  </a>
+                )}
               </div>
             </div>
 
@@ -222,35 +262,44 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             </div>
           </div>
 
-          {/* Client Self-Registration Direct Link */}
-          <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="text-xs">
-              <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
-              <span className="font-mono text-slate-300 text-[11px] break-all">
-                {clientSelfRegisterLink}
-              </span>
-            </div>
+          {/* Client Self-Registration Direct Link (Only if enabled by Admin in Settings) */}
+          {allowClientSelfRegister !== false ? (
+            <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="text-xs">
+                <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
+                <span className="font-mono text-slate-300 text-[11px] break-all">
+                  {clientSelfRegisterLink}
+                </span>
+              </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleCopyClientLink}
-                className="px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all"
-              >
-                {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
-              </button>
-              {onOpenClientSelfRegister && (
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => onOpenClientSelfRegister(mitra.referralCode || 'ND-REF-0042')}
-                  className="px-2.5 py-1.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-lg border border-white/20 transition-colors"
-                  title="Pratinjau formulir yang akan dilihat calon klien"
+                  onClick={handleCopyClientLink}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all"
                 >
-                  Buka Form (Tes)
+                  {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
                 </button>
-              )}
+                {onOpenClientSelfRegister && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenClientSelfRegister(mitra.referralCode || 'ND-REF-0042')}
+                    className="px-2.5 py-1.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-lg border border-white/20 transition-colors"
+                    title="Pratinjau formulir yang akan dilihat calon klien"
+                  >
+                    Buka Form (Tes)
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-3 bg-white/5 border border-white/15 rounded-xl flex items-center gap-2.5 text-xs text-slate-300">
+              <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                Tautan registrasi mandiri klien saat ini <strong>dinonaktifkan oleh Admin</strong>. Silakan daftarkan klien baru secara langsung melalui tombol <strong>+ Input Klien</strong> di atas.
+              </span>
+            </div>
+          )}
 
           {/* Earning Rules Explain */}
           <div className="mt-4 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
@@ -370,12 +419,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   </div>
                 </div>
 
-                {/* Middle Section: Member Details */}
-                <div className="my-auto py-2 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 min-w-0">
+                {/* Middle Section: Member Details + Directly Scannable QR Code */}
+                <div className="my-auto py-1 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3.5 min-w-0">
                     {/* Avatar Frame with Gold Rim */}
                     <div className="relative shrink-0">
-                      <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
                         <img
                           src={mitra.avatarUrl}
                           alt={mitra.fullName}
@@ -403,9 +452,32 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Direct Scannable QR Code on Card Front */}
+                  <button
+                    type="button"
+                    onClick={() => setShowQrModal(true)}
+                    className="shrink-0 bg-white p-1.5 rounded-xl shadow-lg border-2 border-amber-300/80 hover:scale-105 transition-transform flex flex-col items-center"
+                    title="Scan QR Code ini langsung dengan kamera HP atau klik untuk memperbesar"
+                  >
+                    {qrDataUrl ? (
+                      <img
+                        src={qrDataUrl}
+                        alt={`QR Code Verifikasi ${mitra.fullName}`}
+                        className="w-16 h-16 sm:w-20 sm:h-20 object-contain"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+                        <QrCode className="w-12 h-12 text-slate-900" />
+                      </div>
+                    )}
+                    <span className="text-[8px] font-extrabold text-slate-900 uppercase tracking-tighter mt-0.5">
+                      SCAN VERIFY
+                    </span>
+                  </button>
                 </div>
 
-                {/* Card Footer: QR Code & Verification Tag */}
+                {/* Card Footer: Verification Tag */}
                 <div className="flex items-end justify-between pt-2 border-t border-white/10">
                   <div>
                     <p className="text-[9px] text-slate-400 uppercase tracking-wider">Kredensial Resmi</p>
@@ -413,13 +485,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => setShowQrModal(true)}
-                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 transition-colors px-2.5 py-1 rounded-lg border border-white/20 backdrop-blur-xs text-left"
-                    title="Klik untuk memindai QR Verifikasi"
+                    className="text-[10px] font-semibold text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
                   >
-                    <div className="w-7 h-7 bg-white p-0.5 rounded flex items-center justify-center">
-                      <QrCode className="w-6 h-6 text-slate-900" />
-                    </div>
+                    <span>Detail Link QR</span>
+                    <ExternalLink className="w-3 h-3" />
                   </button>
                 </div>
               </div>
@@ -579,60 +650,76 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             </div>
 
             <h3 className="text-base font-bold text-slate-900 font-display">
-              Verifikasi Keabsahan Mitra
+              QR Code Verifikasi Keabsahan Mitra
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Pindai QR ini melalui smartphone klien untuk memvalidasi legalitas kemitraan resmi NDTAXANDLAW.
+              Pindai QR ini melalui kamera smartphone untuk membuka tautan validasi resmi Mitra NDTAXANDLAW.
             </p>
 
-            {/* Simulated Live QR Code SVG */}
+            {/* Real Scannable QR Code */}
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 my-4 flex flex-col items-center justify-center">
-              <div className="w-40 h-40 bg-white p-2 rounded-lg border border-slate-300 shadow-xs flex items-center justify-center">
-                <svg className="w-full h-full text-slate-900" viewBox="0 0 100 100" fill="currentColor">
-                  {/* QR Pattern visual elements */}
-                  <rect x="5" y="5" width="25" height="25" rx="3" fill="#0B2545" />
-                  <rect x="10" y="10" width="15" height="15" fill="#FFFFFF" />
-                  <rect x="13" y="13" width="9" height="9" fill="#0B2545" />
-
-                  <rect x="70" y="5" width="25" height="25" rx="3" fill="#0B2545" />
-                  <rect x="75" y="10" width="15" height="15" fill="#FFFFFF" />
-                  <rect x="78" y="13" width="9" height="9" fill="#0B2545" />
-
-                  <rect x="5" y="70" width="25" height="25" rx="3" fill="#0B2545" />
-                  <rect x="10" y="75" width="15" height="15" fill="#FFFFFF" />
-                  <rect x="13" y="78" width="9" height="9" fill="#0B2545" />
-
-                  <rect x="35" y="15" width="8" height="8" fill="#1D4ED8" />
-                  <rect x="48" y="20" width="6" height="6" fill="#0B2545" />
-                  <rect x="40" y="38" width="20" height="20" rx="2" fill="#D97706" />
-                  <circle cx="50" cy="48" r="4" fill="#FFFFFF" />
-
-                  <rect x="20" y="45" width="10" height="10" fill="#0B2545" />
-                  <rect x="70" y="45" width="12" height="6" fill="#1D4ED8" />
-                  <rect x="40" y="70" width="15" height="8" fill="#0B2545" />
-                  <rect x="65" y="75" width="20" height="10" fill="#0B2545" />
-                </svg>
+              <div className="w-48 h-48 bg-white p-2 rounded-xl border border-slate-300 shadow-xs flex items-center justify-center">
+                {qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt={`QR Verifikasi ${mitra.fullName}`}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <QrCode className="w-24 h-24 text-slate-900" />
+                )}
               </div>
               <span className="font-mono text-xs font-bold text-slate-800 mt-2">
                 {mitra.memberCode}
               </span>
               <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1 mt-0.5">
-                <CheckCircle2 className="w-3 h-3" /> Status: Terotentikasi di Sistem Pusat
+                <CheckCircle2 className="w-3 h-3" /> Status: Terverifikasi di Sistem Pusat
               </span>
             </div>
 
-            <div className="text-left text-xs bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 space-y-1">
-              <p><span className="text-slate-500">Nama:</span> <strong className="text-slate-800">{mitra.fullName}</strong></p>
-              <p><span className="text-slate-500">Keahlian:</span> <strong className="text-slate-800">{mitra.specialization}</strong></p>
-              <p><span className="text-slate-500">Bank Terdaftar:</span> <strong className="text-slate-800">{mitra.bankDetails.bankName}</strong></p>
+            <div className="text-left text-xs bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 space-y-1.5">
+              <p><span className="text-slate-500">Nama Mitra:</span> <strong className="text-slate-800">{mitra.fullName}</strong></p>
+              <p><span className="text-slate-500">Status:</span> <strong className="text-emerald-700">Terverifikasi Resmi</strong></p>
+              <div className="pt-1 border-t border-slate-200">
+                <span className="text-[10px] text-slate-500 block">Link Hasil Scan QR:</span>
+                <span className="font-mono text-[10px] text-blue-700 break-all block">
+                  {mitraVerificationLink}
+                </span>
+              </div>
             </div>
 
-            <button
-              onClick={() => setShowQrModal(false)}
-              className="w-full py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              Tutup Jendela
-            </button>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyVerifyLink}
+                  className="flex-1 py-2 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                >
+                  {copiedVerifyLink ? '✓ Link Tersalin' : 'Salin Link Verifikasi'}
+                </button>
+                {onOpenVerifyPreview && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowQrModal(false);
+                      onOpenVerifyPreview(mitra.memberCode);
+                    }}
+                    className="flex-1 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center justify-center gap-1"
+                  >
+                    <span>Buka Link QR</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowQrModal(false)}
+                className="w-full py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Tutup Jendela
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -744,11 +831,11 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                       </div>
                     </div>
 
-                    {/* Middle Section: Member Details */}
-                    <div className="my-auto py-2 flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-4 min-w-0">
+                    {/* Middle Section: Member Details + Scannable QR Code on Print Card */}
+                    <div className="my-auto py-1 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3.5 min-w-0">
                         <div className="relative shrink-0">
-                          <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
                             <img
                               src={mitra.avatarUrl}
                               alt={mitra.fullName}
@@ -775,6 +862,23 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                           </div>
                         </div>
                       </div>
+
+                      <div className="shrink-0 bg-white p-1.5 rounded-xl shadow-lg border-2 border-amber-300/80 flex flex-col items-center">
+                        {qrDataUrl ? (
+                          <img
+                            src={qrDataUrl}
+                            alt={`QR Code Verifikasi ${mitra.fullName}`}
+                            className="w-16 h-16 sm:w-20 sm:h-20 object-contain"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+                            <QrCode className="w-12 h-12 text-slate-900" />
+                          </div>
+                        )}
+                        <span className="text-[8px] font-extrabold text-slate-900 uppercase tracking-tighter mt-0.5">
+                          SCAN VERIFY
+                        </span>
+                      </div>
                     </div>
 
                     {/* Card Footer */}
@@ -784,10 +888,8 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                         <p className="text-xs font-semibold text-slate-200">Mitra Konsultan NDTAXANDLAW</p>
                       </div>
 
-                      <div className="flex items-center gap-2 bg-white/10 px-2.5 py-1 rounded-lg border border-white/20 backdrop-blur-xs text-left">
-                        <div className="w-7 h-7 bg-white p-0.5 rounded flex items-center justify-center">
-                          <QrCode className="w-6 h-6 text-slate-900" />
-                        </div>
+                      <div className="text-[9px] font-mono text-amber-300">
+                        Verified QR Credential
                       </div>
                     </div>
                   </div>

@@ -20,7 +20,11 @@ import { ServicesManagementModal } from './components/ServicesManagementModal';
 import { AdminOperationsHub } from './components/AdminOperationsHub';
 import { AppSettingsModal } from './components/AppSettingsModal';
 import { ClientSelfRegistration } from './components/ClientSelfRegistration';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings } from './types';
+import { StaffProfileEditModal } from './components/StaffProfileEditModal';
+import { StaffManagementPanel } from './components/StaffManagementPanel';
+import { MitraPublicVerificationView } from './components/MitraPublicVerificationView';
+import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
   ShieldCheck, 
@@ -36,7 +40,7 @@ import {
   Globe
 } from 'lucide-react';
 
-const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'];
+const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard', 'staff-management'];
 const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions'];
 
 export default function App() {
@@ -49,9 +53,10 @@ export default function App() {
     }
   });
 
-  const [viewMode, setViewMode] = useState<'landing' | 'portal' | 'auth' | 'client_register'>(() => {
+  const [viewMode, setViewMode] = useState<'landing' | 'portal' | 'auth' | 'client_register' | 'mitra_verify'>(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('verify')) return 'mitra_verify';
       if (urlParams.get('ref')) return 'client_register';
     }
     try {
@@ -62,6 +67,12 @@ export default function App() {
   });
 
   const [clientRefCode, setClientRefCode] = useState<string | null>(null);
+  const [verifyMemberCode, setVerifyMemberCode] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('verify');
+    }
+    return null;
+  });
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
 
   const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>(() => {
@@ -119,6 +130,7 @@ export default function App() {
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isServicesModalOpen, setIsServicesModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isTourOpen, setIsTourOpen] = useState(false);
 
   // Fetch initial data
   const fetchData = async () => {
@@ -163,8 +175,12 @@ export default function App() {
     fetchData();
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      const verify = urlParams.get('verify');
       const ref = urlParams.get('ref');
-      if (ref) {
+      if (verify) {
+        setVerifyMemberCode(verify);
+        setViewMode('mitra_verify');
+      } else if (ref) {
         setClientRefCode(ref);
         setViewMode('client_register');
       }
@@ -181,15 +197,29 @@ export default function App() {
       setCurrentRole(effectivePortalRole);
     }
 
-    const validTabs =
-      currentUser.allowedTabs && currentUser.allowedTabs.length > 0
-        ? currentUser.allowedTabs
+    const isStaffRole = currentUser.roleCode === 'staff';
+    const staffMenus =
+      currentUser.allowedMenus && currentUser.allowedMenus.length > 0
+        ? currentUser.allowedMenus
+        : DEFAULT_STAFF_ALLOWED_MENUS;
+
+    const validTabs = isStaffRole
+      ? [
+          ...(staffMenus.includes('dashboard') ? ['dashboard'] : []),
+          ...(staffMenus.includes('admin-operations') ? ['admin-operations'] : []),
+          ...(staffMenus.includes('verification') ? ['verification', 'idcard'] : []),
+          ...(staffMenus.includes('marketing-tools') ? ['marketing-tools'] : []),
+          ...(staffMenus.includes('commissions') ? ['commissions'] : []),
+        ]
+      : currentUser.allowedTabs && currentUser.allowedTabs.length > 0
+        ? [...currentUser.allowedTabs, 'staff-management']
         : effectivePortalRole === 'admin'
           ? ADMIN_VALID_TABS
           : MITRA_VALID_TABS;
 
-    const defaultRoleTab =
-      currentUser.defaultTab || (effectivePortalRole === 'admin' ? 'dashboard' : 'idcard');
+    const defaultRoleTab = isStaffRole
+      ? validTabs[0] || 'dashboard'
+      : currentUser.defaultTab || (effectivePortalRole === 'admin' ? 'dashboard' : 'idcard');
 
     if (effectivePortalRole === 'mitra') {
       const targetId = currentUser.mitraId || currentUser.id;
@@ -208,6 +238,34 @@ export default function App() {
       localStorage.setItem('nd_active_tab', activeTab);
     } catch {}
   }, [activeTab]);
+
+  // Auto-trigger Onboarding Spotlight Tour for first-time user in Mitra, Staf, or Admin role
+  useEffect(() => {
+    if (viewMode !== 'portal' || !currentUser) return;
+    try {
+      const roleKey = currentUser.roleCode || currentUser.role || currentRole;
+      const userKey = currentUser.id || currentUser.email || 'default';
+      const storageKey = `nd_onboarding_seen_v1_${roleKey}_${userKey}`;
+      const hasSeen = localStorage.getItem(storageKey);
+      if (!hasSeen) {
+        const timer = window.setTimeout(() => {
+          setIsTourOpen(true);
+        }, 480);
+        return () => window.clearTimeout(timer);
+      }
+    } catch {}
+  }, [viewMode, currentUser, currentRole]);
+
+  const handleCloseOnboardingTour = () => {
+    setIsTourOpen(false);
+    if (!currentUser) return;
+    try {
+      const roleKey = currentUser.roleCode || currentUser.role || currentRole;
+      const userKey = currentUser.id || currentUser.email || 'default';
+      const storageKey = `nd_onboarding_seen_v1_${roleKey}_${userKey}`;
+      localStorage.setItem(storageKey, 'true');
+    } catch {}
+  };
 
   // Resolve the active Mitra profile without ever leaking another Mitra's account on reload
   const resolvedLoggedInMitra = React.useMemo(() => {
@@ -476,7 +534,11 @@ export default function App() {
               setViewMode('auth');
             }
           }}
-          onOpenClientRegister={() => setViewMode('client_register')}
+          onOpenClientRegister={
+            settings?.allowClientSelfRegister !== false
+              ? () => setViewMode('client_register')
+              : undefined
+          }
         />
 
         {/* Global Modals available from Landing Page */}
@@ -490,13 +552,41 @@ export default function App() {
     );
   }
 
+  // 1.25 Public QR Code Mitra Verification View (Via ?verify=ND-2026-XXXX)
+  if (viewMode === 'mitra_verify') {
+    return (
+      <MitraPublicVerificationView
+        verifyCode={verifyMemberCode || activeMitra?.memberCode || ''}
+        onBackToHome={() => {
+          if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          if (currentUser) {
+            setViewMode('portal');
+          } else {
+            setViewMode('landing');
+          }
+        }}
+      />
+    );
+  }
+
   // 1.5 Client Self Registration View (Via Mitra Referral Link)
   if (viewMode === 'client_register') {
     return (
       <div className="relative">
         <ClientSelfRegistration
           referralCode={clientRefCode || (activeMitra?.referralCode || 'ND-REF-0042')}
-          onBackToHome={() => setViewMode('landing')}
+          onBackToHome={() => {
+            if (typeof window !== 'undefined' && window.location.search) {
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+            if (currentUser) {
+              setViewMode('portal');
+            } else {
+              setViewMode('landing');
+            }
+          }}
           settings={settings}
           onSuccess={() => {
             fetchData();
@@ -570,6 +660,7 @@ export default function App() {
           onOpenServicesModal={() => setIsServicesModalOpen(true)}
           onOpenClientInput={() => setIsClientModalOpen(true)}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
+          onStartOnboardingTour={() => setIsTourOpen(true)}
           appEnvironment={settings?.appEnvironment || 'development'}
         />
 
@@ -578,29 +669,36 @@ export default function App() {
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 min-w-0">
               <span className="px-2 py-0.5 rounded font-mono font-bold uppercase text-[10px] bg-blue-700/60 border border-blue-400/30 text-blue-200 shrink-0">
-                {currentRole === 'admin' ? 'PANEL OPERASIONAL ADMIN' : 'PORTAL RESMI MITRA'}
+                {currentRole === 'admin'
+                  ? currentUser?.roleCode === 'staff'
+                    ? 'PANEL OPERASIONAL STAF'
+                    : 'PANEL OPERASIONAL ADMIN'
+                  : 'PORTAL RESMI MITRA'}
               </span>
               <span className="text-slate-300 hidden md:inline shrink-0">·</span>
               <span className="text-slate-200 font-medium truncate hidden sm:inline">
                 {currentRole === 'admin'
-                  ? 'Manajemen Verifikasi, Monitoring Komisi Bank, & Unggah Tools Pemasaran'
+                  ? currentUser?.roleCode === 'staff'
+                    ? `Staf Aktif: ${currentUser.name} (${currentUser.position || 'Staf Operasional'})`
+                    : 'Manajemen Verifikasi, Monitoring Komisi Bank, & Unggah Tools Pemasaran'
                   : `Aktif sebagai: ${activeMitra.fullName} (${activeMitra.memberCode})`}
               </span>
             </div>
 
-            {/* Admin Action Bar */}
+            {/* Admin / Staff Action Bar */}
             {currentRole === 'admin' && (
               <div className="flex items-center gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsServicesModalOpen(true)}
-                  className="px-2.5 py-1 bg-blue-700 text-white font-bold rounded-md hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
-                >
-                  Kelola Layanan Pajak
-                </button>
-                <div className="text-slate-300 font-mono text-[11px] hidden lg:block">
-                  <span className="text-emerald-400">Database &amp; AI Aktif</span>
-                </div>
+                {(currentUser?.roleCode !== 'staff' ||
+                  (currentUser?.allowedMenus || DEFAULT_STAFF_ALLOWED_MENUS).includes('manage-services')) && (
+                  <button
+                    type="button"
+                    data-tour="tour-action-services"
+                    onClick={() => setIsServicesModalOpen(true)}
+                    className="px-2.5 py-1 bg-blue-700 text-white font-bold rounded-md hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
+                  >
+                    Kelola Layanan Pajak
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -639,11 +737,20 @@ export default function App() {
                 mitra={activeMitra}
                 onEditProfile={() => setIsProfileOpen(true)}
                 onUpdateProfile={handleUpdateProfile}
+                allowClientSelfRegister={settings?.allowClientSelfRegister !== false}
                 supportPhone={settings?.supportPhone || '0812-8899-7711'}
                 supportEmail={settings?.supportEmail || 'advisory@ndtaxlaw.com'}
-                onOpenClientSelfRegister={(refCode) => {
-                  setClientRefCode(refCode);
-                  setViewMode('client_register');
+                onOpenClientSelfRegister={
+                  settings?.allowClientSelfRegister !== false
+                    ? (refCode) => {
+                        setClientRefCode(refCode);
+                        setViewMode('client_register');
+                      }
+                    : undefined
+                }
+                onOpenVerifyPreview={(memberCode) => {
+                  setVerifyMemberCode(memberCode);
+                  setViewMode('mitra_verify');
                 }}
               />
             </div>
@@ -687,13 +794,19 @@ export default function App() {
               clientDeals={clientDeals}
               commissions={commissions}
               onRefreshData={fetchData}
-              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenSettings={
+                currentUser?.roleCode !== 'staff' ||
+                (currentUser?.allowedMenus || DEFAULT_STAFF_ALLOWED_MENUS).includes('settings-general') ||
+                (currentUser?.allowedMenus || DEFAULT_STAFF_ALLOWED_MENUS).includes('settings-forms')
+                  ? () => setIsSettingsOpen(true)
+                  : undefined
+              }
               initialSubTab="client_validation"
               mode="operations"
             />
           )}
 
-          {activeTab === 'activity-logs' && currentRole === 'admin' && (
+          {activeTab === 'activity-logs' && currentRole === 'admin' && currentUser?.roleCode !== 'staff' && (
             <AdminOperationsHub
               mitras={mitras}
               clientDeals={clientDeals}
@@ -712,6 +825,18 @@ export default function App() {
               onSelectMitraPreview={(m) => {
                 setActiveMitraId(m.id);
                 setActiveTab('idcard');
+              }}
+            />
+          )}
+
+          {activeTab === 'staff-management' && currentRole === 'admin' && currentUser?.roleCode !== 'staff' && (
+            <StaffManagementPanel
+              currentUser={currentUser}
+              onAdminUserUpdated={(updatedUser) => {
+                setCurrentUser(updatedUser);
+                try {
+                  localStorage.setItem('nd_auth_user', JSON.stringify(updatedUser));
+                } catch {}
               }}
             />
           )}
@@ -757,13 +882,32 @@ export default function App() {
         settings={settings}
       />
 
-      <ProfileEditModal
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        mitra={activeMitra}
-        onUpdateProfile={handleUpdateProfile}
-        settings={settings}
-      />
+      {currentRole === 'mitra' ? (
+        <ProfileEditModal
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+          mitra={activeMitra}
+          onUpdateProfile={handleUpdateProfile}
+          settings={settings}
+        />
+      ) : (
+        <StaffProfileEditModal
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+          currentUser={currentUser}
+          onUserUpdated={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            try {
+              localStorage.setItem('nd_auth_user', JSON.stringify(updatedUser));
+            } catch {}
+          }}
+          onNavigateToStaffManagement={
+            currentUser?.roleCode !== 'staff'
+              ? () => setActiveTab('staff-management')
+              : undefined
+          }
+        />
+      )}
 
       <NotificationDrawer
         isOpen={isNotifDrawerOpen}
@@ -794,10 +938,19 @@ export default function App() {
       <AppSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        currentUser={currentUser}
         onSettingsSaved={(newSettings) => {
           setSettings(newSettings);
           fetchData();
         }}
+      />
+
+      {/* Interactive Onboarding Tooltip / Spotlight Tour for Mitra, Staf, & Admin */}
+      <OnboardingSpotlightTour
+        isOpen={isTourOpen}
+        onClose={handleCloseOnboardingTour}
+        currentRole={currentRole}
+        currentUser={currentUser}
       />
     </div>
   );

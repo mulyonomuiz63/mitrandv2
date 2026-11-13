@@ -253,7 +253,33 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           </button>
         </div>
 
-        {!loading && (!mitra || mitra.status !== 'verified') ? (
+        {!loading && dynamicSettings?.allowClientSelfRegister === false ? (
+          <div className="bg-slate-800/90 border border-rose-500/40 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
+            <div className="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-500/30">
+              <Lock className="w-8 h-8" />
+            </div>
+            <div className="space-y-2 max-w-md mx-auto">
+              <span className="inline-block px-3 py-1 text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-400/30 rounded-full uppercase">
+                Akses Tautan Dinonaktifkan
+              </span>
+              <h2 className="text-xl font-extrabold text-white">
+                Pendaftaran Mandiri Klien Tidak Tersedia
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Fitur pendaftaran mandiri klien melalui tautan referral saat ini sedang dinonaktifkan oleh Administrator NDTAXANDLAW. Silakan hubungi Mitra pendamping Anda secara langsung untuk pendaftaran layanan.
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={onBackToHome}
+                className="px-6 py-2.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-lg transition-all"
+              >
+                Kembali ke Halaman Utama
+              </button>
+            </div>
+          </div>
+        ) : !loading && (!mitra || mitra.status !== 'verified') ? (
           <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
             <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto border border-amber-500/30">
               <Lock className="w-8 h-8" />

@@ -367,7 +367,7 @@ export interface EmailLogItem {
 
 export interface ActivityLogItem {
   id: string;
-  actorRole: 'admin' | 'mitra' | 'client' | 'system';
+  actorRole: 'admin' | 'staff' | 'mitra' | 'client' | 'system';
   actorId?: string;
   actorName: string;
   actorEmail?: string;
@@ -439,7 +439,110 @@ export interface SalesHistoryMonth {
   dealsClosed: number;
 }
 
-export type UserRoleCode = 'admin' | 'mitra' | string;
+export type UserRoleCode = 'admin' | 'staff' | 'mitra' | string;
+
+export type StaffMenuAccessKey =
+  | 'dashboard'
+  | 'admin-operations'
+  | 'verification'
+  | 'marketing-tools'
+  | 'commissions'
+  | 'manage-services'
+  | 'settings-general'
+  | 'settings-forms';
+
+export interface StaffMenuOption {
+  key: StaffMenuAccessKey;
+  label: string;
+  description: string;
+  category: 'menu_utama' | 'pengaturan';
+}
+
+export const STAFF_MENU_OPTIONS: StaffMenuOption[] = [
+  {
+    key: 'dashboard',
+    label: 'Dashboard Operasional',
+    description: 'Melihat ringkasan statistik, grafik pertumbuhan, dan analitik performa mitra.',
+    category: 'menu_utama',
+  },
+  {
+    key: 'admin-operations',
+    label: 'Validasi Klien & Payout',
+    description: 'Memvalidasi deal klien (ACC), analisa kinerja mitra, dan memproses pencairan komisi.',
+    category: 'menu_utama',
+  },
+  {
+    key: 'verification',
+    label: 'Verifikasi Mitra',
+    description: 'Memeriksa berkas pendaftaran mitra baru, menyetujui (approve), atau menolak disertai alasan.',
+    category: 'menu_utama',
+  },
+  {
+    key: 'marketing-tools',
+    label: 'Tools Marketing & Materi',
+    description: 'Mengelola dan mengunggah materi promosi, brosur digital, dan panduan untuk mitra.',
+    category: 'menu_utama',
+  },
+  {
+    key: 'commissions',
+    label: 'Komisi & Payout',
+    description: 'Melihat buku besar transaksi komisi, bonus, dan riwayat pencairan dana mitra.',
+    category: 'menu_utama',
+  },
+  {
+    key: 'manage-services',
+    label: 'Kelola Layanan Pajak',
+    description: 'Menambah, mengubah, atau menonaktifkan daftar produk jasa pajak & hukum beserta tarif komisi.',
+    category: 'pengaturan',
+  },
+  {
+    key: 'settings-general',
+    label: 'Pengaturan: Layanan & Profil Firma',
+    description: 'Mengakses tab Layanan & Profil Firma di dalam Pengaturan Sistem.',
+    category: 'pengaturan',
+  },
+  {
+    key: 'settings-forms',
+    label: 'Pengaturan: Form & Spesialisasi Dinamis',
+    description: 'Mengakses tab Form & Spesialisasi Dinamis (input mitra, rekening bank, dan input klien).',
+    category: 'pengaturan',
+  },
+];
+
+export const DEFAULT_STAFF_ALLOWED_MENUS: StaffMenuAccessKey[] = [
+  'dashboard',
+  'admin-operations',
+  'verification',
+  'marketing-tools',
+  'commissions',
+  'manage-services',
+  'settings-general',
+  'settings-forms',
+];
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  position: string;
+  gender?: 'male' | 'female';
+  avatarUrl: string;
+  isActive: boolean;
+  allowedMenus: StaffMenuAccessKey[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdminProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  position?: string;
+  gender?: 'male' | 'female';
+  avatarUrl: string;
+}
 
 export interface RoleDefinition {
   code: UserRoleCode;
@@ -457,14 +560,18 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  phone?: string;
+  position?: string;
   role: 'admin' | 'mitra';
   roleCode?: UserRoleCode;
   roleName?: string;
   portalView?: 'admin' | 'mitra';
   defaultTab?: string;
   allowedTabs?: string[];
+  allowedMenus?: StaffMenuAccessKey[];
   permissions?: string[];
   mitraId?: string;
+  staffId?: string;
   referralCode?: string;
   avatarUrl?: string;
   gender?: 'male' | 'female';

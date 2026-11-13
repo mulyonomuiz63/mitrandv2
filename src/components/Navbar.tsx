@@ -2,7 +2,6 @@ import React from 'react';
 import { 
   ShieldCheck, 
   Bell, 
-  Sparkles,
   CheckCircle2,
   LogOut,
   Settings,
@@ -14,9 +13,12 @@ import {
   DollarSign,
   PlusCircle,
   Globe,
-  Layers
+  Layers,
+  Users,
+  Edit3,
+  HelpCircle
 } from 'lucide-react';
-import { Mitra, AuthUser } from '../types';
+import { Mitra, AuthUser, DEFAULT_STAFF_ALLOWED_MENUS, StaffMenuAccessKey } from '../types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from '../avatars';
 
 interface NavbarProps {
@@ -37,6 +39,7 @@ interface NavbarProps {
   onOpenServicesModal?: () => void;
   onOpenClientInput?: () => void;
   onOpenSettingsModal?: () => void;
+  onStartOnboardingTour?: () => void;
   appEnvironment?: 'development' | 'production';
 }
 
@@ -55,9 +58,26 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenServicesModal,
   onOpenClientInput,
   onOpenSettingsModal,
+  onStartOnboardingTour,
 }) => {
   const mitraAvatar = resolveAvatarUrl(activeMitra.avatarUrl, activeMitra.gender, activeMitra.fullName);
   const adminAvatar = resolveAvatarUrl(currentUser?.avatarUrl, currentUser?.gender || 'male', currentUser?.name);
+
+  const isStaff = currentRole === 'admin' && currentUser?.roleCode === 'staff';
+  const staffAllowedMenus: StaffMenuAccessKey[] =
+    currentUser?.allowedMenus && currentUser.allowedMenus.length > 0
+      ? currentUser.allowedMenus
+      : DEFAULT_STAFF_ALLOWED_MENUS;
+
+  const canAccessMenu = (key: StaffMenuAccessKey) => {
+    if (!isStaff) return true;
+    return staffAllowedMenus.includes(key);
+  };
+
+  const canOpenSettings =
+    !isStaff ||
+    staffAllowedMenus.includes('settings-general') ||
+    staffAllowedMenus.includes('settings-forms');
 
   return (
     <>
@@ -84,7 +104,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
                 <div className="hidden sm:flex flex-col justify-center border-l-2 border-amber-400 pl-2.5 min-w-0">
                   <span className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider truncate">
-                    {currentRole === 'admin' ? 'Panel Operasional Admin' : 'Portal Resmi Mitra'}
+                    {currentRole === 'admin'
+                      ? isStaff
+                        ? 'Panel Operasional Staf'
+                        : 'Panel Operasional Admin'
+                      : 'Portal Resmi Mitra'}
                   </span>
                   <span className="text-[10px] text-slate-500 truncate">
                     NDTAXANDLAW Advisory System
@@ -97,10 +121,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
               {/* Role Badge */}
               {currentRole === 'admin' ? (
-                <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-blue-950 bg-blue-100/90 border border-blue-300 rounded-lg flex items-center gap-1 shadow-2xs">
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                  <span>Admin</span>
-                </span>
+                isStaff ? (
+                  <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-indigo-950 bg-indigo-100/90 border border-indigo-300 rounded-lg flex items-center gap-1 shadow-2xs">
+                    <UserCheck className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                    <span>Staf</span>
+                  </span>
+                ) : (
+                  <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-blue-950 bg-blue-100/90 border border-blue-300 rounded-lg flex items-center gap-1 shadow-2xs">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                    <span>Admin</span>
+                  </span>
+                )
               ) : (
                 <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-emerald-950 bg-emerald-100/90 border border-emerald-300 rounded-lg flex items-center gap-1 shadow-2xs">
                   <UserCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
@@ -112,6 +143,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {currentRole === 'mitra' && onOpenClientInput && (
                 <button
                   type="button"
+                  data-tour="tour-action-input-client"
                   onClick={() => {
                     if (activeMitra.status === 'verified') {
                       onOpenClientInput();
@@ -135,32 +167,54 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {currentRole === 'admin' && (
                 <>
-                  {onOpenServicesModal && (
+                  {onOpenServicesModal && canAccessMenu('manage-services') && (
                     <button
                       type="button"
+                      data-tour="tour-action-services"
                       onClick={onOpenServicesModal}
                       className="hidden lg:inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors whitespace-nowrap border border-amber-200"
                     >
                       <span>Kelola Layanan Pajak</span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={onOpenRegister}
-                    className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-blue-700 hover:bg-blue-800 text-white rounded-lg transition-colors whitespace-nowrap shadow-xs"
-                  >
-                    <span>+ Daftarkan Mitra</span>
-                  </button>
+                  {canAccessMenu('verification') && (
+                    <button
+                      type="button"
+                      onClick={onOpenRegister}
+                      className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-blue-700 hover:bg-blue-800 text-white rounded-lg transition-colors whitespace-nowrap shadow-xs"
+                    >
+                      <span>+ Daftarkan Mitra</span>
+                    </button>
+                  )}
                 </>
               )}
 
-              {/* System Settings Button (Only for Admin) */}
-              {currentRole === 'admin' && onOpenSettingsModal && (
+              {/* Onboarding Spotlight Tour Button ("Panduan") */}
+              {onStartOnboardingTour && (
                 <button
                   type="button"
+                  onClick={onStartOnboardingTour}
+                  className="p-1.5 sm:px-2.5 sm:py-1.5 text-blue-700 hover:text-blue-900 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/80 rounded-lg transition-colors flex items-center gap-1"
+                  title="Putar Panduan Tur Fitur (Spotlight Tour)"
+                  aria-label="Panduan Fitur"
+                >
+                  <HelpCircle className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="hidden lg:inline text-xs font-bold">Panduan</span>
+                </button>
+              )}
+
+              {/* System Settings Button (Admin or Staff with settings-general / settings-forms access) */}
+              {currentRole === 'admin' && onOpenSettingsModal && canOpenSettings && (
+                <button
+                  type="button"
+                  data-tour="tour-action-settings"
                   onClick={onOpenSettingsModal}
                   className="p-1.5 sm:p-2 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition-colors"
-                  title="Pengaturan Sistem &amp; Integrasi (SMTP Email, Google Login, Gemini AI)"
+                  title={
+                    isStaff
+                      ? 'Pengaturan Layanan Firma & Form Dinamis'
+                      : 'Pengaturan Sistem & Integrasi (SMTP Email, Google Login, Gemini AI)'
+                  }
                   aria-label="Buka Pengaturan"
                 >
                   <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -181,13 +235,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </button>
 
-              {/* Profile Button / Avatar */}
+              {/* Profile Button / Avatar (Clickable for Mitra, Staff, and Admin) */}
               {currentRole === 'mitra' ? (
                 <button
                   type="button"
+                  data-tour="tour-action-profile"
                   onClick={onOpenProfile}
                   className="flex items-center gap-2 pl-1.5 pr-2 sm:pl-2 sm:pr-2.5 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
-                  title="Lihat &amp; Edit Profil Mitra"
+                  title="Lihat & Edit Profil Mitra"
                 >
                   <img
                     src={mitraAvatar || MALE_AVATAR_URL}
@@ -204,18 +259,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </button>
               ) : (
-                <div className="flex items-center gap-2 pl-1.5 pr-2 sm:pl-2 sm:pr-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">
+                <button
+                  type="button"
+                  data-tour="tour-action-profile"
+                  onClick={onOpenProfile}
+                  className="flex items-center gap-2 pl-1.5 pr-2 sm:pl-2 sm:pr-2.5 py-1 bg-slate-50 hover:bg-blue-50/70 border border-slate-200 hover:border-blue-300 rounded-lg text-left transition-colors"
+                  title={isStaff ? 'Edit Profil & Password Staf' : 'Edit Profil & Password Admin'}
+                >
                   <img
                     src={adminAvatar || MALE_AVATAR_URL}
-                    alt={currentUser?.name || 'Admin'}
+                    alt={currentUser?.name || (isStaff ? 'Staf' : 'Admin')}
                     className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover ring-1 ring-blue-600/30 shrink-0"
                   />
-                  <div className="hidden md:block max-w-[110px]">
+                  <div className="hidden md:block max-w-[120px]">
                     <p className="text-xs font-semibold text-slate-900 truncate">
-                      {currentUser?.name || 'Admin'}
+                      {currentUser?.name || (isStaff ? 'Staf Operasional' : 'Admin')}
+                    </p>
+                    <p className="text-[9px] text-blue-700 font-semibold flex items-center gap-0.5 truncate">
+                      <Edit3 className="w-2.5 h-2.5" />
+                      <span>Edit Profil</span>
                     </p>
                   </div>
-                </div>
+                </button>
               )}
 
               {/* Logout Button */}
@@ -241,6 +306,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <>
                   <button
                     type="button"
+                    data-tour="tour-nav-idcard"
                     onClick={() => onTabChange('idcard')}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
                       activeTab === 'idcard'
@@ -257,6 +323,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <button
                     type="button"
+                    data-tour="tour-nav-dashboard"
                     onClick={() => onTabChange('dashboard')}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
                       activeTab === 'dashboard'
@@ -270,6 +337,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <button
                     type="button"
+                    data-tour="tour-nav-marketing"
                     onClick={() => onTabChange('marketing-tools')}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
                       activeTab === 'marketing-tools'
@@ -283,6 +351,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <button
                     type="button"
+                    data-tour="tour-nav-commissions"
                     onClick={() => onTabChange('commissions')}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
                       activeTab === 'commissions'
@@ -296,83 +365,119 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('dashboard')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'dashboard'
-                        ? 'bg-blue-700 text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <LayoutDashboard className="w-3.5 h-3.5" />
-                    <span>Dashboard Admin</span>
-                  </button>
+                  {canAccessMenu('dashboard') && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-dashboard"
+                      onClick={() => onTabChange('dashboard')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'dashboard'
+                          ? 'bg-blue-700 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <LayoutDashboard className="w-3.5 h-3.5" />
+                      <span>{isStaff ? 'Dashboard Operasional' : 'Dashboard Admin'}</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('admin-operations')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'admin-operations'
-                        ? 'bg-blue-800 text-white shadow-2xs'
-                        : 'text-slate-700 bg-blue-50/70 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/80'
-                    }`}
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Validasi Klien &amp; Payout</span>
-                  </button>
+                  {canAccessMenu('admin-operations') && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-operations"
+                      onClick={() => onTabChange('admin-operations')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'admin-operations'
+                          ? 'bg-blue-800 text-white shadow-2xs'
+                          : 'text-slate-700 bg-blue-50/70 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/80'
+                      }`}
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Validasi Klien &amp; Payout</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('verification')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'verification'
-                        ? 'bg-blue-700 text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>Verifikasi Mitra</span>
-                  </button>
+                  {canAccessMenu('verification') && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-verification"
+                      onClick={() => onTabChange('verification')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'verification'
+                          ? 'bg-blue-700 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Verifikasi Mitra</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('activity-logs')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'activity-logs'
-                        ? 'bg-indigo-700 text-white shadow-2xs'
-                        : 'text-slate-700 bg-indigo-50/60 hover:bg-indigo-100 hover:text-indigo-900 border border-indigo-200/80'
-                    }`}
-                  >
-                    <Activity className={`w-3.5 h-3.5 ${activeTab === 'activity-logs' ? 'text-amber-300' : 'text-indigo-600'}`} />
-                    <span>Log Aktivitas &amp; Email</span>
-                  </button>
+                  {/* Log Aktivitas & Email HANYA untuk Admin (Staf tidak bisa akses) */}
+                  {!isStaff && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-logs"
+                      onClick={() => onTabChange('activity-logs')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'activity-logs'
+                          ? 'bg-indigo-700 text-white shadow-2xs'
+                          : 'text-slate-700 bg-indigo-50/60 hover:bg-indigo-100 hover:text-indigo-900 border border-indigo-200/80'
+                      }`}
+                    >
+                      <Activity className={`w-3.5 h-3.5 ${activeTab === 'activity-logs' ? 'text-amber-300' : 'text-indigo-600'}`} />
+                      <span>Log Aktivitas &amp; Email</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('marketing-tools')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'marketing-tools'
-                        ? 'bg-blue-700 text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Briefcase className="w-3.5 h-3.5" />
-                    <span>Tools Marketing</span>
-                  </button>
+                  {canAccessMenu('marketing-tools') && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-marketing"
+                      onClick={() => onTabChange('marketing-tools')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'marketing-tools'
+                          ? 'bg-blue-700 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Briefcase className="w-3.5 h-3.5" />
+                      <span>Tools Marketing</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => onTabChange('commissions')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      activeTab === 'commissions'
-                        ? 'bg-blue-700 text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <DollarSign className="w-3.5 h-3.5" />
-                    <span>Komisi &amp; Payout</span>
-                  </button>
+                  {canAccessMenu('commissions') && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-commissions"
+                      onClick={() => onTabChange('commissions')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'commissions'
+                          ? 'bg-blue-700 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <DollarSign className="w-3.5 h-3.5" />
+                      <span>Komisi &amp; Payout</span>
+                    </button>
+                  )}
+
+                  {/* Manajemen Staf & Akun Admin HANYA untuk Admin */}
+                  {!isStaff && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-staff"
+                      onClick={() => onTabChange('staff-management')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                        activeTab === 'staff-management'
+                          ? 'bg-emerald-700 text-white shadow-2xs'
+                          : 'text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                      }`}
+                    >
+                      <Users className={`w-3.5 h-3.5 ${activeTab === 'staff-management' ? 'text-white' : 'text-emerald-700'}`} />
+                      <span>Manajemen Staf &amp; Admin</span>
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -401,6 +506,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="max-w-md mx-auto grid grid-cols-5 gap-1 items-center">
             <button
               type="button"
+              data-tour="tour-nav-idcard"
               onClick={() => onTabChange('idcard')}
               className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
                 activeTab === 'idcard'
@@ -414,6 +520,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               type="button"
+              data-tour="tour-nav-dashboard"
               onClick={() => onTabChange('dashboard')}
               className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
                 activeTab === 'dashboard'
@@ -427,6 +534,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               type="button"
+              data-tour="tour-action-input-client"
               onClick={() => {
                 if (activeMitra.status === 'verified' && onOpenClientInput) {
                   onOpenClientInput();
@@ -445,6 +553,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               type="button"
+              data-tour="tour-nav-commissions"
               onClick={() => onTabChange('commissions')}
               className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
                 activeTab === 'commissions'
@@ -458,6 +567,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               type="button"
+              data-tour="tour-nav-marketing"
               onClick={() => onTabChange('marketing-tools')}
               className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
                 activeTab === 'marketing-tools'
@@ -470,71 +580,102 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         ) : (
-          <div className="max-w-md mx-auto grid grid-cols-5 gap-1 items-center">
-            <button
-              type="button"
-              onClick={() => onTabChange('dashboard')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'dashboard'
-                  ? 'text-blue-700 bg-blue-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Dashboard</span>
-            </button>
+          <div className="max-w-md mx-auto flex items-center justify-around gap-1">
+            {canAccessMenu('dashboard') && (
+              <button
+                type="button"
+                data-tour="tour-nav-dashboard"
+                onClick={() => onTabChange('dashboard')}
+                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                  activeTab === 'dashboard'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Dashboard</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => onTabChange('admin-operations')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'admin-operations'
-                  ? 'text-blue-700 bg-blue-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Validasi</span>
-            </button>
+            {canAccessMenu('admin-operations') && (
+              <button
+                type="button"
+                data-tour="tour-nav-operations"
+                onClick={() => onTabChange('admin-operations')}
+                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                  activeTab === 'admin-operations'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Validasi</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => onTabChange('verification')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'verification'
-                  ? 'text-blue-700 bg-blue-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <UserCheck className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Verifikasi</span>
-            </button>
+            {canAccessMenu('verification') && (
+              <button
+                type="button"
+                data-tour="tour-nav-verification"
+                onClick={() => onTabChange('verification')}
+                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                  activeTab === 'verification'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <UserCheck className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Verifikasi</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => onTabChange('activity-logs')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'activity-logs'
-                  ? 'text-indigo-700 bg-indigo-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Log &amp; Email</span>
-            </button>
+            {!isStaff && (
+              <button
+                type="button"
+                data-tour="tour-nav-logs"
+                onClick={() => onTabChange('activity-logs')}
+                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                  activeTab === 'activity-logs'
+                    ? 'text-indigo-700 bg-indigo-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Log</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => onTabChange('commissions')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'commissions' || activeTab === 'marketing-tools'
-                  ? 'text-blue-700 bg-blue-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Komisi</span>
-            </button>
+            {!isStaff ? (
+              <button
+                type="button"
+                data-tour="tour-nav-staff"
+                onClick={() => onTabChange('staff-management')}
+                className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                  activeTab === 'staff-management'
+                    ? 'text-emerald-700 bg-emerald-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span className="text-[10px] mt-0.5 truncate">Staf</span>
+              </button>
+            ) : (
+              canAccessMenu('commissions') && (
+                <button
+                  type="button"
+                  data-tour="tour-nav-commissions"
+                  onClick={() => onTabChange('commissions')}
+                  className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                    activeTab === 'commissions' || activeTab === 'marketing-tools'
+                      ? 'text-blue-700 bg-blue-50 font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" />
+                  <span className="text-[10px] mt-0.5 truncate">Komisi</span>
+                </button>
+              )
+            )}
           </div>
         )}
       </nav>

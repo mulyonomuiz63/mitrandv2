@@ -53,6 +53,8 @@ import {
   getSpecializationOptionUsageCount,
   getMitraFieldUsageCount,
   getClientFieldUsageCount,
+  AuthUser,
+  DEFAULT_STAFF_ALLOWED_MENUS,
 } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 
@@ -60,14 +62,23 @@ interface AppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSettingsSaved?: (newSettings: AppSettings) => void;
+  currentUser?: AuthUser | null;
 }
 
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   isOpen,
   onClose,
   onSettingsSaved,
+  currentUser,
 }) => {
   const confirm = useConfirm();
+  const isStaff = currentUser?.roleCode === 'staff';
+  const staffAllowedMenus =
+    currentUser?.allowedMenus && currentUser.allowedMenus.length > 0
+      ? currentUser.allowedMenus
+      : DEFAULT_STAFF_ALLOWED_MENUS;
+  const canAccessGeneralTab = !isStaff || staffAllowedMenus.includes('settings-general');
+  const canAccessFormsTab = !isStaff || staffAllowedMenus.includes('settings-forms');
   const [settings, setSettings] = useState<AppSettings>({
     firmName: 'NDTAXANDLAW',
     tagline: 'Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi',
@@ -239,10 +250,18 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
         .catch((e) => console.error('Error fetching settings:', e))
         .finally(() => setLoading(false));
 
-      fetchEmailLogs();
-      checkSupabase();
+      if (!isStaff) {
+        fetchEmailLogs();
+        checkSupabase();
+      } else {
+        if (canAccessFormsTab) {
+          setActiveTab('forms');
+        } else if (canAccessGeneralTab) {
+          setActiveTab('general');
+        }
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, isStaff, canAccessFormsTab, canAccessGeneralTab]);
 
   const checkSupabase = async () => {
     setIsCheckingSupabase(true);
@@ -660,114 +679,122 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
 
         {/* Tab Headers */}
         <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3 gap-2 overflow-x-auto shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab('general')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'general'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Layanan &amp; Profil Firma</span>
-          </button>
+          {canAccessGeneralTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('general')}
+              className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'general'
+                  ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Layanan &amp; Profil Firma</span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('forms')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'forms'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <ListChecks className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Form &amp; Spesialisasi Dinamis</span>
-          </button>
+          {canAccessFormsTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('forms')}
+              className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'forms'
+                  ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ListChecks className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Form &amp; Spesialisasi Dinamis</span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('environment')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'environment'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Rocket className="w-3.5 h-3.5 text-blue-600" />
-            <span>Mode Sistem (Dev / Prod)</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${
-              settings.appEnvironment === 'production' 
-                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                : 'bg-amber-100 text-amber-800 border border-amber-300'
-            }`}>
-              {settings.appEnvironment === 'production' ? 'PROD' : 'DEV'}
-            </span>
-          </button>
+          {!isStaff && (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('environment')}
+                className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                  activeTab === 'environment'
+                    ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Rocket className="w-3.5 h-3.5 text-blue-600" />
+                <span>Mode Sistem (Dev / Prod)</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                  settings.appEnvironment === 'production' 
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                }`}>
+                  {settings.appEnvironment === 'production' ? 'PROD' : 'DEV'}
+                </span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('supabase');
-              checkSupabase();
-            }}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'supabase'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Server className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Database Supabase</span>
-            {supabaseStatus?.success ? (
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            ) : (
-              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('supabase');
+                  checkSupabase();
+                }}
+                className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                  activeTab === 'supabase'
+                    ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Database Supabase</span>
+                {supabaseStatus?.success ? (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                )}
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('smtp')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'smtp'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Mail className="w-3.5 h-3.5 text-blue-600" />
-            <span>SMTP Email &amp; Notifikasi</span>
-            {settings.smtpEnabled && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('smtp')}
+                className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                  activeTab === 'smtp'
+                    ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5 text-blue-600" />
+                <span>SMTP Email &amp; Notifikasi</span>
+                {settings.smtpEnabled && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                )}
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('oauth')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'oauth'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span>Login Google (OAuth)</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('oauth')}
+                className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                  activeTab === 'oauth'
+                    ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Login Google (OAuth)</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('ai')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'ai'
-                ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>Gemini AI Assistant</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('ai')}
+                className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                  activeTab === 'ai'
+                    ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>Gemini AI Assistant</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Form Container with Sticky Footer */}

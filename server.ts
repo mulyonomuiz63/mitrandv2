@@ -366,7 +366,7 @@ export interface EmailLogItem {
 
 export interface ActivityLogItem {
   id: string;
-  actorRole: 'admin' | 'mitra' | 'client' | 'system';
+  actorRole: 'admin' | 'staff' | 'mitra' | 'client' | 'system';
   actorId?: string;
   actorName: string;
   actorEmail?: string;
@@ -392,6 +392,31 @@ export interface ActivityLogItem {
   targetEntity: string;
   description: string;
   timestamp: string;
+}
+
+export const DEFAULT_STAFF_ALLOWED_MENUS: string[] = [
+  'dashboard',
+  'admin-operations',
+  'verification',
+  'marketing-tools',
+  'commissions',
+  'manage-services',
+  'settings-general',
+  'settings-forms',
+];
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  position: string;
+  gender?: 'male' | 'female';
+  avatarUrl: string;
+  isActive: boolean;
+  allowedMenus: string[];
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface MarketingTool {
@@ -1500,16 +1525,27 @@ export interface RoleDefinition {
   isActive: boolean;
 }
 
-// Saat ini role yang aktif adalah 'admin' dan 'mitra', dirancang siap diekspansi untuk banyak role baru ke depannya
+// Role yang aktif adalah 'admin', 'staff' (di bawah admin), dan 'mitra'
 let systemRoles: RoleDefinition[] = [
   {
     code: 'admin',
     name: 'Administrator Operasional',
-    description: 'Akses penuh manajemen operasional, validasi klien & mitra, pencairan komisi, log audit, dan pengaturan sistem.',
+    description: 'Akses penuh manajemen operasional, manajemen staf, validasi klien & mitra, pencairan komisi, log audit, dan pengaturan sistem.',
     portalView: 'admin',
     defaultTab: 'dashboard',
-    allowedTabs: ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'],
-    permissions: ['all', 'manage_mitra', 'manage_clients', 'approve_payouts', 'manage_services', 'view_logs', 'manage_settings', 'manage_roles'],
+    allowedTabs: ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'staff-management', 'ai-reports', 'idcard'],
+    permissions: ['all', 'manage_mitra', 'manage_clients', 'approve_payouts', 'manage_services', 'view_logs', 'manage_settings', 'manage_roles', 'manage_staff'],
+    isSystem: true,
+    isActive: true,
+  },
+  {
+    code: 'staff',
+    name: 'Staf Operasional',
+    description: 'Role Staf di bawah Admin: akses operasional sesuai menu yang diaktifkan Admin (kecuali Log Aktivitas/Email dan pengaturan sensitif Mode Sistem, Supabase, SMTP, Google OAuth, & Gemini AI).',
+    portalView: 'admin',
+    defaultTab: 'dashboard',
+    allowedTabs: ['dashboard', 'admin-operations', 'verification', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'],
+    permissions: ['manage_mitra', 'manage_clients', 'approve_payouts', 'manage_services', 'manage_general_settings'],
     isSystem: true,
     isActive: true,
   },
@@ -1530,7 +1566,9 @@ export const getRoleDefinition = (roleCode?: string): RoleDefinition => {
   const normalized = (roleCode || 'mitra').trim().toLowerCase();
   const found = systemRoles.find((r) => r.code.toLowerCase() === normalized && r.isActive);
   if (found) return found;
-  return normalized === 'admin' ? systemRoles[0] : systemRoles[1];
+  if (normalized === 'admin') return systemRoles[0];
+  if (normalized === 'staff') return systemRoles[1];
+  return systemRoles[2] || systemRoles[1];
 };
 
 // Enkripsi Password Kuat: scrypt (N=16384, r=8, p=1, 64-byte key) + 128-bit Random Salt + AES-256-GCM Envelope
@@ -1639,18 +1677,36 @@ export const verifyUserPassword = (
   return { valid: isMatch, role: defaultRole, needsUpgrade: isMatch };
 };
 
-const adminAccount = {
+let adminAccount = {
   id: 'admin-01',
   name: 'Admin Operasional NDTAXANDLAW',
   email: 'admin@ndtaxlaw.com',
+  phone: '0812-8899-7711',
+  position: 'Super Administrator Operasional',
   password: 'adminND2026!',
   role: 'admin' as const,
-  gender: 'male' as const,
+  gender: 'male' as 'male' | 'female',
   avatarUrl: MALE_AVATAR_URL,
 };
 
+let staffAccounts: StaffMember[] = [
+  {
+    id: 'staff-01',
+    name: 'Rina Kusuma, S.E.',
+    email: 'staf@ndtaxlaw.com',
+    phone: '0812-7788-9900',
+    position: 'Staf Operasional & Verifikasi Pajak',
+    gender: 'female',
+    avatarUrl: FEMALE_AVATAR_URL,
+    isActive: true,
+    allowedMenus: [...DEFAULT_STAFF_ALLOWED_MENUS],
+    createdAt: '2026-01-15',
+  },
+];
+
 const userPasswords = new Map<string, string>([
   ['admin@ndtaxlaw.com', encryptUserPassword('adminND2026!', 'admin')],
+  ['staf@ndtaxlaw.com', encryptUserPassword('stafND2026!', 'staff')],
   ['bambang.sudirman@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
   ['dewi.lestari@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
   ['rian.pratama@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
@@ -1858,10 +1914,17 @@ export const saveDatabase = () => {
     }
     const passwordsObj: Record<string, string> = {};
     for (const [k, v] of userPasswords.entries()) {
-      const role = k.toLowerCase() === adminAccount.email.toLowerCase() ? 'admin' : extractUserRole(v, 'mitra');
+      const isStaffEmail = staffAccounts.some((s) => s.email.toLowerCase() === k.toLowerCase());
+      const role =
+        k.toLowerCase() === adminAccount.email.toLowerCase()
+          ? 'admin'
+          : isStaffEmail
+            ? 'staff'
+            : extractUserRole(v, 'mitra');
       passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
     }
     // Hanya dijalankan pada Development Mode (atau saat Supabase belum dikonfigurasi)
+    const { password: _adminPass, ...safeAdminProfile } = adminAccount;
     const payload = {
       mitras,
       services,
@@ -1874,6 +1937,8 @@ export const saveDatabase = () => {
       activityLogs,
       appSettings,
       roles: systemRoles,
+      adminProfile: safeAdminProfile,
+      staffAccounts,
       userPasswords: passwordsObj,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), 'utf-8');
@@ -1921,6 +1986,24 @@ export const loadDatabase = () => {
         systemRoles = data.roles;
       }
 
+      if (data.adminProfile && typeof data.adminProfile === 'object') {
+        adminAccount = {
+          ...adminAccount,
+          ...data.adminProfile,
+          role: 'admin',
+        };
+      }
+
+      if (Array.isArray(data.staffAccounts)) {
+        staffAccounts = data.staffAccounts.map((s: StaffMember) => ({
+          ...s,
+          allowedMenus:
+            Array.isArray(s.allowedMenus) && s.allowedMenus.length > 0
+              ? s.allowedMenus
+              : [...DEFAULT_STAFF_ALLOWED_MENUS],
+        }));
+      }
+
       if (Array.isArray(data.emailLogs)) {
         emailLogs = data.emailLogs.filter((l: EmailLogItem) => !['email-001', 'email-002', 'email-003'].includes(l.id));
       }
@@ -1931,7 +2014,13 @@ export const loadDatabase = () => {
       if (data.userPasswords && typeof data.userPasswords === 'object') {
         for (const [em, pass] of Object.entries(data.userPasswords)) {
           const emailKey = em.toLowerCase();
-          const role = emailKey === adminAccount.email.toLowerCase() ? 'admin' : extractUserRole(pass as string, 'mitra');
+          const isStaffEmail = staffAccounts.some((s) => s.email.toLowerCase() === emailKey);
+          const role =
+            emailKey === adminAccount.email.toLowerCase()
+              ? 'admin'
+              : isStaffEmail
+                ? 'staff'
+                : extractUserRole(pass as string, 'mitra');
           userPasswords.set(emailKey, encryptUserPassword(pass as string, role));
         }
       }
@@ -2032,6 +2121,8 @@ export const syncFromSupabase = async () => {
       const toUpgradeInSupabase: { email: string; password: string }[] = [];
       let hasSysConfig = false;
       let hasSysRoles = false;
+      let hasSysAdminProfile = false;
+      let hasSysStaffAccounts = false;
       let hasSysActivityLogs = false;
       let hasSysEmailLogs = false;
 
@@ -2061,6 +2152,36 @@ export const syncFromSupabase = async () => {
           } catch {}
           continue;
         }
+        if (emailLower === '__sys_admin_profile__@ndtaxlaw.internal') {
+          hasSysAdminProfile = true;
+          try {
+            const parsedAdmin = JSON.parse(row.password);
+            if (parsedAdmin && typeof parsedAdmin === 'object') {
+              adminAccount = {
+                ...adminAccount,
+                ...parsedAdmin,
+                role: 'admin',
+              };
+            }
+          } catch {}
+          continue;
+        }
+        if (emailLower === '__sys_staff_accounts__@ndtaxlaw.internal') {
+          hasSysStaffAccounts = true;
+          try {
+            const parsedStaff = JSON.parse(row.password);
+            if (Array.isArray(parsedStaff)) {
+              staffAccounts = parsedStaff.map((s: StaffMember) => ({
+                ...s,
+                allowedMenus:
+                  Array.isArray(s.allowedMenus) && s.allowedMenus.length > 0
+                    ? s.allowedMenus
+                    : [...DEFAULT_STAFF_ALLOWED_MENUS],
+              }));
+            }
+          } catch {}
+          continue;
+        }
         if (emailLower === '__sys_activity_logs__@ndtaxlaw.internal') {
           hasSysActivityLogs = true;
           try {
@@ -2085,7 +2206,14 @@ export const syncFromSupabase = async () => {
           continue;
         }
 
-        const defaultRole = row.role || (emailLower === adminAccount.email.toLowerCase() ? 'admin' : 'mitra');
+        const isStaffEmail = staffAccounts.some((s) => s.email.toLowerCase() === emailLower);
+        const defaultRole =
+          row.role ||
+          (emailLower === adminAccount.email.toLowerCase()
+            ? 'admin'
+            : isStaffEmail
+              ? 'staff'
+              : 'mitra');
         if (!isEncryptedPassword(row.password)) {
           const encrypted = encryptUserPassword(row.password, defaultRole);
           userPasswords.set(emailLower, encrypted);
@@ -2095,12 +2223,19 @@ export const syncFromSupabase = async () => {
         }
       }
 
-      // Seed System Config, Roles, Activity Logs, and Email Logs into Supabase if not yet present
+      // Seed System Config, Roles, Admin Profile, Staff Accounts, Activity Logs, and Email Logs into Supabase if not yet present
       if (!hasSysConfig) {
         toUpgradeInSupabase.push({ email: '__sys_config__@ndtaxlaw.internal', password: JSON.stringify(appSettings) });
       }
       if (!hasSysRoles) {
         toUpgradeInSupabase.push({ email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) });
+      }
+      if (!hasSysAdminProfile) {
+        const { password: _ap, ...safeAdmin } = adminAccount;
+        toUpgradeInSupabase.push({ email: '__sys_admin_profile__@ndtaxlaw.internal', password: JSON.stringify(safeAdmin) });
+      }
+      if (!hasSysStaffAccounts) {
+        toUpgradeInSupabase.push({ email: '__sys_staff_accounts__@ndtaxlaw.internal', password: JSON.stringify(staffAccounts) });
       }
       if (!hasSysActivityLogs) {
         toUpgradeInSupabase.push({ email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) });
@@ -2121,6 +2256,17 @@ export const syncFromSupabase = async () => {
         }
       }
 
+      // Ensure every Staff account has an encrypted password record in Supabase user_passwords
+      for (const s of staffAccounts) {
+        const sEmail = s.email.toLowerCase();
+        const existingInCloud = dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === sEmail);
+        if (!existingInCloud) {
+          const localEnc = userPasswords.get(sEmail) || encryptUserPassword('stafND2026!', 'staff');
+          userPasswords.set(sEmail, localEnc);
+          toUpgradeInSupabase.push({ email: sEmail, password: localEnc });
+        }
+      }
+
       // Ensure Admin has an encrypted password record in Supabase user_passwords
       const adminEmail = adminAccount.email.toLowerCase();
       if (!dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === adminEmail)) {
@@ -2131,7 +2277,7 @@ export const syncFromSupabase = async () => {
 
       if (toUpgradeInSupabase.length > 0) {
         await supabase.from('user_passwords').upsert(toUpgradeInSupabase);
-        console.log(`[Supabase Cloud] Sinkronisasi pengaturan, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
+        console.log(`[Supabase Cloud] Sinkronisasi pengaturan, profil admin, akun staf, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
       }
     }
 
@@ -2275,22 +2421,58 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   const normalizedEmail = (email || '').trim().toLowerCase();
   const isProd = isProductionMode();
 
-  // Sinkronisasi kredensial terbaru dari Supabase saat login
+  // Sinkronisasi kredensial, profil admin, dan akun staf terbaru dari Supabase saat login
   if (supabase) {
     try {
-      const { data: pwRow } = await supabase
+      const { data: sysRows } = await supabase
         .from('user_passwords')
         .select('*')
-        .ilike('email', normalizedEmail)
-        .maybeSingle();
-      if (pwRow && pwRow.email && pwRow.password) {
-        const defaultRole = pwRow.email.toLowerCase() === adminAccount.email.toLowerCase() ? 'admin' : 'mitra';
-        if (!isEncryptedPassword(pwRow.password)) {
-          const enc = encryptUserPassword(pwRow.password, defaultRole);
-          userPasswords.set(pwRow.email.toLowerCase(), enc);
-          await supabase.from('user_passwords').upsert([{ email: pwRow.email.toLowerCase(), password: enc }]);
-        } else {
-          userPasswords.set(pwRow.email.toLowerCase(), pwRow.password);
+        .in('email', [
+          '__sys_admin_profile__@ndtaxlaw.internal',
+          '__sys_staff_accounts__@ndtaxlaw.internal',
+          normalizedEmail,
+        ]);
+      if (Array.isArray(sysRows)) {
+        for (const r of sysRows) {
+          const emLow = (r.email || '').toLowerCase();
+          if (emLow === '__sys_admin_profile__@ndtaxlaw.internal' && r.password) {
+            try {
+              const parsedAdmin = JSON.parse(r.password);
+              if (parsedAdmin && typeof parsedAdmin === 'object') {
+                adminAccount = { ...adminAccount, ...parsedAdmin, role: 'admin' };
+              }
+            } catch {}
+          } else if (emLow === '__sys_staff_accounts__@ndtaxlaw.internal' && r.password) {
+            try {
+              const parsedStaff = JSON.parse(r.password);
+              if (Array.isArray(parsedStaff)) {
+                staffAccounts = parsedStaff.map((s: StaffMember) => ({
+                  ...s,
+                  allowedMenus:
+                    Array.isArray(s.allowedMenus) && s.allowedMenus.length > 0
+                      ? s.allowedMenus
+                      : [...DEFAULT_STAFF_ALLOWED_MENUS],
+                }));
+              }
+            } catch {}
+          }
+        }
+        const pwRow = sysRows.find((r) => (r.email || '').toLowerCase() === normalizedEmail);
+        if (pwRow && pwRow.email && pwRow.password) {
+          const isStaff = staffAccounts.some((s) => s.email.toLowerCase() === normalizedEmail);
+          const defaultRole =
+            normalizedEmail === adminAccount.email.toLowerCase()
+              ? 'admin'
+              : isStaff
+                ? 'staff'
+                : 'mitra';
+          if (!isEncryptedPassword(pwRow.password)) {
+            const enc = encryptUserPassword(pwRow.password, defaultRole);
+            userPasswords.set(normalizedEmail, enc);
+            await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: enc }]);
+          } else {
+            userPasswords.set(normalizedEmail, pwRow.password);
+          }
         }
       }
     } catch {}
@@ -2298,11 +2480,13 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
   // 1. Check Admin Login
   if (normalizedEmail === adminAccount.email.toLowerCase()) {
-    const storedAdminCred = userPasswords.get(adminAccount.email.toLowerCase()) || encryptUserPassword(adminAccount.password, 'admin');
+    const storedAdminCred =
+      userPasswords.get(adminAccount.email.toLowerCase()) ||
+      encryptUserPassword(adminAccount.password, 'admin');
     const verifyRes = verifyUserPassword(password, storedAdminCred, 'admin');
 
     if (verifyRes.valid) {
-      const roleDef = getRoleDefinition(verifyRes.role || 'admin');
+      const roleDef = getRoleDefinition('admin');
       recordActivity({
         actorRole: 'admin',
         actorId: adminAccount.id,
@@ -2321,20 +2505,119 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           id: adminAccount.id,
           name: adminAccount.name,
           email: adminAccount.email,
-          role: roleDef.portalView,
-          roleCode: roleDef.code,
+          phone: adminAccount.phone || '0812-8899-7711',
+          position: adminAccount.position || 'Super Administrator Operasional',
+          role: 'admin',
+          roleCode: 'admin',
           roleName: roleDef.name,
-          portalView: roleDef.portalView,
-          defaultTab: roleDef.defaultTab,
-          allowedTabs: roleDef.allowedTabs,
+          portalView: 'admin',
+          defaultTab: 'dashboard',
+          allowedTabs: [
+            'dashboard',
+            'admin-operations',
+            'verification',
+            'activity-logs',
+            'marketing-tools',
+            'commissions',
+            'staff-management',
+            'ai-reports',
+            'idcard',
+          ],
           permissions: roleDef.permissions,
-          gender: 'male',
-          avatarUrl: adminAccount.avatarUrl,
+          gender: adminAccount.gender || 'male',
+          avatarUrl: resolveAvatarUrl(adminAccount.avatarUrl, adminAccount.gender || 'male', adminAccount.name),
         },
         environment: appSettings.appEnvironment,
       });
     }
     return res.status(401).json({ success: false, message: 'Kata sandi admin tidak valid.' });
+  }
+
+  // 1.5 Check Staff Login (Role di bawah Admin)
+  const staffMember = staffAccounts.find((s) => s.email.toLowerCase() === normalizedEmail);
+  if (staffMember) {
+    if (!staffMember.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akun Staf Anda sedang dinonaktifkan oleh Admin. Silakan hubungi Administrator.',
+      });
+    }
+
+    const storedStaffCred =
+      userPasswords.get(normalizedEmail) || encryptUserPassword('stafND2026!', 'staff');
+    const verifyRes = verifyUserPassword(password, storedStaffCred, 'staff');
+    const isStaffPassValid = isProd ? verifyRes.valid : verifyRes.valid || password === 'stafND2026!';
+
+    if (isStaffPassValid) {
+      if (verifyRes.needsUpgrade) {
+        const upgraded = encryptUserPassword(password, 'staff');
+        userPasswords.set(normalizedEmail, upgraded);
+        if (supabase) {
+          try {
+            await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: upgraded }]);
+          } catch {}
+        }
+      }
+
+      const allowedMenus =
+        Array.isArray(staffMember.allowedMenus) && staffMember.allowedMenus.length > 0
+          ? staffMember.allowedMenus
+          : [...DEFAULT_STAFF_ALLOWED_MENUS];
+
+      // Derive navigation tabs allowed for this Staff (Activity & Email Logs are strictly excluded for Staff)
+      const staffNavTabs = ['dashboard', 'admin-operations', 'verification', 'marketing-tools', 'commissions'].filter(
+        (t) => allowedMenus.includes(t)
+      );
+      const effectiveAllowedTabs = [
+        ...(staffNavTabs.length > 0 ? staffNavTabs : ['dashboard']),
+        'idcard',
+        'ai-reports',
+      ];
+      const defaultStaffTab = staffNavTabs[0] || 'dashboard';
+      const resolvedStaffGender = staffMember.gender || inferGenderFromName(staffMember.name);
+      const resolvedStaffAvatar = resolveAvatarUrl(
+        staffMember.avatarUrl,
+        resolvedStaffGender,
+        staffMember.name
+      );
+
+      recordActivity({
+        actorRole: 'staff',
+        actorId: staffMember.id,
+        actorName: staffMember.name,
+        actorEmail: staffMember.email,
+        actionType: 'login',
+        operation: 'LOGIN',
+        targetEntity: 'Autentikasi Staf',
+        description: `Staf Operasional "${staffMember.name}" (${staffMember.email}) berhasil login ke Panel Operasional.`,
+      });
+      saveDatabase();
+
+      return res.json({
+        success: true,
+        user: {
+          id: staffMember.id,
+          staffId: staffMember.id,
+          name: staffMember.name,
+          email: staffMember.email,
+          phone: staffMember.phone,
+          position: staffMember.position,
+          role: 'admin',
+          roleCode: 'staff',
+          roleName: staffMember.position || 'Staf Operasional',
+          portalView: 'admin',
+          defaultTab: defaultStaffTab,
+          allowedTabs: effectiveAllowedTabs,
+          allowedMenus,
+          permissions: ['staff_access', ...allowedMenus],
+          gender: resolvedStaffGender,
+          avatarUrl: resolvedStaffAvatar,
+        },
+        environment: appSettings.appEnvironment,
+      });
+    }
+
+    return res.status(401).json({ success: false, message: 'Kata sandi akun Staf tidak valid.' });
   }
 
   // 2. Check Mitra Login (Dalam mode Production, WAJIB mengecek langsung ke tabel mitras di Supabase)
@@ -2440,6 +2723,358 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   });
 });
 
+// ========================================================
+// ADMIN PROFILE & STAFF MANAGEMENT ENDPOINTS
+// ========================================================
+const persistAdminAndStaffToCloud = async () => {
+  saveDatabase();
+  if (supabase) {
+    try {
+      const { password: _ap, ...safeAdmin } = adminAccount;
+      await supabase.from('user_passwords').upsert([
+        { email: '__sys_admin_profile__@ndtaxlaw.internal', password: JSON.stringify(safeAdmin) },
+        { email: '__sys_staff_accounts__@ndtaxlaw.internal', password: JSON.stringify(staffAccounts) },
+      ]);
+    } catch (e) {
+      console.warn('Supabase admin/staff sync warning:', e);
+    }
+  }
+};
+
+app.get('/api/admin/profile', async (req: Request, res: Response) => {
+  const { password: _ap, ...safeAdmin } = adminAccount;
+  res.json({
+    success: true,
+    data: {
+      admin: {
+        ...safeAdmin,
+        avatarUrl: resolveAvatarUrl(safeAdmin.avatarUrl, safeAdmin.gender || 'male', safeAdmin.name),
+      },
+      staffList: staffAccounts.map((s) => ({
+        ...s,
+        avatarUrl: resolveAvatarUrl(s.avatarUrl, s.gender || 'female', s.name),
+      })),
+    },
+  });
+});
+
+app.put('/api/admin/profile', async (req: Request, res: Response) => {
+  const { name, email, phone, position, gender, avatarUrl, newPassword } = req.body;
+  const oldEmailLower = adminAccount.email.toLowerCase();
+  const nextEmailLower = email ? String(email).trim().toLowerCase() : oldEmailLower;
+
+  if (!nextEmailLower || !nextEmailLower.includes('@')) {
+    return res.status(400).json({ success: false, message: 'Format email Admin tidak valid.' });
+  }
+
+  if (
+    nextEmailLower !== oldEmailLower &&
+    (staffAccounts.some((s) => s.email.toLowerCase() === nextEmailLower) ||
+      mitras.some((m) => m.email.toLowerCase() === nextEmailLower))
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: `Email "${nextEmailLower}" sudah digunakan oleh akun Staf atau Mitra lain.`,
+    });
+  }
+
+  if (name) adminAccount.name = String(name).trim();
+  if (phone !== undefined) adminAccount.phone = String(phone).trim();
+  if (position !== undefined) adminAccount.position = String(position).trim();
+  if (gender === 'male' || gender === 'female') adminAccount.gender = gender;
+  if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim().length > 0) {
+    adminAccount.avatarUrl = avatarUrl.trim();
+  } else if (gender === 'male' || gender === 'female') {
+    adminAccount.avatarUrl = getDefaultAvatar(gender, adminAccount.name);
+  }
+
+  const prevStoredEnc =
+    userPasswords.get(oldEmailLower) || encryptUserPassword(adminAccount.password, 'admin');
+
+  if (nextEmailLower !== oldEmailLower) {
+    userPasswords.delete(oldEmailLower);
+    adminAccount.email = nextEmailLower;
+    if (supabase) {
+      try {
+        await supabase.from('user_passwords').delete().ilike('email', oldEmailLower);
+      } catch {}
+    }
+  }
+
+  if (newPassword && String(newPassword).trim().length >= 6) {
+    const cleanNewPass = String(newPassword).trim();
+    adminAccount.password = cleanNewPass;
+    const encryptedPass = encryptUserPassword(cleanNewPass, 'admin');
+    userPasswords.set(nextEmailLower, encryptedPass);
+    if (supabase) {
+      try {
+        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPass }]);
+      } catch {}
+    }
+  } else {
+    const reEncrypted = encryptUserPassword(prevStoredEnc, 'admin');
+    userPasswords.set(nextEmailLower, reEncrypted);
+    if (supabase) {
+      try {
+        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: reEncrypted }]);
+      } catch {}
+    }
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'profile_update',
+    operation: 'UPDATE',
+    targetEntity: 'Profil & Keamanan Admin',
+    description: `Admin memperbarui data profil (${adminAccount.name} - ${adminAccount.email})${newPassword ? ' beserta kata sandi akun Admin.' : '.'}`,
+  });
+
+  await persistAdminAndStaffToCloud();
+
+  const { password: _ap, ...safeAdmin } = adminAccount;
+  res.json({
+    success: true,
+    message: 'Data profil dan keamanan Admin berhasil diperbarui!',
+    data: {
+      ...safeAdmin,
+      avatarUrl: resolveAvatarUrl(safeAdmin.avatarUrl, safeAdmin.gender || 'male', safeAdmin.name),
+    },
+  });
+});
+
+app.get('/api/staff', async (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: staffAccounts.map((s) => ({
+      ...s,
+      avatarUrl: resolveAvatarUrl(s.avatarUrl, s.gender || 'female', s.name),
+    })),
+  });
+});
+
+app.post('/api/staff', async (req: Request, res: Response) => {
+  const { name, email, phone, position, gender, avatarUrl, password, allowedMenus, isActive } = req.body;
+  const cleanName = (name || '').trim();
+  const cleanEmail = (email || '').trim().toLowerCase();
+
+  if (!cleanName || !cleanEmail || !cleanEmail.includes('@')) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nama lengkap dan alamat email Staf wajib diisi dengan benar.',
+    });
+  }
+
+  if (
+    cleanEmail === adminAccount.email.toLowerCase() ||
+    staffAccounts.some((s) => s.email.toLowerCase() === cleanEmail) ||
+    mitras.some((m) => m.email.toLowerCase() === cleanEmail)
+  ) {
+    return res.status(409).json({
+      success: false,
+      message: `Email "${cleanEmail}" sudah terdaftar pada sistem. Gunakan alamat email lain.`,
+    });
+  }
+
+  const resolvedGender: 'male' | 'female' =
+    gender === 'female' ? 'female' : gender === 'male' ? 'male' : inferGenderFromName(cleanName);
+  const resolvedAvatar =
+    avatarUrl && String(avatarUrl).trim().length > 0
+      ? String(avatarUrl).trim()
+      : getDefaultAvatar(resolvedGender, cleanName);
+
+  const validMenus =
+    Array.isArray(allowedMenus) && allowedMenus.length > 0
+      ? allowedMenus
+      : [...DEFAULT_STAFF_ALLOWED_MENUS];
+
+  const newStaff: StaffMember = {
+    id: `staff-${Date.now()}`,
+    name: cleanName,
+    email: cleanEmail,
+    phone: (phone || '').trim() || '-',
+    position: (position || '').trim() || 'Staf Operasional',
+    gender: resolvedGender,
+    avatarUrl: resolvedAvatar,
+    isActive: isActive !== false,
+    allowedMenus: validMenus,
+    createdAt: new Date().toISOString().split('T')[0],
+  };
+
+  staffAccounts.unshift(newStaff);
+
+  const encryptedPass = encryptUserPassword(
+    password && String(password).trim().length >= 6 ? String(password).trim() : 'stafND2026!',
+    'staff'
+  );
+  userPasswords.set(cleanEmail, encryptedPass);
+
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').upsert([{ email: cleanEmail, password: encryptedPass }]);
+    } catch {}
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'register',
+    operation: 'CREATE',
+    targetEntity: 'Manajemen Staf',
+    description: `Admin menambahkan akun Staf baru "${newStaff.name}" (${newStaff.email}) dengan jabatan "${newStaff.position}".`,
+  });
+
+  await persistAdminAndStaffToCloud();
+
+  res.status(201).json({
+    success: true,
+    message: `Akun Staf "${newStaff.name}" berhasil ditambahkan!`,
+    data: newStaff,
+  });
+});
+
+app.put('/api/staff/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const staff = staffAccounts.find((s) => s.id === id);
+  if (!staff) {
+    return res.status(404).json({ success: false, message: 'Data Staf tidak ditemukan.' });
+  }
+
+  const { name, email, phone, position, gender, avatarUrl, newPassword, allowedMenus, isActive, actorRole } =
+    req.body;
+  const oldEmailLower = staff.email.toLowerCase();
+  const nextEmailLower = email ? String(email).trim().toLowerCase() : oldEmailLower;
+
+  if (!nextEmailLower || !nextEmailLower.includes('@')) {
+    return res.status(400).json({ success: false, message: 'Format email Staf tidak valid.' });
+  }
+
+  if (
+    nextEmailLower !== oldEmailLower &&
+    (nextEmailLower === adminAccount.email.toLowerCase() ||
+      staffAccounts.some((s) => s.id !== id && s.email.toLowerCase() === nextEmailLower) ||
+      mitras.some((m) => m.email.toLowerCase() === nextEmailLower))
+  ) {
+    return res.status(409).json({
+      success: false,
+      message: `Email "${nextEmailLower}" sudah digunakan oleh pengguna lain.`,
+    });
+  }
+
+  if (name) staff.name = String(name).trim();
+  if (phone !== undefined) staff.phone = String(phone).trim();
+  if (position !== undefined) staff.position = String(position).trim();
+  if (gender === 'male' || gender === 'female') staff.gender = gender;
+  if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim().length > 0) {
+    staff.avatarUrl = avatarUrl.trim();
+  } else if (gender === 'male' || gender === 'female') {
+    staff.avatarUrl = getDefaultAvatar(gender, staff.name);
+  }
+  if (Array.isArray(allowedMenus)) {
+    staff.allowedMenus = allowedMenus;
+  }
+  if (isActive !== undefined) {
+    staff.isActive = Boolean(isActive);
+  }
+  staff.updatedAt = new Date().toISOString().split('T')[0];
+
+  const prevStoredEnc =
+    userPasswords.get(oldEmailLower) || encryptUserPassword('stafND2026!', 'staff');
+
+  if (nextEmailLower !== oldEmailLower) {
+    userPasswords.delete(oldEmailLower);
+    staff.email = nextEmailLower;
+    if (supabase) {
+      try {
+        await supabase.from('user_passwords').delete().ilike('email', oldEmailLower);
+      } catch {}
+    }
+  }
+
+  if (newPassword && String(newPassword).trim().length >= 6) {
+    const encryptedPass = encryptUserPassword(String(newPassword).trim(), 'staff');
+    userPasswords.set(nextEmailLower, encryptedPass);
+    if (supabase) {
+      try {
+        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPass }]);
+      } catch {}
+    }
+  } else {
+    const reEncrypted = encryptUserPassword(prevStoredEnc, 'staff');
+    userPasswords.set(nextEmailLower, reEncrypted);
+    if (supabase) {
+      try {
+        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: reEncrypted }]);
+      } catch {}
+    }
+  }
+
+  recordActivity({
+    actorRole: actorRole === 'staff' ? 'staff' : 'admin',
+    actorId: actorRole === 'staff' ? staff.id : adminAccount.id,
+    actorName: actorRole === 'staff' ? staff.name : adminAccount.name,
+    actorEmail: actorRole === 'staff' ? staff.email : adminAccount.email,
+    actionType: 'profile_update',
+    operation: 'UPDATE',
+    targetEntity: 'Data & Hak Akses Staf',
+    description:
+      actorRole === 'staff'
+        ? `Staf "${staff.name}" (${staff.email}) memperbarui profil akunnya${newPassword ? ' beserta kata sandi.' : '.'}`
+        : `Admin memperbarui data / hak akses menu Staf "${staff.name}" (${staff.email}).`,
+  });
+
+  await persistAdminAndStaffToCloud();
+
+  res.json({
+    success: true,
+    message: 'Data dan konfigurasi akun Staf berhasil diperbarui!',
+    data: {
+      ...staff,
+      avatarUrl: resolveAvatarUrl(staff.avatarUrl, staff.gender || 'female', staff.name),
+    },
+  });
+});
+
+app.delete('/api/staff/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const target = staffAccounts.find((s) => s.id === id);
+  if (!target) {
+    return res.status(404).json({ success: false, message: 'Data Staf tidak ditemukan.' });
+  }
+
+  const emailLower = target.email.toLowerCase();
+  staffAccounts = staffAccounts.filter((s) => s.id !== id);
+  userPasswords.delete(emailLower);
+
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').delete().ilike('email', emailLower);
+    } catch {}
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'profile_update',
+    operation: 'DELETE',
+    targetEntity: 'Manajemen Staf',
+    description: `Admin menghapus akun Staf "${target.name}" (${target.email}).`,
+  });
+
+  await persistAdminAndStaffToCloud();
+
+  res.json({
+    success: true,
+    message: `Akun Staf "${target.name}" berhasil dihapus.`,
+  });
+});
+
 app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   const { email } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
@@ -2452,9 +3087,10 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   }
 
   const isAdmin = normalizedEmail === adminAccount.email.toLowerCase();
+  const staff = staffAccounts.find((s) => s.email.toLowerCase() === normalizedEmail);
   const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
 
-  if (!isAdmin && !mitra) {
+  if (!isAdmin && !staff && !mitra) {
     return res.status(404).json({
       success: false,
       message: 'Email tidak terdaftar di database sistem NDTAXANDLAW.',
@@ -2467,7 +3103,13 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
     expiresAt: Date.now() + 30 * 60 * 1000,
   });
 
-  const recipientName = isAdmin ? adminAccount.name : (mitra ? mitra.fullName : 'Pengguna NDTAXANDLAW');
+  const recipientName = isAdmin
+    ? adminAccount.name
+    : staff
+      ? staff.name
+      : mitra
+        ? mitra.fullName
+        : 'Pengguna NDTAXANDLAW';
 
   const emailResult = await sendSystemEmail({
     recipient: normalizedEmail,
@@ -2506,17 +3148,27 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
     passwordResetTokens.delete(normalizedEmail);
   }
 
-  const existingRole = normalizedEmail === adminAccount.email.toLowerCase()
-    ? 'admin'
-    : extractUserRole(userPasswords.get(normalizedEmail), 'mitra');
+  const isStaff = staffAccounts.some((s) => s.email.toLowerCase() === normalizedEmail);
+  const existingRole =
+    normalizedEmail === adminAccount.email.toLowerCase()
+      ? 'admin'
+      : isStaff
+        ? 'staff'
+        : extractUserRole(userPasswords.get(normalizedEmail), 'mitra');
   const encryptedPassword = encryptUserPassword(newPassword, existingRole);
 
   userPasswords.set(normalizedEmail, encryptedPassword);
+  const staff = staffAccounts.find((s) => s.email.toLowerCase() === normalizedEmail);
   const mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
   recordActivity({
-    actorRole: normalizedEmail === adminAccount.email.toLowerCase() ? 'admin' : 'mitra',
-    actorId: mitra?.id || 'admin-01',
-    actorName: mitra?.fullName || adminAccount.name,
+    actorRole:
+      normalizedEmail === adminAccount.email.toLowerCase()
+        ? 'admin'
+        : isStaff
+          ? 'staff'
+          : 'mitra',
+    actorId: mitra?.id || staff?.id || 'admin-01',
+    actorName: mitra?.fullName || staff?.name || adminAccount.name,
     actorEmail: normalizedEmail,
     actionType: 'password_reset',
     operation: 'UPDATE',
@@ -2703,6 +3355,65 @@ app.get('/api/mitra', async (req: Request, res: Response) => {
   }
   mitras = normalizeMitraAvatars(mitras);
   res.json({ success: true, data: mitras });
+});
+
+// Endpoint Verifikasi Publik Kartu Identitas Mitra (Hasil Scan QR Code)
+app.get('/api/mitra/public-verify/:code', async (req: Request, res: Response) => {
+  const rawCode = String(req.params.code || '').trim();
+  if (!rawCode) {
+    return res.status(404).json({
+      success: false,
+      verified: false,
+      message: 'Informasi data mitra tidak ditemukan.',
+    });
+  }
+
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('mitras').select('*');
+      if (Array.isArray(data)) {
+        mitras = normalizeMitraAvatars(data);
+      }
+    } catch {}
+  }
+
+  const normalizedQuery = rawCode.toUpperCase();
+  const matched = mitras.find(
+    (m) =>
+      (m.memberCode || '').trim().toUpperCase() === normalizedQuery ||
+      (m.referralCode || '').trim().toUpperCase() === normalizedQuery ||
+      (m.id || '').trim().toUpperCase() === normalizedQuery
+  );
+
+  if (!matched || matched.status !== 'verified') {
+    return res.status(404).json({
+      success: false,
+      verified: false,
+      message: 'Informasi Data Mitra Tidak Ditemukan atau Belum Terverifikasi Resmi.',
+    });
+  }
+
+  return res.json({
+    success: true,
+    verified: true,
+    data: {
+      id: matched.id,
+      memberCode: matched.memberCode,
+      referralCode: matched.referralCode,
+      fullName: matched.fullName,
+      specialization: matched.specialization,
+      joinedDate: matched.joinedDate,
+      avatarUrl: matched.avatarUrl,
+      gender: matched.gender || 'male',
+      status: 'verified',
+      firmName: appSettings.firmName || 'NDTAXANDLAW',
+      supportPhone: appSettings.supportPhone || '0812-8899-7711',
+      supportEmail: appSettings.supportEmail || 'advisory@ndtaxlaw.com',
+      officeAddress:
+        appSettings.officeAddress ||
+        'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
+    },
+  });
 });
 
 app.post('/api/mitra/register', async (req: Request, res: Response) => {
@@ -3538,11 +4249,30 @@ app.post('/api/clients', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
+      const { data: supaSettings } = await supabase
+        .from('app_settings')
+        .select('*')
+        .eq('id', 'config_primary')
+        .maybeSingle();
+      if (supaSettings?.settings) {
+        appSettings = { ...appSettings, ...supaSettings.settings };
+      }
+    } catch {}
+    try {
       const { data: supaMitras } = await supabase.from('mitras').select('*');
       if (Array.isArray(supaMitras)) {
         mitras = normalizeMitraAvatars(supaMitras);
       }
     } catch {}
+  }
+
+  // Tolak jika pendaftaran mandiri klien (submittedBy === 'client_self') tetapi fitur allowClientSelfRegister dinonaktifkan Admin
+  if (req.body.submittedBy === 'client_self' && appSettings.allowClientSelfRegister === false) {
+    return res.status(403).json({
+      success: false,
+      message:
+        'Pendaftaran Mandiri Klien melalui Tautan Referral saat ini sedang dinonaktifkan oleh Administrator.',
+    });
   }
 
   const mitra = mitras.find((m) => m.id === mitraId || m.referralCode === req.body.referralCode);

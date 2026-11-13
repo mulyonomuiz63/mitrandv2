@@ -632,9 +632,25 @@ export const AuthView: React.FC<AuthViewProps> = ({
                           ADM
                         </div>
                         <div className="overflow-hidden">
-                          <p className="font-bold text-slate-900 truncate">Admin Operasional</p>
+                          <p className="font-bold text-slate-900 truncate">Admin Utama</p>
                           <p className="text-[10px] text-slate-500 font-mono">admin@ndtaxlaw.com</p>
-                          <p className="text-[9px] text-blue-800 font-semibold mt-0.5">Akses: Manajemen Seluruh Sistem</p>
+                          <p className="text-[9px] text-blue-800 font-semibold mt-0.5">Akses: Penuh + Kelola Staf &amp; Log</p>
+                        </div>
+                      </button>
+
+                      {/* Staff Sample */}
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('staf@ndtaxlaw.com', 'stafND2026!')}
+                        className="p-2.5 rounded-xl border border-indigo-200 bg-indigo-50/60 hover:bg-indigo-100 text-left transition-colors flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
+                          STF
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="font-bold text-slate-900 truncate">Staf Operasional</p>
+                          <p className="text-[10px] text-slate-500 font-mono">staf@ndtaxlaw.com</p>
+                          <p className="text-[9px] text-indigo-800 font-semibold mt-0.5">Akses: Operasional (Di Bawah Admin)</p>
                         </div>
                       </button>
 
