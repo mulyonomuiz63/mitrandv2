@@ -460,12 +460,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
               </div>
             </div>
           </div>
-
-          {/* Bottom Security Footer */}
-          <div className="relative z-10 pt-4 border-t border-white/10 text-[10px] text-slate-400 flex items-center justify-between">
-            <span>Enkripsi 256-Bit</span>
-            <span>Versi Portal 2.4-PRO</span>
-          </div>
         </div>
 
         {/* Right Column: Auth Forms (7 cols on lg) */}
