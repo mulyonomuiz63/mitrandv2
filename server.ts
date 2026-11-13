@@ -17,7 +17,134 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json({ limit: '10mb' }));
+// 1. Disable Express fingerprinting header
+app.disable('x-powered-by');
+
+// 2. Enterprise HTTP Security Headers (Defense against XSS, MIME-Sniffing, Clickjacking & Data Injection)
+app.use((req: Request, res: Response, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss: ws:; object-src 'none'; base-uri 'self';"
+  );
+  next();
+});
+
+app.use(express.json({ limit: '5mb' }));
+
+// 3. Deep Input Sanitizer (Protects against XSS, Prototype Pollution, Null-Byte & SQL/PostgREST Injection)
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+const sanitizeStringValue = (input: string): string => {
+  return input
+    .replace(/\0/g, '') // Strip null bytes
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Strip <script> blocks
+    .replace(/javascript\s*:/gi, 'blocked:') // Block javascript: URI scheme
+    .replace(/vbscript\s*:/gi, 'blocked:') // Block vbscript: URI scheme
+    .replace(/\bon(error|load|click|mouseover|focus|blur|submit|change|keyup|keydown)\s*=/gi, 'data-blocked-event=');
+};
+
+const sanitizePayloadDeep = (value: any, depth = 0): any => {
+  if (depth > 12 || value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    return sanitizeStringValue(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePayloadDeep(item, depth + 1));
+  }
+  if (typeof value === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (DANGEROUS_KEYS.has(key)) continue;
+      cleaned[key] = sanitizePayloadDeep(val, depth + 1);
+    }
+    return cleaned;
+  }
+  return value;
+};
+
+export const sanitizeSqlIdentifier = (raw: string): string => {
+  return String(raw || '')
+    .replace(/[\0;'"\\`]|--|\/\*|\*\//g, '')
+    .trim();
+};
+
+export const escapeHtml = (unsafe: string): string => {
+  return String(unsafe || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
+export const safeTimingCompare = (a: string, b: string): boolean => {
+  const bufA = Buffer.from(String(a || ''), 'utf8');
+  const bufB = Buffer.from(String(b || ''), 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+};
+
+// 4. In-Memory Rate Limiter (Protects API & Auth Endpoints from Brute-Force / DDoS)
+interface RateLimitBucket {
+  count: number;
+  resetAt: number;
+}
+const apiRateBuckets = new Map<string, RateLimitBucket>();
+const authRateBuckets = new Map<string, RateLimitBucket>();
+
+const getClientIp = (req: Request): string => {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) {
+    return xff.split(',')[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+};
+
+const consumeRateLimit = (
+  store: Map<string, RateLimitBucket>,
+  key: string,
+  maxRequests: number,
+  windowMs: number
+): { allowed: boolean; retryAfterSec: number } => {
+  const now = Date.now();
+  const existing = store.get(key);
+  if (!existing || now > existing.resetAt) {
+    store.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  existing.count += 1;
+  if (existing.count > maxRequests) {
+    return {
+      allowed: false,
+      retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
+    };
+  }
+  return { allowed: true, retryAfterSec: 0 };
+};
+
+app.use('/api', (req: Request, res: Response, next) => {
+  if (req.body && typeof req.body === 'object') {
+    req.body = sanitizePayloadDeep(req.body);
+  }
+  if (req.params && typeof req.params === 'object') {
+    req.params = sanitizePayloadDeep(req.params);
+  }
+
+  const clientIp = getClientIp(req);
+  const generalCheck = consumeRateLimit(apiRateBuckets, clientIp, 300, 60 * 1000);
+  if (!generalCheck.allowed) {
+    res.setHeader('Retry-After', String(generalCheck.retryAfterSec));
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak permintaan dari jaringan Anda. Silakan tunggu ${generalCheck.retryAfterSec} detik sebelum mencoba kembali.`,
+    });
+  }
+  next();
+});
 
 // Initialize GoogleGenAI
 const ai = new GoogleGenAI({
@@ -1163,27 +1290,36 @@ export const recordActivity = (params: {
   return newItem;
 };
 
-// Build Professional HTML Email Template
+// Build Professional HTML Email Template (Protected with HTML Entity Escaping against XSS/HTML Injection)
 const buildEmailHtml = (subject: string, recipientName: string, snippet: string) => {
+  const safeFirmName = escapeHtml(appSettings.firmName || 'NDTAXANDLAW');
+  const safeTagline = escapeHtml(appSettings.tagline || 'Tax & Legal Advisory Portal');
+  const safeRecipient = escapeHtml(recipientName || 'Mitra NDTAXANDLAW');
+  const safeSubject = escapeHtml(subject);
+  const safeSnippetHtml = escapeHtml(snippet).replace(/\n/g, '<br/>');
+  const safePhone = escapeHtml(appSettings.supportPhone || '');
+  const safeSupportEmail = escapeHtml(appSettings.supportEmail || '');
+  const safeAddress = escapeHtml(appSettings.officeAddress || '');
+
   return `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 24px; border-radius: 12px; border: 1px solid #e2e8f0;">
       <div style="background: linear-gradient(135deg, #092147 0%, #113872 100%); padding: 20px 24px; border-radius: 10px 10px 0 0; color: #ffffff;">
-        <h2 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">${appSettings.firmName || 'NDTAXANDLAW'}</h2>
-        <p style="margin: 4px 0 0; font-size: 12px; color: #fcd34d;">${appSettings.tagline || 'Tax & Legal Advisory Portal'}</p>
+        <h2 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">${safeFirmName}</h2>
+        <p style="margin: 4px 0 0; font-size: 12px; color: #fcd34d;">${safeTagline}</p>
       </div>
       <div style="background-color: #ffffff; padding: 24px; border-radius: 0 0 10px 10px; border: 1px solid #e2e8f0; border-top: none; color: #1e293b;">
-        <p style="margin-top: 0; font-size: 14px;">Yth. <strong>${recipientName || 'Mitra NDTAXANDLAW'}</strong>,</p>
-        <h3 style="font-size: 15px; color: #0f172a; margin-bottom: 12px;">${subject}</h3>
+        <p style="margin-top: 0; font-size: 14px;">Yth. <strong>${safeRecipient}</strong>,</p>
+        <h3 style="font-size: 15px; color: #0f172a; margin-bottom: 12px;">${safeSubject}</h3>
         <div style="background-color: #f1f5f9; border-left: 4px solid #1d4ed8; padding: 16px; border-radius: 6px; font-size: 14px; line-height: 1.6; color: #334155;">
-          ${snippet.replace(/\n/g, '<br/>')}
+          ${safeSnippetHtml}
         </div>
         <p style="font-size: 12px; color: #64748b; margin-top: 20px;">
-          Jika Anda memiliki pertanyaan, silakan hubungi tim operasional kami melalui WhatsApp di <strong>${appSettings.supportPhone}</strong> atau balas email ini ke <strong>${appSettings.supportEmail}</strong>.
+          Jika Anda memiliki pertanyaan, silakan hubungi tim operasional kami melalui WhatsApp di <strong>${safePhone}</strong> atau balas email ini ke <strong>${safeSupportEmail}</strong>.
         </p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
         <p style="font-size: 11px; color: #94a3b8; margin: 0;">
-          Email ini dikirim secara otomatis oleh Sistem Portal Kemitraan ${appSettings.firmName}.<br/>
-          ${appSettings.officeAddress}
+          Email ini dikirim secara otomatis oleh Sistem Portal Kemitraan ${safeFirmName}.<br/>
+          ${safeAddress}
         </p>
       </div>
     </div>
@@ -1712,8 +1848,8 @@ const userPasswords = new Map<string, string>([
   ['rian.pratama@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
 ]);
 
-// Store password reset OTP tokens in memory
-const passwordResetTokens = new Map<string, { otp: string; expiresAt: number }>();
+// Store password reset OTP tokens in memory with attempt counter against brute-force
+const passwordResetTokens = new Map<string, { otp: string; expiresAt: number; attempts: number }>();
 
 export const isProductionMode = (): boolean => {
   return (
@@ -2418,8 +2554,26 @@ app.put('/api/roles/:code', async (req: Request, res: Response) => {
 
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  const normalizedEmail = (email || '').trim().toLowerCase();
+  const normalizedEmail = sanitizeSqlIdentifier((email || '').trim().toLowerCase());
   const isProd = isProductionMode();
+
+  if (!normalizedEmail || !password || typeof password !== 'string') {
+    return res.status(400).json({
+      success: false,
+      message: 'Email/ID Anggota dan kata sandi wajib diisi.',
+    });
+  }
+
+  // Brute-force login protection per IP + target account (Max 12 attempts per 10 minutes)
+  const loginRateKey = `login:${getClientIp(req)}:${normalizedEmail}`;
+  const loginRate = consumeRateLimit(authRateBuckets, loginRateKey, 12, 10 * 60 * 1000);
+  if (!loginRate.allowed) {
+    res.setHeader('Retry-After', String(loginRate.retryAfterSec));
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak percobaan login yang gagal. Akun dikunci sementara selama ${loginRate.retryAfterSec} detik demi keamanan.`,
+    });
+  }
 
   // Sinkronisasi kredensial, profil admin, dan akun staf terbaru dari Supabase saat login
   if (supabase) {
@@ -2796,7 +2950,7 @@ app.put('/api/admin/profile', async (req: Request, res: Response) => {
     adminAccount.email = nextEmailLower;
     if (supabase) {
       try {
-        await supabase.from('user_passwords').delete().ilike('email', oldEmailLower);
+        await supabase.from('user_passwords').delete().eq('email', oldEmailLower);
       } catch {}
     }
   }
@@ -2990,7 +3144,7 @@ app.put('/api/staff/:id', async (req: Request, res: Response) => {
     staff.email = nextEmailLower;
     if (supabase) {
       try {
-        await supabase.from('user_passwords').delete().ilike('email', oldEmailLower);
+        await supabase.from('user_passwords').delete().eq('email', oldEmailLower);
       } catch {}
     }
   }
@@ -3052,7 +3206,7 @@ app.delete('/api/staff/:id', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('user_passwords').delete().ilike('email', emailLower);
+      await supabase.from('user_passwords').delete().eq('email', emailLower);
     } catch {}
   }
 
@@ -3077,7 +3231,20 @@ app.delete('/api/staff/:id', async (req: Request, res: Response) => {
 
 app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   const { email } = req.body;
-  const normalizedEmail = (email || '').trim().toLowerCase();
+  const normalizedEmail = sanitizeSqlIdentifier((email || '').trim().toLowerCase());
+
+  const otpReqRate = consumeRateLimit(
+    authRateBuckets,
+    `forgot:${getClientIp(req)}:${normalizedEmail}`,
+    5,
+    10 * 60 * 1000
+  );
+  if (!otpReqRate.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak permintaan kode OTP. Silakan tunggu ${otpReqRate.retryAfterSec} detik.`,
+    });
+  }
 
   if (supabase) {
     try {
@@ -3097,10 +3264,11 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
     });
   }
 
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpCode = crypto.randomInt(100000, 999999).toString();
   passwordResetTokens.set(normalizedEmail, {
     otp: otpCode,
     expiresAt: Date.now() + 30 * 60 * 1000,
+    attempts: 0,
   });
 
   const recipientName = isAdmin
@@ -3134,19 +3302,45 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
 
 app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   const { email, otpCode, newPassword } = req.body;
-  const normalizedEmail = (email || '').trim().toLowerCase();
+  const normalizedEmail = sanitizeSqlIdentifier((email || '').trim().toLowerCase());
+  const cleanOtp = String(otpCode || '').trim();
 
-  if (!newPassword || newPassword.length < 6) {
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
     return res.status(400).json({ success: false, message: 'Kata sandi minimal 6 karakter.' });
   }
 
-  const storedToken = passwordResetTokens.get(normalizedEmail);
-  if (storedToken) {
-    if (otpCode && storedToken.otp !== String(otpCode).trim()) {
-      return res.status(400).json({ success: false, message: 'Kode OTP pemulihan tidak cocok. Silakan periksa kembali email Anda.' });
-    }
-    passwordResetTokens.delete(normalizedEmail);
+  if (!cleanOtp) {
+    return res.status(400).json({
+      success: false,
+      message: 'Kode OTP pemulihan 6-digit wajib diisi.',
+    });
   }
+
+  const storedToken = passwordResetTokens.get(normalizedEmail);
+  if (!storedToken || Date.now() > storedToken.expiresAt) {
+    passwordResetTokens.delete(normalizedEmail);
+    return res.status(400).json({
+      success: false,
+      message: 'Kode OTP tidak ditemukan atau sudah kedaluwarsa. Silakan minta kode OTP baru.',
+    });
+  }
+
+  if (!safeTimingCompare(storedToken.otp, cleanOtp)) {
+    storedToken.attempts += 1;
+    if (storedToken.attempts >= 5) {
+      passwordResetTokens.delete(normalizedEmail);
+      return res.status(429).json({
+        success: false,
+        message: 'Terlalu banyak percobaan OTP yang salah. Kode OTP telah hangus, silakan minta kode baru.',
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: 'Kode OTP pemulihan tidak cocok. Silakan periksa kembali email Anda.',
+    });
+  }
+
+  passwordResetTokens.delete(normalizedEmail);
 
   const isStaff = staffAccounts.some((s) => s.email.toLowerCase() === normalizedEmail);
   const existingRole =
@@ -3194,8 +3388,21 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
 // Endpoint: Verifikasi Email Mitra Baru (Token 6-Digit)
 app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
   const { email, token } = req.body;
-  const normalizedEmail = (email || '').trim().toLowerCase();
-  const inputToken = (token || '').trim();
+  const normalizedEmail = sanitizeSqlIdentifier((email || '').trim().toLowerCase());
+  const inputToken = String(token || '').trim();
+
+  const verifyRate = consumeRateLimit(
+    authRateBuckets,
+    `verify-email:${getClientIp(req)}:${normalizedEmail}`,
+    10,
+    10 * 60 * 1000
+  );
+  if (!verifyRate.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak percobaan verifikasi. Silakan tunggu ${verifyRate.retryAfterSec} detik.`,
+    });
+  }
 
   if (supabase) {
     try {
@@ -3213,7 +3420,18 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
     return res.json({ success: true, message: 'Email akun ini sudah terverifikasi sebelumnya. Anda dapat langsung masuk.' });
   }
 
-  const isTokenValid = Boolean(mitra.verificationToken && mitra.verificationToken === inputToken);
+  const isExpired =
+    mitra.verificationTokenExpiry && new Date(mitra.verificationTokenExpiry).getTime() < Date.now();
+  if (isExpired) {
+    return res.status(400).json({
+      success: false,
+      message: 'Kode verifikasi 6-digit telah kedaluwarsa. Silakan klik Kirim Ulang Kode Verifikasi.',
+    });
+  }
+
+  const isTokenValid = Boolean(
+    mitra.verificationToken && inputToken && safeTimingCompare(mitra.verificationToken, inputToken)
+  );
   if (!isTokenValid) {
     return res.status(400).json({
       success: false,
@@ -3331,6 +3549,10 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
 // ========================================================
 // 1. MITRA ENDPOINTS
 // ========================================================
+// Helper to strip internal OTP tokens before sending Mitra objects to clients
+const toPublicSafeMitraList = (list: Mitra[]) =>
+  list.map(({ verificationToken: _vt, verificationTokenExpiry: _vte, ...safeMitra }) => safeMitra);
+
 app.get('/api/mitra', async (req: Request, res: Response) => {
   if (supabase) {
     try {
@@ -3339,7 +3561,7 @@ app.get('/api/mitra', async (req: Request, res: Response) => {
         // LANGSUNG gunakan data dari Supabase tanpa merge lokal, sehingga jika data dihapus di Supabase otomatis hilang saat refresh!
         mitras = normalizeMitraAvatars(data);
         saveDatabase();
-        return res.json({ success: true, data: mitras });
+        return res.json({ success: true, data: toPublicSafeMitraList(mitras) });
       }
       if (isProductionMode() && error) {
         return res.status(503).json({ success: false, message: `Supabase Error: ${error.message}`, data: [] });
@@ -3354,7 +3576,7 @@ app.get('/api/mitra', async (req: Request, res: Response) => {
     return res.status(503).json({ success: false, message: 'Supabase wajib terhubung pada mode Production.', data: [] });
   }
   mitras = normalizeMitraAvatars(mitras);
-  res.json({ success: true, data: mitras });
+  res.json({ success: true, data: toPublicSafeMitraList(mitras) });
 });
 
 // Endpoint Verifikasi Publik Kartu Identitas Mitra (Hasil Scan QR Code)
@@ -5017,11 +5239,18 @@ app.get('/api/settings', async (req: Request, res: Response) => {
     }
     appSettings.clientFieldsInitialized = true;
   }
-  res.json({ success: true, data: appSettings, roles: systemRoles });
+  const clientSafeSettings: AppSettings = {
+    ...appSettings,
+    smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
+  };
+  res.json({ success: true, data: clientSafeSettings, roles: systemRoles });
 });
 
 app.put('/api/settings', async (req: Request, res: Response) => {
-  const updates = req.body;
+  const updates = { ...(req.body || {}) };
+  if (updates.smtpPassword === '••••••••••••••••') {
+    delete updates.smtpPassword;
+  }
   const previousEnv = appSettings.appEnvironment;
   appSettings = { ...appSettings, ...updates };
 
@@ -5063,7 +5292,11 @@ app.put('/api/settings', async (req: Request, res: Response) => {
     }
   }
 
-  res.json({ success: true, data: appSettings });
+  const clientSafeSettings: AppSettings = {
+    ...appSettings,
+    smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
+  };
+  res.json({ success: true, data: clientSafeSettings });
 });
 
 // 3.9 SMTP Email Server & Dispatch Log Endpoints

@@ -807,7 +807,96 @@ var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
 var app = express();
 var PORT = process.env.PORT || 3e3;
-app.use(express.json({ limit: "10mb" }));
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss: ws:; object-src 'none'; base-uri 'self';"
+  );
+  next();
+});
+app.use(express.json({ limit: "5mb" }));
+var DANGEROUS_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+var sanitizeStringValue = (input) => {
+  return input.replace(/\0/g, "").replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "").replace(/javascript\s*:/gi, "blocked:").replace(/vbscript\s*:/gi, "blocked:").replace(/\bon(error|load|click|mouseover|focus|blur|submit|change|keyup|keydown)\s*=/gi, "data-blocked-event=");
+};
+var sanitizePayloadDeep = (value, depth = 0) => {
+  if (depth > 12 || value === null || value === void 0) return value;
+  if (typeof value === "string") {
+    return sanitizeStringValue(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePayloadDeep(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const cleaned = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (DANGEROUS_KEYS.has(key)) continue;
+      cleaned[key] = sanitizePayloadDeep(val, depth + 1);
+    }
+    return cleaned;
+  }
+  return value;
+};
+var sanitizeSqlIdentifier = (raw) => {
+  return String(raw || "").replace(/[\0;'"\\`]|--|\/\*|\*\//g, "").trim();
+};
+var escapeHtml = (unsafe) => {
+  return String(unsafe || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+};
+var safeTimingCompare = (a, b) => {
+  const bufA = Buffer.from(String(a || ""), "utf8");
+  const bufB = Buffer.from(String(b || ""), "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+};
+var apiRateBuckets = /* @__PURE__ */ new Map();
+var authRateBuckets = /* @__PURE__ */ new Map();
+var getClientIp = (req) => {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.length > 0) {
+    return xff.split(",")[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || "unknown";
+};
+var consumeRateLimit = (store, key, maxRequests, windowMs) => {
+  const now = Date.now();
+  const existing = store.get(key);
+  if (!existing || now > existing.resetAt) {
+    store.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  existing.count += 1;
+  if (existing.count > maxRequests) {
+    return {
+      allowed: false,
+      retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1e3))
+    };
+  }
+  return { allowed: true, retryAfterSec: 0 };
+};
+app.use("/api", (req, res, next) => {
+  if (req.body && typeof req.body === "object") {
+    req.body = sanitizePayloadDeep(req.body);
+  }
+  if (req.params && typeof req.params === "object") {
+    req.params = sanitizePayloadDeep(req.params);
+  }
+  const clientIp = getClientIp(req);
+  const generalCheck = consumeRateLimit(apiRateBuckets, clientIp, 300, 60 * 1e3);
+  if (!generalCheck.allowed) {
+    res.setHeader("Retry-After", String(generalCheck.retryAfterSec));
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak permintaan dari jaringan Anda. Silakan tunggu ${generalCheck.retryAfterSec} detik sebelum mencoba kembali.`
+    });
+  }
+  next();
+});
 var ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
   httpOptions: {
@@ -1650,25 +1739,33 @@ var recordActivity = (params) => {
   return newItem;
 };
 var buildEmailHtml = (subject, recipientName, snippet) => {
+  const safeFirmName = escapeHtml(appSettings.firmName || "NDTAXANDLAW");
+  const safeTagline = escapeHtml(appSettings.tagline || "Tax & Legal Advisory Portal");
+  const safeRecipient = escapeHtml(recipientName || "Mitra NDTAXANDLAW");
+  const safeSubject = escapeHtml(subject);
+  const safeSnippetHtml = escapeHtml(snippet).replace(/\n/g, "<br/>");
+  const safePhone = escapeHtml(appSettings.supportPhone || "");
+  const safeSupportEmail = escapeHtml(appSettings.supportEmail || "");
+  const safeAddress = escapeHtml(appSettings.officeAddress || "");
   return `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 24px; border-radius: 12px; border: 1px solid #e2e8f0;">
       <div style="background: linear-gradient(135deg, #092147 0%, #113872 100%); padding: 20px 24px; border-radius: 10px 10px 0 0; color: #ffffff;">
-        <h2 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">${appSettings.firmName || "NDTAXANDLAW"}</h2>
-        <p style="margin: 4px 0 0; font-size: 12px; color: #fcd34d;">${appSettings.tagline || "Tax & Legal Advisory Portal"}</p>
+        <h2 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">${safeFirmName}</h2>
+        <p style="margin: 4px 0 0; font-size: 12px; color: #fcd34d;">${safeTagline}</p>
       </div>
       <div style="background-color: #ffffff; padding: 24px; border-radius: 0 0 10px 10px; border: 1px solid #e2e8f0; border-top: none; color: #1e293b;">
-        <p style="margin-top: 0; font-size: 14px;">Yth. <strong>${recipientName || "Mitra NDTAXANDLAW"}</strong>,</p>
-        <h3 style="font-size: 15px; color: #0f172a; margin-bottom: 12px;">${subject}</h3>
+        <p style="margin-top: 0; font-size: 14px;">Yth. <strong>${safeRecipient}</strong>,</p>
+        <h3 style="font-size: 15px; color: #0f172a; margin-bottom: 12px;">${safeSubject}</h3>
         <div style="background-color: #f1f5f9; border-left: 4px solid #1d4ed8; padding: 16px; border-radius: 6px; font-size: 14px; line-height: 1.6; color: #334155;">
-          ${snippet.replace(/\n/g, "<br/>")}
+          ${safeSnippetHtml}
         </div>
         <p style="font-size: 12px; color: #64748b; margin-top: 20px;">
-          Jika Anda memiliki pertanyaan, silakan hubungi tim operasional kami melalui WhatsApp di <strong>${appSettings.supportPhone}</strong> atau balas email ini ke <strong>${appSettings.supportEmail}</strong>.
+          Jika Anda memiliki pertanyaan, silakan hubungi tim operasional kami melalui WhatsApp di <strong>${safePhone}</strong> atau balas email ini ke <strong>${safeSupportEmail}</strong>.
         </p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
         <p style="font-size: 11px; color: #94a3b8; margin: 0;">
-          Email ini dikirim secara otomatis oleh Sistem Portal Kemitraan ${appSettings.firmName}.<br/>
-          ${appSettings.officeAddress}
+          Email ini dikirim secara otomatis oleh Sistem Portal Kemitraan ${safeFirmName}.<br/>
+          ${safeAddress}
         </p>
       </div>
     </div>
@@ -2693,8 +2790,23 @@ app.put("/api/roles/:code", async (req, res) => {
 });
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
-  const normalizedEmail = (email || "").trim().toLowerCase();
+  const normalizedEmail = sanitizeSqlIdentifier((email || "").trim().toLowerCase());
   const isProd = isProductionMode();
+  if (!normalizedEmail || !password || typeof password !== "string") {
+    return res.status(400).json({
+      success: false,
+      message: "Email/ID Anggota dan kata sandi wajib diisi."
+    });
+  }
+  const loginRateKey = `login:${getClientIp(req)}:${normalizedEmail}`;
+  const loginRate = consumeRateLimit(authRateBuckets, loginRateKey, 12, 10 * 60 * 1e3);
+  if (!loginRate.allowed) {
+    res.setHeader("Retry-After", String(loginRate.retryAfterSec));
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak percobaan login yang gagal. Akun dikunci sementara selama ${loginRate.retryAfterSec} detik demi keamanan.`
+    });
+  }
   if (supabase) {
     try {
       const { data: sysRows } = await supabase.from("user_passwords").select("*").in("email", [
@@ -3015,7 +3127,7 @@ app.put("/api/admin/profile", async (req, res) => {
     adminAccount.email = nextEmailLower;
     if (supabase) {
       try {
-        await supabase.from("user_passwords").delete().ilike("email", oldEmailLower);
+        await supabase.from("user_passwords").delete().eq("email", oldEmailLower);
       } catch {
       }
     }
@@ -3171,7 +3283,7 @@ app.put("/api/staff/:id", async (req, res) => {
     staff.email = nextEmailLower;
     if (supabase) {
       try {
-        await supabase.from("user_passwords").delete().ilike("email", oldEmailLower);
+        await supabase.from("user_passwords").delete().eq("email", oldEmailLower);
       } catch {
       }
     }
@@ -3226,7 +3338,7 @@ app.delete("/api/staff/:id", async (req, res) => {
   userPasswords.delete(emailLower);
   if (supabase) {
     try {
-      await supabase.from("user_passwords").delete().ilike("email", emailLower);
+      await supabase.from("user_passwords").delete().eq("email", emailLower);
     } catch {
     }
   }
@@ -3248,7 +3360,19 @@ app.delete("/api/staff/:id", async (req, res) => {
 });
 app.post("/api/auth/forgot-password", async (req, res) => {
   const { email } = req.body;
-  const normalizedEmail = (email || "").trim().toLowerCase();
+  const normalizedEmail = sanitizeSqlIdentifier((email || "").trim().toLowerCase());
+  const otpReqRate = consumeRateLimit(
+    authRateBuckets,
+    `forgot:${getClientIp(req)}:${normalizedEmail}`,
+    5,
+    10 * 60 * 1e3
+  );
+  if (!otpReqRate.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak permintaan kode OTP. Silakan tunggu ${otpReqRate.retryAfterSec} detik.`
+    });
+  }
   if (supabase) {
     try {
       const { data: dbMitras } = await supabase.from("mitras").select("*");
@@ -3265,10 +3389,11 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       message: "Email tidak terdaftar di database sistem NDTAXANDLAW."
     });
   }
-  const otpCode = Math.floor(1e5 + Math.random() * 9e5).toString();
+  const otpCode = crypto.randomInt(1e5, 999999).toString();
   passwordResetTokens.set(normalizedEmail, {
     otp: otpCode,
-    expiresAt: Date.now() + 30 * 60 * 1e3
+    expiresAt: Date.now() + 30 * 60 * 1e3,
+    attempts: 0
   });
   const recipientName = isAdmin ? adminAccount.name : staff ? staff.name : mitra ? mitra.fullName : "Pengguna NDTAXANDLAW";
   const emailResult = await sendSystemEmail({
@@ -3295,17 +3420,40 @@ Gunakan kode 6-digit ini untuk memperbarui kata sandi baru Anda. Kode berlaku se
 });
 app.post("/api/auth/reset-password", async (req, res) => {
   const { email, otpCode, newPassword } = req.body;
-  const normalizedEmail = (email || "").trim().toLowerCase();
-  if (!newPassword || newPassword.length < 6) {
+  const normalizedEmail = sanitizeSqlIdentifier((email || "").trim().toLowerCase());
+  const cleanOtp = String(otpCode || "").trim();
+  if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
     return res.status(400).json({ success: false, message: "Kata sandi minimal 6 karakter." });
   }
-  const storedToken = passwordResetTokens.get(normalizedEmail);
-  if (storedToken) {
-    if (otpCode && storedToken.otp !== String(otpCode).trim()) {
-      return res.status(400).json({ success: false, message: "Kode OTP pemulihan tidak cocok. Silakan periksa kembali email Anda." });
-    }
-    passwordResetTokens.delete(normalizedEmail);
+  if (!cleanOtp) {
+    return res.status(400).json({
+      success: false,
+      message: "Kode OTP pemulihan 6-digit wajib diisi."
+    });
   }
+  const storedToken = passwordResetTokens.get(normalizedEmail);
+  if (!storedToken || Date.now() > storedToken.expiresAt) {
+    passwordResetTokens.delete(normalizedEmail);
+    return res.status(400).json({
+      success: false,
+      message: "Kode OTP tidak ditemukan atau sudah kedaluwarsa. Silakan minta kode OTP baru."
+    });
+  }
+  if (!safeTimingCompare(storedToken.otp, cleanOtp)) {
+    storedToken.attempts += 1;
+    if (storedToken.attempts >= 5) {
+      passwordResetTokens.delete(normalizedEmail);
+      return res.status(429).json({
+        success: false,
+        message: "Terlalu banyak percobaan OTP yang salah. Kode OTP telah hangus, silakan minta kode baru."
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: "Kode OTP pemulihan tidak cocok. Silakan periksa kembali email Anda."
+    });
+  }
+  passwordResetTokens.delete(normalizedEmail);
   const isStaff = staffAccounts.some((s) => s.email.toLowerCase() === normalizedEmail);
   const existingRole = normalizedEmail === adminAccount.email.toLowerCase() ? "admin" : isStaff ? "staff" : extractUserRole(userPasswords.get(normalizedEmail), "mitra");
   const encryptedPassword = encryptUserPassword(newPassword, existingRole);
@@ -3337,8 +3485,20 @@ app.post("/api/auth/reset-password", async (req, res) => {
 });
 app.post("/api/auth/verify-email", async (req, res) => {
   const { email, token } = req.body;
-  const normalizedEmail = (email || "").trim().toLowerCase();
-  const inputToken = (token || "").trim();
+  const normalizedEmail = sanitizeSqlIdentifier((email || "").trim().toLowerCase());
+  const inputToken = String(token || "").trim();
+  const verifyRate = consumeRateLimit(
+    authRateBuckets,
+    `verify-email:${getClientIp(req)}:${normalizedEmail}`,
+    10,
+    10 * 60 * 1e3
+  );
+  if (!verifyRate.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: `Terlalu banyak percobaan verifikasi. Silakan tunggu ${verifyRate.retryAfterSec} detik.`
+    });
+  }
   if (supabase) {
     try {
       const { data: dbMitras } = await supabase.from("mitras").select("*");
@@ -3353,7 +3513,16 @@ app.post("/api/auth/verify-email", async (req, res) => {
   if (mitra.emailVerified) {
     return res.json({ success: true, message: "Email akun ini sudah terverifikasi sebelumnya. Anda dapat langsung masuk." });
   }
-  const isTokenValid = Boolean(mitra.verificationToken && mitra.verificationToken === inputToken);
+  const isExpired = mitra.verificationTokenExpiry && new Date(mitra.verificationTokenExpiry).getTime() < Date.now();
+  if (isExpired) {
+    return res.status(400).json({
+      success: false,
+      message: "Kode verifikasi 6-digit telah kedaluwarsa. Silakan klik Kirim Ulang Kode Verifikasi."
+    });
+  }
+  const isTokenValid = Boolean(
+    mitra.verificationToken && inputToken && safeTimingCompare(mitra.verificationToken, inputToken)
+  );
   if (!isTokenValid) {
     return res.status(400).json({
       success: false,
@@ -3453,6 +3622,7 @@ Silakan masukkan kode tersebut pada halaman verifikasi untuk mengaktifkan akun k
     message: `Kode verifikasi baru telah dikirimkan ke alamat email ${mitra.email}. Silakan cek kotak masuk atau folder spam Anda.`
   });
 });
+var toPublicSafeMitraList = (list) => list.map(({ verificationToken: _vt, verificationTokenExpiry: _vte, ...safeMitra }) => safeMitra);
 app.get("/api/mitra", async (req, res) => {
   if (supabase) {
     try {
@@ -3460,7 +3630,7 @@ app.get("/api/mitra", async (req, res) => {
       if (!error && Array.isArray(data)) {
         mitras = normalizeMitraAvatars(data);
         saveDatabase();
-        return res.json({ success: true, data: mitras });
+        return res.json({ success: true, data: toPublicSafeMitraList(mitras) });
       }
       if (isProductionMode() && error) {
         return res.status(503).json({ success: false, message: `Supabase Error: ${error.message}`, data: [] });
@@ -3475,7 +3645,7 @@ app.get("/api/mitra", async (req, res) => {
     return res.status(503).json({ success: false, message: "Supabase wajib terhubung pada mode Production.", data: [] });
   }
   mitras = normalizeMitraAvatars(mitras);
-  res.json({ success: true, data: mitras });
+  res.json({ success: true, data: toPublicSafeMitraList(mitras) });
 });
 app.get("/api/mitra/public-verify/:code", async (req, res) => {
   const rawCode = String(req.params.code || "").trim();
@@ -4891,10 +5061,17 @@ app.get("/api/settings", async (req, res) => {
     }
     appSettings.clientFieldsInitialized = true;
   }
-  res.json({ success: true, data: appSettings, roles: systemRoles });
+  const clientSafeSettings = {
+    ...appSettings,
+    smtpPassword: appSettings.smtpPassword ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : ""
+  };
+  res.json({ success: true, data: clientSafeSettings, roles: systemRoles });
 });
 app.put("/api/settings", async (req, res) => {
-  const updates = req.body;
+  const updates = { ...req.body || {} };
+  if (updates.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
+    delete updates.smtpPassword;
+  }
   const previousEnv = appSettings.appEnvironment;
   appSettings = { ...appSettings, ...updates };
   if (previousEnv !== "production" && appSettings.appEnvironment === "production" && supabase) {
@@ -4929,7 +5106,11 @@ app.put("/api/settings", async (req, res) => {
       console.warn("Supabase notification insert error", e);
     }
   }
-  res.json({ success: true, data: appSettings });
+  const clientSafeSettings = {
+    ...appSettings,
+    smtpPassword: appSettings.smtpPassword ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : ""
+  };
+  res.json({ success: true, data: clientSafeSettings });
 });
 app.post("/api/settings/test-email", async (req, res) => {
   const { targetEmail, smtpConfig } = req.body;
@@ -5537,6 +5718,7 @@ export {
   cleanupLocalDatabaseFileInProduction,
   computeDynamicSalesHistory,
   encryptUserPassword,
+  escapeHtml,
   extractUserRole,
   fromSupabaseClientDeal,
   fromSupabaseEmailLogRow,
@@ -5550,6 +5732,8 @@ export {
   persistSettingsToSupabase,
   pruneOldLogs,
   recordActivity,
+  safeTimingCompare,
+  sanitizeSqlIdentifier,
   saveDatabase,
   sendSystemEmail,
   syncFromSupabase,
