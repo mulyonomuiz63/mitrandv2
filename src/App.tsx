@@ -314,7 +314,7 @@ export default function App() {
       // Fallback strictly using currentUser's own identity while mitras list is loading
       return {
         id: currentUser.mitraId || currentUser.id,
-        memberCode: 'ND-2026-MTR',
+        memberCode: 'ND-TAX-LAW-0001',
         referralCode: currentUser.referralCode || 'ND-REF-MTR',
         fullName: currentUser.name,
         email: currentUser.email,
@@ -343,7 +343,7 @@ export default function App() {
       mitras.find((m) => m.id === activeMitraId) ||
       mitras[0] || {
         id: 'mitra-empty',
-        memberCode: 'ND-2026-0000',
+        memberCode: 'ND-TAX-LAW-0000',
         referralCode: 'ND-REF-0000',
         fullName: 'Belum Ada Mitra Terdaftar',
         email: '-',
@@ -710,14 +710,16 @@ export default function App() {
                     : 'PANEL OPERASIONAL ADMIN'
                   : 'PORTAL RESMI MITRA'}
               </span>
-              <span className="text-amber-300/60 hidden md:inline shrink-0">·</span>
-              <span className="text-slate-100 font-medium truncate hidden sm:inline">
-                {currentRole === 'admin'
-                  ? currentUser?.roleCode === 'staff'
-                    ? `Staf Aktif: ${currentUser.name} (${currentUser.position || 'Staf Operasional'})`
-                    : 'Manajemen Verifikasi, Skema Komisi Per Klien, Target Bonus, & Validasi Payout'
-                  : `Aktif sebagai: ${activeMitra.fullName} (${activeMitra.memberCode})`}
-              </span>
+              {(currentRole === 'mitra' || currentUser?.roleCode === 'staff') && (
+                <>
+                  <span className="text-amber-300/60 hidden md:inline shrink-0">·</span>
+                  <span className="text-slate-100 font-medium truncate hidden sm:inline">
+                    {currentRole === 'admin'
+                      ? `Staf Aktif: ${currentUser?.name} (${currentUser?.position || 'Staf Operasional'})`
+                      : `Aktif sebagai: ${activeMitra.fullName} (${activeMitra.memberCode})`}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -731,6 +733,7 @@ export default function App() {
               activeMitra={activeMitra}
               allMitras={mitras}
               allClientDeals={clientDeals}
+              commissions={commissions}
               onNavigateTab={setActiveTab}
             />
           )}
@@ -786,6 +789,7 @@ export default function App() {
           {activeTab === 'commissions' && (
             <CommissionLedger
               mitra={activeMitra}
+              allMitras={mitras}
               userRole={currentRole}
               transactions={commissions}
               clientDeals={clientDeals}
@@ -793,6 +797,7 @@ export default function App() {
               onRequestPayout={handleRequestPayout}
               onEditBankDetails={() => setIsProfileOpen(true)}
               onOpenClientInput={() => setIsClientModalOpen(true)}
+              onNavigateToOperations={() => setActiveTab('admin-operations')}
             />
           )}
 
@@ -803,6 +808,7 @@ export default function App() {
               activeMitra={activeMitra}
               allMitras={mitras}
               allClientDeals={clientDeals}
+              commissions={commissions}
               onNavigateTab={setActiveTab}
             />
           )}
@@ -947,33 +953,16 @@ export default function App() {
       )}
 
       {/* Corporate Modern Footer */}
-      <footer className="bg-white border-t border-slate-200 py-6 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="bg-white border-t border-slate-200 py-5 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
               src="/assets/aistudio/logo_c3fdb6de.png"
               alt="ND TAX AND LAW"
               className="h-6 w-auto object-contain"
             />
-            <span aria-hidden="true">·</span>
-            <span>Tax, Legal &amp; Corporate Advisory Portal</span>
-            <span aria-hidden="true">·</span>
-            <span>Hak Cipta &copy; 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.</span>
           </div>
-
-          <div className="flex items-center gap-4 text-slate-600">
-            <button
-              onClick={() => setViewMode('landing')}
-              className="text-blue-700 hover:underline font-semibold"
-            >
-              Lihat Halaman Program Mitra
-            </button>
-            <span>·</span>
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
-              Sistem Kemitraan Resmi
-            </span>
-          </div>
+          <span>Hak Cipta &copy; 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.</span>
         </div>
       </footer>
 

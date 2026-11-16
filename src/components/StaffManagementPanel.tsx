@@ -472,7 +472,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 rounded-2xl p-6 sm:p-8 text-white shadow-xl border border-blue-900/40 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <div className="bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] rounded-2xl p-6 sm:p-8 text-white shadow-xl border border-amber-400/40 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div className="space-y-2 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-bold uppercase tracking-wider">
             <ShieldCheck className="w-4 h-4" />
@@ -481,9 +481,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             Manajemen Staf, Hak Akses Menu &amp; Akun Admin
           </h1>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            Kelola tim operasional di bawah Admin, tambah Staf baru, aktifkan atau nonaktifkan hak akses menu tertentu untuk masing-masing Staf, serta perbarui data profil dan password Admin utama.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
@@ -492,12 +489,12 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
             onClick={() => setActiveSection('staff_list')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
               activeSection === 'staff_list'
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-amber-400 text-slate-950 shadow-md'
                 : 'bg-white/10 text-slate-200 hover:bg-white/20'
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Daftar Staf &amp; Akses Menu ({staffList.length})</span>
+            <span>Daftar Staf ({staffList.length})</span>
           </button>
 
           <button
@@ -555,30 +552,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
         </div>
       )}
 
-      {/* Security Policy Summary Banner */}
-      <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-950">
-        <div className="flex items-start gap-3">
-          <Lock className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold text-blue-900">
-              Kebijakan Pembatasan Permanen Role Staf (Di Bawah Admin)
-            </p>
-            <p className="text-slate-600 mt-0.5 leading-relaxed">
-              Secara sistem, akun berstatus <strong>Staf</strong> tidak akan pernah memiliki akses ke menu <strong>Log Aktivitas &amp; Log Email</strong>, serta tidak dapat membuka tab sensitif di Pengaturan Sistem (<strong>Mode Sistem Dev/Prod, Database Supabase, SMTP Email, Login Google OAuth, dan Gemini AI</strong>). Untuk menu operasional lainnya, Admin bebas mengaktifkan atau menonaktifkan akses per masing-masing Staf.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={fetchAdminAndStaff}
-          disabled={loading}
-          className="px-3 py-1.5 text-xs font-semibold text-blue-800 bg-white hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 shrink-0 self-start sm:self-center"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>Segarkan</span>
-        </button>
-      </div>
-
       {/* SECTION 1: DAFTAR STAF & KELOLA HAK AKSES MENU */}
       {activeSection === 'staff_list' && (
         <div className="space-y-4">
@@ -587,14 +560,11 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
               <h2 className="text-lg font-bold text-slate-900">
                 Daftar Akun Staf Operasional ({staffList.length} Staf)
               </h2>
-              <p className="text-xs text-slate-500">
-                Klik tombol <strong>"Atur Akses Menu"</strong> pada kartu Staf untuk mengaktifkan atau menonaktifkan menu tertentu secara instan.
-              </p>
             </div>
             <button
               type="button"
               onClick={() => setActiveSection('add_staff')}
-              className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl flex items-center gap-1.5 shadow-sm self-start sm:self-auto"
+              className="px-4 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl flex items-center gap-1.5 shadow-sm self-start sm:self-auto"
             >
               <UserPlus className="w-4 h-4" />
               <span>+ Tambah Staf Baru</span>

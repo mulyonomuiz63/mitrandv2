@@ -130,9 +130,6 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </span>
             )}
           </h1>
-          <p className="text-sm text-slate-600 mt-0.5">
-            Otorisasi berkas pendaftaran mitra baru, berikan catatan perbaikan jika data ditolak, dan setujui mitra yang telah lulus verifikasi.
-          </p>
         </div>
       </div>
 

@@ -44,6 +44,8 @@ import {
   BonusTargetConfig,
   DEFAULT_COMMISSION_SCHEME,
   DEFAULT_BONUS_TARGET_CONFIG,
+  PayoutScheduleType,
+  getPayoutScheduleLabel,
   calculateClientDealCommission,
 } from '../types';
 import { Award, Target, Gift } from 'lucide-react';
@@ -101,7 +103,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   // Per-Client Commission Scheme & Bonus Target Management State
   const [commScheme, setCommScheme] = useState<CommissionSchemeConfig>({ ...DEFAULT_COMMISSION_SCHEME });
   const [bonusTarget, setBonusTarget] = useState<BonusTargetConfig>({ ...DEFAULT_BONUS_TARGET_CONFIG });
+  const [payoutSchedule, setPayoutSchedule] = useState<PayoutScheduleType>('awal_bulan');
   const [isSavingScheme, setIsSavingScheme] = useState(false);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   // Grant Bonus to Mitra Modal State
   const [mitraForBonus, setMitraForBonus] = useState<Mitra | null>(null);
@@ -291,8 +295,37 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         if (data.data.bonusTargetConfig) {
           setBonusTarget({ ...DEFAULT_BONUS_TARGET_CONFIG, ...data.data.bonusTargetConfig });
         }
+        if (data.data.payoutSchedule) {
+          setPayoutSchedule(data.data.payoutSchedule);
+        }
       }
     } catch {}
+  };
+
+  const handleSavePayoutSchedule = async (newSchedule: PayoutScheduleType) => {
+    setPayoutSchedule(newSchedule);
+    setIsSavingSchedule(true);
+    try {
+      const res = await fetch('/api/admin/commission-scheme', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payoutSchedule: newSchedule,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionSuccessMsg(
+          `Jadwal pencairan komisi berhasil diatur ke: ${getPayoutScheduleLabel(newSchedule)}`
+        );
+        setTimeout(() => setActionSuccessMsg(''), 4000);
+        onRefreshData();
+      }
+    } catch (err) {
+      console.error('Failed to save payout schedule:', err);
+    } finally {
+      setIsSavingSchedule(false);
+    }
   };
 
   useEffect(() => {
@@ -648,7 +681,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     }
   };
 
-  // 3. Open Approval Modal
+  // 3. Open Approval Modal (existing request or direct disbursement for a Mitra)
   const openApproveModal = (payout: PayoutRequest) => {
     setPayoutToApprove(payout);
     const gross = payout.amount || 0;
@@ -660,6 +693,25 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     setApprovalNotes(`Pencairan dana komisi ${payout.mitraName} via transfer bank lunas.`);
     setProofFileUrl('');
     setProofFileName('');
+  };
+
+  const openDirectDisburseModal = (m: Mitra) => {
+    const gross = Math.max(0, Number(m.pendingPayout) || 0);
+    const syntheticPayout: PayoutRequest = {
+      id: '__direct__',
+      mitraId: m.id,
+      mitraName: m.fullName,
+      memberCode: m.memberCode,
+      amount: gross,
+      bankDetails: m.bankDetails || {
+        bankName: '-',
+        accountNumber: '-',
+        accountHolder: m.fullName,
+      },
+      requestDate: new Date().toISOString().split('T')[0],
+      status: 'pending',
+    };
+    openApproveModal(syntheticPayout);
   };
 
   // Handle PPh Preset change
@@ -683,19 +735,20 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     }
   };
 
-  // Submit Approval with Deductions & Proof
+  // Submit Approval with Deductions & Proof (Supports both Direct Admin Disbursement and Request Approval)
   const handleSubmitPayoutApproval = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payoutToApprove) return;
 
     const gross = payoutToApprove.amount || 0;
     const net = Math.max(0, gross - pphNominal - adminFee);
+    const isDirect = payoutToApprove.id === '__direct__';
 
     const ok = await confirm({
-      title: 'Konfirmasi Approve & Transfer Pencairan Komisi',
-      message: `Apakah Anda yakin ingin menyetujui dan menyelesaikan pencairan komisi untuk Mitra "${payoutToApprove.mitraName}"? Saldo siap cair Mitra akan otomatis dikurangi.`,
-      detail: `Nama Mitra: ${payoutToApprove.mitraName}\nRekening Tujuan: ${payoutToApprove.bankDetails.bankName} - ${payoutToApprove.bankDetails.accountNumber} (a.n. ${payoutToApprove.bankDetails.accountHolder})\nNominal Pengajuan (Kotor): ${formatRupiah(gross)}\nPotongan PPh 21 & Admin: - ${formatRupiah(pphNominal + adminFee)}\nTotal Bersih Ditransfer: ${formatRupiah(net)}`,
-      confirmText: 'Ya, Approve & Selesaikan Transfer',
+      title: 'Konfirmasi Pencairan & Transfer Komisi Mitra',
+      message: `Apakah Anda yakin ingin mencairkan dan menyelesaikan transfer komisi untuk Mitra "${payoutToApprove.mitraName}"? Saldo siap cair Mitra akan otomatis dikurangi.`,
+      detail: `Nama Mitra: ${payoutToApprove.mitraName}\nRekening Tujuan: ${payoutToApprove.bankDetails.bankName} - ${payoutToApprove.bankDetails.accountNumber} (a.n. ${payoutToApprove.bankDetails.accountHolder})\nNominal Komisi (Kotor): ${formatRupiah(gross)}\nPotongan PPh 21 & Admin: - ${formatRupiah(pphNominal + adminFee)}\nTotal Bersih Ditransfer: ${formatRupiah(net)}`,
+      confirmText: 'Ya, Cairkan & Selesaikan Transfer',
       cancelText: 'Batalkan',
       variant: 'success',
     });
@@ -704,10 +757,16 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     setIsSubmittingApproval(true);
 
     try {
-      const res = await fetch(`/api/commissions/payout-requests/${payoutToApprove.id}/approve`, {
-        method: 'PUT',
+      const url = isDirect
+        ? '/api/commissions/direct-disburse'
+        : `/api/commissions/payout-requests/${payoutToApprove.id}/approve`;
+      const method = isDirect ? 'POST' : 'PUT';
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          mitraId: payoutToApprove.mitraId,
+          amount: gross,
           pph21Deduction: pphNominal,
           pph21Rate: pphRate === '' ? 0 : pphRate,
           adminFeeDeduction: adminFee,
@@ -720,7 +779,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        setActionSuccessMsg(`Pencairan dana untuk ${data.data.mitraName} berhasil disetujui! Bersih ditransfer: ${formatRupiah(net)} (Bukti tersimpan).`);
+        setActionSuccessMsg(`Pencairan komisi untuk ${data.data.mitraName} berhasil diselesaikan! Bersih ditransfer: ${formatRupiah(net)} (Bukti tersimpan).`);
         setTimeout(() => setActionSuccessMsg(''), 5000);
         setPayoutToApprove(null);
         fetchPayoutRequests();
@@ -774,53 +833,11 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 rounded">
-              {resolvedMode === 'logs' ? 'AUDIT & MONITORING SISTEM' : 'PANEL ADMIN OPERASIONAL'}
-            </span>
-            <span className="text-xs text-slate-500 font-mono">
-              {resolvedMode === 'logs'
-                ? 'Log Aktivitas & Pengiriman Email'
-                : 'Validasi Klien & Manajemen Dana Komisi'}
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display mt-1">
+          <h1 className="text-2xl font-bold text-slate-900 font-display">
             {resolvedMode === 'logs'
               ? 'Pusat Log Aktivitas & Pengiriman Email'
               : 'Pusat Operasional Klien & Komisi Mitra'}
           </h1>
-          <p className="text-xs text-slate-600 mt-0.5">
-            {resolvedMode === 'logs'
-              ? 'Pantau riwayat aktivitas login, perubahan data oleh Mitra & Admin, serta status pengiriman email notifikasi sistem secara real-time.'
-              : 'Validasi deal referral mitra (case-by-case, langganan bulanan & tahunan), atur ACC komisi, serta otorisasi pencairan saldo dengan bukti transfer & rincian potongan PPh 21.'}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="flex-1 sm:flex-initial justify-center inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-2xs"
-            >
-              <Settings className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="truncate">Pengaturan Sistem &amp; Form</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              fetchPayoutRequests();
-              fetchActivityLogs();
-              fetchEmailLogs();
-              onRefreshData();
-            }}
-            className="flex-1 sm:flex-initial justify-center inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-xs"
-          >
-            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-            <span>Segarkan Data</span>
-          </button>
         </div>
       </div>
 
@@ -1432,9 +1449,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             <h3 className="text-sm font-bold text-slate-900 font-display">
               Matriks Kinerja &amp; Produktivitas Mitra Lapangan
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Evaluasi perolehan klien, omset deal, dan akumulasi hak komisi per masing-masing mitra terdaftar.
-            </p>
 
             <div className="mt-4 overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs border-collapse">
@@ -1501,20 +1515,56 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
       {/* VIEW 3: MANAJEMEN PENCAIRAN KOMISI */}
       {activeSubTab === 'payout_management' && (
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {/* Jadwal Pencairan Komisi oleh Admin (Awal Bulan / Pertengahan Bulan / Akhir Bulan) */}
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded">
+                  JADWAL PENCAIRAN KOMISI RESMI ADMIN
+                </span>
+                <span className="text-xs text-blue-100 font-semibold">
+                  Aktif: {getPayoutScheduleLabel(payoutSchedule)}
+                </span>
+              </div>
+              <h3 className="text-base font-bold font-display">
+                Pengaturan Jadwal Pencairan Komisi Terjadwal oleh Admin
+              </h3>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {([
+                { key: 'awal_bulan', label: 'Setiap Awal Bulan' },
+                { key: 'pertengahan_bulan', label: 'Setiap Pertengahan Bulan' },
+                { key: 'akhir_bulan', label: 'Setiap Akhir Bulan' },
+              ] as { key: PayoutScheduleType; label: string }[]).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  disabled={isSavingSchedule}
+                  onClick={() => handleSavePayoutSchedule(opt.key)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    payoutSchedule === opt.key
+                      ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md'
+                      : 'bg-white/10 text-blue-100 border-amber-400/30 hover:bg-white/20'
+                  }`}
+                >
+                  {payoutSchedule === opt.key ? `✓ ${opt.label}` : opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabel Pencairan Komisi Langsung oleh Admin (Tanpa Menunggu Pengajuan Mitra) */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-display">
-                  Daftar Pengajuan Pencairan Dana Komisi &amp; Slip Transfer
+                  Pencairan Saldo Komisi Mitra oleh Admin ({getPayoutScheduleLabel(payoutSchedule)})
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Verifikasi nomor rekening mitra, terapkan potongan PPh 21 dan biaya admin (opsional), serta upload bukti transfer perbankan resmi (PDF/JPG).
-                </p>
               </div>
-
-              <div className="text-xs font-semibold text-slate-600">
-                Total {payoutRequests.length} Pengajuan ({pendingPayoutCount} Menunggu)
+              <div className="text-xs font-semibold text-emerald-700">
+                {mitras.filter((m) => (Number(m.pendingPayout) || 0) > 0).length} Mitra Memiliki Saldo Siap Dicairkan
               </div>
             </div>
 
@@ -1522,7 +1572,84 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
-                    <th className="p-3">Tanggal Request</th>
+                    <th className="p-3">Mitra</th>
+                    <th className="p-3">Rekening Bank Pencairan</th>
+                    <th className="p-3 text-right">Total Komisi Akumulasi</th>
+                    <th className="p-3 text-right">Sudah Dicairkan</th>
+                    <th className="p-3 text-right">Saldo Siap Dicairkan</th>
+                    <th className="p-3 text-right">Tindakan Pencairan Admin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {mitras.map((m) => {
+                    const readyBalance = Number(m.pendingPayout) || 0;
+                    const hasBank =
+                      Boolean(m.bankDetails?.bankName && m.bankDetails.bankName !== '-') &&
+                      Boolean(m.bankDetails?.accountNumber && m.bankDetails.accountNumber !== '-');
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3 font-semibold text-slate-900">
+                          <div>{m.fullName}</div>
+                          <div className="font-mono text-[10px] text-slate-500">{m.memberCode}</div>
+                        </td>
+                        <td className="p-3 text-slate-700">
+                          {hasBank ? (
+                            <>
+                              <div className="font-bold text-blue-900">{m.bankDetails.bankName}</div>
+                              <div className="font-mono text-slate-800">{m.bankDetails.accountNumber}</div>
+                              <div className="text-[10px] text-slate-500">a.n. {m.bankDetails.accountHolder}</div>
+                            </>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              Belum Melengkapi Rekening
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">
+                          {formatRupiah(m.totalCommission || 0)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-semibold text-slate-600 whitespace-nowrap">
+                          {formatRupiah(m.paidPayout || 0)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap">
+                          {formatRupiah(readyBalance)}
+                        </td>
+                        <td className="p-3 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            disabled={readyBalance <= 0}
+                            onClick={() => openDirectDisburseModal(m)}
+                            className="px-3.5 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 disabled:bg-slate-200 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed rounded-lg shadow-xs transition-all cursor-pointer"
+                          >
+                            {readyBalance > 0 ? 'Proses Pencairan Komisi' : 'Saldo Rp 0'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 font-display">
+                  Riwayat Pencairan Dana Komisi &amp; Slip Transfer
+                </h3>
+              </div>
+
+              <div className="text-xs font-semibold text-slate-600">
+                Total {payoutRequests.length} Riwayat ({pendingPayoutCount} Menunggu)
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                    <th className="p-3">Tanggal Pencairan</th>
                     <th className="p-3">Mitra</th>
                     <th className="p-3">Rekening Bank Tujuan</th>
                     <th className="p-3 text-right">Hak Kotor</th>
@@ -1546,7 +1673,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     return (
                       <tr key={req.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-3 font-mono text-slate-600 whitespace-nowrap">
-                          {req.requestDate}
+                          {req.processedDate || req.requestDate}
                         </td>
                         <td className="p-3 font-semibold text-slate-900">
                           <div>{req.mitraName}</div>
@@ -1641,9 +1768,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               <h2 className="text-lg sm:text-xl font-bold font-display">
                 Pengaturan Komisi Berbasis Per Klien, Target Standar &amp; Pemberian Bonus Mitra
               </h2>
-              <p className="text-xs text-blue-100/90 max-w-3xl leading-relaxed">
-                Sistem komisi dihitung berdasarkan nilai deal per klien (bukan per layanan). Jika Admin merubah persentase komisi di bawah ini, klien yang sudah berstatus <strong>langganan aktif / deal sebelumnya tetap memberikan komisi kepada Mitra sesuai persentase waktu deal</strong>.
-              </p>
             </div>
           </div>
 
@@ -1657,9 +1781,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <Percent className="w-4 h-4 text-[#113872]" />
                     <span>1. Konfigurasi Persentase Komisi Per Klien</span>
                   </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Atur jenjang komisi berdasarkan nominal kontrak deal klien untuk Sistem Langganan dan Case-by-Case.
-                  </p>
                 </div>
               </div>
 
@@ -1878,9 +1999,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <Target className="w-4 h-4 text-amber-600" />
                     <span>2. Standar Target &amp; Bonus Mitra (Bulanan / Tahunan)</span>
                   </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Mitra berhak mendapatkan bonus jika melampaui target standar yang ditetapkan Admin (dapat disetting per bulan atau per tahun).
-                  </p>
                 </div>
 
                 <div className="space-y-3.5 text-xs">
@@ -2004,9 +2122,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <Gift className="w-4 h-4 text-[#113872]" />
                   <span>3. Evaluasi Pencapaian Target &amp; Proses Pemberian Bonus ke Mitra</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Pantau realisasi deal tiap Mitra terhadap target standar ({bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'}: {formatRupiah(bonusTarget.targetDealRevenue)} atau {bonusTarget.targetClientCount} Klien) dan proses pemberian bonus langsung ke saldo Mitra.
-                </p>
               </div>
             </div>
 
@@ -2115,9 +2230,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     Retensi Otomatis: 3 Bulan Terakhir
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Data log yang berusia lebih dari 3 bulan otomatis dihapus sistem sehingga hanya menyisakan riwayat 3 bulan terbaru.
-                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2350,9 +2462,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     Retensi Otomatis: 3 Bulan Terakhir
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Data log email yang berusia lebih dari 3 bulan otomatis dihapus sistem sehingga hanya menyisakan riwayat 3 bulan terbaru.
-                </p>
               </div>
               <div className="flex items-center gap-2">
                 {onOpenSettings && (

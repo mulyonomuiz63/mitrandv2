@@ -1,22 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
-  Users, 
-  Briefcase, 
-  Sparkles, 
-  BarChart3, 
-  ArrowUpRight, 
-  Download, 
-  RefreshCw, 
+import React, { useState } from 'react';
+import {
+  TrendingUp,
+  Users,
+  Briefcase,
+  BarChart3,
+  ArrowUpRight,
   Calendar,
-  CheckCircle2,
-  Copy,
-  Printer,
   ChevronRight,
-  ShieldCheck,
-  FileCheck
 } from 'lucide-react';
-import { SalesHistoryMonth, Mitra, ClientDeal } from '../types';
+import { SalesHistoryMonth, Mitra, ClientDeal, CommissionTransaction } from '../types';
 
 interface AnalyticsDashboardProps {
   salesHistory: SalesHistoryMonth[];
@@ -24,6 +16,7 @@ interface AnalyticsDashboardProps {
   activeMitra: Mitra;
   allMitras?: Mitra[];
   allClientDeals?: ClientDeal[];
+  commissions?: CommissionTransaction[];
   onNavigateTab: (tab: string) => void;
 }
 
@@ -33,52 +26,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   activeMitra,
   allMitras = [],
   allClientDeals = [],
+  commissions = [],
   onNavigateTab,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('November 2026');
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const [aiReport, setAiReport] = useState<string | null>(null);
-  const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  // Auto-generate or fetch default AI insight if none exists
-  const generateAiReport = async () => {
-    setIsGeneratingAi(true);
-    try {
-      const response = await fetch('/api/ai/monthly-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetPeriod: selectedPeriod,
-          userRole,
-          specificMitraId: userRole === 'mitra' ? activeMitra.id : undefined,
-        }),
-      });
-      const data = await response.json();
-      if (data.success && data.report) {
-        setAiReport(data.report);
-        setAiGeneratedAt(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
-      }
-    } catch (err) {
-      console.error('Failed to generate AI report:', err);
-    } finally {
-      setIsGeneratingAi(false);
-    }
-  };
-
-  useEffect(() => {
-    // Generate initial report if empty
-    if (!aiReport) {
-      generateAiReport();
-    }
-  }, [selectedPeriod]);
-
-  const handleCopyReport = () => {
-    if (!aiReport) return;
-    navigator.clipboard.writeText(aiReport);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -88,10 +39,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }).format(val);
   };
 
-  // Max value for SVG scale calculations
-  const maxSales = Math.max(...salesHistory.map((s) => s.totalSales), 1);
-  const hasAnySalesInHistory = salesHistory.some((s) => s.totalSales > 0 || s.totalCommission > 0);
-
   // Live metrics from Supabase / active state
   const approvedDeals = allClientDeals.filter(
     (d) => d.status === 'active_subscription' || d.status === 'deal_closed'
@@ -99,15 +46,119 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const myApprovedDeals = approvedDeals.filter(
     (d) => d.mitraId === activeMitra.id || d.referralCode === activeMitra.referralCode
   );
+  const myCommissions = commissions.filter((c) => c.mitraId === activeMitra.id);
+
   const totalAdminSales = approvedDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
   const totalMitraSales = myApprovedDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
   const verifiedMitrasCount = allMitras.filter((m) => m.status === 'verified').length;
   const pendingMitrasCount = allMitras.filter((m) => m.status === 'pending').length;
   const totalAdminCommissions = allMitras.reduce((sum, m) => sum + (Number(m.totalCommission) || 0), 0);
 
+  // Build Mitra-exclusive 6-month sales & commission history when userRole === 'mitra'
+  const displayedSalesHistory: SalesHistoryMonth[] = React.useMemo(() => {
+    const baseMonths =
+      salesHistory.length > 0
+        ? salesHistory.map((s) => s.month)
+        : ['Jun 2026', 'Jul 2026', 'Agu 2026', 'Sep 2026', 'Okt 2026', 'Nov 2026'];
+
+    if (userRole === 'admin') {
+      return salesHistory.length > 0
+        ? salesHistory
+        : baseMonths.map((month) => ({
+            month,
+            totalSales: 0,
+            totalCommission: 0,
+            mitraCount: verifiedMitrasCount,
+            dealsClosed: 0,
+          }));
+    }
+
+    const monthAliases: Record<string, number[]> = {
+      Jan: [1],
+      Feb: [2],
+      Mar: [3],
+      Apr: [4],
+      Mei: [5],
+      May: [5],
+      Jun: [6],
+      Jul: [7],
+      Agu: [8],
+      Aug: [8],
+      Sep: [9],
+      Okt: [10],
+      Oct: [10],
+      Nov: [11],
+      Des: [12],
+      Dec: [12],
+    };
+
+    const buckets = baseMonths.map((monthLabel) => ({
+      month: monthLabel,
+      totalSales: 0,
+      totalCommission: 0,
+      mitraCount: 1,
+      dealsClosed: 0,
+    }));
+
+    const findBucketIndex = (dateStr?: string) => {
+      if (!dateStr) return buckets.length - 1;
+      const parsed = new Date(dateStr);
+      if (!isNaN(parsed.getTime())) {
+        const m = parsed.getMonth() + 1;
+        const idx = buckets.findIndex((b) => {
+          const prefix = b.month.split(' ')[0];
+          return (monthAliases[prefix] || []).includes(m);
+        });
+        if (idx >= 0) return idx;
+      }
+      return buckets.length - 1;
+    };
+
+    for (const deal of myApprovedDeals) {
+      const idx = findBucketIndex(deal.date);
+      if (buckets[idx]) {
+        buckets[idx].totalSales += Number(deal.dealValue) || 0;
+        buckets[idx].dealsClosed += 1;
+      }
+    }
+
+    if (myCommissions.length > 0) {
+      for (const comm of myCommissions) {
+        const idx = findBucketIndex(comm.date);
+        if (buckets[idx]) {
+          buckets[idx].totalCommission +=
+            (Number(comm.commissionAmount) || 0) + (Number(comm.bonusAmount) || 0);
+        }
+      }
+    } else if (myApprovedDeals.length > 0) {
+      for (const deal of myApprovedDeals) {
+        const idx = findBucketIndex(deal.date);
+        if (buckets[idx]) {
+          buckets[idx].totalCommission += Number(deal.commissionAmount) || 0;
+        }
+      }
+    } else if ((Number(activeMitra.totalCommission) || 0) > 0 && buckets.length > 0) {
+      buckets[buckets.length - 1].totalCommission += Number(activeMitra.totalCommission) || 0;
+    }
+
+    return buckets;
+  }, [salesHistory, userRole, myApprovedDeals, myCommissions, activeMitra.totalCommission, verifiedMitrasCount]);
+
+  // Max value for SVG scale calculations
+  const maxSales = Math.max(
+    ...displayedSalesHistory.map((s) => Math.max(s.totalSales, s.totalCommission)),
+    1
+  );
+  const hasAnySalesInHistory = displayedSalesHistory.some(
+    (s) => s.totalSales > 0 || s.totalCommission > 0
+  );
+
   // Dynamic Service Composition from real deals in Supabase
   const relevantDealsForBreakdown = userRole === 'admin' ? approvedDeals : myApprovedDeals;
-  const totalBreakdownValue = relevantDealsForBreakdown.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+  const totalBreakdownValue = relevantDealsForBreakdown.reduce(
+    (sum, d) => sum + (Number(d.dealValue) || 0),
+    0
+  );
 
   const serviceBreakdown = React.useMemo(() => {
     const defaultCategories = [
@@ -155,15 +206,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-slate-900 font-display">
-              Dashboard Analitik &amp; Laporan Kinerja
+              {userRole === 'mitra'
+                ? `Dashboard Kinerja Mitra — ${activeMitra.fullName}`
+                : 'Dashboard Analitik & Laporan Kinerja'}
             </h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 border border-blue-200">
               Live Analytics
             </span>
           </div>
-          <p className="text-sm text-slate-600 mt-0.5">
-            Monitoring komprehensif performa penjualan jasa hukum-pajak, pertumbuhan mitra, dan ringkasan eksekutif AI.
-          </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -180,15 +230,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               <option value="Q3 2026">Kuartal 3 (Q3 2026)</option>
             </select>
           </div>
-
-          <button
-            onClick={generateAiReport}
-            disabled={isGeneratingAi}
-            className="px-3.5 py-2 text-xs font-semibold bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 hover:brightness-110 rounded-lg transition-all flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingAi ? 'animate-spin' : ''}`} />
-            <span>{isGeneratingAi ? 'Menganalisis...' : 'Perbarui Analisis AI'}</span>
-          </button>
         </div>
       </div>
 
@@ -197,7 +238,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Total Omset Deal Aktif' : 'Akumulasi Deal Layanan'}
+              {userRole === 'admin' ? 'Total Omset Deal Aktif' : 'Akumulasi Deal Klien Anda'}
             </span>
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
@@ -215,7 +256,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Mitra Aktif Berlisensi' : 'Status Kartu Identitas'}
+              {userRole === 'admin' ? 'Mitra Aktif Berlisensi' : 'Nomor Registrasi Mitra'}
             </span>
             <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
               <Users className="w-4 h-4" />
@@ -236,20 +277,28 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Kontrak Deal Disetujui
+              {userRole === 'admin' ? 'Kontrak Deal Disetujui' : 'Kontrak Klien Anda'}
             </span>
             <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
               <Briefcase className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
-            {userRole === 'admin' ? `${approvedDeals.length} Kontrak` : `${myApprovedDeals.length} Kontrak`}
+            {userRole === 'admin'
+              ? `${approvedDeals.length} Kontrak`
+              : `${myApprovedDeals.length} Kontrak`}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
             <span>
               {userRole === 'admin'
                 ? `Total pengajuan klien: ${allClientDeals.length}`
-                : `Total klien diinput: ${allClientDeals.filter((d) => d.mitraId === activeMitra.id).length}`}
+                : `Total klien diinput: ${
+                    allClientDeals.filter(
+                      (d) =>
+                        d.mitraId === activeMitra.id ||
+                        d.referralCode === activeMitra.referralCode
+                    ).length
+                  }`}
             </span>
           </div>
         </div>
@@ -269,34 +318,35 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
             <span>
               {userRole === 'admin'
-                ? 'Sinkron langsung dengan database Supabase'
-                : `Sudah Ditarik: ${formatRupiah(activeMitra.paidPayout || 0)} | Total: ${formatRupiah(activeMitra.totalCommission)}`}
+                ? 'Sinkron langsung dengan database'
+                : `Sudah Ditarik: ${formatRupiah(activeMitra.paidPayout || 0)} | Total: ${formatRupiah(
+                    activeMitra.totalCommission
+                  )}`}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Main Charts Row: Sales Bar Chart & Mitra Growth Trend */}
+      {/* Main Charts Row: Sales Bar Chart & Mitra Service Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sales Performance Chart (2 Columns) */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-display">
-                Grafik Penjualan &amp; Tren Pertumbuhan Omset (6 Bulan)
+                {userRole === 'mitra'
+                  ? 'Grafik Penjualan & Komisi Akun Anda (6 Bulan)'
+                  : 'Grafik Penjualan & Tren Pertumbuhan Omset (6 Bulan)'}
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Nilai kontrak bruto (Rupiah) dan akumulasi komisi mitra per periode (Realtime Database Supabase).
-              </p>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-xs bg-[#092147] inline-block" />
-                <span>Total Penjualan</span>
+                <span>{userRole === 'mitra' ? 'Penjualan Klien Anda' : 'Total Penjualan'}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-xs bg-amber-500 inline-block" />
-                <span>Komisi Mitra</span>
+                <span>{userRole === 'mitra' ? 'Komisi Anda' : 'Komisi Mitra'}</span>
               </div>
             </div>
           </div>
@@ -306,22 +356,33 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             {!hasAnySalesInHistory && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <span className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500">
-                  Belum ada transaksi penjualan / deal disetujui pada database (Rp 0)
+                  Belum ada transaksi penjualan / deal disetujui (Rp 0)
                 </span>
               </div>
             )}
-            {salesHistory.map((item, idx) => {
-              const salesHeightPercent = item.totalSales > 0 ? Math.max((item.totalSales / maxSales) * 100, 4) : 2;
-              const commHeightPercent = item.totalCommission > 0 ? Math.max((item.totalCommission / maxSales) * 100, 4) : 2;
+            {displayedSalesHistory.map((item, idx) => {
+              const salesHeightPercent =
+                item.totalSales > 0 ? Math.max((item.totalSales / maxSales) * 100, 4) : 2;
+              const commHeightPercent =
+                item.totalCommission > 0
+                  ? Math.max((item.totalCommission / maxSales) * 100, 4)
+                  : 2;
 
               return (
-                <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group relative">
+                <div
+                  key={idx}
+                  className="flex-1 flex flex-col items-center h-full justify-end group relative"
+                >
                   {/* Tooltip on hover */}
                   <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-opacity bg-[#092147] text-white text-[10px] p-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap z-20 font-mono border border-amber-400/40">
                     <p className="font-bold text-amber-300">{item.month}</p>
                     <p>Penjualan: {formatRupiah(item.totalSales)}</p>
                     <p className="text-emerald-300">Komisi: {formatRupiah(item.totalCommission)}</p>
-                    <p className="text-blue-200">{item.dealsClosed} deals · {item.mitraCount} mitra</p>
+                    <p className="text-blue-200">
+                      {userRole === 'mitra'
+                        ? `${item.dealsClosed} deal klien Anda`
+                        : `${item.dealsClosed} deals · ${item.mitraCount} mitra`}
+                    </p>
                   </div>
 
                   <div className="w-full flex items-end justify-center gap-1 sm:gap-2 h-full">
@@ -336,7 +397,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     <div
                       style={{ height: `${commHeightPercent}%` }}
                       className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
-                        item.totalCommission > 0 ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-200'
+                        item.totalCommission > 0
+                          ? 'bg-amber-500 hover:bg-amber-600'
+                          : 'bg-slate-200'
                       }`}
                     />
                   </div>
@@ -347,7 +410,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
           {/* Month Labels */}
           <div className="flex justify-between text-xs text-slate-500 font-medium pt-3 px-2">
-            {salesHistory.map((item, idx) => (
+            {displayedSalesHistory.map((item, idx) => (
               <span key={idx} className="text-center font-display text-[11px] truncate">
                 {item.month.split(' ')[0]}
               </span>
@@ -361,11 +424,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <h3 className="text-base font-bold text-slate-900 font-display">
               Komposisi Layanan Terlaris
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {relevantDealsForBreakdown.length > 0
-                ? `Berdasarkan ${relevantDealsForBreakdown.length} kontrak deal aktif di database.`
-                : 'Belum ada transaksi deal disetujui di database (0%).'}
-            </p>
 
             <div className="mt-5 space-y-4 text-xs">
               {serviceBreakdown.map((srv, idx) => (
@@ -393,122 +451,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               <span>Akses Tools Marketing Layanan Ini</span>
               <ChevronRight className="w-4 h-4" />
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* AI-Powered Monthly Performance Analysis Card (Powered by Gemini 3.8 Flash) */}
-      <div className="bg-white rounded-xl border border-amber-400/40 shadow-md overflow-hidden">
-        <div className="bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-amber-400/40">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-amber-400/15 backdrop-blur-md border border-amber-400/40 flex items-center justify-center text-amber-300">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold font-display flex items-center gap-2 text-amber-300">
-                <span>Generator Analisis Cerdas &amp; Ringkasan Laporan Bulanan</span>
-                <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-400/40">
-                  Gemini 3.8 Flash
-                </span>
-              </h3>
-              <p className="text-xs text-slate-200/90 mt-0.5">
-                Sintesis kinerja otomatis berbasis data metrik riil NDTAXANDLAW periode {selectedPeriod}.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            {aiGeneratedAt && (
-              <span className="text-[11px] text-blue-300 font-mono hidden sm:block">
-                Diperbarui pukul {aiGeneratedAt}
-              </span>
-            )}
-            <button
-              onClick={handleCopyReport}
-              className="p-1.5 text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-              title="Salin Analisis ke Papan Klip"
-            >
-              {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="p-1.5 text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-              title="Cetak Laporan"
-            >
-              <Printer className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* AI Analysis Content Body */}
-        <div className="p-6">
-          {isGeneratingAi ? (
-            <div className="py-12 flex flex-col items-center justify-center text-center">
-              <div className="w-10 h-10 border-3 border-blue-200 border-t-blue-700 rounded-full animate-spin mb-3" />
-              <p className="text-sm font-semibold text-slate-800">
-                Gemini 3.8 Flash sedang memproses data kinerja...
-              </p>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                Mengkonsolidasikan pertumbuhan mitra, rasio closing kesepakatan, dan merumuskan rekomendasi 30 hari ke depan.
-              </p>
-            </div>
-          ) : aiReport ? (
-            <div className="prose prose-slate max-w-none text-xs sm:text-sm leading-relaxed text-slate-700 space-y-4">
-              {/* Custom renderer for Markdown-like text */}
-              {aiReport.split('\n\n').map((paragraph, pIdx) => {
-                if (paragraph.startsWith('### ')) {
-                  return (
-                    <h3 key={pIdx} className="text-base font-bold text-slate-900 font-display border-b border-slate-100 pb-2 mt-4 first:mt-0">
-                      {paragraph.replace('### ', '')}
-                    </h3>
-                  );
-                }
-                if (paragraph.startsWith('#### ')) {
-                  return (
-                    <h4 key={pIdx} className="text-sm font-bold text-blue-900 font-display mt-3">
-                      {paragraph.replace('#### ', '')}
-                    </h4>
-                  );
-                }
-                if (paragraph.startsWith('- ') || paragraph.startsWith('* ')) {
-                  return (
-                    <ul key={pIdx} className="list-disc pl-5 space-y-1 text-slate-700">
-                      {paragraph.split('\n').map((item, iIdx) => (
-                        <li key={iIdx}>{item.replace(/^[-*]\s+/, '')}</li>
-                      ))}
-                    </ul>
-                  );
-                }
-                if (/^\d+\.\s/.test(paragraph)) {
-                  return (
-                    <ol key={pIdx} className="list-decimal pl-5 space-y-1 text-slate-700">
-                      {paragraph.split('\n').map((item, iIdx) => (
-                        <li key={iIdx}>{item.replace(/^\d+\.\s+/, '')}</li>
-                      ))}
-                    </ol>
-                  );
-                }
-                return (
-                  <p key={pIdx} className="text-slate-700">
-                    {paragraph}
-                  </p>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-slate-500 text-xs">
-              Klik tombol &quot;Perbarui Analisis AI&quot; di atas untuk memproses laporan eksekutif.
-            </div>
-          )}
-
-          <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-500 gap-2">
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-blue-700" />
-              Laporan terverifikasi oleh Sistem Analitik &amp; Operasional NDTAXANDLAW
-            </span>
-            <span className="font-mono text-[11px]">
-              Engine: Server-Side @google/genai (gemini-3.8-flash)
-            </span>
           </div>
         </div>
       </div>

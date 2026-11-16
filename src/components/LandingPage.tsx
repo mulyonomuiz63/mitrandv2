@@ -352,35 +352,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
             {/* Left Column: Power Hook & Value Proposition for Mitra */}
             <div className="lg:col-span-7 space-y-6">
-              <div
-                className={`inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-md border text-xs font-extrabold tracking-widest uppercase ${
-                  isDark
-                    ? 'bg-amber-400/15 border-amber-400/40 text-amber-300'
-                    : 'bg-[#12316B]/10 border-[#12316B]/25 text-[#12316B]'
-                }`}
-              >
-                <Sparkles
-                  className={`w-3.5 h-3.5 shrink-0 ${
-                    isDark ? 'text-amber-400' : 'text-amber-600'
-                  }`}
-                />
-                <span>PROGRAM MITRA STRATEGIS • ND TAX AND LAW</span>
-              </div>
-
               <div className="space-y-3">
-                <p
-                  className={`text-xs sm:text-sm font-extrabold tracking-widest uppercase ${
-                    isDark ? 'text-blue-300' : 'text-blue-800'
-                  }`}
-                >
-                  —— BERGABUNG MENJADI MITRA RESMI
-                </p>
                 <h1
                   className={`text-3xl sm:text-5xl lg:text-[52px] font-black tracking-tight leading-[1.08] uppercase ${
                     isDark ? 'text-white' : 'text-[#0B1D3A]'
                   }`}
                 >
-                  PELUANG BISNIS JASA{' '}
+                  DIBUKA PELUANG BISNIS{' '}
                   <span
                     className={
                       isDark
@@ -404,12 +382,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   isDark ? 'text-slate-300' : 'text-slate-600'
                 }`}
               >
-                Bangun penghasilan aktif dan{' '}
-                <strong className={isDark ? 'text-white' : 'text-slate-900'}>
-                  passive income bulanan
-                </strong>{' '}
-                bersama firma konsultan pajak &amp; hukum korporasi terintegrasi. Anda cukup
-                merekomendasikan relasi bisnis atau perusahaan—seluruh presentasi teknis,
+                Anda cukup merekomendasikan relasi bisnis atau perusahaan—seluruh presentasi teknis,
                 pengerjaan kasus, hingga kepatuhan pajak ditangani langsung oleh tim ahli
                 berlisensi resmi{' '}
                 <strong className={isDark ? 'text-amber-300' : 'text-[#12316B]'}>
@@ -536,71 +509,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </a>
               </div>
 
-              {/* Operational Assurance Bar */}
-              <div
-                className={`pt-4 border-t flex flex-wrap items-center gap-x-6 gap-y-2 text-xs ${
-                  isDark
-                    ? 'border-white/10 text-slate-300'
-                    : 'border-slate-200 text-slate-600'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>Cair setiap awal bulan setelah klien bayar</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>Transparansi status deal &amp; bukti transfer real-time</span>
-                </div>
-              </div>
             </div>
 
-            {/* Right Column: Official Program Mitra Strategis Poster Showcase */}
+            {/* Right Column: Official Photo Frame */}
             <div className="lg:col-span-5">
               <div className="relative mx-auto max-w-md lg:max-w-none">
                 <div className="absolute -inset-2 bg-gradient-to-tr from-amber-500/30 via-blue-500/20 to-amber-400/30 rounded-3xl blur-xl opacity-80 pointer-events-none" />
 
-                <div className="relative bg-[#0B1D3A] border-2 border-amber-400/60 rounded-3xl p-3 shadow-2xl">
-                  <div className="flex items-center justify-between px-2 pb-2.5 mb-2 border-b border-white/10">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                        MATERI RESMI PROGRAM MITRA STRATEGIS
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setIsPosterZoomed(true)}
-                      className="text-[11px] font-bold text-blue-300 hover:text-white flex items-center gap-1 bg-white/10 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                      <span>Perbesar</span>
-                    </button>
-                  </div>
-
-                  <div
-                    onClick={() => setIsPosterZoomed(true)}
-                    className="relative rounded-2xl overflow-hidden cursor-pointer group border border-white/10"
-                  >
+                <div className="relative bg-gradient-to-br from-[#092147] via-[#113872] to-[#061835] border-2 border-amber-400/60 rounded-3xl p-2.5 shadow-2xl">
+                  <div className="relative rounded-2xl overflow-hidden border border-amber-400/30">
                     <img
-                      src="/assets/aistudio/9555b616-9ff3-4d7d-83ac-4bbcb7bde59e_page-0001_99829f74.jpg"
-                      alt="Program Mitra Strategis ND TAX AND LAW - Closing Besar, Komisi Besar, Bonus Besar"
-                      className="w-full h-auto object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                      src="/assets/aistudio/WhatsApp_Image_2026-11-12_at_15.31.47_9e81984d.jpeg"
+                      alt="ND TAX AND LAW"
+                      className="w-full h-auto object-cover block"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-4">
-                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <ZoomIn className="w-4 h-4 text-amber-400" />
-                        Klik untuk melihat ukuran penuh
-                      </span>
-                      <a
-                        href="/assets/aistudio/9555b616-9ff3-4d7d-83ac-4bbcb7bde59e_page-0001_99829f74.jpg"
-                        download="Program-Mitra-Strategis-NDTAXANDLAW.jpg"
-                        onClick={(e) => e.stopPropagation()}
-                        className="px-3 py-1.5 bg-amber-400 text-slate-950 text-xs font-extrabold rounded-lg flex items-center gap-1"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Unduh Brosur
-                      </a>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -633,14 +555,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               >
                 Skema Komisi Besar: Jasa Per Kasus &amp; Jasa Bulanan
               </h2>
-              <p
-                className={`text-sm leading-relaxed ${
-                  isDark ? 'text-slate-300' : 'text-slate-600'
-                }`}
-              >
-                Semakin besar nilai penjualan layanan yang berhasil closing dari referensi Anda,
-                semakin tinggi persentase komisi yang langsung Anda terima.
-              </p>
             </div>
 
             <div
@@ -928,10 +842,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               Hitung Sendiri Potensi Komisi &amp; Passive Income Anda
             </h2>
-            <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-              Geser nilai kontrak penjualan di bawah ini untuk melihat perhitungan komisi
-              otomatis sesuai skema resmi Program Mitra Strategis NDTAXANDLAW.
-            </p>
           </div>
 
           <div
@@ -1246,7 +1156,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     onClick={onOpenRegister}
                     className="w-full py-3.5 px-5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
                   >
-                    <span>Ambil Peluang Komisi Ini — Daftar Mitra</span>
+                    <span>Daftar Mitra Sekarang</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -1358,135 +1268,119 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               4 Langkah Mudah Menghasilkan Komisi &amp; Bonus Besar
             </h2>
-            <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-              Anda tidak perlu menguasai teknis perpajakan atau hukum yang rumit. Fokus pada
-              jejaring relasi Anda, biarkan sistem dan tim ahli kami yang bekerja.
-            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div
-              className={`rounded-2xl p-6 space-y-4 border ${
+              className={`rounded-2xl p-7 flex flex-col items-center text-center justify-center gap-4 border ${
                 isDark
-                  ? 'bg-white/[0.04] border-white/10'
+                  ? 'bg-white/[0.04] border-amber-400/30'
                   : 'bg-slate-50 border-slate-200 shadow-xs'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-amber-400 text-slate-950">
-                  LANGKAH 01
-                </span>
-                <QrCode className={`w-6 h-6 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+              <span className="text-[11px] font-black px-3 py-1 rounded-md bg-amber-400 text-slate-950 uppercase tracking-wider">
+                LANGKAH 01
+              </span>
+              <div
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${
+                  isDark
+                    ? 'bg-amber-400/15 border-amber-400/40 text-amber-300'
+                    : 'bg-amber-50 border-amber-300 text-amber-600'
+                }`}
+              >
+                <UserPlus className="w-8 h-8" />
               </div>
               <h3
-                className={`text-base font-extrabold ${
+                className={`text-lg font-extrabold ${
                   isDark ? 'text-white' : 'text-[#0B1D3A]'
                 }`}
               >
-                Daftar Gratis &amp; Terima ID Card Ber-QR
+                Daftar Gratis
               </h3>
-              <p
-                className={`text-xs leading-relaxed ${
-                  isDark ? 'text-slate-300' : 'text-slate-600'
-                }`}
-              >
-                Registrasi akun Mitra tanpa biaya. Anda langsung mendapatkan Kode Referral unik
-                dan Kartu Identitas Digital Eksklusif ber-QR Code resmi.
-              </p>
             </div>
 
             <div
-              className={`rounded-2xl p-6 space-y-4 border ${
+              className={`rounded-2xl p-7 flex flex-col items-center text-center justify-center gap-4 border ${
                 isDark
-                  ? 'bg-white/[0.04] border-white/10'
+                  ? 'bg-white/[0.04] border-blue-400/30'
                   : 'bg-slate-50 border-slate-200 shadow-xs'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-blue-600 text-white">
-                  LANGKAH 02
-                </span>
-                <Users className={`w-6 h-6 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+              <span className="text-[11px] font-black px-3 py-1 rounded-md bg-blue-600 text-white uppercase tracking-wider">
+                LANGKAH 02
+              </span>
+              <div
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${
+                  isDark
+                    ? 'bg-blue-500/15 border-blue-400/40 text-blue-300'
+                    : 'bg-blue-50 border-blue-200 text-blue-600'
+                }`}
+              >
+                <Award className="w-8 h-8" />
               </div>
               <h3
-                className={`text-base font-extrabold ${
+                className={`text-lg font-extrabold ${
                   isDark ? 'text-white' : 'text-[#0B1D3A]'
                 }`}
               >
-                Input Prospek atau Bagikan Link Referral
+                Pelatihan atau Pembekalan
               </h3>
-              <p
-                className={`text-xs leading-relaxed ${
-                  isDark ? 'text-slate-300' : 'text-slate-600'
-                }`}
-              >
-                Gunakan Marketing Tools siap pakai di portal, bagikan link QR Anda, atau
-                daftarkan perusahaan relasi yang membutuhkan jasa konsultan pajak &amp; hukum.
-              </p>
             </div>
 
             <div
-              className={`rounded-2xl p-6 space-y-4 border ${
+              className={`rounded-2xl p-7 flex flex-col items-center text-center justify-center gap-4 border ${
                 isDark
-                  ? 'bg-white/[0.04] border-white/10'
+                  ? 'bg-white/[0.04] border-indigo-400/30'
                   : 'bg-slate-50 border-slate-200 shadow-xs'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-indigo-600 text-white">
-                  LANGKAH 03
-                </span>
-                <FileText
-                  className={`w-6 h-6 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
-                />
+              <span className="text-[11px] font-black px-3 py-1 rounded-md bg-indigo-600 text-white uppercase tracking-wider">
+                LANGKAH 03
+              </span>
+              <div
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${
+                  isDark
+                    ? 'bg-indigo-500/15 border-indigo-400/40 text-indigo-300'
+                    : 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                }`}
+              >
+                <Users className="w-8 h-8" />
               </div>
               <h3
-                className={`text-base font-extrabold ${
+                className={`text-lg font-extrabold ${
                   isDark ? 'text-white' : 'text-[#0B1D3A]'
                 }`}
               >
-                Tim Ahli Kami Menangani Presentasi &amp; Proyek
+                Mencari Prospek atau Rekomendasi
               </h3>
-              <p
-                className={`text-xs leading-relaxed ${
-                  isDark ? 'text-slate-300' : 'text-slate-600'
-                }`}
-              >
-                Konsultan berlisensi resmi NDTAXANDLAW melakukan pendampingan, negosiasi, hingga
-                penyelesaian pekerjaan klien. Anda dapat memantau progresnya di dashboard.
-              </p>
             </div>
 
             <div
-              className={`rounded-2xl p-6 space-y-4 border ${
+              className={`rounded-2xl p-7 flex flex-col items-center text-center justify-center gap-4 border ${
                 isDark
                   ? 'bg-white/[0.04] border-emerald-400/30'
                   : 'bg-emerald-50/60 border-emerald-200 shadow-xs'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-emerald-500 text-slate-950">
-                  LANGKAH 04
-                </span>
-                <TrendingUp
-                  className={`w-6 h-6 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
-                />
+              <span className="text-[11px] font-black px-3 py-1 rounded-md bg-emerald-500 text-slate-950 uppercase tracking-wider">
+                LANGKAH 04
+              </span>
+              <div
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${
+                  isDark
+                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                }`}
+              >
+                <Wallet className="w-8 h-8" />
               </div>
               <h3
-                className={`text-base font-extrabold ${
+                className={`text-lg font-extrabold ${
                   isDark ? 'text-white' : 'text-[#0B1D3A]'
                 }`}
               >
-                Komisi Cair Rutin Setiap Awal Bulan
+                Mendapatkan Komisi
               </h3>
-              <p
-                className={`text-xs leading-relaxed ${
-                  isDark ? 'text-slate-300' : 'text-slate-600'
-                }`}
-              >
-                Nikmati komisi hingga 20% saat closing ditambah 10% komisi berulang setiap bulan
-                sepanjang kontrak klien berjalan, langsung ditransfer ke rekening Anda.
-              </p>
             </div>
           </div>
 
@@ -1494,16 +1388,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="mt-14 bg-gradient-to-r from-[#12316B] via-[#0F2756] to-[#12316B] border-2 border-amber-400/60 rounded-3xl p-8 sm:p-10 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl text-white">
             <div className="space-y-2 text-center lg:text-left max-w-2xl">
               <span className="text-xs font-extrabold uppercase tracking-widest text-amber-300">
-                PELUANG BISNIS JASA TANPA MODAL
+                DIBUKA PELUANG BISNIS TANPA MODAL.
               </span>
               <h3 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
                 CLOSING BESAR, KOMISI BESAR, BONUS BESAR!
               </h3>
-              <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
-                Bergabunglah bersama ekosistem Mitra Strategis NDTAXANDLAW hari ini. Dapatkan
-                akses penuh ke Dashboard Kemitraan, Marketing Kit Eksklusif, dan Live Chat
-                Koordinasi Tim.
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3.5 shrink-0">
@@ -1537,10 +1426,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   className="h-7 w-auto object-contain"
                 />
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-                Program Mitra Strategis Resmi NDTAXANDLAW — Ekosistem Kemitraan Jasa Konsultan
-                Pajak &amp; Hukum Korporasi dengan Komisi Berulang Transparan.
-              </p>
             </div>
 
             <div className="space-y-2">
@@ -1618,10 +1503,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           onClick={scrollToTop}
           title="Kembali ke Atas"
           aria-label="Scroll ke atas"
-          className="fixed bottom-20 lg:bottom-7 right-4 sm:right-6 z-40 flex items-center gap-2 px-3.5 py-3 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-2xl shadow-amber-500/30 border-2 border-white/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          className="fixed bottom-20 lg:bottom-7 right-4 sm:right-6 z-40 w-11 h-11 flex items-center justify-center rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-2xl shadow-amber-500/30 border-2 border-white/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
         >
-          <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-          <span className="hidden sm:inline">Ke Atas</span>
+          <ArrowUp className="w-5 h-5 stroke-[2.5]" />
         </button>
       )}
 

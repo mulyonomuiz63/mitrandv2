@@ -118,8 +118,8 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
     : `https://ndtaxandlaw.com/?ref=${mitra.referralCode || 'ND-REF-0042'}`;
 
   const mitraVerificationLink = typeof window !== 'undefined'
-    ? `${window.location.origin}/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`
-    : `https://ndtaxandlaw.com/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`;
+    ? `${window.location.origin}/?verify=${encodeURIComponent(mitra.memberCode || 'ND-TAX-LAW-0000')}`
+    : `https://ndtaxandlaw.com/?verify=${encodeURIComponent(mitra.memberCode || 'ND-TAX-LAW-0000')}`;
 
   useEffect(() => {
     let active = true;
@@ -404,13 +404,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-display">
             Kartu Identitas Eksklusif Mitra
           </h1>
-          <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 border border-blue-200">
-            Official Credential
-          </span>
         </div>
-        <p className="text-xs sm:text-sm text-slate-600 mt-1">
-          Kartu digital resmi NDTAXANDLAW yang diakui untuk representasi hukum, pajak, dan pitching klien korporasi.
-        </p>
       </div>
 
       {/* Status Banner: Rejected vs Pending */}
@@ -493,15 +487,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
         <div className="mb-6 p-4 sm:p-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl border border-blue-700/60 shadow-lg space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-400 text-slate-950 rounded uppercase tracking-wider">
-                  KODE REFERRAL MITRA RESMI
-                </span>
-                <span className="text-xs text-blue-200">
-                  Gunakan saat mereferensikan calon klien
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <span className="font-mono text-xl sm:text-2xl font-black text-amber-300 tracking-wider bg-white/10 px-3.5 py-1 rounded-xl border border-white/15">
                   {mitra.referralCode || 'ND-REF-0042'}
                 </span>
@@ -560,16 +546,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 >
                   {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
                 </button>
-                {onOpenClientSelfRegister && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenClientSelfRegister(mitra.referralCode || 'ND-REF-0042')}
-                    className="px-2.5 py-1.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-lg border border-white/20 transition-colors cursor-pointer"
-                    title="Pratinjau formulir yang akan dilihat calon klien"
-                  >
-                    Buka Form (Tes)
-                  </button>
-                )}
               </div>
             </div>
           ) : (
@@ -580,18 +556,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               </span>
             </div>
           )}
-
-          {/* Earning Rules Explain */}
-          <div className="mt-4 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
-            <div className="flex items-start gap-2">
-              <span className="text-amber-400 font-bold shrink-0">⚡ Case-by-case:</span>
-              <span>Mitra menerima komisi 1x penuh saat deal proyek closing (SP2DK, PT PMA, Audit).</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-emerald-400 font-bold shrink-0">🔄 Langganan Bulanan:</span>
-              <span>Mitra menerima komisi pasif rutin setiap bulan selama klien tetap aktif berlangganan jasa akuntansi &amp; pajak.</span>
-            </div>
-          </div>
         </div>
       ) : (
         <div className="mb-6 p-5 bg-slate-900 text-white rounded-2xl border border-slate-700 shadow-md space-y-3">

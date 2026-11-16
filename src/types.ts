@@ -420,6 +420,20 @@ export interface PayoutRequest {
   notes?: string;
 }
 
+export type PayoutScheduleType = 'awal_bulan' | 'pertengahan_bulan' | 'akhir_bulan';
+
+export function getPayoutScheduleLabel(schedule?: PayoutScheduleType | string): string {
+  switch (schedule) {
+    case 'pertengahan_bulan':
+      return 'Setiap Pertengahan Bulan (Tanggal 15–17)';
+    case 'akhir_bulan':
+      return 'Setiap Akhir Bulan (Tanggal 28–31)';
+    case 'awal_bulan':
+    default:
+      return 'Setiap Awal Bulan (Tanggal 1–5)';
+  }
+}
+
 export interface AppSettings {
   firmName: string;
   tagline: string;
@@ -429,6 +443,8 @@ export interface AppSettings {
   defaultCommissionRate: number;
   commissionScheme?: CommissionSchemeConfig;
   bonusTargetConfig?: BonusTargetConfig;
+  payoutSchedule?: PayoutScheduleType;
+  payoutScheduleNote?: string;
   allowClientSelfRegister: boolean;
   googleOAuthEnabled: boolean;
   googleClientId: string;

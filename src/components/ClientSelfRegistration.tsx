@@ -223,22 +223,24 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between selection:bg-blue-600 selection:text-white font-sans py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-[#092147] via-[#113872] to-[#061835] text-slate-100 flex flex-col justify-between selection:bg-amber-400 selection:text-slate-950 font-sans py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto w-full">
         
         {/* Top Header & Branding */}
-        <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-8">
+        <div className="flex items-center justify-between pb-6 border-b border-amber-400/30 mb-8">
           <div className="flex items-center gap-3">
-            <img
-              src="/assets/aistudio/logo_c3fdb6de.png"
-              alt="NDTAXANDLAW Logo"
-              className="h-9 w-auto object-contain brightness-110"
-            />
-            <div className="hidden sm:block border-l border-slate-800 pl-3">
-              <span className="text-xs font-bold text-white block uppercase tracking-wider">
+            <div className="bg-white px-2.5 py-1.5 rounded-lg shadow-sm">
+              <img
+                src="/assets/aistudio/logo_c3fdb6de.png"
+                alt="NDTAXANDLAW Logo"
+                className="h-8 w-auto object-contain"
+              />
+            </div>
+            <div className="hidden sm:block border-l border-amber-400/30 pl-3">
+              <span className="text-xs font-bold text-amber-300 block uppercase tracking-wider">
                 NDTAXANDLAW Portal Klien
               </span>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] text-blue-100">
                 Formulir Mandiri Layanan Pajak &amp; Laporan Keuangan
               </span>
             </div>
@@ -246,7 +248,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
           <button
             onClick={onBackToHome}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10"
+            className="inline-flex items-center gap-1.5 text-xs text-amber-300 hover:text-white transition-colors bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-lg border border-amber-400/40"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Kembali ke Web Layanan</span>
@@ -254,7 +256,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
         </div>
 
         {!loading && dynamicSettings?.allowClientSelfRegister === false ? (
-          <div className="bg-slate-800/90 border border-rose-500/40 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
+          <div className="bg-[#092147]/90 border border-rose-500/40 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
             <div className="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-500/30">
               <Lock className="w-8 h-8" />
             </div>
@@ -265,7 +267,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               <h2 className="text-xl font-extrabold text-white">
                 Pendaftaran Mandiri Klien Tidak Tersedia
               </h2>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
                 Fitur pendaftaran mandiri klien melalui tautan referral saat ini sedang dinonaktifkan oleh Administrator NDTAXANDLAW. Silakan hubungi Mitra pendamping Anda secara langsung untuk pendaftaran layanan.
               </p>
             </div>
@@ -280,7 +282,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
             </div>
           </div>
         ) : !loading && (!mitra || mitra.status !== 'verified') ? (
-          <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
+          <div className="bg-[#092147]/90 border border-amber-400/40 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
             <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto border border-amber-500/30">
               <Lock className="w-8 h-8" />
             </div>
@@ -291,7 +293,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               <h2 className="text-xl font-extrabold text-white">
                 Tautan Referral Belum Dapat Digunakan
               </h2>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
                 Kode referral <span className="font-mono font-bold text-amber-300">{referralCode}</span> saat ini belum aktif karena akun mitra terkait masih dalam proses verifikasi oleh Admin NDTAXANDLAW.
               </p>
             </div>
@@ -307,7 +309,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           </div>
         ) : submitted ? (
           /* Submission Success Card */
-          <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-8 text-center space-y-6 shadow-2xl animate-in fade-in zoom-in-95">
+          <div className="bg-[#092147]/90 border border-amber-400/40 rounded-3xl p-8 text-center space-y-6 shadow-2xl animate-in fade-in zoom-in-95">
             <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">
               <CheckCircle2 className="w-9 h-9" />
             </div>
@@ -316,29 +318,29 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               <h2 className="text-2xl font-extrabold text-white">
                 Pendaftaran Klien Berhasil Diterima!
               </h2>
-              <p className="text-xs sm:text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
+              <p className="text-xs sm:text-sm text-blue-100 max-w-lg mx-auto leading-relaxed">
                 Terima kasih, data perusahaan <strong>{companyName || picName || 'Klien'}</strong> telah berhasil didaftarkan dan terhubung secara resmi melalui kode referral <span className="font-mono font-bold text-amber-300">{referralCode}</span>.
               </p>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 max-w-md mx-auto text-left space-y-2 text-xs">
-              <div className="flex justify-between text-slate-400 pb-2 border-b border-slate-800">
+            <div className="bg-[#061835]/90 border border-amber-400/30 rounded-2xl p-4 max-w-md mx-auto text-left space-y-2 text-xs">
+              <div className="flex justify-between text-blue-200 pb-2 border-b border-white/10">
                 <span>Mitra Pendamping:</span>
                 <span className="font-bold text-white">{mitra ? mitra.fullName : 'Mitra Terdaftar'}</span>
               </div>
-              <div className="flex justify-between text-slate-400 pb-2 border-b border-slate-800">
+              <div className="flex justify-between text-blue-200 pb-2 border-b border-white/10">
                 <span>Status Verifikasi:</span>
-                <span className="font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">
+                <span className="font-bold text-amber-300 bg-amber-400/15 px-2 py-0.5 rounded border border-amber-400/30">
                   Menunggu Validasi Admin (ACC)
                 </span>
               </div>
-              <div className="flex justify-between text-slate-400">
+              <div className="flex justify-between text-blue-200">
                 <span>Estimasi Tindak Lanjut:</span>
-                <span className="text-slate-300">Maksimal 1x24 Jam Kerja</span>
+                <span className="text-white font-semibold">Maksimal 1x24 Jam Kerja</span>
               </div>
             </div>
 
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
+            <p className="text-xs text-blue-200 max-w-md mx-auto">
               Tim Konsultan Pajak NDTAXANDLAW akan segera menghubungi nomor WhatsApp <strong>{picPhone || 'PIC'}</strong> untuk konfirmasi berkas dan jadwal kickoff konsultasi.
             </p>
 
@@ -353,29 +355,29 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           </div>
         ) : (
           /* Self-Registration Form */
-          <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-sm space-y-6">
+          <div className="bg-[#092147]/90 border border-amber-400/40 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-md space-y-6">
             
             {/* Verified Referral Badge Banner */}
-            <div className="p-4 bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-slate-900 border border-blue-500/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="p-4 bg-gradient-to-r from-[#061835] via-[#113872] to-[#092147] border border-amber-400/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-extrabold text-sm shadow-md shrink-0">
                   REF
                 </div>
                 <div>
-                  <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider flex items-center gap-1">
+                  <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                     Tautan Rekomendasi Resmi
                   </div>
                   <div className="text-sm font-bold text-white mt-0.5">
                     {mitra ? mitra.fullName : 'Mitra Terdaftar NDTAXANDLAW'}
                   </div>
-                  <div className="text-xs text-slate-400 font-mono">
+                  <div className="text-xs text-blue-200 font-mono">
                     Kode Referral: <strong className="text-amber-300">{referralCode || 'ND-REF-0042'}</strong>
                   </div>
                 </div>
               </div>
 
-              <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 self-start sm:self-auto">
+              <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 self-start sm:self-auto">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 Referral Terverifikasi
               </span>
@@ -385,7 +387,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
                 Formulir Pendaftaran Klien Baru
               </h1>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-blue-200 mt-1">
                 Lengkapi rincian profil perusahaan dan kebutuhan perpajakan Anda. Tim ahli NDTAXANDLAW akan mempersiapkan proposal dan penanganan terbaik.
               </p>
             </div>
@@ -402,14 +404,14 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {isSysActive('companyName') && (
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-amber-200 mb-1">
                       {getSysField('companyName')?.label || 'Nama Perusahaan / Entitas Bisnis'}{' '}
                       {getSysField('companyName')?.required !== false && (
                         <span className="text-rose-400">*</span>
                       )}
                     </label>
                     <div className="relative">
-                      <Building2 className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <Building2 className="w-4 h-4 text-amber-300/70 absolute left-3 top-3" />
                       <input
                         type="text"
                         required={getSysField('companyName')?.required !== false}
@@ -419,7 +421,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                           getSysField('companyName')?.placeholder ||
                           'Contoh: PT Sumber Pangan Makmur'
                         }
-                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     </div>
                   </div>
@@ -427,14 +429,14 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
                 {isSysActive('picName') && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-amber-200 mb-1">
                       {getSysField('picName')?.label || 'Nama PIC / Penanggung Jawab'}{' '}
                       {getSysField('picName')?.required !== false && (
                         <span className="text-rose-400">*</span>
                       )}
                     </label>
                     <div className="relative">
-                      <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <User className="w-4 h-4 text-amber-300/70 absolute left-3 top-3" />
                       <input
                         type="text"
                         required={getSysField('picName')?.required !== false}
@@ -443,7 +445,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         placeholder={
                           getSysField('picName')?.placeholder || 'Contoh: Budi Santoso (Direktur)'
                         }
-                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     </div>
                   </div>
@@ -451,21 +453,21 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
                 {isSysActive('picPhone') && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-amber-200 mb-1">
                       {getSysField('picPhone')?.label || 'Nomor WhatsApp / HP PIC'}{' '}
                       {getSysField('picPhone')?.required !== false && (
                         <span className="text-rose-400">*</span>
                       )}
                     </label>
                     <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <Phone className="w-4 h-4 text-amber-300/70 absolute left-3 top-3" />
                       <input
                         type="tel"
                         required={getSysField('picPhone')?.required !== false}
                         value={picPhone}
                         onChange={(e) => setPicPhone(e.target.value)}
                         placeholder={getSysField('picPhone')?.placeholder || '0812-XXXX-XXXX'}
-                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     </div>
                   </div>
@@ -473,12 +475,12 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
                 {isSysActive('picEmail') && (
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-amber-200 mb-1">
                       {getSysField('picEmail')?.label || 'Email Kantor / PIC'}{' '}
                       {getSysField('picEmail')?.required && <span className="text-rose-400">*</span>}
                     </label>
                     <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <Mail className="w-4 h-4 text-amber-300/70 absolute left-3 top-3" />
                       <input
                         type="email"
                         required={Boolean(getSysField('picEmail')?.required)}
@@ -487,7 +489,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         placeholder={
                           getSysField('picEmail')?.placeholder || 'finance@sumberpangan.com'
                         }
-                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     </div>
                   </div>
@@ -496,7 +498,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 {/* Dynamic Custom Fields for Client (Managed by Admin) */}
                 {activeClientCustomFields.map((field) => (
                   <div key={field.id} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-amber-200 mb-1">
                       {field.label} {field.required && <span className="text-rose-400">*</span>}
                     </label>
                     {field.type === 'select' ? (
@@ -506,13 +508,13 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         onChange={(e) =>
                           setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
                         }
-                        className="w-full px-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white outline-none focus:ring-2 focus:ring-amber-400"
                       >
-                        <option value="" className="bg-slate-900 text-slate-400">
+                        <option value="" className="bg-[#061835] text-slate-400">
                           -- Pilih {field.label} --
                         </option>
                         {(field.options || []).map((opt) => (
-                          <option key={opt} value={opt} className="bg-slate-900 text-white">
+                          <option key={opt} value={opt} className="bg-[#061835] text-white">
                             {opt}
                           </option>
                         ))}
@@ -526,7 +528,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                           setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
                         }
                         placeholder={field.placeholder || `Masukkan ${field.label}`}
-                        className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full px-3 py-2 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     ) : (
                       <input
@@ -537,7 +539,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                           setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
                         }
                         placeholder={field.placeholder || `Masukkan ${field.label}`}
-                        className="w-full px-3 py-2.5 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full px-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     )}
                   </div>
@@ -545,25 +547,25 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               </div>
 
               {/* Service Selection */}
-              <div className="p-4 bg-slate-900/90 border border-slate-700/80 rounded-2xl space-y-4">
+              <div className="p-4 bg-[#061835]/90 border border-amber-400/30 rounded-2xl space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <FileText className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-amber-400" />
                     Layanan Pajak &amp; Akuntansi yang Dibutuhkan
                   </span>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-amber-200 mb-1">
                     Pilih Paket Layanan
                   </label>
                   <select
                     value={selectedServiceId}
                     onChange={handleServiceChange}
-                    className="w-full px-3 py-2.5 text-sm bg-slate-800 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 text-sm bg-[#092147] border border-amber-400/30 rounded-xl text-white outline-none focus:ring-2 focus:ring-amber-400"
                   >
                     {services.map((srv) => (
-                      <option key={srv.id} value={srv.id} className="bg-slate-900 text-white">
+                      <option key={srv.id} value={srv.id} className="bg-[#061835] text-white">
                         {srv.name} ({srv.category})
                       </option>
                     ))}
@@ -571,7 +573,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-amber-200 mb-1.5">
                     Model Pembayaran &amp; Skema Komisi Klien
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -580,12 +582,12 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                       onClick={() => setPricingType('case_by_case')}
                       className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
                         pricingType === 'case_by_case'
-                          ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700/80'
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30'
+                          : 'bg-[#092147] text-blue-100 border-amber-400/20 hover:bg-[#113872]'
                       }`}
                     >
                       <span className="font-bold text-sm block">⚡ Case-by-Case</span>
-                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'case_by_case' ? 'text-blue-100' : 'text-slate-400'}`}>
+                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'case_by_case' ? 'text-slate-800 font-semibold' : 'text-blue-200'}`}>
                         1x Bayar (Proyek / Multi-Bulan)
                       </span>
                     </button>
@@ -595,12 +597,12 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                       onClick={() => setPricingType('monthly_subscription')}
                       className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
                         pricingType === 'monthly_subscription'
-                          ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700/80'
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30'
+                          : 'bg-[#092147] text-blue-100 border-amber-400/20 hover:bg-[#113872]'
                       }`}
                     >
                       <span className="font-bold text-sm block">🔄 Langganan Bulanan</span>
-                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'monthly_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
+                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'monthly_subscription' ? 'text-slate-800 font-semibold' : 'text-blue-200'}`}>
                         Komisi tiap siklus bulanan
                       </span>
                     </button>
@@ -610,12 +612,12 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                       onClick={() => setPricingType('annual_subscription')}
                       className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
                         pricingType === 'annual_subscription'
-                          ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700/80'
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30'
+                          : 'bg-[#092147] text-blue-100 border-amber-400/20 hover:bg-[#113872]'
                       }`}
                     >
                       <span className="font-bold text-sm block">📅 Langganan Tahunan</span>
-                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'annual_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
+                      <span className={`block text-[11px] mt-0.5 ${pricingType === 'annual_subscription' ? 'text-slate-800 font-semibold' : 'text-blue-200'}`}>
                         Annual Retainer Perikatan
                       </span>
                     </button>
@@ -624,21 +626,20 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
                 {/* Case by case custom multi-month period */}
                 {pricingType === 'case_by_case' && (
-                  <div className="p-3.5 bg-slate-850 bg-slate-800/90 rounded-2xl border border-slate-700 shadow-sm space-y-3">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-200">
+                  <div className="p-3.5 bg-[#092147]/90 rounded-2xl border border-amber-400/30 shadow-sm space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-blue-100">
                       <input
                         type="checkbox"
                         checked={isCustomPeriod}
                         onChange={(e) => setIsCustomPeriod(e.target.checked)}
-                        className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        className="rounded border-amber-400/40 bg-[#061835] text-amber-400 focus:ring-amber-400 w-4 h-4 cursor-pointer"
                       />
                       <span>Atur Rentang Bulan &amp; Tahun Perikatan (Opsional: Multi-Bulan Sekali Bayar)</span>
                     </label>
 
                     {isCustomPeriod && (
-                      <div className="pt-2 border-t border-slate-700/70 space-y-3 animate-in fade-in">
+                      <div className="pt-2 border-t border-amber-400/20 space-y-3 animate-in fade-in">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {/* Click-to-select Month & Year in Dark Theme */}
                           <MonthYearPicker
                             label="Bulan & Tahun Mulai Perikatan"
                             selectedMonth={startMonth}
@@ -663,24 +664,24 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         </div>
 
                         {/* Auto-calculated contract duration */}
-                        <div className="p-3 bg-slate-900/90 border border-slate-700 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="p-3 bg-[#061835] border border-amber-400/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                           <div>
-                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block">
+                            <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
                               Total Durasi Terhitung Otomatis
                             </span>
-                            <span className="text-xs text-slate-300 font-medium">
+                            <span className="text-xs text-blue-100 font-medium">
                               Periode: <strong className="text-white">{autoPeriodStart}</strong> s/d <strong className="text-white">{autoPeriodEnd}</strong>
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400">Durasi:</span>
-                            <span className="px-3 py-1 bg-blue-600 text-white font-mono font-bold text-xs rounded-md shadow-xs">
+                            <span className="text-xs text-blue-200">Durasi:</span>
+                            <span className="px-3 py-1 bg-amber-400 text-slate-950 font-mono font-bold text-xs rounded-md shadow-xs">
                               {autoDuration} Bulan
                             </span>
                           </div>
                         </div>
 
-                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                        <p className="text-[10px] text-blue-200 leading-relaxed">
                           ℹ️ Durasi perikatan terisi otomatis dari rentang bulan &amp; tahun yang Anda pilih tanpa perlu input manual. Pembayaran bersifat sekali bayar (case-by-case).
                         </p>
                       </div>
@@ -689,7 +690,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-amber-200 mb-1">
                     Perkiraan Anggaran / Nilai Kontrak Layanan (Rp)
                   </label>
                   <input
@@ -698,9 +699,9 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                     step="any"
                     value={dealValue}
                     onChange={(e) => setDealValue(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-sm font-semibold font-mono bg-slate-800 border border-slate-700 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 text-sm font-semibold font-mono bg-[#092147] border border-amber-400/30 rounded-xl text-white outline-none focus:ring-2 focus:ring-amber-400"
                   />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                  <span className="text-[10px] text-blue-200 mt-0.5 block">
                     {pricingType === 'monthly_subscription'
                       ? 'Estimasi tagihan per bulan'
                       : pricingType === 'annual_subscription'
@@ -713,7 +714,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               {/* Notes */}
               {isSysActive('notes') && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-amber-200 mb-1">
                     {getSysField('notes')?.label || 'Kebutuhan Spesifik / Batas Waktu Klien'}{' '}
                     {getSysField('notes')?.required && <span className="text-rose-400">*</span>}
                   </label>
@@ -726,7 +727,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                       getSysField('notes')?.placeholder ||
                       'Contoh: Perlu pendampingan untuk membalas surat SP2DK atau persiapan audit laporan keuangan akhir tahun.'
                     }
-                    className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full px-3 py-2 text-xs bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                   />
                 </div>
               )}
@@ -736,7 +737,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-3.5 text-sm font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="w-full py-3.5 text-sm font-black text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isSubmitting ? (
                     <span>Mengirimkan Data...</span>

@@ -146,9 +146,6 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           <h1 className="text-2xl font-bold text-slate-900 font-display">
             Tools Marketing &amp; Materi Pelatihan
           </h1>
-          <p className="text-sm text-slate-600 mt-0.5">
-            Koleksi aset promosi digital, panduan konsultasi hukum-pajak, dan video edukasi siap pakai untuk mitra.
-          </p>
         </div>
 
         {userRole === 'admin' && (
