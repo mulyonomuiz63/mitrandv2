@@ -719,36 +719,6 @@ export default function App() {
                   : `Aktif sebagai: ${activeMitra.fullName} (${activeMitra.memberCode})`}
               </span>
             </div>
-
-            {/* Symmetrical Right-Side Action / Info Bar for Admin, Staf, & Mitra */}
-            {currentRole === 'admin' ? (
-              <div className="flex items-center gap-2.5 shrink-0 ml-auto">
-                {(currentUser?.roleCode !== 'staff' ||
-                  (currentUser?.allowedMenus || DEFAULT_STAFF_ALLOWED_MENUS).includes('manage-services')) && (
-                  <button
-                    type="button"
-                    data-tour="tour-action-services"
-                    onClick={() => setIsServicesModalOpen(true)}
-                    className="px-3 py-1 bg-blue-700 text-white font-bold rounded-lg hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
-                  >
-                    Kelola Layanan Pajak
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 shrink-0 ml-auto">
-                <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-[11px] font-mono text-amber-300 font-bold">
-                  <span>Referral: {activeMitra.referralCode || 'ND-REF-0042'}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('commissions')}
-                  className="px-3 py-1 bg-blue-700 text-white font-bold rounded-lg hover:bg-blue-600 transition-colors border border-blue-500 shadow-xs text-[11px] sm:text-xs"
-                >
-                  Ringkasan Komisi
-                </button>
-              </div>
-            )}
           </div>
         </div>
 

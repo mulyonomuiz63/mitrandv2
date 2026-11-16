@@ -205,7 +205,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-action-services"
                       onClick={onOpenServicesModal}
-                      className="hidden lg:inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors whitespace-nowrap border border-amber-200 cursor-pointer"
+                      className="hidden md:inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors whitespace-nowrap border border-amber-200 cursor-pointer"
                     >
                       <span>Kelola Layanan Pajak</span>
                     </button>
@@ -222,17 +222,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </>
               )}
 
-              {/* Onboarding Spotlight Tour Button ("Panduan" — Desktop/Tablet) */}
+              {/* Onboarding Spotlight Tour Button (Icon-only Question Mark) */}
               {onStartOnboardingTour && (
                 <button
                   type="button"
                   onClick={onStartOnboardingTour}
-                  className="hidden md:flex p-1.5 sm:px-2.5 sm:py-1.5 text-blue-700 hover:text-blue-900 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/80 rounded-lg transition-colors items-center gap-1 cursor-pointer"
+                  className="hidden md:flex p-2 text-blue-700 hover:text-blue-900 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/80 rounded-xl transition-colors items-center justify-center cursor-pointer"
                   title="Putar Panduan Tur Fitur (Spotlight Tour)"
                   aria-label="Panduan Fitur"
                 >
-                  <HelpCircle className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span className="hidden lg:inline text-xs font-bold">Panduan</span>
+                  <HelpCircle className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-blue-600 shrink-0" />
                 </button>
               )}
 
