@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   TrendingUp,
   Award,
   CheckCircle2,
   ArrowRight,
+  ArrowUp,
   Phone,
   Mail,
   Briefcase,
@@ -25,6 +26,10 @@ import {
   Users,
   FileText,
   BadgePercent,
+  UserPlus,
+  LogIn,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { AuthUser } from '../types';
 
@@ -48,13 +53,65 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   supportPhone = '0812-8899-7711',
   supportEmail = 'kemitraan@ndtaxandlaw.co.id',
 }) => {
+  // Theme Mode State (Dark / Light) persisted in localStorage
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    try {
+      const saved = localStorage.getItem('nd_landing_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch {}
+    return 'dark';
+  });
+
+  const isDark = themeMode === 'dark';
+
+  const toggleTheme = () => {
+    const next = isDark ? 'light' : 'dark';
+    setThemeMode(next);
+    try {
+      localStorage.setItem('nd_landing_theme', next);
+    } catch {}
+  };
+
   // Interactive Commission Simulator State (strictly matching Poster rules)
   const [simMode, setSimMode] = useState<SimulationMode>('per_kasus');
   const [caseContractMillions, setCaseContractMillions] = useState<number>(150); // Default Rp 150 Juta (matches poster example)
   const [monthlyContractMillions, setMonthlyContractMillions] = useState<number>(12); // Default Rp 12 Juta/bulan (matches poster example)
-  const [contractDurationMonths, setContractDurationMonths] = useState<number>(12); // Default 12 bulan
+  const [contractDurationMonths, setContractDurationMonths] = useState<number>(12); // Default 12 bulan (1-36 step 1)
   const [closingCountPerMonth, setClosingCountPerMonth] = useState<number>(2);
   const [isPosterZoomed, setIsPosterZoomed] = useState<boolean>(false);
+  const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
+  const [activeNavSection, setActiveNavSection] = useState<string>('top');
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+      setShowScrollTop(scrollY > 300 || scrollY + windowHeight >= docHeight - 180);
+
+      const sections = ['alur-kemitraan', 'bonus-mitra', 'simulasi-komisi', 'skema-komisi'];
+      let found = 'top';
+      for (const id of sections) {
+        const el = document.getElementById(id);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= 220) {
+            found = id;
+            break;
+          }
+        }
+      }
+      setActiveNavSection(found);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Tier calculation matching official poster:
   // JASA KONSULTAN PER KASUS:
@@ -112,76 +169,170 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     }).format(amount);
 
   return (
-    <div className="min-h-screen bg-[#071126] text-white flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
-      {/* Top Navigation Bar — Strictly 4 Top-Level Items */}
-      <header className="sticky top-0 z-40 bg-[#071126]/95 backdrop-blur-md border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
-          {/* Brand Lockup */}
-          <div className="flex items-center gap-3">
-            <div className="bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center">
+    <div
+      className={`min-h-screen flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 pb-20 lg:pb-0 transition-colors duration-300 ${
+        isDark ? 'bg-[#071126] text-white' : 'bg-slate-50 text-slate-900'
+      }`}
+    >
+      {/* Top Navigation Bar — Responsive on Mobile & Desktop with Dark/Light Mode Switch */}
+      <header
+        className={`sticky top-0 z-40 backdrop-blur-md border-b transition-colors duration-300 ${
+          isDark
+            ? 'bg-[#071126]/95 border-white/10'
+            : 'bg-white/95 border-slate-200 shadow-xs'
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2 sm:gap-4">
+          {/* Brand Lockup — Never shrinks on mobile so logo is always 100% clear */}
+          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={scrollToTop}
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border flex items-center shrink-0 cursor-pointer transition-all ${
+                isDark
+                  ? 'bg-white border-slate-200 shadow-sm'
+                  : 'bg-white border-slate-200 shadow-xs hover:border-blue-300'
+              }`}
+              title="ND TAX AND LAW"
+            >
               <img
                 src="/assets/aistudio/logo_c3fdb6de.png"
                 alt="ND TAX AND LAW"
-                className="h-8 sm:h-9 w-auto object-contain"
+                className="h-6 sm:h-8 w-[108px] sm:w-[136px] object-contain shrink-0"
               />
-            </div>
-            <div className="hidden sm:block pl-3 border-l border-amber-400/40">
-              <span className="text-xs font-extrabold tracking-widest uppercase text-amber-400 block">
+            </button>
+            <div
+              className={`hidden md:block pl-3 border-l ${
+                isDark ? 'border-amber-400/40' : 'border-blue-800/30'
+              }`}
+            >
+              <span
+                className={`text-xs font-extrabold tracking-widest uppercase block ${
+                  isDark ? 'text-amber-400' : 'text-[#12316B]'
+                }`}
+              >
                 PROGRAM MITRA STRATEGIS
               </span>
-              <span className="text-[11px] text-slate-300 font-medium">
+              <span
+                className={`text-[11px] font-medium ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
                 Eksklusif Rekrutmen &amp; Portal Kemitraan Resmi
               </span>
             </div>
           </div>
 
-          {/* Navigation Anchors */}
-          <nav className="hidden lg:flex items-center gap-8 text-xs font-semibold text-slate-300">
-            <a href="#skema-komisi" className="hover:text-amber-400 transition-colors">
+          {/* Navigation Anchors (Desktop) */}
+          <nav
+            className={`hidden lg:flex items-center gap-7 text-xs font-semibold ${
+              isDark ? 'text-slate-300' : 'text-slate-700'
+            }`}
+          >
+            <a
+              href="#skema-komisi"
+              className={`transition-colors ${
+                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
+              }`}
+            >
               Skema Komisi 15% + 10%
             </a>
-            <a href="#simulasi-komisi" className="hover:text-amber-400 transition-colors">
+            <a
+              href="#simulasi-komisi"
+              className={`transition-colors ${
+                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
+              }`}
+            >
               Kalkulator Komisi Mitra
             </a>
-            <a href="#bonus-mitra" className="hover:text-amber-400 transition-colors">
+            <a
+              href="#bonus-mitra"
+              className={`transition-colors ${
+                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
+              }`}
+            >
               Reward &amp; Bonus Prestasi
             </a>
-            <a href="#alur-kemitraan" className="hover:text-amber-400 transition-colors">
+            <a
+              href="#alur-kemitraan"
+              className={`transition-colors ${
+                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
+              }`}
+            >
               Cara Bergabung
             </a>
           </nav>
 
-          {/* Primary Actions */}
-          <div className="flex items-center gap-2.5">
+          {/* Primary Actions + Dark/Light Mode Switch */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Dark / Light Mode Toggle Button */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={isDark ? 'Beralih ke Light Mode' : 'Beralih ke Dark Mode'}
+              aria-label="Toggle Dark atau Light Mode"
+              className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+                isDark
+                  ? 'bg-white/10 hover:bg-white/15 border-white/15 text-amber-300'
+                  : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+              }`}
+            >
+              {isDark ? (
+                <>
+                  <Sun className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="hidden xl:inline text-[11px] text-white">Light</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-4 h-4 text-[#12316B] shrink-0" />
+                  <span className="hidden xl:inline text-[11px] text-slate-800">Dark</span>
+                </>
+              )}
+            </button>
+
             {currentUser ? (
               <button
                 onClick={onEnterPortal}
-                className="px-4 py-2.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-md transition-all flex items-center gap-2.5 whitespace-nowrap"
+                className="px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-md transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
               >
                 {userAvatarUrl && (
                   <img
                     src={userAvatarUrl}
                     alt={currentUser.name}
-                    className="w-5 h-5 rounded-full object-cover border border-slate-900/20"
+                    className="w-5 h-5 rounded-full object-cover border border-slate-900/20 shrink-0"
                   />
                 )}
-                <span>Buka Dashboard ({currentUser.name})</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <span className="sm:hidden">Portal</span>
+                <span className="hidden sm:inline">Dashboard ({currentUser.name})</span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               </button>
             ) : (
               <>
                 <button
                   onClick={onEnterPortal}
-                  className="px-4 py-2.5 text-xs font-bold text-white bg-white/10 hover:bg-white/15 border border-white/15 rounded-xl transition-all whitespace-nowrap"
+                  className={`px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    isDark
+                      ? 'text-white bg-white/10 hover:bg-white/15 border-white/15'
+                      : 'text-slate-800 bg-white hover:bg-slate-100 border-slate-300 shadow-2xs'
+                  }`}
                 >
-                  Masuk Portal Mitra
+                  <LogIn
+                    className={`w-3.5 h-3.5 hidden sm:inline ${
+                      isDark ? 'text-amber-400' : 'text-[#12316B]'
+                    }`}
+                  />
+                  <span>Masuk</span>
                 </button>
                 <button
                   onClick={onOpenRegister}
-                  className="px-5 py-2.5 text-xs font-extrabold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center gap-1.5 whitespace-nowrap"
+                  className={`px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-extrabold rounded-xl shadow-md transition-all flex items-center gap-1 whitespace-nowrap cursor-pointer ${
+                    isDark
+                      ? 'text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 shadow-amber-500/20'
+                      : 'text-white bg-[#12316B] hover:bg-blue-900 shadow-blue-900/20'
+                  }`}
                 >
-                  <span>Bergabung Menjadi Mitra</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>Daftar Mitra</span>
+                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
                 </button>
               </>
             )}
@@ -190,102 +341,215 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </header>
 
       {/* HERO SECTION: Hook Utama & Poster Program Mitra Strategis */}
-      <section className="relative overflow-hidden pt-10 pb-20 lg:pt-16 lg:pb-24 border-b border-white/10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/50 via-[#071126] to-[#050C1A]">
+      <section
+        className={`relative overflow-hidden pt-8 pb-16 lg:pt-14 lg:pb-24 border-b transition-colors duration-300 ${
+          isDark
+            ? 'border-white/10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/50 via-[#071126] to-[#050C1A]'
+            : 'border-slate-200 bg-gradient-to-b from-blue-50/70 via-white to-slate-100/80'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
             {/* Left Column: Power Hook & Value Proposition for Mitra */}
-            <div className="lg:col-span-7 space-y-7">
-              <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 text-xs font-extrabold tracking-widest uppercase">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <div className="lg:col-span-7 space-y-6">
+              <div
+                className={`inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-md border text-xs font-extrabold tracking-widest uppercase ${
+                  isDark
+                    ? 'bg-amber-400/15 border-amber-400/40 text-amber-300'
+                    : 'bg-[#12316B]/10 border-[#12316B]/25 text-[#12316B]'
+                }`}
+              >
+                <Sparkles
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    isDark ? 'text-amber-400' : 'text-amber-600'
+                  }`}
+                />
                 <span>PROGRAM MITRA STRATEGIS • ND TAX AND LAW</span>
               </div>
 
               <div className="space-y-3">
-                <p className="text-sm sm:text-base font-extrabold tracking-widest uppercase text-blue-300">
+                <p
+                  className={`text-xs sm:text-sm font-extrabold tracking-widest uppercase ${
+                    isDark ? 'text-blue-300' : 'text-blue-800'
+                  }`}
+                >
                   —— BERGABUNG MENJADI MITRA RESMI
                 </p>
-                <h1 className="text-3xl sm:text-5xl lg:text-[52px] font-black tracking-tight leading-[1.08] text-white uppercase">
+                <h1
+                  className={`text-3xl sm:text-5xl lg:text-[52px] font-black tracking-tight leading-[1.08] uppercase ${
+                    isDark ? 'text-white' : 'text-[#0B1D3A]'
+                  }`}
+                >
                   PELUANG BISNIS JASA{' '}
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500">
+                  <span
+                    className={
+                      isDark
+                        ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500'
+                        : 'text-amber-600'
+                    }
+                  >
                     TANPA MODAL.
                   </span>
-                  <span className="block mt-2 text-white">
+                  <span className={`block mt-2 ${isDark ? 'text-white' : 'text-[#0B1D3A]'}`}>
                     CLOSING BESAR, KOMISI BESAR,{' '}
-                    <span className="text-amber-400">BONUS BESAR.</span>
+                    <span className={isDark ? 'text-amber-400' : 'text-amber-600'}>
+                      BONUS BESAR.
+                    </span>
                   </span>
                 </h1>
               </div>
 
-              <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
-                Bangun penghasilan aktif dan <strong className="text-white">passive income bulanan</strong> bersama firma konsultan pajak &amp; hukum korporasi terintegrasi. Anda cukup merekomendasikan relasi bisnis atau perusahaan—seluruh presentasi teknis, pengerjaan kasus, hingga kepatuhan pajak ditangani langsung oleh tim ahli berlisensi resmi <strong className="text-amber-300">NDTAXANDLAW</strong>.
+              <p
+                className={`text-sm sm:text-base leading-relaxed max-w-2xl ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                Bangun penghasilan aktif dan{' '}
+                <strong className={isDark ? 'text-white' : 'text-slate-900'}>
+                  passive income bulanan
+                </strong>{' '}
+                bersama firma konsultan pajak &amp; hukum korporasi terintegrasi. Anda cukup
+                merekomendasikan relasi bisnis atau perusahaan—seluruh presentasi teknis,
+                pengerjaan kasus, hingga kepatuhan pajak ditangani langsung oleh tim ahli
+                berlisensi resmi{' '}
+                <strong className={isDark ? 'text-amber-300' : 'text-[#12316B]'}>
+                  NDTAXANDLAW
+                </strong>
+                .
               </p>
 
               {/* Key Commission Highlights from Poster */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
-                <div className="bg-white/[0.06] border border-amber-400/30 rounded-2xl p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                <div
+                  className={`rounded-2xl p-4 border ${
+                    isDark
+                      ? 'bg-white/[0.06] border-amber-400/30'
+                      : 'bg-white border-amber-300 shadow-sm'
+                  }`}
+                >
+                  <div
+                    className={`text-[11px] font-bold uppercase tracking-wider ${
+                      isDark ? 'text-amber-300' : 'text-amber-700'
+                    }`}
+                  >
                     KOMISI CLOSING AWAL
                   </div>
-                  <div className="text-2xl sm:text-3xl font-black text-white mt-1 tabular-nums">
+                  <div
+                    className={`text-2xl sm:text-3xl font-black mt-1 tabular-nums ${
+                      isDark ? 'text-white' : 'text-[#12316B]'
+                    }`}
+                  >
                     Hingga 15%
                   </div>
-                  <p className="text-xs text-slate-300 mt-1">
+                  <p
+                    className={`text-xs mt-1 ${
+                      isDark ? 'text-slate-300' : 'text-slate-600'
+                    }`}
+                  >
                     Dari nilai kontrak Jasa Per Kasus maupun Bulanan
                   </p>
                 </div>
 
-                <div className="bg-white/[0.06] border border-emerald-400/30 rounded-2xl p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+                <div
+                  className={`rounded-2xl p-4 border ${
+                    isDark
+                      ? 'bg-white/[0.06] border-emerald-400/30'
+                      : 'bg-white border-emerald-300 shadow-sm'
+                  }`}
+                >
+                  <div
+                    className={`text-[11px] font-bold uppercase tracking-wider ${
+                      isDark ? 'text-emerald-300' : 'text-emerald-700'
+                    }`}
+                  >
                     KOMISI BERULANG
                   </div>
-                  <div className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1 tabular-nums">
+                  <div
+                    className={`text-2xl sm:text-3xl font-black mt-1 tabular-nums ${
+                      isDark ? 'text-emerald-400' : 'text-emerald-600'
+                    }`}
+                  >
                     +10% / Bulan
                   </div>
-                  <p className="text-xs text-slate-300 mt-1">
+                  <p
+                    className={`text-xs mt-1 ${
+                      isDark ? 'text-slate-300' : 'text-slate-600'
+                    }`}
+                  >
                     Mengalir terus setiap bulan sepanjang kontrak klien aktif
                   </p>
                 </div>
 
-                <div className="bg-white/[0.06] border border-blue-400/30 rounded-2xl p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-blue-300">
+                <div
+                  className={`rounded-2xl p-4 border ${
+                    isDark
+                      ? 'bg-white/[0.06] border-blue-400/30'
+                      : 'bg-white border-blue-200 shadow-sm'
+                  }`}
+                >
+                  <div
+                    className={`text-[11px] font-bold uppercase tracking-wider ${
+                      isDark ? 'text-blue-300' : 'text-blue-800'
+                    }`}
+                  >
                     MODAL PENDAFTARAN
                   </div>
-                  <div className="text-2xl sm:text-3xl font-black text-white mt-1 tabular-nums">
+                  <div
+                    className={`text-2xl sm:text-3xl font-black mt-1 tabular-nums ${
+                      isDark ? 'text-white' : 'text-[#12316B]'
+                    }`}
+                  >
                     Rp 0 (Gratis)
                   </div>
-                  <p className="text-xs text-slate-300 mt-1">
+                  <p
+                    className={`text-xs mt-1 ${
+                      isDark ? 'text-slate-300' : 'text-slate-600'
+                    }`}
+                  >
                     Langsung dapat ID Card Ber-QR &amp; Link Referral Otomatis
                   </p>
                 </div>
               </div>
 
               {/* Primary CTA Buttons */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex flex-wrap items-center gap-3.5 pt-2">
                 <button
                   onClick={onOpenRegister}
-                  className="px-7 py-4 text-sm font-black text-slate-950 bg-gradient-to-r from-amber-400 via-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl shadow-xl shadow-amber-500/20 transition-all flex items-center gap-2.5 whitespace-nowrap"
+                  className="px-6 sm:px-7 py-3.5 sm:py-4 text-xs sm:text-sm font-black text-slate-950 bg-gradient-to-r from-amber-400 via-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl shadow-xl shadow-amber-500/20 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer"
                 >
-                  <span>Daftar Jadi Mitra Sekarang</span>
+                  <span>Daftar Mitra Sekarang</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
                 <a
                   href="#simulasi-komisi"
-                  className="px-6 py-4 text-sm font-bold text-white bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl transition-all flex items-center gap-2 whitespace-nowrap"
+                  className={`px-5 sm:px-6 py-3.5 sm:py-4 text-xs sm:text-sm font-bold rounded-xl border transition-all flex items-center gap-2 whitespace-nowrap ${
+                    isDark
+                      ? 'text-white bg-white/10 hover:bg-white/15 border-white/20'
+                      : 'text-[#12316B] bg-white hover:bg-blue-50 border-slate-300 shadow-xs'
+                  }`}
                 >
-                  <Calculator className="w-4 h-4 text-amber-400" />
-                  <span>Hitung Simulasi Komisi Anda</span>
+                  <Calculator
+                    className={`w-4 h-4 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
+                  />
+                  <span>Hitung Simulasi Komisi</span>
                 </a>
               </div>
 
               {/* Operational Assurance Bar */}
-              <div className="pt-4 border-t border-white/10 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-300">
+              <div
+                className={`pt-4 border-t flex flex-wrap items-center gap-x-6 gap-y-2 text-xs ${
+                  isDark
+                    ? 'border-white/10 text-slate-300'
+                    : 'border-slate-200 text-slate-600'
+                }`}
+              >
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   <span>Cair setiap awal bulan setelah klien bayar</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   <span>Transparansi status deal &amp; bukti transfer real-time</span>
                 </div>
               </div>
@@ -294,11 +558,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Right Column: Official Program Mitra Strategis Poster Showcase */}
             <div className="lg:col-span-5">
               <div className="relative mx-auto max-w-md lg:max-w-none">
-                {/* Glow Backdrop */}
                 <div className="absolute -inset-2 bg-gradient-to-tr from-amber-500/30 via-blue-500/20 to-amber-400/30 rounded-3xl blur-xl opacity-80 pointer-events-none" />
 
-                <div className="relative bg-[#0B1D3A] border-2 border-amber-400/50 rounded-3xl p-3 shadow-2xl">
-                  {/* Top Bar inside Poster Frame */}
+                <div className="relative bg-[#0B1D3A] border-2 border-amber-400/60 rounded-3xl p-3 shadow-2xl">
                   <div className="flex items-center justify-between px-2 pb-2.5 mb-2 border-b border-white/10">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
@@ -308,14 +570,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </div>
                     <button
                       onClick={() => setIsPosterZoomed(true)}
-                      className="text-[11px] font-bold text-blue-300 hover:text-white flex items-center gap-1 bg-white/10 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
+                      className="text-[11px] font-bold text-blue-300 hover:text-white flex items-center gap-1 bg-white/10 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
                     >
                       <ZoomIn className="w-3.5 h-3.5" />
                       <span>Perbesar</span>
                     </button>
                   </div>
 
-                  {/* Attached Official Poster Image */}
                   <div
                     onClick={() => setIsPosterZoomed(true)}
                     className="relative rounded-2xl overflow-hidden cursor-pointer group border border-white/10"
@@ -349,28 +610,64 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION 1: SKEMA KOMISI TRANSPARAN (PER KASUS & BULANAN) — Sesuai Poster */}
-      <section id="skema-komisi" className="py-20 bg-[#0A1730] border-b border-white/10">
+      <section
+        id="skema-komisi"
+        className={`py-20 border-b transition-colors duration-300 ${
+          isDark ? 'bg-[#0A1730] border-white/10' : 'bg-white border-slate-200'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
             <div className="space-y-2 max-w-2xl">
-              <span className="text-xs font-extrabold uppercase tracking-widest text-amber-400">
+              <span
+                className={`text-xs font-extrabold uppercase tracking-widest ${
+                  isDark ? 'text-amber-400' : 'text-amber-600'
+                }`}
+              >
                 STRUKTUR PEMBAGIAN HASIL MITRA
               </span>
-              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+              <h2
+                className={`text-3xl sm:text-4xl font-black tracking-tight ${
+                  isDark ? 'text-white' : 'text-[#0B1D3A]'
+                }`}
+              >
                 Skema Komisi Besar: Jasa Per Kasus &amp; Jasa Bulanan
               </h2>
-              <p className="text-sm text-slate-300 leading-relaxed">
-                Semakin besar nilai penjualan layanan yang berhasil closing dari referensi Anda, semakin tinggi persentase komisi yang langsung Anda terima.
+              <p
+                className={`text-sm leading-relaxed ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                Semakin besar nilai penjualan layanan yang berhasil closing dari referensi Anda,
+                semakin tinggi persentase komisi yang langsung Anda terima.
               </p>
             </div>
 
-            <div className="bg-amber-400/10 border border-amber-400/40 rounded-2xl px-5 py-3.5 flex items-center gap-3 self-start md:self-auto">
-              <BadgePercent className="w-8 h-8 text-amber-400 shrink-0" />
+            <div
+              className={`rounded-2xl px-5 py-3.5 flex items-center gap-3 self-start md:self-auto border ${
+                isDark
+                  ? 'bg-amber-400/10 border-amber-400/40'
+                  : 'bg-amber-50 border-amber-300'
+              }`}
+            >
+              <BadgePercent
+                className={`w-8 h-8 shrink-0 ${
+                  isDark ? 'text-amber-400' : 'text-amber-600'
+                }`}
+              />
               <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                <div
+                  className={`text-xs font-bold uppercase tracking-wider ${
+                    isDark ? 'text-amber-300' : 'text-amber-800'
+                  }`}
+                >
                   MAKSIMAL KOMISI MITRA
                 </div>
-                <div className="text-lg font-black text-white">
+                <div
+                  className={`text-lg font-black ${
+                    isDark ? 'text-white' : 'text-[#0B1D3A]'
+                  }`}
+                >
                   15% Komisi Awal + 10% Tiap Bulan
                 </div>
               </div>
@@ -380,9 +677,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* 2 Main Cards matching the Poster Side-by-Side Structure */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* CARD 1: JASA KONSULTAN PER KASUS */}
-            <div className="bg-white text-slate-900 rounded-3xl overflow-hidden shadow-2xl border-2 border-blue-900/40 flex flex-col justify-between">
+            <div className="bg-white text-slate-900 rounded-3xl overflow-hidden shadow-xl border-2 border-[#12316B]/25 flex flex-col justify-between">
               <div>
-                {/* Header */}
                 <div className="bg-[#12316B] px-7 py-6 border-b-4 border-amber-400 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-md shrink-0">
@@ -402,9 +698,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                 </div>
 
-                {/* Tier Progress Bars */}
                 <div className="p-7 space-y-6">
-                  {/* Tier 15% */}
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
@@ -421,7 +715,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </div>
                   </div>
 
-                  {/* Tier 12,5% */}
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
@@ -438,7 +731,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </div>
                   </div>
 
-                  {/* Tier 10% */}
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
@@ -457,7 +749,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
               </div>
 
-              {/* Contoh Simulasi Box (Bottom of Card 1) */}
               <div className="px-7 pb-7">
                 <div className="bg-[#12316B] text-white rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
@@ -481,9 +772,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* CARD 2: JASA KONSULTAN BULANAN */}
-            <div className="bg-white text-slate-900 rounded-3xl overflow-hidden shadow-2xl border-2 border-blue-900/40 flex flex-col justify-between">
+            <div className="bg-white text-slate-900 rounded-3xl overflow-hidden shadow-xl border-2 border-[#12316B]/25 flex flex-col justify-between">
               <div>
-                {/* Header */}
                 <div className="bg-[#12316B] px-7 py-6 border-b-4 border-amber-400 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-md shrink-0">
@@ -503,9 +793,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                 </div>
 
-                {/* Tier Progress Bars */}
                 <div className="p-7 space-y-6">
-                  {/* Tier 15% */}
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
@@ -522,7 +810,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </div>
                   </div>
 
-                  {/* Tier 12,5% */}
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
@@ -539,7 +826,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </div>
                   </div>
 
-                  {/* Tier 10% */}
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
@@ -558,7 +844,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
               </div>
 
-              {/* Contoh Simulasi Box (Bottom of Card 2) */}
               <div className="px-7 pb-7">
                 <div className="bg-[#12316B] text-white rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
@@ -584,7 +869,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* 2 Bottom Highlight Boxes from Poster: Komisi Berulang & Cair Setiap Bulan */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-            <div className="bg-[#0D2149] border-2 border-amber-400/60 rounded-2xl p-6 flex items-start gap-4 shadow-lg">
+            <div className="bg-[#0D2149] border-2 border-amber-400/60 rounded-2xl p-6 flex items-start gap-4 shadow-lg text-white">
               <div className="w-12 h-12 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 mt-0.5">
                 <RefreshCw className="w-6 h-6" />
               </div>
@@ -593,12 +878,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Komisi <span className="text-amber-400">Berulang</span>
                 </h4>
                 <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
-                  Mitra berhak mendapatkan komisi <strong className="text-amber-300">10% setiap bulan</strong> sepanjang kontrak klien berjalan. Sekali closing, penghasilan pasif mengalir rutin setiap bulan.
+                  Mitra berhak mendapatkan komisi{' '}
+                  <strong className="text-amber-300">10% setiap bulan</strong> sepanjang kontrak
+                  klien berjalan. Sekali closing, penghasilan pasif mengalir rutin setiap bulan.
                 </p>
               </div>
             </div>
 
-            <div className="bg-[#0D2149] border-2 border-amber-400/60 rounded-2xl p-6 flex items-start gap-4 shadow-lg">
+            <div className="bg-[#0D2149] border-2 border-amber-400/60 rounded-2xl p-6 flex items-start gap-4 shadow-lg text-white">
               <div className="w-12 h-12 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 mt-0.5">
                 <Wallet className="w-6 h-6" />
               </div>
@@ -607,7 +894,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Cair <span className="text-amber-400">Setiap Bulan</span>
                 </h4>
                 <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
-                  Pembayaran komisi dilakukan <strong className="text-amber-300">setiap awal bulan</strong> setelah klien melakukan pembayaran, lengkap dengan notifikasi dan bukti transfer resmi di portal Anda.
+                  Pembayaran komisi dilakukan{' '}
+                  <strong className="text-amber-300">setiap awal bulan</strong> setelah klien
+                  melakukan pembayaran, lengkap dengan notifikasi dan bukti transfer resmi di
+                  portal Anda.
                 </p>
               </div>
             </div>
@@ -616,44 +906,74 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* SECTION 2: KALKULATOR SIMULASI KOMISI & PASSIVE INCOME MITRA */}
-      <section id="simulasi-komisi" className="py-20 bg-[#071126] border-b border-white/10">
+      <section
+        id="simulasi-komisi"
+        className={`py-20 border-b transition-colors duration-300 ${
+          isDark ? 'bg-[#071126] border-white/10' : 'bg-slate-100 border-slate-200'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-12 space-y-3">
-            <span className="text-xs font-extrabold uppercase tracking-widest text-amber-400">
+            <span
+              className={`text-xs font-extrabold uppercase tracking-widest ${
+                isDark ? 'text-amber-400' : 'text-amber-600'
+              }`}
+            >
               SIMULATOR PENDAPATAN MITRA
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+            <h2
+              className={`text-3xl sm:text-4xl font-black tracking-tight ${
+                isDark ? 'text-white' : 'text-[#0B1D3A]'
+              }`}
+            >
               Hitung Sendiri Potensi Komisi &amp; Passive Income Anda
             </h2>
-            <p className="text-sm text-slate-300">
-              Geser nilai kontrak penjualan di bawah ini untuk melihat perhitungan komisi otomatis sesuai skema resmi Program Mitra Strategis NDTAXANDLAW.
+            <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+              Geser nilai kontrak penjualan di bawah ini untuk melihat perhitungan komisi
+              otomatis sesuai skema resmi Program Mitra Strategis NDTAXANDLAW.
             </p>
           </div>
 
-          <div className="bg-[#0C1D3B] border border-white/15 rounded-3xl p-6 sm:p-10 shadow-2xl">
+          <div
+            className={`rounded-3xl p-6 sm:p-10 shadow-2xl border ${
+              isDark
+                ? 'bg-[#0C1D3B] border-white/15 text-white'
+                : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
               {/* Left Controls */}
               <div className="lg:col-span-7 space-y-6">
                 {/* Mode Selector */}
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
+                  <label
+                    className={`text-xs font-bold uppercase tracking-wider block ${
+                      isDark ? 'text-slate-300' : 'text-slate-700'
+                    }`}
+                  >
                     1. Pilih Jenis Layanan yang Direferensikan
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => setSimMode('per_kasus')}
-                      className={`p-4 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                      className={`p-4 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
                         simMode === 'per_kasus'
-                          ? 'bg-amber-400 text-slate-950 border-amber-300 font-extrabold shadow-lg'
-                          : 'bg-white/5 text-white border-white/15 hover:bg-white/10 font-semibold'
+                          ? 'bg-amber-400 text-slate-950 border-amber-400 font-extrabold shadow-lg'
+                          : isDark
+                          ? 'bg-white/5 text-white border-white/15 hover:bg-white/10 font-semibold'
+                          : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100 font-semibold'
                       }`}
                     >
                       <div>
                         <div className="text-sm font-black">Jasa Konsultan Per Kasus</div>
                         <div
                           className={`text-[11px] mt-0.5 ${
-                            simMode === 'per_kasus' ? 'text-slate-800' : 'text-slate-400'
+                            simMode === 'per_kasus'
+                              ? 'text-slate-800'
+                              : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
                           }`}
                         >
                           Komisi 10% – 15% per proyek/kasus
@@ -665,17 +985,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setSimMode('bulanan')}
-                      className={`p-4 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                      className={`p-4 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
                         simMode === 'bulanan'
-                          ? 'bg-amber-400 text-slate-950 border-amber-300 font-extrabold shadow-lg'
-                          : 'bg-white/5 text-white border-white/15 hover:bg-white/10 font-semibold'
+                          ? 'bg-amber-400 text-slate-950 border-amber-400 font-extrabold shadow-lg'
+                          : isDark
+                          ? 'bg-white/5 text-white border-white/15 hover:bg-white/10 font-semibold'
+                          : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100 font-semibold'
                       }`}
                     >
                       <div>
                         <div className="text-sm font-black">Jasa Konsultan Bulanan</div>
                         <div
                           className={`text-[11px] mt-0.5 ${
-                            simMode === 'bulanan' ? 'text-slate-800' : 'text-slate-400'
+                            simMode === 'bulanan'
+                              ? 'text-slate-800'
+                              : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
                           }`}
                         >
                           Komisi Awal 10–15% + 10% Tiap Bulan
@@ -688,12 +1014,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
                 {/* Contract Value Slider */}
                 {simMode === 'per_kasus' ? (
-                  <div className="space-y-2 bg-white/5 p-5 rounded-2xl border border-white/10">
+                  <div
+                    className={`space-y-2 p-5 rounded-2xl border ${
+                      isDark
+                        ? 'bg-white/5 border-white/10'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                      <label
+                        className={`text-xs font-bold uppercase tracking-wider ${
+                          isDark ? 'text-slate-300' : 'text-slate-700'
+                        }`}
+                      >
                         2. Nilai Kontrak Penjualan Per Kasus
                       </label>
-                      <span className="text-lg font-black text-amber-400 tabular-nums">
+                      <span
+                        className={`text-lg font-black tabular-nums ${
+                          isDark ? 'text-amber-400' : 'text-[#12316B]'
+                        }`}
+                      >
                         Rp {caseContractMillions} Juta
                       </span>
                     </div>
@@ -706,20 +1046,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       onChange={(e) => setCaseContractMillions(Number(e.target.value))}
                       className="w-full accent-amber-400 cursor-pointer h-2 bg-slate-700 rounded-lg"
                     />
-                    <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                    <div
+                      className={`flex justify-between text-[11px] font-mono ${
+                        isDark ? 'text-slate-400' : 'text-slate-500'
+                      }`}
+                    >
                       <span>&lt; Rp50 Jt (10%)</span>
                       <span>Rp50–100 Jt (12,5%)</span>
                       <span>&gt; Rp100 Jt (15%)</span>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-5 bg-white/5 p-5 rounded-2xl border border-white/10">
+                  <div
+                    className={`space-y-5 p-5 rounded-2xl border ${
+                      isDark
+                        ? 'bg-white/5 border-white/10'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <label
+                          className={`text-xs font-bold uppercase tracking-wider ${
+                            isDark ? 'text-slate-300' : 'text-slate-700'
+                          }`}
+                        >
                           2. Nilai Retainer Klien Per Bulan
                         </label>
-                        <span className="text-lg font-black text-amber-400 tabular-nums">
+                        <span
+                          className={`text-lg font-black tabular-nums ${
+                            isDark ? 'text-amber-400' : 'text-[#12316B]'
+                          }`}
+                        >
                           Rp {monthlyContractMillions} Juta / bulan
                         </span>
                       </div>
@@ -732,19 +1090,35 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         onChange={(e) => setMonthlyContractMillions(Number(e.target.value))}
                         className="w-full accent-amber-400 cursor-pointer h-2 bg-slate-700 rounded-lg"
                       />
-                      <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                      <div
+                        className={`flex justify-between text-[11px] font-mono ${
+                          isDark ? 'text-slate-400' : 'text-slate-500'
+                        }`}
+                      >
                         <span>&lt; Rp5 Jt (10%)</span>
                         <span>Rp5–10 Jt (12,5%)</span>
                         <span>&gt; Rp10 Jt (15%)</span>
                       </div>
                     </div>
 
-                    <div className="space-y-2 pt-3 border-t border-white/10">
+                    <div
+                      className={`space-y-2 pt-3 border-t ${
+                        isDark ? 'border-white/10' : 'border-slate-200'
+                      }`}
+                    >
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <label
+                          className={`text-xs font-bold uppercase tracking-wider ${
+                            isDark ? 'text-slate-300' : 'text-slate-700'
+                          }`}
+                        >
                           Durasi Kontrak Langganan Klien
                         </label>
-                        <span className="text-sm font-black text-emerald-400 tabular-nums">
+                        <span
+                          className={`text-sm font-black tabular-nums ${
+                            isDark ? 'text-emerald-400' : 'text-emerald-600'
+                          }`}
+                        >
                           {contractDurationMonths} Bulan
                         </span>
                       </div>
@@ -757,7 +1131,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         onChange={(e) => setContractDurationMonths(Number(e.target.value))}
                         className="w-full accent-emerald-400 cursor-pointer h-2 bg-slate-700 rounded-lg"
                       />
-                      <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                      <div
+                        className={`flex justify-between text-[11px] font-mono ${
+                          isDark ? 'text-slate-400' : 'text-slate-500'
+                        }`}
+                      >
                         <span>1 Bulan</span>
                         <span>12 Bulan</span>
                         <span>24 Bulan</span>
@@ -768,12 +1146,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 )}
 
                 {/* Number of Closings Slider */}
-                <div className="space-y-2 bg-white/5 p-5 rounded-2xl border border-white/10">
+                <div
+                  className={`space-y-2 p-5 rounded-2xl border ${
+                    isDark
+                      ? 'bg-white/5 border-white/10'
+                      : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    <label
+                      className={`text-xs font-bold uppercase tracking-wider ${
+                        isDark ? 'text-slate-300' : 'text-slate-700'
+                      }`}
+                    >
                       3. Jumlah Klien yang Anda Referensikan
                     </label>
-                    <span className="text-base font-black text-white tabular-nums">
+                    <span
+                      className={`text-base font-black tabular-nums ${
+                        isDark ? 'text-white' : 'text-[#12316B]'
+                      }`}
+                    >
                       {closingCountPerMonth} Klien Closing
                     </span>
                   </div>
@@ -791,7 +1183,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               {/* Right Output Card */}
               <div className="lg:col-span-5">
-                <div className="bg-gradient-to-b from-[#132C5B] to-[#091834] border-2 border-amber-400 rounded-3xl p-6 sm:p-7 space-y-5 shadow-xl">
+                <div className="bg-gradient-to-b from-[#132C5B] to-[#091834] border-2 border-amber-400 rounded-3xl p-6 sm:p-7 space-y-5 shadow-xl text-white">
                   <div className="flex items-center justify-between border-b border-white/15 pb-4">
                     <div>
                       <span className="text-[11px] font-bold uppercase tracking-widest text-amber-300 block">
@@ -845,13 +1237,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       {formatRupiah(grandTotalPotentialRupiah)}
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Dibayarkan langsung ke rekening bank Mitra setiap awal bulan setelah klien membayar tagihan.
+                      Dibayarkan langsung ke rekening bank Mitra setiap awal bulan setelah klien
+                      membayar tagihan.
                     </p>
                   </div>
 
                   <button
                     onClick={onOpenRegister}
-                    className="w-full py-3.5 px-5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                    className="w-full py-3.5 px-5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
                   >
                     <span>Ambil Peluang Komisi Ini — Daftar Mitra</span>
                     <ArrowRight className="w-4 h-4" />
@@ -884,9 +1277,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* 4 Bonus Cards matching the exact Poster */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Bonus 1: Jalan-Jalan ke Luar Negeri */}
             <div className="bg-[#12316B] text-white rounded-2xl p-8 flex flex-col items-center text-center shadow-xl border border-white/15 hover:-translate-y-1 transition-transform">
               <div className="w-20 h-20 rounded-full border-2 border-amber-400/80 flex items-center justify-center mb-5 bg-[#0D2149]">
                 <Plane className="w-9 h-9 text-amber-400" />
@@ -896,11 +1287,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <span className="block">ke Luar Negeri</span>
               </h3>
               <p className="text-xs text-blue-200 mt-2 leading-relaxed">
-                Apresiasi perjalanan eksklusif mancanegara bagi mitra dengan pencapaian target tahunan.
+                Apresiasi perjalanan eksklusif mancanegara bagi mitra dengan pencapaian target
+                tahunan.
               </p>
             </div>
 
-            {/* Bonus 2: Umroh */}
             <div className="bg-[#12316B] text-white rounded-2xl p-8 flex flex-col items-center text-center shadow-xl border border-white/15 hover:-translate-y-1 transition-transform">
               <div className="w-20 h-20 rounded-full border-2 border-amber-400/80 flex items-center justify-center mb-5 bg-[#0D2149]">
                 <Landmark className="w-9 h-9 text-amber-400" />
@@ -909,122 +1300,198 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 Umroh / Wisata Religi
               </h3>
               <p className="text-xs text-blue-200 mt-2 leading-relaxed">
-                Hadiah ibadah Umroh atau perjalanan spiritual VIP penuh fasilitas bagi mitra berprestasi.
+                Hadiah ibadah Umroh atau perjalanan spiritual VIP penuh fasilitas bagi mitra
+                berprestasi.
               </p>
             </div>
 
-            {/* Bonus 3: Mobil */}
             <div className="bg-[#12316B] text-white rounded-2xl p-8 flex flex-col items-center text-center shadow-xl border border-white/15 hover:-translate-y-1 transition-transform">
               <div className="w-20 h-20 rounded-full border-2 border-amber-400/80 flex items-center justify-center mb-5 bg-[#0D2149]">
                 <Car className="w-9 h-9 text-amber-400" />
               </div>
-              <h3 className="text-xl font-extrabold text-white leading-snug">
-                Mobil Impian
-              </h3>
+              <h3 className="text-xl font-extrabold text-white leading-snug">Mobil Impian</h3>
               <p className="text-xs text-blue-200 mt-2 leading-relaxed">
-                Reward kendaraan operasional berkelas untuk mitra strategis dengan akumulasi closing korporasi tertinggi.
+                Reward kendaraan operasional berkelas untuk mitra strategis dengan akumulasi
+                closing korporasi tertinggi.
               </p>
             </div>
 
-            {/* Bonus 4: Rumah */}
             <div className="bg-[#12316B] text-white rounded-2xl p-8 flex flex-col items-center text-center shadow-xl border border-white/15 hover:-translate-y-1 transition-transform">
               <div className="w-20 h-20 rounded-full border-2 border-amber-400/80 flex items-center justify-center mb-5 bg-[#0D2149]">
                 <Home className="w-9 h-9 text-amber-400" />
               </div>
-              <h3 className="text-xl font-extrabold text-white leading-snug">
-                Rumah
-              </h3>
+              <h3 className="text-xl font-extrabold text-white leading-snug">Rumah</h3>
               <p className="text-xs text-blue-200 mt-2 leading-relaxed">
-                Grand reward properti hunian impian sebagai puncak pencapaian kemitraan strategis NDTAXANDLAW.
+                Grand reward properti hunian impian sebagai puncak pencapaian kemitraan
+                strategis NDTAXANDLAW.
               </p>
             </div>
           </div>
 
           <p className="text-xs font-semibold italic text-[#0D2149] mt-6">
-            *Syarat dan ketentuan berlaku sesuai kebijakan pencapaian kuota tahunan Mitra Strategis NDTAXANDLAW.
+            *Syarat dan ketentuan berlaku sesuai kebijakan pencapaian kuota tahunan Mitra
+            Strategis NDTAXANDLAW.
           </p>
         </div>
       </section>
 
       {/* SECTION 4: ALUR KEMITRAAN & FASILITAS PORTAL MITRA */}
-      <section id="alur-kemitraan" className="py-20 bg-[#071126] border-b border-white/10">
+      <section
+        id="alur-kemitraan"
+        className={`py-20 border-b transition-colors duration-300 ${
+          isDark ? 'bg-[#071126] border-white/10' : 'bg-white border-slate-200'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-14 space-y-3">
-            <span className="text-xs font-extrabold uppercase tracking-widest text-amber-400">
+            <span
+              className={`text-xs font-extrabold uppercase tracking-widest ${
+                isDark ? 'text-amber-400' : 'text-amber-600'
+              }`}
+            >
               SISTEM KERJA TANPA MODAL &amp; TANPA RIBET
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+            <h2
+              className={`text-3xl sm:text-4xl font-black tracking-tight ${
+                isDark ? 'text-white' : 'text-[#0B1D3A]'
+              }`}
+            >
               4 Langkah Mudah Menghasilkan Komisi &amp; Bonus Besar
             </h2>
-            <p className="text-sm text-slate-300">
-              Anda tidak perlu menguasai teknis perpajakan atau hukum yang rumit. Fokus pada jejaring relasi Anda, biarkan sistem dan tim ahli kami yang bekerja.
+            <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+              Anda tidak perlu menguasai teknis perpajakan atau hukum yang rumit. Fokus pada
+              jejaring relasi Anda, biarkan sistem dan tim ahli kami yang bekerja.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-6 space-y-4">
+            <div
+              className={`rounded-2xl p-6 space-y-4 border ${
+                isDark
+                  ? 'bg-white/[0.04] border-white/10'
+                  : 'bg-slate-50 border-slate-200 shadow-xs'
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black px-3 py-1 rounded-md bg-amber-400 text-slate-950">
                   LANGKAH 01
                 </span>
-                <QrCode className="w-6 h-6 text-amber-400" />
+                <QrCode className={`w-6 h-6 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
               </div>
-              <h3 className="text-base font-extrabold text-white">
+              <h3
+                className={`text-base font-extrabold ${
+                  isDark ? 'text-white' : 'text-[#0B1D3A]'
+                }`}
+              >
                 Daftar Gratis &amp; Terima ID Card Ber-QR
               </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Registrasi akun Mitra tanpa biaya. Anda langsung mendapatkan Kode Referral unik dan Kartu Identitas Digital Eksklusif ber-QR Code resmi.
+              <p
+                className={`text-xs leading-relaxed ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                Registrasi akun Mitra tanpa biaya. Anda langsung mendapatkan Kode Referral unik
+                dan Kartu Identitas Digital Eksklusif ber-QR Code resmi.
               </p>
             </div>
 
-            <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-6 space-y-4">
+            <div
+              className={`rounded-2xl p-6 space-y-4 border ${
+                isDark
+                  ? 'bg-white/[0.04] border-white/10'
+                  : 'bg-slate-50 border-slate-200 shadow-xs'
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-blue-500 text-white">
+                <span className="text-xs font-black px-3 py-1 rounded-md bg-blue-600 text-white">
                   LANGKAH 02
                 </span>
-                <Users className="w-6 h-6 text-blue-400" />
+                <Users className={`w-6 h-6 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
               </div>
-              <h3 className="text-base font-extrabold text-white">
+              <h3
+                className={`text-base font-extrabold ${
+                  isDark ? 'text-white' : 'text-[#0B1D3A]'
+                }`}
+              >
                 Input Prospek atau Bagikan Link Referral
               </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Gunakan Marketing Tools siap pakai di portal, bagikan link QR Anda, atau daftarkan perusahaan relasi yang membutuhkan jasa konsultan pajak &amp; hukum.
+              <p
+                className={`text-xs leading-relaxed ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                Gunakan Marketing Tools siap pakai di portal, bagikan link QR Anda, atau
+                daftarkan perusahaan relasi yang membutuhkan jasa konsultan pajak &amp; hukum.
               </p>
             </div>
 
-            <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-6 space-y-4">
+            <div
+              className={`rounded-2xl p-6 space-y-4 border ${
+                isDark
+                  ? 'bg-white/[0.04] border-white/10'
+                  : 'bg-slate-50 border-slate-200 shadow-xs'
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-indigo-500 text-white">
+                <span className="text-xs font-black px-3 py-1 rounded-md bg-indigo-600 text-white">
                   LANGKAH 03
                 </span>
-                <FileText className="w-6 h-6 text-indigo-400" />
+                <FileText
+                  className={`w-6 h-6 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
+                />
               </div>
-              <h3 className="text-base font-extrabold text-white">
+              <h3
+                className={`text-base font-extrabold ${
+                  isDark ? 'text-white' : 'text-[#0B1D3A]'
+                }`}
+              >
                 Tim Ahli Kami Menangani Presentasi &amp; Proyek
               </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Konsultan berlisensi resmi NDTAXANDLAW melakukan pendampingan, negosiasi, hingga penyelesaian pekerjaan klien. Anda dapat memantau progresnya di dashboard.
+              <p
+                className={`text-xs leading-relaxed ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                Konsultan berlisensi resmi NDTAXANDLAW melakukan pendampingan, negosiasi, hingga
+                penyelesaian pekerjaan klien. Anda dapat memantau progresnya di dashboard.
               </p>
             </div>
 
-            <div className="bg-white/[0.04] border border-emerald-400/30 rounded-2xl p-6 space-y-4">
+            <div
+              className={`rounded-2xl p-6 space-y-4 border ${
+                isDark
+                  ? 'bg-white/[0.04] border-emerald-400/30'
+                  : 'bg-emerald-50/60 border-emerald-200 shadow-xs'
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black px-3 py-1 rounded-md bg-emerald-400 text-slate-950">
+                <span className="text-xs font-black px-3 py-1 rounded-md bg-emerald-500 text-slate-950">
                   LANGKAH 04
                 </span>
-                <TrendingUp className="w-6 h-6 text-emerald-400" />
+                <TrendingUp
+                  className={`w-6 h-6 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                />
               </div>
-              <h3 className="text-base font-extrabold text-white">
+              <h3
+                className={`text-base font-extrabold ${
+                  isDark ? 'text-white' : 'text-[#0B1D3A]'
+                }`}
+              >
                 Komisi Cair Rutin Setiap Awal Bulan
               </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Nikmati komisi hingga 15% saat closing ditambah 10% komisi berulang setiap bulan sepanjang kontrak klien berjalan, langsung ditransfer ke rekening Anda.
+              <p
+                className={`text-xs leading-relaxed ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                Nikmati komisi hingga 15% saat closing ditambah 10% komisi berulang setiap bulan
+                sepanjang kontrak klien berjalan, langsung ditransfer ke rekening Anda.
               </p>
             </div>
           </div>
 
           {/* Final Call-To-Action Banner */}
-          <div className="mt-14 bg-gradient-to-r from-[#12316B] via-[#0F2756] to-[#12316B] border-2 border-amber-400/60 rounded-3xl p-8 sm:p-10 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl">
+          <div className="mt-14 bg-gradient-to-r from-[#12316B] via-[#0F2756] to-[#12316B] border-2 border-amber-400/60 rounded-3xl p-8 sm:p-10 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl text-white">
             <div className="space-y-2 text-center lg:text-left max-w-2xl">
               <span className="text-xs font-extrabold uppercase tracking-widest text-amber-300">
                 PELUANG BISNIS JASA TANPA MODAL
@@ -1033,23 +1500,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 CLOSING BESAR, KOMISI BESAR, BONUS BESAR!
               </h3>
               <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
-                Bergabunglah bersama ekosistem Mitra Strategis NDTAXANDLAW hari ini. Dapatkan akses penuh ke Dashboard Kemitraan, Marketing Kit Eksklusif, dan Live Chat Koordinasi Tim.
+                Bergabunglah bersama ekosistem Mitra Strategis NDTAXANDLAW hari ini. Dapatkan
+                akses penuh ke Dashboard Kemitraan, Marketing Kit Eksklusif, dan Live Chat
+                Koordinasi Tim.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3.5 shrink-0">
               <button
                 onClick={onOpenRegister}
-                className="px-7 py-4 text-xs sm:text-sm font-black text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xl transition-all flex items-center gap-2 whitespace-nowrap"
+                className="px-7 py-4 text-xs sm:text-sm font-black text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xl transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer"
               >
-                <span>Daftar Menjadi Mitra Sekarang</span>
+                <span>Daftar Mitra Sekarang</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
               <button
                 onClick={onEnterPortal}
-                className="px-6 py-4 text-xs sm:text-sm font-bold text-white bg-white/10 hover:bg-white/15 border border-white/25 rounded-xl transition-all whitespace-nowrap"
+                className="px-6 py-4 text-xs sm:text-sm font-bold text-white bg-white/10 hover:bg-white/15 border border-white/25 rounded-xl transition-all whitespace-nowrap cursor-pointer"
               >
-                Login Portal Mitra
+                Masuk Portal
               </button>
             </div>
           </div>
@@ -1069,7 +1538,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 />
               </div>
               <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-                Program Mitra Strategis Resmi NDTAXANDLAW — Ekosistem Kemitraan Jasa Konsultan Pajak &amp; Hukum Korporasi dengan Komisi Berulang Transparan.
+                Program Mitra Strategis Resmi NDTAXANDLAW — Ekosistem Kemitraan Jasa Konsultan
+                Pajak &amp; Hukum Korporasi dengan Komisi Berulang Transparan.
               </p>
             </div>
 
@@ -1096,9 +1566,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <li>
                   <button
                     onClick={onOpenRegister}
-                    className="hover:text-amber-400 transition-colors text-left"
+                    className="hover:text-amber-400 transition-colors text-left cursor-pointer"
                   >
-                    Registrasi Mitra Baru
+                    Daftar Mitra Baru
                   </button>
                 </li>
               </ul>
@@ -1126,15 +1596,131 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="pt-6 flex flex-wrap items-center justify-between gap-4 text-[11px] text-slate-500">
-            <div>© 2026 NDTAXANDLAW. Program Mitra Strategis — Seluruh Hak Cipta Dilindungi.</div>
+            <div>
+              © 2026 NDTAXANDLAW. Program Mitra Strategis — Seluruh Hak Cipta Dilindungi.
+            </div>
             <div className="flex items-center gap-4">
-              <button onClick={onEnterPortal} className="text-slate-400 hover:text-amber-400">
+              <button
+                onClick={onEnterPortal}
+                className="text-slate-400 hover:text-amber-400 cursor-pointer"
+              >
                 Masuk Portal Kemitraan
               </button>
             </div>
           </div>
         </div>
       </footer>
+
+      {/* FLOATING SCROLL-TO-TOP BUTTON (One-click smooth scroll to top) */}
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={scrollToTop}
+          title="Kembali ke Atas"
+          aria-label="Scroll ke atas"
+          className="fixed bottom-20 lg:bottom-7 right-4 sm:right-6 z-40 flex items-center gap-2 px-3.5 py-3 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-2xl shadow-amber-500/30 border-2 border-white/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+        >
+          <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+          <span className="hidden sm:inline">Ke Atas</span>
+        </button>
+      )}
+
+      {/* ANDROID APK-STYLE BOTTOM NAVIGATION BAR ON MOBILE & TABLET */}
+      <nav
+        aria-label="Navigasi Bawah Mobile"
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-40 backdrop-blur-xl border-t shadow-[0_-8px_30px_rgba(0,0,0,0.45)] px-2 py-1.5 transition-colors duration-300 ${
+          isDark
+            ? 'bg-[#071126]/95 border-white/15'
+            : 'bg-white/95 border-slate-200'
+        }`}
+      >
+        <div className="max-w-md mx-auto grid grid-cols-5 items-center gap-1">
+          <a
+            href="#skema-komisi"
+            className={`flex flex-col items-center justify-center py-1 rounded-xl transition-colors ${
+              activeNavSection === 'skema-komisi'
+                ? isDark
+                  ? 'text-amber-400 font-extrabold'
+                  : 'text-[#12316B] font-extrabold'
+                : isDark
+                ? 'text-slate-300 hover:text-white font-semibold'
+                : 'text-slate-600 hover:text-slate-900 font-semibold'
+            }`}
+          >
+            <BadgePercent className="w-4 h-4 mb-0.5" />
+            <span className="text-[10px] leading-tight">Komisi</span>
+          </a>
+
+          <a
+            href="#simulasi-komisi"
+            className={`flex flex-col items-center justify-center py-1 rounded-xl transition-colors ${
+              activeNavSection === 'simulasi-komisi'
+                ? isDark
+                  ? 'text-amber-400 font-extrabold'
+                  : 'text-[#12316B] font-extrabold'
+                : isDark
+                ? 'text-slate-300 hover:text-white font-semibold'
+                : 'text-slate-600 hover:text-slate-900 font-semibold'
+            }`}
+          >
+            <Calculator className="w-4 h-4 mb-0.5" />
+            <span className="text-[10px] leading-tight">Simulasi</span>
+          </a>
+
+          <button
+            type="button"
+            onClick={currentUser ? onEnterPortal : onOpenRegister}
+            className="flex flex-col items-center justify-center -mt-4 cursor-pointer group"
+          >
+            <div
+              className={`w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-400 to-amber-300 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/30 border-2 group-active:scale-95 transition-transform ${
+                isDark ? 'border-[#071126]' : 'border-white'
+              }`}
+            >
+              <UserPlus className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <span
+              className={`text-[10px] font-extrabold mt-0.5 leading-tight ${
+                isDark ? 'text-amber-400' : 'text-[#12316B]'
+              }`}
+            >
+              {currentUser ? 'Portal' : 'Daftar'}
+            </span>
+          </button>
+
+          <a
+            href="#bonus-mitra"
+            className={`flex flex-col items-center justify-center py-1 rounded-xl transition-colors ${
+              activeNavSection === 'bonus-mitra'
+                ? isDark
+                  ? 'text-amber-400 font-extrabold'
+                  : 'text-[#12316B] font-extrabold'
+                : isDark
+                ? 'text-slate-300 hover:text-white font-semibold'
+                : 'text-slate-600 hover:text-slate-900 font-semibold'
+            }`}
+          >
+            <Award className="w-4 h-4 mb-0.5" />
+            <span className="text-[10px] leading-tight">Bonus</span>
+          </a>
+
+          <a
+            href="#alur-kemitraan"
+            className={`flex flex-col items-center justify-center py-1 rounded-xl transition-colors ${
+              activeNavSection === 'alur-kemitraan'
+                ? isDark
+                  ? 'text-amber-400 font-extrabold'
+                  : 'text-[#12316B] font-extrabold'
+                : isDark
+                ? 'text-slate-300 hover:text-white font-semibold'
+                : 'text-slate-600 hover:text-slate-900 font-semibold'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 mb-0.5" />
+            <span className="text-[10px] leading-tight">Alur</span>
+          </a>
+        </div>
+      </nav>
 
       {/* LIGHTBOX MODAL FOR FULL-SIZE POSTER */}
       {isPosterZoomed && (
