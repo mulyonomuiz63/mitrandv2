@@ -52,10 +52,24 @@ html.dark-portal .portal-root .bg-white\/90 {
   background-color: #0e1e3f !important;
 }
 
-/* Keep Official Logo Box White for High-Contrast Brand Legibility */
-html.dark-portal .portal-root .logo-light-box {
+/* Keep Official Logo Box & ID Card QR Box White for High-Contrast Brand & Scanner Legibility */
+html.dark-portal .portal-root .logo-light-box,
+html.dark-portal .portal-root .id-card-preserve-colors .bg-white,
+html.dark-portal .portal-root .qr-light-box {
   background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
+}
+
+html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
+  color: #0f172a !important;
+}
+
+@media print {
+  html.dark-portal body,
+  html.dark-portal .portal-root {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+  }
 }
 
 /* Typography Contrast Overrides inside Portal */
