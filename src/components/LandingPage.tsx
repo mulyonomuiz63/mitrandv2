@@ -115,22 +115,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   // Tier calculation matching official poster:
   // JASA KONSULTAN PER KASUS:
-  // - Di atas Rp100 juta -> 15%
-  // - Rp50 - 100 juta -> 12,5%
+  // - Di atas Rp100 juta -> 20%
+  // - Rp50 - 100 juta -> 15%
   // - Di bawah Rp50 juta -> 10%
   const getCaseCommissionRate = (millions: number): number => {
-    if (millions > 100) return 15;
-    if (millions >= 50) return 12.5;
+    if (millions > 100) return 20;
+    if (millions >= 50) return 15;
     return 10;
   };
 
   // JASA KONSULTAN BULANAN:
-  // - Di atas Rp10 juta -> 15%
-  // - Rp5 - 10 juta -> 12,5%
+  // - Di atas Rp10 juta -> 20%
+  // - Rp5 - 10 juta -> 15%
   // - Di bawah Rp5 juta -> 10%
   const getMonthlyCommissionRate = (millions: number): number => {
-    if (millions > 10) return 15;
-    if (millions >= 5) return 12.5;
+    if (millions > 10) return 20;
+    if (millions >= 5) return 15;
     return 10;
   };
 
@@ -235,7 +235,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
               }`}
             >
-              Skema Komisi 15% + 10%
+              Skema Komisi 20% + 10%
             </a>
             <a
               href="#simulasi-komisi"
@@ -439,7 +439,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       isDark ? 'text-white' : 'text-[#12316B]'
                     }`}
                   >
-                    Hingga 15%
+                    Hingga 20%
                   </div>
                   <p
                     className={`text-xs mt-1 ${
@@ -582,7 +582,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     className="relative rounded-2xl overflow-hidden cursor-pointer group border border-white/10"
                   >
                     <img
-                      src="/assets/aistudio/image_34f52bcb.png"
+                      src="/assets/aistudio/9555b616-9ff3-4d7d-83ac-4bbcb7bde59e_page-0001_99829f74.jpg"
                       alt="Program Mitra Strategis ND TAX AND LAW - Closing Besar, Komisi Besar, Bonus Besar"
                       className="w-full h-auto object-cover group-hover:scale-[1.02] transition-transform duration-300"
                     />
@@ -592,8 +592,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         Klik untuk melihat ukuran penuh
                       </span>
                       <a
-                        href="/assets/aistudio/image_34f52bcb.png"
-                        download="Program-Mitra-Strategis-NDTAXANDLAW.png"
+                        href="/assets/aistudio/9555b616-9ff3-4d7d-83ac-4bbcb7bde59e_page-0001_99829f74.jpg"
+                        download="Program-Mitra-Strategis-NDTAXANDLAW.jpg"
                         onClick={(e) => e.stopPropagation()}
                         className="px-3 py-1.5 bg-amber-400 text-slate-950 text-xs font-extrabold rounded-lg flex items-center gap-1"
                       >
@@ -668,7 +668,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     isDark ? 'text-white' : 'text-[#0B1D3A]'
                   }`}
                 >
-                  15% Komisi Awal + 10% Tiap Bulan
+                  20% Komisi Awal + 10% Tiap Bulan
                 </div>
               </div>
             </div>
@@ -702,7 +702,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
-                        15%
+                        20%
                       </span>
                     </div>
                     <div className="col-span-8 sm:col-span-9 space-y-2">
@@ -718,7 +718,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
-                        12,5%
+                        15%
                       </span>
                     </div>
                     <div className="col-span-8 sm:col-span-9 space-y-2">
@@ -761,10 +761,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
                   <div className="sm:text-right">
                     <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-300 block">
-                      KOMISI 15%
+                      KOMISI 20%
                     </span>
                     <span className="text-2xl sm:text-3xl font-black text-amber-400 tabular-nums">
-                      Rp22,5 JT
+                      Rp30 JT
                     </span>
                   </div>
                 </div>
@@ -797,7 +797,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
-                        15%
+                        20%
                       </span>
                     </div>
                     <div className="col-span-8 sm:col-span-9 space-y-2">
@@ -813,7 +813,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <div className="grid grid-cols-12 items-center gap-4">
                     <div className="col-span-4 sm:col-span-3">
                       <span className="text-3xl sm:text-4xl font-black text-[#12316B] tabular-nums">
-                        12,5%
+                        15%
                       </span>
                     </div>
                     <div className="col-span-8 sm:col-span-9 space-y-2">
@@ -856,10 +856,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
                   <div className="sm:text-right">
                     <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-300 block">
-                      KOMISI 15%
+                      KOMISI 20%
                     </span>
                     <span className="text-2xl sm:text-3xl font-black text-amber-400 tabular-nums">
-                      Rp1,8 JT
+                      Rp2,4 JT
                     </span>
                   </div>
                 </div>
@@ -976,7 +976,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                               : 'text-slate-500'
                           }`}
                         >
-                          Komisi 10% – 15% per proyek/kasus
+                          Komisi 10% – 20% per proyek/kasus
                         </div>
                       </div>
                       <Briefcase className="w-5 h-5 shrink-0" />
@@ -1004,7 +1004,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                               : 'text-slate-500'
                           }`}
                         >
-                          Komisi Awal 10–15% + 10% Tiap Bulan
+                          Komisi Awal 10–20% + 10% Tiap Bulan
                         </div>
                       </div>
                       <Calendar className="w-5 h-5 shrink-0" />
@@ -1052,8 +1052,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       }`}
                     >
                       <span>&lt; Rp50 Jt (10%)</span>
-                      <span>Rp50–100 Jt (12,5%)</span>
-                      <span>&gt; Rp100 Jt (15%)</span>
+                      <span>Rp50–100 Jt (15%)</span>
+                      <span>&gt; Rp100 Jt (20%)</span>
                     </div>
                   </div>
                 ) : (
@@ -1096,8 +1096,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         }`}
                       >
                         <span>&lt; Rp5 Jt (10%)</span>
-                        <span>Rp5–10 Jt (12,5%)</span>
-                        <span>&gt; Rp10 Jt (15%)</span>
+                        <span>Rp5–10 Jt (15%)</span>
+                        <span>&gt; Rp10 Jt (20%)</span>
                       </div>
                     </div>
 
@@ -1484,7 +1484,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   isDark ? 'text-slate-300' : 'text-slate-600'
                 }`}
               >
-                Nikmati komisi hingga 15% saat closing ditambah 10% komisi berulang setiap bulan
+                Nikmati komisi hingga 20% saat closing ditambah 10% komisi berulang setiap bulan
                 sepanjang kontrak klien berjalan, langsung ditransfer ke rekening Anda.
               </p>
             </div>
@@ -1738,8 +1738,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </span>
               <div className="flex items-center gap-2">
                 <a
-                  href="/assets/aistudio/image_34f52bcb.png"
-                  download="Program-Mitra-Strategis-NDTAXANDLAW.png"
+                  href="/assets/aistudio/9555b616-9ff3-4d7d-83ac-4bbcb7bde59e_page-0001_99829f74.jpg"
+                  download="Program-Mitra-Strategis-NDTAXANDLAW.jpg"
                   className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold rounded-lg flex items-center gap-1"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -1755,7 +1755,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
             <div className="overflow-y-auto flex-1 flex items-center justify-center">
               <img
-                src="/assets/aistudio/image_34f52bcb.png"
+                src="/assets/aistudio/9555b616-9ff3-4d7d-83ac-4bbcb7bde59e_page-0001_99829f74.jpg"
                 alt="Poster Program Mitra Strategis ND TAX AND LAW"
                 className="max-h-[80vh] w-auto object-contain rounded-xl"
               />
