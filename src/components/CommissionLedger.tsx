@@ -277,46 +277,46 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-        <div className="flex items-center bg-slate-200/70 p-1 rounded-xl self-start border border-slate-200 overflow-x-auto">
+      {/* Navigation Sub-Tabs — Responsive on Mobile, Tablet & Desktop (Never overflows off-screen) */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:inline-flex w-full lg:w-auto gap-1.5 bg-slate-200/70 p-1.5 rounded-xl border border-slate-200">
           <button
             type="button"
             onClick={() => setActiveTab('referrals')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer ${
               activeTab === 'referrals'
                 ? 'bg-white text-blue-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Klien Referral &amp; Kontrak ({displayClientDeals.length})</span>
+            <UserCheck className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Klien Referral &amp; Kontrak ({displayClientDeals.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('transactions')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer ${
               activeTab === 'transactions'
                 ? 'bg-white text-blue-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>Riwayat Transaksi Komisi ({displayTransactions.length})</span>
+            <DollarSign className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Riwayat Transaksi Komisi ({displayTransactions.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('payouts')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer ${
               activeTab === 'payouts'
                 ? 'bg-white text-blue-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Receipt className="w-3.5 h-3.5 text-blue-700" />
-            <span>Riwayat Pencairan &amp; Bukti Transfer ({payouts.length})</span>
+            <Receipt className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+            <span className="truncate">Riwayat Pencairan &amp; Bukti ({payouts.length})</span>
           </button>
         </div>
 
@@ -336,19 +336,19 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   ? `Data verifikasi ditolak: ${mitra.rejectionReason || 'Silakan perbaiki data diri dan ajukan ulang.'}`
                   : 'Akun Anda masih dalam proses verifikasi Admin. Input klien baru dapat dilakukan setelah akun di-approve Admin.'
             }
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg shadow-sm transition-all shrink-0 ${
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 text-xs font-bold rounded-xl shadow-sm transition-all w-full lg:w-auto shrink-0 cursor-pointer ${
               mitra.status === 'verified'
                 ? 'text-white bg-blue-700 hover:bg-blue-800'
                 : 'text-slate-400 bg-slate-200 cursor-not-allowed'
             }`}
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
               {mitra.status === 'verified'
                 ? 'Input Klien Baru (Referral)'
                 : mitra.status === 'rejected'
-                  ? '🔒 Input Klien Baru (Data Ditolak — Perbaiki Data)'
-                  : '🔒 Input Klien Baru (Menunggu Approve Admin)'}
+                  ? '🔒 Input Klien Baru (Data Ditolak)'
+                  : '🔒 Input Klien Baru (Menunggu Approve)'}
             </span>
           </button>
         )}

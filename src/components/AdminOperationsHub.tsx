@@ -625,15 +625,15 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           {onOpenSettings && (
             <button
               type="button"
               onClick={onOpenSettings}
-              className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-2xs"
+              className="flex-1 sm:flex-initial justify-center inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-2xs"
             >
-              <Settings className="w-3.5 h-3.5 text-blue-600" />
-              <span>Pengaturan Sistem, Form &amp; Spesialisasi</span>
+              <Settings className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="truncate">Pengaturan Sistem &amp; Form</span>
             </button>
           )}
 
@@ -645,31 +645,31 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               fetchEmailLogs();
               onRefreshData();
             }}
-            className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-xs"
+            className="flex-1 sm:flex-initial justify-center inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-xs"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
             <span>Segarkan Data</span>
           </button>
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs (Terpisah Sesuai Menu Utama) */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
+      {/* Navigation Sub-Tabs (Terpisah Sesuai Menu Utama & Responsif di Mobile) */}
+      <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
         {resolvedMode === 'operations' ? (
           <>
             <button
               type="button"
               onClick={() => setActiveSubTab('client_validation')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'client_validation'
                   ? 'bg-blue-800 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              <Building2 className="w-4 h-4" />
-              <span>Validasi &amp; ACC Klien</span>
+              <Building2 className="w-4 h-4 shrink-0" />
+              <span className="truncate">Validasi &amp; ACC Klien</span>
               {pendingAccCount > 0 && (
-                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black">
+                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black shrink-0">
                   {pendingAccCount}
                 </span>
               )}
@@ -678,29 +678,29 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubTab('mitra_analysis')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'mitra_analysis'
                   ? 'bg-blue-800 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              <TrendingUp className="w-4 h-4" />
-              <span>Analisa Kinerja Mitra</span>
+              <TrendingUp className="w-4 h-4 shrink-0" />
+              <span className="truncate">Analisa Kinerja Mitra</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveSubTab('payout_management')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'payout_management'
                   ? 'bg-blue-800 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              <DollarSign className="w-4 h-4" />
-              <span>Kelola Pencairan Komisi &amp; Bukti Transfer</span>
+              <DollarSign className="w-4 h-4 shrink-0" />
+              <span className="truncate">Kelola Pencairan Komisi &amp; Bukti Transfer</span>
               {pendingPayoutCount > 0 && (
-                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black">
+                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-mono font-black shrink-0">
                   {pendingPayoutCount} Pending
                 </span>
               )}
@@ -714,15 +714,15 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 setActiveSubTab('activity_logs');
                 fetchActivityLogs();
               }}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'activity_logs'
                   ? 'bg-indigo-800 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              <Activity className="w-4 h-4" />
-              <span>Log Aktivitas Mitra &amp; Admin</span>
-              <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 rounded-full text-[10px] font-mono font-black">
+              <Activity className="w-4 h-4 shrink-0" />
+              <span className="truncate">Log Aktivitas Mitra &amp; Admin</span>
+              <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 rounded-full text-[10px] font-mono font-black shrink-0">
                 {activityLogs.length}
               </span>
             </button>
@@ -733,16 +733,16 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 setActiveSubTab('email_logs');
                 fetchEmailLogs();
               }}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'email_logs'
                   ? 'bg-indigo-800 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              <Mail className="w-4 h-4" />
-              <span>Log Pengiriman Email</span>
+              <Mail className="w-4 h-4 shrink-0" />
+              <span className="truncate">Log Pengiriman Email</span>
               {emailLogs.filter((e) => e.status === 'failed').length > 0 && (
-                <span className="px-1.5 py-0.2 bg-red-500 text-white rounded-full text-[10px] font-mono font-black">
+                <span className="px-1.5 py-0.2 bg-red-500 text-white rounded-full text-[10px] font-mono font-black shrink-0">
                   {emailLogs.filter((e) => e.status === 'failed').length} Gagal
                 </span>
               )}

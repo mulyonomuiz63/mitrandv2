@@ -17,3 +17,156 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* ============================================================================
+   EXECUTIVE DARK MODE FOR MITRA, STAF & ADMIN PORTAL (html.dark-portal)
+   ============================================================================ */
+html.dark-portal body {
+  background-color: #071126 !important;
+  color: #f1f5f9 !important;
+}
+
+html.dark-portal .portal-root {
+  background-color: #071126 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Surface Overrides inside Portal */
+html.dark-portal .portal-root .bg-slate-50,
+html.dark-portal .portal-root .bg-slate-50\/60,
+html.dark-portal .portal-root .bg-slate-50\/70,
+html.dark-portal .portal-root .bg-slate-50\/80 {
+  background-color: #0b1833 !important;
+}
+
+html.dark-portal .portal-root .bg-slate-100,
+html.dark-portal .portal-root .bg-slate-100\/70,
+html.dark-portal .portal-root .bg-slate-100\/80,
+html.dark-portal .portal-root .bg-slate-200\/70 {
+  background-color: #122449 !important;
+}
+
+html.dark-portal .portal-root .bg-white,
+html.dark-portal .portal-root .bg-white\/95,
+html.dark-portal .portal-root .bg-white\/90 {
+  background-color: #0e1e3f !important;
+}
+
+/* Keep Official Logo Box White for High-Contrast Brand Legibility */
+html.dark-portal .portal-root .logo-light-box {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Typography Contrast Overrides inside Portal */
+html.dark-portal .portal-root .text-slate-900,
+html.dark-portal .portal-root .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+html.dark-portal .portal-root .text-slate-700,
+html.dark-portal .portal-root .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark-portal .portal-root .text-slate-500,
+html.dark-portal .portal-root .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html.dark-portal .portal-root .text-blue-900,
+html.dark-portal .portal-root .text-blue-950 {
+  color: #93c5fd !important;
+}
+
+html.dark-portal .portal-root .text-blue-800,
+html.dark-portal .portal-root .text-blue-700 {
+  color: #60a5fa !important;
+}
+
+html.dark-portal .portal-root .text-emerald-950,
+html.dark-portal .portal-root .text-emerald-900,
+html.dark-portal .portal-root .text-emerald-800,
+html.dark-portal .portal-root .text-emerald-700 {
+  color: #34d399 !important;
+}
+
+html.dark-portal .portal-root .text-indigo-950,
+html.dark-portal .portal-root .text-indigo-900 {
+  color: #a5b4fc !important;
+}
+
+html.dark-portal .portal-root .text-amber-900,
+html.dark-portal .portal-root .text-amber-800 {
+  color: #fcd34d !important;
+}
+
+/* Soft Tint Backgrounds in Dark Mode */
+html.dark-portal .portal-root .bg-blue-50,
+html.dark-portal .portal-root .bg-blue-50\/70,
+html.dark-portal .portal-root .bg-blue-50\/80,
+html.dark-portal .portal-root .bg-blue-100,
+html.dark-portal .portal-root .bg-blue-100\/90 {
+  background-color: rgba(30, 64, 175, 0.28) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+}
+
+html.dark-portal .portal-root .bg-emerald-50,
+html.dark-portal .portal-root .bg-emerald-50\/90,
+html.dark-portal .portal-root .bg-emerald-100,
+html.dark-portal .portal-root .bg-emerald-100\/90 {
+  background-color: rgba(6, 95, 70, 0.32) !important;
+  border-color: rgba(52, 211, 153, 0.35) !important;
+}
+
+html.dark-portal .portal-root .bg-indigo-50,
+html.dark-portal .portal-root .bg-indigo-50\/60,
+html.dark-portal .portal-root .bg-indigo-100,
+html.dark-portal .portal-root .bg-indigo-100\/90 {
+  background-color: rgba(55, 48, 163, 0.32) !important;
+  border-color: rgba(129, 140, 248, 0.35) !important;
+}
+
+html.dark-portal .portal-root .bg-amber-50,
+html.dark-portal .portal-root .bg-amber-50\/80,
+html.dark-portal .portal-root .bg-amber-100 {
+  background-color: rgba(180, 83, 9, 0.28) !important;
+  border-color: rgba(251, 191, 36, 0.35) !important;
+}
+
+/* Borders & Dividers inside Portal */
+html.dark-portal .portal-root .border-slate-200,
+html.dark-portal .portal-root .border-slate-200\/80,
+html.dark-portal .portal-root .border-slate-300,
+html.dark-portal .portal-root .border-slate-100 {
+  border-color: #1e335c !important;
+}
+
+html.dark-portal .portal-root .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html.dark-portal .portal-root .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e335c !important;
+}
+
+/* Form Inputs, Selects & Textareas in Dark Mode */
+html.dark-portal .portal-root input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+html.dark-portal .portal-root select,
+html.dark-portal .portal-root textarea {
+  background-color: #09152b !important;
+  color: #f8fafc !important;
+  border-color: #264173 !important;
+}
+
+html.dark-portal .portal-root input::placeholder,
+html.dark-portal .portal-root textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Chat Wallpaper in Dark Mode */
+html.dark-portal .portal-root .bg-\[\#efeae2\] {
+  background-color: #081226 !important;
+}
+
+html.dark-portal .portal-root .bg-\[\#d9fdd3\] {
+  background-color: #064e3b !important;
+  color: #f8fafc !important;
+}

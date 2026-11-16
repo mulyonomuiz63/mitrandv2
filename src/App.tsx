@@ -133,6 +133,34 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
 
+  // Dark / Light Theme Mode for Portal (Mitra, Staf, & Admin)
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('nd_portal_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch {}
+    return 'light';
+  });
+
+  const handleToggleThemeMode = () => {
+    setThemeMode((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('nd_portal_theme', next);
+      } catch {}
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const isPortalDark = themeMode === 'dark' && viewMode !== 'landing';
+    document.documentElement.classList.toggle('dark-portal', isPortalDark);
+    return () => {
+      document.documentElement.classList.remove('dark-portal');
+    };
+  }, [themeMode, viewMode]);
+
   // Fetch initial data
   const fetchData = async () => {
     try {
@@ -644,7 +672,7 @@ export default function App() {
 
   // 3. Portal View (Mitra & Admin Operations)
   return (
-    <div className="min-h-screen w-full overflow-x-hidden pb-20 md:pb-0 bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900">
+    <div className="portal-root min-h-screen w-full overflow-x-hidden pb-20 md:pb-0 bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900 transition-colors duration-300">
       <div className="w-full min-w-0">
         {/* Navigation Bar */}
         <Navbar
@@ -667,6 +695,8 @@ export default function App() {
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
           onStartOnboardingTour={() => setIsTourOpen(true)}
           appEnvironment={settings?.appEnvironment || 'development'}
+          themeMode={themeMode}
+          onToggleTheme={handleToggleThemeMode}
         />
 
         {/* Executive Sub-Header / Persona Context Bar (Symmetrically aligned with Navbar max-w-7xl px-3 sm:px-6 lg:px-8) */}

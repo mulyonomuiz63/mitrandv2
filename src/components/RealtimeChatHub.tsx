@@ -30,6 +30,9 @@ import {
   Maximize2,
   MessageCircle,
   Mail,
+  Volume2,
+  VolumeX,
+  BellRing,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -99,6 +102,73 @@ function formatChatDateBadge(iso: string): string {
 function extractFirstUrl(text: string): string | null {
   const match = text.match(/https?:\/\/[^\s<>"]+/i);
   return match ? match[0] : null;
+}
+
+// Shared AudioContext for Chat Notification Ringtone
+let sharedAudioCtx: AudioContext | null = null;
+
+function getOrCreateAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new AudioCtx();
+  }
+  if (sharedAudioCtx.state === 'suspended') {
+    sharedAudioCtx.resume().catch(() => {});
+  }
+  return sharedAudioCtx;
+}
+
+/**
+ * Plays a pleasant, unmistakable multi-tone notification ringtone chime
+ * using Web Audio API (no external audio file dependencies).
+ */
+export function playChatNotificationRingtone(): void {
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    // Melodic 3-note crystalline chime (E5 -> G#5 -> B5 -> E6)
+    const notes = [
+      { freq: 659.25, start: 0, duration: 0.14, gain: 0.22 },
+      { freq: 830.61, start: 0.11, duration: 0.14, gain: 0.24 },
+      { freq: 987.77, start: 0.22, duration: 0.18, gain: 0.26 },
+      { freq: 1318.51, start: 0.34, duration: 0.42, gain: 0.28 },
+    ];
+
+    notes.forEach(({ freq, start, duration, gain }) => {
+      const osc = ctx.createOscillator();
+      const harmonic = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + start);
+
+      harmonic.type = 'triangle';
+      harmonic.frequency.setValueAtTime(freq * 2, now + start);
+
+      const harmonicGain = ctx.createGain();
+      harmonicGain.gain.setValueAtTime(0.06, now + start);
+
+      gainNode.gain.setValueAtTime(0.0001, now + start);
+      gainNode.gain.exponentialRampToValueAtTime(gain, now + start + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + start + duration);
+
+      osc.connect(gainNode);
+      harmonic.connect(harmonicGain);
+      harmonicGain.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      osc.start(now + start);
+      harmonic.start(now + start);
+      osc.stop(now + start + duration + 0.02);
+      harmonic.stop(now + start + duration + 0.02);
+    });
+  } catch {
+    // Ignore audio context restrictions if user hasn't interacted yet
+  }
 }
 
 async function compressImageFile(
@@ -240,6 +310,38 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Notification Ringtone state & refs
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nd_chat_sound_enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const soundEnabledRef = useRef<boolean>(soundEnabled);
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const initialFetchDoneRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+    try {
+      localStorage.setItem('nd_chat_sound_enabled', soundEnabled ? 'true' : 'false');
+    } catch {}
+  }, [soundEnabled]);
+
+  // Unlock Web Audio API on first user gesture so background ringtones play reliably
+  useEffect(() => {
+    const unlockAudio = () => {
+      getOrCreateAudioContext();
+    };
+    window.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
+    window.addEventListener('keydown', unlockAudio, { once: true, passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
   // Live 1s timer for 5-minute edit/recall countdown
   useEffect(() => {
     const timer = setInterval(() => {
@@ -258,7 +360,23 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       const data = await res.json();
       if (Array.isArray(data.participants)) setParticipants(data.participants);
       if (Array.isArray(data.rooms)) setRooms(data.rooms);
-      if (Array.isArray(data.messages)) setMessages(data.messages);
+      if (Array.isArray(data.messages)) {
+        const fetchedMessages: ChatMessage[] = data.messages;
+        if (initialFetchDoneRef.current) {
+          const hasNewIncoming = fetchedMessages.some(
+            (m) =>
+              !knownMessageIdsRef.current.has(m.id) &&
+              m.senderId !== currentUserId &&
+              !m.isDeleted
+          );
+          if (hasNewIncoming && soundEnabledRef.current) {
+            playChatNotificationRingtone();
+          }
+        }
+        fetchedMessages.forEach((m) => knownMessageIdsRef.current.add(m.id));
+        initialFetchDoneRef.current = true;
+        setMessages(fetchedMessages);
+      }
     } catch {
       // Ignore background fetch error
     }
@@ -292,6 +410,25 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               fetchChatState();
             } else if (payload.type === 'chat:message_created' && payload.message) {
               const incoming: ChatMessage = payload.message;
+              const isNewMsg = !knownMessageIdsRef.current.has(incoming.id);
+              knownMessageIdsRef.current.add(incoming.id);
+
+              const roomForMsg: ChatRoom | undefined = payload.room;
+              const userCanSeeRoom =
+                isAdminMonitor ||
+                !roomForMsg ||
+                roomForMsg.participantIds.includes(currentUserId);
+
+              if (
+                isNewMsg &&
+                incoming.senderId !== currentUserId &&
+                !incoming.isDeleted &&
+                userCanSeeRoom &&
+                soundEnabledRef.current
+              ) {
+                playChatNotificationRingtone();
+              }
+
               setMessages((prev) => {
                 if (prev.some((m) => m.id === incoming.id)) return prev;
                 return [...prev, incoming];
@@ -985,44 +1122,34 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     return null;
   }
 
-  // FLOATING BOTTOM-RIGHT CHAT BUTTON (Shown when not on the dedicated Chat page)
+  // FLOATING BOTTOM-RIGHT CHAT BUTTON (Icon-only + Notification Badge if unread > 0)
   if (!isChatPageOpen) {
     return (
-      <div className="fixed bottom-20 md:bottom-6 right-5 z-40 flex flex-col items-end gap-2">
+      <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-40">
         <button
           type="button"
           onClick={onOpenChatPage}
           title={
             isAdminMonitor
-              ? 'Buka Panel Monitoring Live Chat Mitra & Staf'
-              : 'Buka Halaman Live Chat Mitra & Staf'
+              ? 'Monitor Chat - ND TAX AND LAW'
+              : 'Chat - ND TAX AND LAW'
           }
-          className="group relative flex items-center gap-3 pl-4 pr-5 py-3.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-2xl shadow-emerald-900/40 hover:from-emerald-500 hover:to-teal-600 hover:scale-105 active:scale-95 transition-all border-2 border-white/80 cursor-pointer"
+          aria-label="Buka Chat"
+          className="group relative flex items-center justify-center w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-emerald-500 text-white shadow-2xl shadow-emerald-900/40 hover:from-emerald-500 hover:to-teal-500 hover:scale-105 active:scale-95 transition-all border-2 border-white/90 cursor-pointer"
         >
-          <span className="relative flex items-center justify-center w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm">
-            <MessageSquare className="w-5 h-5 text-white" />
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-300 animate-ping" />
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-300" />
-          </span>
+          <MessageSquare className="w-6 h-6 text-white" />
 
-          <div className="text-left">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-extrabold tracking-wide uppercase">
-                {isAdminMonitor ? 'Monitor Chat' : 'Live Chat'}
-              </span>
-              {!chatEnabled && isAdminMonitor && (
-                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-rose-500 text-white rounded">
-                  NONAKTIF
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] text-emerald-100 font-medium leading-tight">
-              {isAdminMonitor ? 'Pantau Mitra & Staf' : 'Diskusi Mitra & Staf'}
-            </p>
-          </div>
+          {!chatEnabled && isAdminMonitor && (
+            <span
+              className="absolute -bottom-1 px-1.5 py-0.2 text-[8px] font-black bg-rose-600 text-white rounded-full border border-white"
+              title="Chat saat ini dinonaktifkan untuk Mitra & Staf"
+            >
+              OFF
+            </span>
+          )}
 
           {totalUnreadCount > 0 && (
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[11px] font-extrabold shadow-md animate-bounce">
+            <span className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1.5 rounded-full bg-rose-500 text-white text-[11px] font-extrabold flex items-center justify-center shadow-md border-2 border-white animate-bounce">
               {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
             </span>
           )}
@@ -1036,8 +1163,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
   return (
     <div className="space-y-2.5">
-      {/* Simple Top Header Bar: Icon + Chat - ND TAX AND LAW */}
-      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl px-4 py-2.5 shadow-md border border-emerald-700/40 flex items-center justify-between gap-3">
+      {/* Simple Top Header Bar: Icon + Chat - ND TAX AND LAW + Ringtone Toggle */}
+      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl px-4 py-2.5 shadow-md border border-emerald-700/40 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
             <MessageSquare className="w-5 h-5 text-emerald-300" />
@@ -1047,22 +1174,67 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           </h2>
         </div>
 
-        {isAdminMonitor && onToggleChatEnabled && (
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Ringtone Notification Toggle & Preview */}
           <button
             type="button"
-            onClick={() => onToggleChatEnabled(!chatEnabled)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all shadow-sm cursor-pointer ${
-              chatEnabled
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                : 'bg-rose-600 hover:bg-rose-500 text-white'
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              if (next) {
+                playChatNotificationRingtone();
+              }
+            }}
+            title={
+              soundEnabled
+                ? 'Nada Dering Notifikasi Chat Aktif (Klik untuk membisukan)'
+                : 'Nada Dering Notifikasi Chat Bisu (Klik untuk mengaktifkan & tes nada dering)'
+            }
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all border cursor-pointer ${
+              soundEnabled
+                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border-emerald-400/30'
+                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 border-slate-700'
             }`}
           >
-            <Power className="w-3.5 h-3.5" />
-            <span>
-              {chatEnabled ? 'Chat Mitra & Staf: AKTIF' : 'Chat Mitra & Staf: NONAKTIF'}
+            {soundEnabled ? (
+              <Volume2 className="w-3.5 h-3.5 text-emerald-300" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+            )}
+            <span className="hidden sm:inline">
+              {soundEnabled ? 'Nada Dering: Aktif' : 'Nada Dering: Bisu'}
             </span>
           </button>
-        )}
+
+          {soundEnabled && (
+            <button
+              type="button"
+              onClick={() => playChatNotificationRingtone()}
+              title="Tes Suara Nada Dering Notifikasi Chat"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all cursor-pointer"
+            >
+              <BellRing className="w-3.5 h-3.5 text-amber-300" />
+              <span className="hidden md:inline">Tes Nada</span>
+            </button>
+          )}
+
+          {isAdminMonitor && onToggleChatEnabled && (
+            <button
+              type="button"
+              onClick={() => onToggleChatEnabled(!chatEnabled)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all shadow-sm cursor-pointer ${
+                chatEnabled
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white'
+              }`}
+            >
+              <Power className="w-3.5 h-3.5" />
+              <span>
+                {chatEnabled ? 'Chat Mitra & Staf: AKTIF' : 'Chat Mitra & Staf: NONAKTIF'}
+              </span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main WhatsApp-Style Split Container — Full viewport fit on Desktop & Tablet, adaptive on Mobile */}
@@ -1400,33 +1572,6 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   ? 'Pilih salah satu ruang percakapan 1-on-1 atau grup di sebelah kiri untuk memonitor komunikasi antara Mitra dan Staf secara real-time.'
                   : 'Pilih rekan Mitra, Staf Operasional, atau Grup Diskusi di panel kiri untuk mengirim pesan teks, tautan ber-meta preview, emoji/ikon, maupun gambar terkompresi.'}
               </p>
-
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl w-full text-left">
-                <div className="p-3 rounded-xl bg-white border border-slate-200 shadow-xs">
-                  <p className="text-[11px] font-extrabold text-emerald-800">
-                    ⚡ Real-Time &amp; Grup Privat
-                  </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Grup hanya terlihat oleh anggota yang tergabung di dalamnya.
-                  </p>
-                </div>
-                <div className="p-3 rounded-xl bg-white border border-slate-200 shadow-xs">
-                  <p className="text-[11px] font-extrabold text-emerald-800">
-                    🖼️ Kompresi &amp; Link Meta
-                  </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Gambar otomatis dikompres &amp; tautan menampilkan pratinjau meta.
-                  </p>
-                </div>
-                <div className="p-3 rounded-xl bg-white border border-slate-200 shadow-xs">
-                  <p className="text-[11px] font-extrabold text-emerald-800">
-                    ↩️ Balas &amp; Edit &lt; 5 Menit
-                  </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Tag pesan tertentu untuk dibalas, atau edit/tarik pesan sebelum 5 menit.
-                  </p>
-                </div>
-              </div>
             </div>
           ) : (
             <>
