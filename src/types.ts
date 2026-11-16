@@ -246,6 +246,115 @@ export interface ServiceItem {
   isActive: boolean;
 }
 
+export interface CommissionSchemeConfig {
+  // Sistem Langganan (monthly_subscription / annual_subscription)
+  subHighThreshold: number; // default: 10000000 (>= 10 Juta)
+  subHighRate: number;      // default: 20%
+  subMidThreshold: number;  // default: 5000000 (5 - 10 Juta)
+  subMidRate: number;       // default: 15%
+  subLowRate: number;       // default: 10% (< 5 Juta)
+  subRecurringRate: number; // default: 10% (Bulan/Siklus Berikutnya)
+
+  // Sistem Case-by-Case (case_by_case)
+  caseHighThreshold: number; // default: 100000000 (>= 100 Juta)
+  caseHighRate: number;      // default: 20%
+  caseMidThreshold: number;  // default: 50000000 (50 - 100 Juta)
+  caseMidRate: number;       // default: 15%
+  caseLowRate: number;       // default: 10% (< 50 Juta)
+  updatedAt?: string;
+}
+
+export interface BonusTargetConfig {
+  periodType: 'monthly' | 'yearly';
+  targetDealRevenue: number;   // e.g. Rp 50.000.000 (monthly) or Rp 500.000.000 (yearly)
+  targetClientCount: number;   // e.g. 3 klien (monthly) or 24 klien (yearly)
+  standardBonusAmount: number; // e.g. Rp 5.000.000
+  rewardDescription: string;   // e.g. 'Bonus Tunai, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah'
+  updatedAt?: string;
+}
+
+export const DEFAULT_COMMISSION_SCHEME: CommissionSchemeConfig = {
+  subHighThreshold: 10000000,
+  subHighRate: 20,
+  subMidThreshold: 5000000,
+  subMidRate: 15,
+  subLowRate: 10,
+  subRecurringRate: 10,
+  caseHighThreshold: 100000000,
+  caseHighRate: 20,
+  caseMidThreshold: 50000000,
+  caseMidRate: 15,
+  caseLowRate: 10,
+};
+
+export const DEFAULT_BONUS_TARGET_CONFIG: BonusTargetConfig = {
+  periodType: 'monthly',
+  targetDealRevenue: 50000000,
+  targetClientCount: 3,
+  standardBonusAmount: 5000000,
+  rewardDescription: 'Bonus Tunai Prestasi, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah',
+};
+
+export function calculateClientDealCommission(
+  pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription',
+  dealValue: number,
+  scheme?: Partial<CommissionSchemeConfig> | null
+): {
+  initialRate: number;
+  initialAmount: number;
+  recurringRate: number;
+  recurringAmount: number;
+  tierLabel: string;
+} {
+  const cfg: CommissionSchemeConfig = {
+    ...DEFAULT_COMMISSION_SCHEME,
+    ...(scheme || {}),
+  };
+  const val = Math.max(0, Number(dealValue) || 0);
+
+  if (pricingType === 'monthly_subscription' || pricingType === 'annual_subscription') {
+    let initialRate = cfg.subLowRate;
+    let tierLabel = `Langganan < Rp ${(cfg.subMidThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.subLowRate}%)`;
+
+    if (val >= cfg.subHighThreshold) {
+      initialRate = cfg.subHighRate;
+      tierLabel = `Langganan ≥ Rp ${(cfg.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.subHighRate}%)`;
+    } else if (val >= cfg.subMidThreshold) {
+      initialRate = cfg.subMidRate;
+      tierLabel = `Langganan Rp ${(cfg.subMidThreshold / 1000000).toLocaleString('id-ID')}–${(cfg.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.subMidRate}%)`;
+    }
+
+    const recurringRate = cfg.subRecurringRate;
+    return {
+      initialRate,
+      initialAmount: Math.round((val * initialRate) / 100),
+      recurringRate,
+      recurringAmount: Math.round((val * recurringRate) / 100),
+      tierLabel,
+    };
+  }
+
+  // Case-by-case
+  let initialRate = cfg.caseLowRate;
+  let tierLabel = `Per Kasus < Rp ${(cfg.caseMidThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.caseLowRate}%)`;
+
+  if (val >= cfg.caseHighThreshold) {
+    initialRate = cfg.caseHighRate;
+    tierLabel = `Per Kasus ≥ Rp ${(cfg.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.caseHighRate}%)`;
+  } else if (val >= cfg.caseMidThreshold) {
+    initialRate = cfg.caseMidRate;
+    tierLabel = `Per Kasus Rp ${(cfg.caseMidThreshold / 1000000).toLocaleString('id-ID')}–${(cfg.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.caseMidRate}%)`;
+  }
+
+  return {
+    initialRate,
+    initialAmount: Math.round((val * initialRate) / 100),
+    recurringRate: 0,
+    recurringAmount: 0,
+    tierLabel,
+  };
+}
+
 export interface ClientDeal {
   id: string;
   mitraId: string;
@@ -260,6 +369,10 @@ export interface ClientDeal {
   pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription';
   dealValue: number;
   commissionAmount: number;
+  // Locked Deal-Time Commission Fields (Per-Client Commission System)
+  appliedCommissionRate?: number;
+  lockedRecurringRate?: number;
+  recurringCommissionAmount?: number;
   status: 'pending_acc' | 'deal_closed' | 'active_subscription' | 'in_review' | 'cancelled' | 'rejected';
   date: string;
   recurringPaidMonths?: number;
@@ -314,6 +427,8 @@ export interface AppSettings {
   supportEmail: string;
   officeAddress: string;
   defaultCommissionRate: number;
+  commissionScheme?: CommissionSchemeConfig;
+  bonusTargetConfig?: BonusTargetConfig;
   allowClientSelfRegister: boolean;
   googleOAuthEnabled: boolean;
   googleClientId: string;
@@ -391,7 +506,9 @@ export interface ActivityLogItem {
     | 'service_delete'
     | 'tool_create'
     | 'tool_delete'
-    | 'settings_update';
+    | 'settings_update'
+    | 'bonus_grant'
+    | 'commission_scheme_update';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
   targetEntity: string;
   description: string;

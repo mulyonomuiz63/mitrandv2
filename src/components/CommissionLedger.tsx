@@ -16,8 +16,17 @@ import {
   ShieldCheck,
   Percent
 } from 'lucide-react';
-import { Mitra, CommissionTransaction, ClientDeal, PayoutRequest } from '../types';
-import { UserCheck, Sparkles, Plus, Repeat } from 'lucide-react';
+import {
+  Mitra,
+  CommissionTransaction,
+  ClientDeal,
+  PayoutRequest,
+  AppSettings,
+  DEFAULT_COMMISSION_SCHEME,
+  DEFAULT_BONUS_TARGET_CONFIG,
+  calculateClientDealCommission,
+} from '../types';
+import { UserCheck, Sparkles, Plus, Repeat, Award, Target } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
 import { useConfirm } from './ConfirmDialogModal';
 
@@ -26,6 +35,7 @@ interface CommissionLedgerProps {
   userRole: 'admin' | 'mitra';
   transactions: CommissionTransaction[];
   clientDeals?: ClientDeal[];
+  settings?: AppSettings | null;
   onRequestPayout: (mitraId: string, amount: number) => Promise<void>;
   onEditBankDetails: () => void;
   onOpenClientInput?: () => void;
@@ -36,12 +46,36 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
   userRole,
   transactions,
   clientDeals = [],
+  settings,
   onRequestPayout,
   onEditBankDetails,
   onOpenClientInput,
 }) => {
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState<'referrals' | 'transactions' | 'payouts'>('referrals');
+  const [localSettings, setLocalSettings] = useState<AppSettings | null>(settings || null);
+
+  useEffect(() => {
+    if (settings) {
+      setLocalSettings(settings);
+    } else {
+      fetch('/api/settings')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.success && d?.data) setLocalSettings(d.data);
+        })
+        .catch(() => {});
+    }
+  }, [settings]);
+
+  const commScheme = {
+    ...DEFAULT_COMMISSION_SCHEME,
+    ...(localSettings?.commissionScheme || {}),
+  };
+  const bonusTarget = {
+    ...DEFAULT_BONUS_TARGET_CONFIG,
+    ...(localSettings?.bonusTargetConfig || {}),
+  };
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState<number>(mitra.pendingPayout || 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -166,9 +200,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               setIsPayoutModalOpen(true);
             }}
             disabled={availableFixCommission <= 0}
-            className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start sm:self-auto"
+            className="px-4 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300 disabled:text-slate-500 disabled:border-slate-300 disabled:cursor-not-allowed rounded-lg transition-all flex items-center gap-2 shadow-sm shrink-0 self-start sm:self-auto"
           >
-            <Send className="w-3.5 h-3.5" />
+            <Send className="w-3.5 h-3.5 text-amber-400" />
             <span>
               {availableFixCommission > 0
                 ? `Tarik Komisi Fix (${formatRupiah(availableFixCommission)})`
@@ -276,6 +310,162 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
           </p>
         </div>
       </div>
+
+      {/* Per-Client Commission Scheme & Target Bonus Progress Banner (Mitra ID Card Theme) */}
+      {(() => {
+        const mitraApprovedDeals = clientDeals.filter(
+          (d) =>
+            (userRole === 'admin' ? true : d.mitraId === mitra.id) &&
+            (d.status === 'active_subscription' || d.status === 'deal_closed')
+        );
+        const achievedRevenue = mitraApprovedDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
+        const achievedClients = mitraApprovedDeals.length;
+        const targetRev = Math.max(1, Number(bonusTarget.targetDealRevenue) || 50000000);
+        const targetCli = Math.max(1, Number(bonusTarget.targetClientCount) || 3);
+        const revPct = Math.min(100, Math.round((achievedRevenue / targetRev) * 100));
+        const cliPct = Math.min(100, Math.round((achievedClients / targetCli) * 100));
+        const isTargetExceeded = achievedRevenue >= targetRev || achievedClients >= targetCli;
+
+        return (
+          <div className="mb-7 rounded-2xl bg-gradient-to-br from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 shadow-lg p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Left 7 Cols: Per-Client Commission Tiers */}
+            <div className="lg:col-span-7 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-md">
+                    SKEMA KOMISI PER KLIEN
+                  </span>
+                  <span className="text-[11px] text-blue-100 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                    Komisi Terkunci Saat Waktu Deal
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {/* Langganan Card */}
+                <div className="p-3.5 rounded-xl bg-white/10 border border-amber-400/30 space-y-1.5">
+                  <div className="font-bold text-amber-300 flex items-center justify-between">
+                    <span>🔄 Sistem Langganan Klien</span>
+                    <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-extrabold">
+                      +{commScheme.subRecurringRate}% Bln Berikutnya
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-[11px] text-blue-50 pt-1">
+                    <div className="flex justify-between">
+                      <span>Deal &ge; Rp {(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta:</span>
+                      <strong className="text-amber-300 font-mono">{commScheme.subHighRate}% Komisi</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Deal Rp {(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}–{(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta:</span>
+                      <strong className="text-amber-300 font-mono">{commScheme.subMidRate}% Komisi</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Deal &lt; Rp {(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')} Juta:</span>
+                      <strong className="text-amber-300 font-mono">{commScheme.subLowRate}% Komisi</strong>
+                    </div>
+                    <div className="pt-1 border-t border-white/15 flex justify-between text-emerald-300 font-semibold">
+                      <span>Bayar Bulan Berikutnya (Aktif):</span>
+                      <strong className="font-mono">Tetap {commScheme.subRecurringRate}%</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Case-by-Case Card */}
+                <div className="p-3.5 rounded-xl bg-white/10 border border-amber-400/30 space-y-1.5">
+                  <div className="font-bold text-amber-300 flex items-center justify-between">
+                    <span>⚡ Sistem Case-by-Case</span>
+                    <span className="text-[10px] bg-white/15 text-amber-200 px-1.5 py-0.5 rounded font-semibold">
+                      Per Kasus Klien
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-[11px] text-blue-50 pt-1">
+                    <div className="flex justify-between">
+                      <span>Deal &ge; Rp {(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta:</span>
+                      <strong className="text-amber-300 font-mono">{commScheme.caseHighRate}% Komisi</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Deal Rp {(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}–{(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta:</span>
+                      <strong className="text-amber-300 font-mono">{commScheme.caseMidRate}% Komisi</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Deal &lt; Rp {(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')} Juta:</span>
+                      <strong className="text-amber-300 font-mono">{commScheme.caseLowRate}% Komisi</strong>
+                    </div>
+                    <div className="pt-1 border-t border-white/15 text-[10px] text-blue-200">
+                      Jika Admin merubah komisi di kemudian hari, klien langganan aktif tetap mendapat komisi waktu deal.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right 5 Cols: Target & Bonus Mitra Progress */}
+            <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/40 border border-amber-400/40 flex flex-col justify-between space-y-3">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <Target className="w-4 h-4 text-amber-400" />
+                    Target &amp; Bonus Mitra ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
+                  </span>
+                  {isTargetExceeded ? (
+                    <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full">
+                      🏆 Melampaui Target!
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full">
+                      Progres {Math.max(revPct, cliPct)}%
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-3 space-y-2.5 text-xs">
+                  <div>
+                    <div className="flex justify-between text-[11px] text-blue-100 mb-1">
+                      <span>Realisasi Nilai Deal Klien:</span>
+                      <span className="font-mono font-bold text-white">
+                        {formatRupiah(achievedRevenue)} / {formatRupiah(targetRev)}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all"
+                        style={{ width: `${revPct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-blue-100 pt-1">
+                    <span>Realisasi Jumlah Klien Deal:</span>
+                    <span className="font-mono font-bold text-amber-300">
+                      {achievedClients} / {targetCli} Klien ({cliPct}%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-[10px] text-blue-200 block">Standar Bonus Target:</span>
+                  <span className="font-mono font-extrabold text-amber-300">
+                    {formatRupiah(bonusTarget.standardBonusAmount)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-blue-200 block">Total Bonus Diterima:</span>
+                  <span className="font-mono font-extrabold text-emerald-300">
+                    {formatRupiah(
+                      userRole === 'admin'
+                        ? transactions.reduce((s, t) => s + (Number(t.bonusAmount) || 0), 0)
+                        : mitra.totalBonus || 0
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Navigation Sub-Tabs — Responsive on Mobile, Tablet & Desktop (Never overflows off-screen) */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
@@ -455,42 +645,80 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                         {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
                       </td>
                       <td className="py-3.5 px-6 text-right font-mono whitespace-nowrap">
-                        {deal.status === 'pending_acc' ? (
-                          <div>
-                            <div className="font-bold text-amber-700">Rp 0</div>
-                            <span className="inline-block text-[9px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
-                              Menunggu Approve Admin (Est: {formatRupiah(deal.commissionAmount)})
-                            </span>
-                          </div>
-                        ) : deal.status === 'rejected' ? (
-                          <div>
-                            <div className="font-bold text-rose-700">Rp 0</div>
-                            <span className="inline-block text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
-                              Tidak Deal (Komisi Rp 0)
-                            </span>
-                          </div>
-                        ) : deal.status === 'cancelled' ? (
-                          <div>
-                            <div className="line-through text-slate-400 text-[11px]">
-                              {formatRupiah(deal.commissionAmount)}
-                              {deal.pricingType === 'monthly_subscription' ? ' / bln' : deal.pricingType === 'annual_subscription' ? ' / thn' : ''}
+                        {(() => {
+                          const calc = calculateClientDealCommission(
+                            deal.pricingType,
+                            deal.dealValue,
+                            commScheme
+                          );
+                          const lockedRate = deal.appliedCommissionRate ?? calc.initialRate;
+                          const lockedRecRate =
+                            deal.pricingType === 'case_by_case'
+                              ? 0
+                              : deal.lockedRecurringRate ?? calc.recurringRate;
+                          const lockedRecAmt =
+                            deal.pricingType === 'case_by_case'
+                              ? 0
+                              : deal.recurringCommissionAmount ||
+                                Math.round((deal.dealValue * lockedRecRate) / 100);
+
+                          if (deal.status === 'pending_acc') {
+                            return (
+                              <div>
+                                <div className="font-bold text-amber-700">Rp 0</div>
+                                <span className="inline-block text-[9px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                                  Menunggu ACC (Deal {lockedRate}%: {formatRupiah(deal.commissionAmount)})
+                                </span>
+                                {deal.pricingType !== 'case_by_case' && (
+                                  <div className="text-[9px] text-slate-500 mt-0.5">
+                                    Bulan Berikutnya ({lockedRecRate}%): {formatRupiah(lockedRecAmt)}/siklus
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          if (deal.status === 'rejected') {
+                            return (
+                              <div>
+                                <div className="font-bold text-rose-700">Rp 0</div>
+                                <span className="inline-block text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                                  Tidak Deal (Komisi Rp 0)
+                                </span>
+                              </div>
+                            );
+                          }
+                          if (deal.status === 'cancelled') {
+                            return (
+                              <div>
+                                <div className="line-through text-slate-400 text-[11px]">
+                                  {formatRupiah(deal.commissionAmount)} ({lockedRate}%)
+                                </div>
+                                <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                                  Komisi Dihentikan (Langganan Berakhir)
+                                </span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div>
+                              <div className="font-bold text-emerald-700">
+                                {formatRupiah(deal.commissionAmount)}{' '}
+                                <span className="text-[10px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                  {lockedRate}% Deal
+                                </span>
+                              </div>
+                              {deal.pricingType !== 'case_by_case' ? (
+                                <div className="text-[10px] font-semibold text-blue-800 mt-0.5">
+                                  Bulan Berikutnya ({lockedRecRate}% Terkunci): {formatRupiah(lockedRecAmt)}/siklus
+                                </div>
+                              ) : (
+                                <span className="inline-block text-[9px] font-semibold text-emerald-700">
+                                  ✓ Komisi Masuk Saldo (Terkunci Waktu Deal)
+                                </span>
+                              )}
                             </div>
-                            <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
-                              Komisi Dihentikan (Langganan Berakhir)
-                            </span>
-                          </div>
-                        ) : (
-                          <div>
-                            <div className="font-bold text-emerald-700">
-                              {formatRupiah(deal.commissionAmount)}
-                              {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / bln</span>}
-                              {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal"> / thn</span>}
-                            </div>
-                            <span className="inline-block text-[9px] font-semibold text-emerald-700">
-                              ✓ Komisi Masuk Saldo
-                            </span>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </td>
                       <td className="py-3.5 px-6 text-center whitespace-nowrap">
                         {deal.status === 'active_subscription' ? (

@@ -361,6 +361,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
   const handleResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanedOtp = otpCode.trim();
+    if (!cleanedOtp || cleanedOtp.length < 6) {
+      setForgotError('Kode OTP pemulihan 6-digit wajib diisi.');
+      return;
+    }
     if (newPassword !== confirmNewPassword) {
       setForgotError('Konfirmasi kata sandi tidak sesuai.');
       return;
@@ -372,7 +377,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail, newPassword }),
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+          otpCode: cleanedOtp,
+          otp: cleanedOtp,
+          token: cleanedOtp,
+          newPassword,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -602,10 +613,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="w-full py-2.5 px-4 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <span>{isLoading ? 'Memverifikasi...' : 'Masuk ke Portal'}</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="w-4 h-4 text-amber-400" />
                   </button>
                 </form>
 
@@ -1085,10 +1096,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-2.5 px-4 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors shadow-xs flex items-center justify-center gap-2 disabled:opacity-50 mt-4"
+                  className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 mt-4"
                 >
                   <span>{isLoading ? 'Mendaftarkan...' : 'Kirim Berkas Pendaftaran Mitra'}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4 text-amber-400" />
                 </button>
               </form>
             )}
@@ -1096,16 +1107,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
             {/* 3. FORGOT PASSWORD FORM */}
             {authMode === 'forgot' && (
               <div className="space-y-4">
-                <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-xs text-blue-900">
-                  <p className="font-semibold flex items-center gap-1.5">
-                    <KeyRound className="w-4 h-4 text-blue-700" />
-                    Pemulihan Akses Akun NDTAXANDLAW
-                  </p>
-                  <p className="mt-0.5 text-blue-800 text-[11px]">
-                    Masukkan alamat email terdaftar untuk menerima kode verifikasi OTP dan mengatur ulang kata sandi.
-                  </p>
-                </div>
-
                 {forgotMessage && (
                   <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1132,17 +1133,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         placeholder="Masukkan email Anda"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
-                        className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600"
+                        className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-[#113872]"
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full py-2.5 px-4 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors shadow-xs flex items-center justify-center gap-2"
+                      className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
                     >
                       <span>{isLoading ? 'Mengirim...' : 'Kirim Kode Pemulihan'}</span>
-                      <ArrowRight className="w-4 h-4" />
+                      <ArrowRight className="w-4 h-4 text-amber-400" />
                     </button>
                   </form>
                 ) : (
@@ -1208,10 +1209,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full py-2.5 px-4 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors shadow-xs flex items-center justify-center gap-2"
+                      className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
                     >
-                      <span>{isLoading ? 'Menyimpan...' : 'Perbarui Kata Sandi &amp; Masuk'}</span>
-                      <Check className="w-4 h-4" />
+                      <span>{isLoading ? 'Menyimpan...' : 'Perbarui Kata Sandi & Masuk'}</span>
+                      <Check className="w-4 h-4 text-amber-400" />
                     </button>
                   </form>
                 )}

@@ -19,15 +19,29 @@
 }
 
 /* ============================================================================
-   EXECUTIVE DARK MODE FOR MITRA, STAF & ADMIN PORTAL (html.dark-portal)
+   EXECUTIVE DARK & LIGHT THEME HARMONIZED WITH MITRA ID CARD (#092147 & #D4AF37)
    ============================================================================ */
+:root {
+  --nd-idcard-navy-start: #092147;
+  --nd-idcard-navy-mid: #113872;
+  --nd-idcard-navy-end: #061835;
+  --nd-idcard-gold: #D4AF37;
+}
+
+/* Harmonize primary blue buttons inside Portal with Mitra ID Card Royal Navy & Gold */
+.portal-root .bg-blue-700,
+.portal-root .bg-blue-800 {
+  background-image: linear-gradient(135deg, #092147 0%, #113872 45%, #061835 100%) !important;
+  border-color: rgba(212, 175, 55, 0.4) !important;
+}
+
 html.dark-portal body {
-  background-color: #071126 !important;
+  background-color: #061835 !important;
   color: #f1f5f9 !important;
 }
 
 html.dark-portal .portal-root {
-  background-color: #071126 !important;
+  background-color: #061835 !important;
   color: #f1f5f9 !important;
 }
 
@@ -36,20 +50,20 @@ html.dark-portal .portal-root .bg-slate-50,
 html.dark-portal .portal-root .bg-slate-50\/60,
 html.dark-portal .portal-root .bg-slate-50\/70,
 html.dark-portal .portal-root .bg-slate-50\/80 {
-  background-color: #0b1833 !important;
+  background-color: #092147 !important;
 }
 
 html.dark-portal .portal-root .bg-slate-100,
 html.dark-portal .portal-root .bg-slate-100\/70,
 html.dark-portal .portal-root .bg-slate-100\/80,
 html.dark-portal .portal-root .bg-slate-200\/70 {
-  background-color: #122449 !important;
+  background-color: #113872 !important;
 }
 
 html.dark-portal .portal-root .bg-white,
 html.dark-portal .portal-root .bg-white\/95,
 html.dark-portal .portal-root .bg-white\/90 {
-  background-color: #0e1e3f !important;
+  background-color: #092147 !important;
 }
 
 /* Keep Official Logo Box & ID Card QR Box White for High-Contrast Brand & Scanner Legibility */

@@ -148,7 +148,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
       message: editingServiceId
         ? `Apakah Anda yakin ingin menyimpan perubahan pada layanan "${name.trim()}"?`
         : `Apakah Anda yakin ingin menambahkan layanan baru "${name.trim()}" ke katalog?`,
-      detail: `Nama Layanan: ${name.trim()}\nKategori: ${category}\nHarga Default: Rp ${Number(defaultPrice).toLocaleString('id-ID')}\nKomisi Mitra: ${commissionRate}%`,
+      detail: `Nama Layanan: ${name.trim()}\nKategori: ${category}\nHarga Default: Rp ${Number(defaultPrice).toLocaleString('id-ID')}`,
       confirmText: editingServiceId ? 'Ya, Simpan Perubahan' : 'Ya, Tambah Layanan',
       cancelText: 'Batalkan',
       variant: 'primary',
@@ -166,7 +166,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
             category,
             defaultPrice: Number(defaultPrice),
             pricingType,
-            commissionRate: Number(commissionRate),
+            commissionRate: Number(commissionRate || 10),
             description: description.trim(),
           }),
         });
@@ -189,7 +189,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
             category,
             defaultPrice: Number(defaultPrice),
             pricingType,
-            commissionRate: Number(commissionRate),
+            commissionRate: 10,
             description: description.trim(),
           }),
         });
@@ -210,26 +210,26 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-hidden">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl border border-amber-400/30 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
-        {/* FIXED STICKY HEADER */}
-        <div className="shrink-0 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-5 sm:p-6 relative flex justify-between items-center">
+        {/* FIXED STICKY HEADER (Mitra ID Card Theme) */}
+        <div className="shrink-0 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] border-b border-amber-400/30 text-white p-5 sm:p-6 relative flex justify-between items-center">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded">
+              <span className="px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded">
                 PANEL ADMIN OPERASIONAL
               </span>
-              <span className="text-xs text-slate-300">
-                Katalog Layanan Pajak &amp; Keuangan Dinamis
+              <span className="text-xs text-blue-100">
+                Katalog Layanan Pajak &amp; Hukum Dinamis
               </span>
             </div>
             <h2 className="text-xl font-bold tracking-tight text-white">
-              Kelola Katalog Layanan &amp; Skema Komisi
+              Kelola Katalog Layanan Pajak &amp; Hukum
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10"
+            className="text-slate-300 hover:text-amber-300 transition-colors p-1.5 rounded-lg hover:bg-white/10"
             aria-label="Tutup"
           >
             <X className="w-5 h-5" />
@@ -237,7 +237,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
         </div>
 
         {/* SCROLLABLE MODAL BODY */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
           {successMsg && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -245,11 +245,24 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
             </div>
           )}
 
+          {/* Per-Client Commission Notice */}
+          <div className="p-3.5 rounded-xl bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                Sistem Komisi Berbasis Per Klien (Bukan Per Layanan)
+              </p>
+              <p className="text-[11px] text-blue-100">
+                Komisi mitra dihitung otomatis dari nilai kontrak deal per klien: <strong>Langganan</strong> (&lt;5 Jt: 10%, 5–10 Jt: 15%, ≥10 Jt: 20%, Bulan Berikutnya: 10%) &bull; <strong>Case-by-Case</strong> (&lt;50 Jt: 10%, 50–100 Jt: 15%, ≥100 Jt: 20%). Pengaturan persentase komisi &amp; target bonus dikelola di menu <strong>Manajemen Komisi &amp; Bonus</strong>.
+              </p>
+            </div>
+          </div>
+
           {/* Action Toolbar */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-200">
             <div>
               <p className="text-xs text-slate-600">
-                Admin dapat menambah paket layanan baru atau menyesuaikan persentase komisi mitra (Case-by-case atau Langganan Bulanan).
+                Admin dapat menambah, mengubah, atau menonaktifkan daftar produk layanan pajak &amp; hukum yang dapat dipilih saat registrasi klien.
               </p>
             </div>
             {!showAddForm ? (
@@ -259,9 +272,9 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                   resetForm();
                   setShowAddForm(true);
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-sm transition-all"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4 text-amber-400" />
                 Tambah Layanan Baru
               </button>
             ) : (
@@ -291,10 +304,10 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-3">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nama Layanan Pajak / Akuntansi <span className="text-rose-500">*</span>
+                    Nama Layanan Pajak / Akuntansi / Hukum <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -302,7 +315,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Contoh: Audit Forensik & Rekonsiliasi Fiskal Lanjutan"
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#113872] outline-none"
                   />
                 </div>
 
@@ -325,7 +338,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Skema Pembayaran
+                    Skema Default Layanan
                   </label>
                   <select
                     value={pricingType}
@@ -340,7 +353,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nominal Default (Rp)
+                    Nominal Referensi Default (Rp)
                   </label>
                   <input
                     type="number"
@@ -352,22 +365,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Persentase Komisi Mitra (%)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="any"
-                    value={commissionRate}
-                    onChange={(e) => setCommissionRate(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg outline-none"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
+                <div className="md:col-span-3">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Deskripsi Ringkas Layanan
                   </label>
@@ -391,7 +389,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm"
+                  className="px-5 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-sm"
                 >
                   {editingServiceId ? 'Simpan Perubahan' : 'Tambahkan ke Katalog'}
                 </button>
@@ -406,9 +404,8 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                 <tr>
                   <th className="p-3">Nama Layanan</th>
                   <th className="p-3">Kategori</th>
-                  <th className="p-3">Skema</th>
-                  <th className="p-3 text-right">Nominal Default</th>
-                  <th className="p-3 text-center">Komisi Mitra</th>
+                  <th className="p-3">Skema Default</th>
+                  <th className="p-3 text-right">Harga Referensi</th>
                   <th className="p-3 text-center">Status</th>
                   <th className="p-3 text-right">Aksi</th>
                 </tr>
@@ -444,11 +441,6 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                       Rp {srv.defaultPrice.toLocaleString('id-ID')}
                       {srv.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-500 font-normal"> / bln</span>}
                       {srv.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-500 font-normal"> / thn</span>}
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-bold rounded text-xs">
-                        {srv.commissionRate}%
-                      </span>
                     </td>
                     <td className="p-3 text-center">
                       <button

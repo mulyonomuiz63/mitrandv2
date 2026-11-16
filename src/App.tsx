@@ -699,23 +699,23 @@ export default function App() {
           onToggleTheme={handleToggleThemeMode}
         />
 
-        {/* Executive Sub-Header / Persona Context Bar (Symmetrically aligned with Navbar max-w-7xl px-3 sm:px-6 lg:px-8) */}
-        <div className="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 text-white border-b border-blue-900/50 py-2.5">
+        {/* Executive Sub-Header / Persona Context Bar (Matched to Mitra ID Card Royal Navy & Gold Theme) */}
+        <div className="w-full bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white border-b border-amber-400/40 py-2.5 shadow-xs">
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="px-2.5 py-1 rounded-md font-mono font-bold uppercase text-[10px] bg-blue-700/60 border border-blue-400/30 text-blue-200 shrink-0">
+              <span className="px-2.5 py-1 rounded-md font-mono font-bold uppercase text-[10px] bg-amber-400/15 border border-amber-400/40 text-amber-300 shrink-0">
                 {currentRole === 'admin'
                   ? currentUser?.roleCode === 'staff'
                     ? 'PANEL OPERASIONAL STAF'
                     : 'PANEL OPERASIONAL ADMIN'
                   : 'PORTAL RESMI MITRA'}
               </span>
-              <span className="text-slate-300 hidden md:inline shrink-0">·</span>
-              <span className="text-slate-200 font-medium truncate hidden sm:inline">
+              <span className="text-amber-300/60 hidden md:inline shrink-0">·</span>
+              <span className="text-slate-100 font-medium truncate hidden sm:inline">
                 {currentRole === 'admin'
                   ? currentUser?.roleCode === 'staff'
                     ? `Staf Aktif: ${currentUser.name} (${currentUser.position || 'Staf Operasional'})`
-                    : 'Manajemen Verifikasi, Monitoring Komisi Bank, & Unggah Tools Pemasaran'
+                    : 'Manajemen Verifikasi, Skema Komisi Per Klien, Target Bonus, & Validasi Payout'
                   : `Aktif sebagai: ${activeMitra.fullName} (${activeMitra.memberCode})`}
               </span>
             </div>
@@ -745,7 +745,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setActiveTab('verification')}
-                    className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg"
+                    className="px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 rounded-lg"
                   >
                     ← Kembali ke Verifikasi Mitra
                   </button>
@@ -789,6 +789,7 @@ export default function App() {
               userRole={currentRole}
               transactions={commissions}
               clientDeals={clientDeals}
+              settings={settings}
               onRequestPayout={handleRequestPayout}
               onEditBankDetails={() => setIsProfileOpen(true)}
               onOpenClientInput={() => setIsClientModalOpen(true)}

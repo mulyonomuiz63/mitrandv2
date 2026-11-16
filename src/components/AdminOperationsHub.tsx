@@ -33,11 +33,30 @@ import {
   UserCheck,
   LogIn
 } from 'lucide-react';
-import { Mitra, ClientDeal, CommissionTransaction, PayoutRequest, ActivityLogItem, EmailLogItem } from '../types';
+import {
+  Mitra,
+  ClientDeal,
+  CommissionTransaction,
+  PayoutRequest,
+  ActivityLogItem,
+  EmailLogItem,
+  CommissionSchemeConfig,
+  BonusTargetConfig,
+  DEFAULT_COMMISSION_SCHEME,
+  DEFAULT_BONUS_TARGET_CONFIG,
+  calculateClientDealCommission,
+} from '../types';
+import { Award, Target, Gift } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
 import { useConfirm } from './ConfirmDialogModal';
 
-export type AdminSubTab = 'client_validation' | 'mitra_analysis' | 'payout_management' | 'activity_logs' | 'email_logs';
+export type AdminSubTab =
+  | 'client_validation'
+  | 'commission_bonus'
+  | 'mitra_analysis'
+  | 'payout_management'
+  | 'activity_logs'
+  | 'email_logs';
 
 interface AdminOperationsHubProps {
   mitras: Mitra[];
@@ -73,8 +92,24 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   const [dealToReview, setDealToReview] = useState<ClientDeal | null>(null);
   const [reviewStartDate, setReviewStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [reviewBillingDay, setReviewBillingDay] = useState<number>(() => new Date().getDate());
+  const [reviewDealValue, setReviewDealValue] = useState<number>(0);
+  const [reviewCustomRate, setReviewCustomRate] = useState<number>(15);
+  const [reviewCustomRecurringRate, setReviewCustomRecurringRate] = useState<number>(10);
   const [rejectReason, setRejectReason] = useState<string>('Tidak deal setelah konfirmasi dengan calon klien');
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
+
+  // Per-Client Commission Scheme & Bonus Target Management State
+  const [commScheme, setCommScheme] = useState<CommissionSchemeConfig>({ ...DEFAULT_COMMISSION_SCHEME });
+  const [bonusTarget, setBonusTarget] = useState<BonusTargetConfig>({ ...DEFAULT_BONUS_TARGET_CONFIG });
+  const [isSavingScheme, setIsSavingScheme] = useState(false);
+
+  // Grant Bonus to Mitra Modal State
+  const [mitraForBonus, setMitraForBonus] = useState<Mitra | null>(null);
+  const [bonusAmountInput, setBonusAmountInput] = useState<number>(5000000);
+  const [bonusTitleInput, setBonusTitleInput] = useState<string>('Bonus Pencapaian Target Standar Mitra');
+  const [bonusPeriodInput, setBonusPeriodInput] = useState<string>('Target Bulanan');
+  const [bonusNotesInput, setBonusNotesInput] = useState<string>('Melampaui target standar performa deal klien NDTAXANDLAW');
+  const [isGrantingBonus, setIsGrantingBonus] = useState(false);
 
   // Terminate Subscription Modal State
   const [dealToTerminate, setDealToTerminate] = useState<ClientDeal | null>(null);
@@ -245,11 +280,116 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     }
   };
 
+  const fetchCommissionSchemeSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (data?.success && data?.data) {
+        if (data.data.commissionScheme) {
+          setCommScheme({ ...DEFAULT_COMMISSION_SCHEME, ...data.data.commissionScheme });
+        }
+        if (data.data.bonusTargetConfig) {
+          setBonusTarget({ ...DEFAULT_BONUS_TARGET_CONFIG, ...data.data.bonusTargetConfig });
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     fetchPayoutRequests();
     fetchActivityLogs();
     fetchEmailLogs();
+    fetchCommissionSchemeSettings();
   }, []);
+
+  const handleSaveCommissionScheme = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ok = await confirm({
+      title: 'Simpan Pengaturan Skema Komisi & Target Bonus',
+      message:
+        'Apakah Anda yakin ingin memperbarui persentase skema komisi per klien dan standar target bonus mitra? Catatan: Klien yang sudah berstatus langganan aktif tetap menggunakan persentase komisi yang dikunci saat waktu deal.',
+      detail: `Langganan: <Rp ${(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subLowRate}%, Rp ${(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}–${(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subMidRate}%, ≥Rp ${(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subHighRate}% (Bulan Berikutnya: ${commScheme.subRecurringRate}%)\nCase-by-Case: <Rp ${(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseLowRate}%, Rp ${(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}–${(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseMidRate}%, ≥Rp ${(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseHighRate}%\nTarget Bonus (${bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'}): Rp ${Number(bonusTarget.targetDealRevenue).toLocaleString('id-ID')} / ${bonusTarget.targetClientCount} Klien`,
+      confirmText: 'Ya, Simpan Skema & Target',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
+
+    setIsSavingScheme(true);
+    try {
+      const res = await fetch('/api/admin/commission-scheme', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commissionScheme: commScheme,
+          bonusTargetConfig: bonusTarget,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionSuccessMsg(
+          data.message || 'Skema komisi per klien dan standar target bonus berhasil diperbarui!'
+        );
+        setTimeout(() => setActionSuccessMsg(''), 4500);
+        fetchActivityLogs();
+        onRefreshData();
+      }
+    } catch (err) {
+      console.error('Failed to save commission scheme:', err);
+    } finally {
+      setIsSavingScheme(false);
+    }
+  };
+
+  const handleOpenGrantBonusModal = (m: Mitra) => {
+    setMitraForBonus(m);
+    setBonusAmountInput(bonusTarget.standardBonusAmount || 5000000);
+    setBonusTitleInput('Bonus Melampaui Target Standar Mitra');
+    setBonusPeriodInput(bonusTarget.periodType === 'yearly' ? 'Target Tahunan' : 'Target Bulanan');
+    setBonusNotesInput(bonusTarget.rewardDescription || 'Apresiasi pencapaian melampaui target standar performa deal klien');
+  };
+
+  const handleGrantBonusSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mitraForBonus) return;
+    const ok = await confirm({
+      title: 'Konfirmasi Pemberian Bonus ke Mitra',
+      message: `Apakah Anda yakin ingin memberikan bonus sebesar Rp ${Number(bonusAmountInput).toLocaleString('id-ID')} kepada Mitra ${mitraForBonus.fullName}? Dana bonus akan langsung masuk ke saldo siap cair Mitra.`,
+      detail: `Penerima: ${mitraForBonus.fullName} (${mitraForBonus.memberCode})\nJudul Bonus: ${bonusTitleInput}\nPeriode Target: ${bonusPeriodInput}\nNominal Bonus: Rp ${Number(bonusAmountInput).toLocaleString('id-ID')}\nCatatan: ${bonusNotesInput}`,
+      confirmText: 'Ya, Berikan Bonus ke Mitra',
+      cancelText: 'Batalkan',
+      variant: 'success',
+    });
+    if (!ok) return;
+
+    setIsGrantingBonus(true);
+    try {
+      const res = await fetch(`/api/admin/mitra/${mitraForBonus.id}/bonus`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bonusAmount: Number(bonusAmountInput),
+          title: bonusTitleInput,
+          periodLabel: bonusPeriodInput,
+          notes: bonusNotesInput,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionSuccessMsg(
+          data.message || `Bonus Rp ${Number(bonusAmountInput).toLocaleString('id-ID')} berhasil diberikan ke ${mitraForBonus.fullName}!`
+        );
+        setTimeout(() => setActionSuccessMsg(''), 4500);
+        setMitraForBonus(null);
+        fetchActivityLogs();
+        onRefreshData();
+      }
+    } catch (err) {
+      console.error('Failed to grant bonus:', err);
+    } finally {
+      setIsGrantingBonus(false);
+    }
+  };
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -267,17 +407,45 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     setReviewStartDate(startStr);
     const dayNum = deal.billingDayOfMonth || Number(startStr.split('-')[2]) || 1;
     setReviewBillingDay(dayNum);
+    setReviewDealValue(deal.dealValue);
+    const tierCalc = calculateClientDealCommission(deal.pricingType, deal.dealValue, commScheme);
+    setReviewCustomRate(deal.appliedCommissionRate ?? tierCalc.initialRate);
+    setReviewCustomRecurringRate(
+      deal.pricingType === 'case_by_case' ? 0 : deal.lockedRecurringRate ?? tierCalc.recurringRate
+    );
     setRejectReason('Tidak deal setelah konfirmasi dengan calon klien');
   };
 
   // 1.1 Approve Client Deal (Direct or from Review Modal)
-  const handleAccClient = async (dealId: string, customStartDate?: string, customBillingDay?: number) => {
+  const handleAccClient = async (
+    dealId: string,
+    customStartDate?: string,
+    customBillingDay?: number,
+    customVal?: number,
+    customRate?: number,
+    customRecRate?: number
+  ) => {
     const targetDeal = clientDeals.find((d) => d.id === dealId);
+    const finalDealVal = customVal !== undefined && customVal > 0 ? customVal : targetDeal?.dealValue || 0;
+    const tierCalc = calculateClientDealCommission(
+      targetDeal?.pricingType || 'case_by_case',
+      finalDealVal,
+      commScheme
+    );
+    const finalRate = customRate !== undefined ? customRate : targetDeal?.appliedCommissionRate ?? tierCalc.initialRate;
+    const finalRecRate =
+      targetDeal?.pricingType === 'case_by_case'
+        ? 0
+        : customRecRate !== undefined
+          ? customRecRate
+          : targetDeal?.lockedRecurringRate ?? tierCalc.recurringRate;
+    const finalCommAmt = Math.round((finalDealVal * finalRate) / 100);
+
     const ok = await confirm({
-      title: 'Approve Deal Klien (ACC)',
-      message: `Apakah Anda yakin ingin menyetujui (Approve Deal) klien "${targetDeal?.companyName || ''}"? Komisi akan langsung masuk ke saldo akun Mitra.`,
+      title: 'Approve Deal Klien (ACC) & Kunci Komisi',
+      message: `Apakah Anda yakin ingin menyetujui (Approve Deal) klien "${targetDeal?.companyName || ''}"? Komisi akan langsung masuk ke saldo akun Mitra dan persentase komisi dikunci pada kontrak klien ini.`,
       detail: targetDeal
-        ? `Perusahaan Klien: ${targetDeal.companyName}\nLayanan: ${targetDeal.serviceName}\nMitra Perujuk: ${targetDeal.mitraName}\nNilai Kontrak: ${formatRupiah(targetDeal.dealValue)}\nKomisi Masuk Mitra: ${formatRupiah(targetDeal.commissionAmount)}`
+        ? `Perusahaan Klien: ${targetDeal.companyName}\nLayanan: ${targetDeal.serviceName}\nMitra Perujuk: ${targetDeal.mitraName}\nNilai Kontrak: ${formatRupiah(finalDealVal)}\nKomisi Deal (${finalRate}%): ${formatRupiah(finalCommAmt)}${targetDeal.pricingType !== 'case_by_case' ? `\nKomisi Berulang Bulan Berikutnya (${finalRecRate}% Terkunci): ${formatRupiah(Math.round((finalDealVal * finalRecRate) / 100))}/siklus` : ''}`
         : undefined,
       confirmText: 'Ya, Approve Deal & Cairkan Komisi',
       cancelText: 'Batalkan',
@@ -294,12 +462,15 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         body: JSON.stringify({
           subscriptionStartDate: customStartDate,
           billingDayOfMonth: customBillingDay,
+          dealValue: finalDealVal,
+          customCommissionRate: finalRate,
+          customRecurringRate: finalRecRate,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setActionSuccessMsg(
-          `Klien "${data.data.companyName}" berhasil di-Approve (Deal)! Komisi Rp ${data.data.commissionAmount.toLocaleString('id-ID')} resmi masuk ke saldo siap cair Mitra ${data.data.mitraName}.`
+          `Klien "${data.data.companyName}" berhasil di-Approve (Deal)! Komisi (${data.data.appliedCommissionRate || finalRate}%) Rp ${data.data.commissionAmount.toLocaleString('id-ID')} resmi masuk ke saldo siap cair Mitra ${data.data.mitraName}.`
         );
         setTimeout(() => setActionSuccessMsg(''), 4500);
         setDealToReview(null);
@@ -662,7 +833,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               onClick={() => setActiveSubTab('client_validation')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'client_validation'
-                  ? 'bg-blue-800 text-white shadow-xs'
+                  ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -677,10 +848,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
             <button
               type="button"
+              onClick={() => setActiveSubTab('commission_bonus')}
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
+                activeSubTab === 'commission_bonus'
+                  ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Award className="w-4 h-4 shrink-0 text-amber-500" />
+              <span className="truncate">Manajemen Komisi, Target &amp; Bonus Mitra</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveSubTab('mitra_analysis')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'mitra_analysis'
-                  ? 'bg-blue-800 text-white shadow-xs'
+                  ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -693,7 +877,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               onClick={() => setActiveSubTab('payout_management')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'payout_management'
-                  ? 'bg-blue-800 text-white shadow-xs'
+                  ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -968,44 +1152,82 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                             {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400">/thn</span>}
                           </td>
                           <td className="py-3.5 px-4 text-right font-mono whitespace-nowrap">
-                            {deal.status === 'pending_acc' ? (
-                              <div>
-                                <div className="font-bold text-amber-700 text-xs">Rp 0</div>
-                                <span className="inline-block text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
-                                  Belum Approve (Potensi: {formatRupiah(deal.commissionAmount)})
-                                </span>
-                              </div>
-                            ) : deal.status === 'rejected' ? (
-                              <div>
-                                <div className="line-through text-slate-400 text-[11px]">
-                                  {formatRupiah(deal.commissionAmount)}
+                            {(() => {
+                              const calc = calculateClientDealCommission(
+                                deal.pricingType,
+                                deal.dealValue,
+                                commScheme
+                              );
+                              const lockedRate = deal.appliedCommissionRate ?? calc.initialRate;
+                              const lockedRecRate =
+                                deal.pricingType === 'case_by_case'
+                                  ? 0
+                                  : deal.lockedRecurringRate ?? calc.recurringRate;
+                              const lockedRecAmt =
+                                deal.pricingType === 'case_by_case'
+                                  ? 0
+                                  : deal.recurringCommissionAmount ||
+                                    Math.round((deal.dealValue * lockedRecRate) / 100);
+
+                              if (deal.status === 'pending_acc') {
+                                return (
+                                  <div>
+                                    <div className="font-bold text-amber-700 text-xs">Rp 0</div>
+                                    <span className="inline-block text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                                      Belum ACC (Deal {lockedRate}%: {formatRupiah(deal.commissionAmount)})
+                                    </span>
+                                    {deal.pricingType !== 'case_by_case' && (
+                                      <div className="text-[9px] text-slate-500 mt-0.5">
+                                        Bln Berikutnya ({lockedRecRate}%): {formatRupiah(lockedRecAmt)}/siklus
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+                              if (deal.status === 'rejected') {
+                                return (
+                                  <div>
+                                    <div className="line-through text-slate-400 text-[11px]">
+                                      {formatRupiah(deal.commissionAmount)}
+                                    </div>
+                                    <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                                      Rp 0 (Tidak Deal)
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              if (deal.status === 'cancelled') {
+                                return (
+                                  <div>
+                                    <div className="line-through text-slate-400 text-[11px]">
+                                      {formatRupiah(deal.commissionAmount)} ({lockedRate}%)
+                                    </div>
+                                    <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                                      Komisi Berhenti (Rp 0)
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div>
+                                  <div className="font-bold text-emerald-700">
+                                    {formatRupiah(deal.commissionAmount)}{' '}
+                                    <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded">
+                                      {lockedRate}% Deal
+                                    </span>
+                                  </div>
+                                  {deal.pricingType !== 'case_by_case' ? (
+                                    <div className="text-[9px] font-semibold text-blue-800 mt-0.5">
+                                      Bln Berikutnya ({lockedRecRate}% Terkunci): {formatRupiah(lockedRecAmt)}/siklus
+                                    </div>
+                                  ) : (
+                                    <span className="inline-block text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded mt-0.5">
+                                      ✓ Komisi Terkunci Waktu Deal
+                                    </span>
+                                  )}
                                 </div>
-                                <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
-                                  Rp 0 (Tidak Deal)
-                                </span>
-                              </div>
-                            ) : deal.status === 'cancelled' ? (
-                              <div>
-                                <div className="line-through text-slate-400 text-[11px]">
-                                  {formatRupiah(deal.commissionAmount)}
-                                  {deal.pricingType === 'monthly_subscription' ? '/bln' : deal.pricingType === 'annual_subscription' ? '/thn' : ''}
-                                </div>
-                                <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
-                                  Komisi Berhenti (Rp 0)
-                                </span>
-                              </div>
-                            ) : (
-                              <div>
-                                <div className="font-bold text-emerald-700">
-                                  {formatRupiah(deal.commissionAmount)}
-                                  {deal.pricingType === 'monthly_subscription' && <span className="text-[10px] text-slate-400 font-normal">/bln</span>}
-                                  {deal.pricingType === 'annual_subscription' && <span className="text-[10px] text-slate-400 font-normal">/thn</span>}
-                                </div>
-                                <span className="inline-block text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded mt-0.5">
-                                  ✓ Masuk Komisi Mitra
-                                </span>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </td>
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
                             {deal.status === 'pending_acc' ? (
@@ -1390,6 +1612,483 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                               <span>Lihat Slip &amp; Bukti</span>
                             </button>
                           )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 1.5: MANAJEMEN SKEMA KOMISI PER KLIEN, TARGET & PEMBERIAN BONUS MITRA */}
+      {activeSubTab === 'commission_bonus' && (
+        <div className="space-y-6">
+          {/* Top Hero Card (Mitra ID Card Royal Navy & Gold Theme) */}
+          <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded">
+                  MANAJEMEN KOMISI &amp; BONUS MITRA
+                </span>
+                <span className="text-xs text-blue-100 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  Proteksi Komisi Waktu Deal Aktif
+                </span>
+              </div>
+              <h2 className="text-lg sm:text-xl font-bold font-display">
+                Pengaturan Komisi Berbasis Per Klien, Target Standar &amp; Pemberian Bonus Mitra
+              </h2>
+              <p className="text-xs text-blue-100/90 max-w-3xl leading-relaxed">
+                Sistem komisi dihitung berdasarkan nilai deal per klien (bukan per layanan). Jika Admin merubah persentase komisi di bawah ini, klien yang sudah berstatus <strong>langganan aktif / deal sebelumnya tetap memberikan komisi kepada Mitra sesuai persentase waktu deal</strong>.
+              </p>
+            </div>
+          </div>
+
+          {/* Form Pengaturan Skema Komisi Per Klien & Standar Target Bonus */}
+          <form onSubmit={handleSaveCommissionScheme} className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Left 7 Cols: Tier Komisi Langganan & Case-by-Case */}
+            <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+              <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-[#113872]" />
+                    <span>1. Konfigurasi Persentase Komisi Per Klien</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Atur jenjang komisi berdasarkan nominal kontrak deal klien untuk Sistem Langganan dan Case-by-Case.
+                  </p>
+                </div>
+              </div>
+
+              {/* Sistem Langganan */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-[#092147] uppercase tracking-wider">
+                    🔄 A. Sistem Langganan Klien (Bulanan / Tahunan)
+                  </span>
+                  <span className="text-[10px] font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded">
+                    Default: 10% / 15% / 20% + 10% Berulang
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Batas Atas Deal Langganan Tinggi (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      value={commScheme.subHighThreshold}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, subHighThreshold: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                    />
+                    <span className="text-[10px] text-slate-500">Default: Rp 10.000.000 (10 Juta ke atas)</span>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Komisi Deal &ge; Rp {(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.subHighRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, subHighRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-emerald-700 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Batas Menengah Deal Langganan (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      value={commScheme.subMidThreshold}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, subMidThreshold: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                    />
+                    <span className="text-[10px] text-slate-500">Default: Rp 5.000.000 (5–10 Juta)</span>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Komisi Deal Rp {(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}–{(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.subMidRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, subMidRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-blue-700 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Komisi Deal Di Bawah Rp {(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')} Juta (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.subLowRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, subLowRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-slate-800 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-emerald-800 mb-1">
+                      Komisi Berulang Bulan/Siklus Berikutnya (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.subRecurringRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, subRecurringRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-extrabold text-emerald-700 border border-emerald-300 rounded-lg bg-emerald-50/50"
+                    />
+                    <span className="text-[10px] text-emerald-700 font-medium">
+                      Selama klien aktif bayar langganan bulan berikutnya (Default: 10%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sistem Case-by-Case */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-[#092147] uppercase tracking-wider">
+                    ⚡ B. Sistem Case-by-Case (Per Kasus Sekali Bayar)
+                  </span>
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded">
+                    Default: 10% (&lt;50Jt) / 15% (50–100Jt) / 20% (&ge;100Jt)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Batas Atas Deal Case-by-Case Tinggi (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      value={commScheme.caseHighThreshold}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, caseHighThreshold: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                    />
+                    <span className="text-[10px] text-slate-500">Default: Rp 100.000.000 (100 Juta ke atas)</span>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Komisi Deal &ge; Rp {(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.caseHighRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, caseHighRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-emerald-700 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Batas Menengah Deal Case-by-Case (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      value={commScheme.caseMidThreshold}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, caseMidThreshold: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                    />
+                    <span className="text-[10px] text-slate-500">Default: Rp 50.000.000 (50–100 Juta)</span>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Komisi Deal Rp {(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}–{(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.caseMidRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, caseMidRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-blue-700 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Komisi Deal Di Bawah Rp {(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')} Juta (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={commScheme.caseLowRate}
+                      onChange={(e) =>
+                        setCommScheme({ ...commScheme, caseLowRate: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-slate-800 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right 5 Cols: Pengaturan Standar Target Bulanan / Tahunan & Simpan */}
+            <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between space-y-5">
+              <div className="space-y-4">
+                <div className="border-b border-slate-200 pb-3">
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Target className="w-4 h-4 text-amber-600" />
+                    <span>2. Standar Target &amp; Bonus Mitra (Bulanan / Tahunan)</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Mitra berhak mendapatkan bonus jika melampaui target standar yang ditetapkan Admin (dapat disetting per bulan atau per tahun).
+                  </p>
+                </div>
+
+                <div className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Periode Evaluasi Target Standar Mitra
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBonusTarget({ ...bonusTarget, periodType: 'monthly' })}
+                        className={`py-2 px-3 rounded-xl font-bold border text-center transition-all ${
+                          bonusTarget.periodType === 'monthly'
+                            ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border-amber-400/40 shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        📅 Target Per Bulan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBonusTarget({ ...bonusTarget, periodType: 'yearly' })}
+                        className={`py-2 px-3 rounded-xl font-bold border text-center transition-all ${
+                          bonusTarget.periodType === 'yearly'
+                            ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border-amber-400/40 shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        🏆 Target Per Tahun
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Standar Target Nilai Kontrak Deal ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'}) (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={bonusTarget.targetDealRevenue}
+                      onChange={(e) =>
+                        setBonusTarget({ ...bonusTarget, targetDealRevenue: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-2 font-mono font-bold border border-slate-300 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Standar Target Jumlah Klien Deal ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={bonusTarget.targetClientCount}
+                      onChange={(e) =>
+                        setBonusTarget({ ...bonusTarget, targetClientCount: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-2 font-mono font-bold border border-slate-300 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Nominal Bonus Standar Mitra Berprestasi (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={bonusTarget.standardBonusAmount}
+                      onChange={(e) =>
+                        setBonusTarget({ ...bonusTarget, standardBonusAmount: Number(e.target.value) })
+                      }
+                      className="w-full px-3 py-2 font-mono font-extrabold text-emerald-700 border border-emerald-300 rounded-lg bg-emerald-50/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Keterangan Program Hadiah / Bonus Tambahan
+                    </label>
+                    <input
+                      type="text"
+                      value={bonusTarget.rewardDescription}
+                      onChange={(e) =>
+                        setBonusTarget({ ...bonusTarget, rewardDescription: e.target.value })
+                      }
+                      placeholder="Contoh: Bonus Tunai, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-200 space-y-2.5">
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950">
+                  🔒 <strong>Jaminan Komisi Waktu Deal:</strong> Perubahan skema komisi di atas hanya berlaku untuk pengajuan klien baru. Klien yang sudah langganan aktif tetap memakai tarif komisi saat waktu deal.
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSavingScheme}
+                  className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4 text-amber-400" />
+                  <span>
+                    {isSavingScheme
+                      ? 'Menyimpan Pengaturan...'
+                      : 'Simpan Skema Komisi & Standar Target Bonus'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Section 3: Tabel Evaluasi Pencapaian Target Mitra & Proses Pemberian Bonus */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-[#113872]" />
+                  <span>3. Evaluasi Pencapaian Target &amp; Proses Pemberian Bonus ke Mitra</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pantau realisasi deal tiap Mitra terhadap target standar ({bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'}: {formatRupiah(bonusTarget.targetDealRevenue)} atau {bonusTarget.targetClientCount} Klien) dan proses pemberian bonus langsung ke saldo Mitra.
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                    <th className="py-3 px-4">Nama Mitra &amp; ID</th>
+                    <th className="py-3 px-4 text-center">Klien Deal / Aktif</th>
+                    <th className="py-3 px-4 text-right">Realisasi Omzet Deal</th>
+                    <th className="py-3 px-4">Status Target ({bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'})</th>
+                    <th className="py-3 px-4 text-right">Total Komisi Deal</th>
+                    <th className="py-3 px-4 text-right">Total Bonus Diterima</th>
+                    <th className="py-3 px-4 text-right">Proses Pemberian Bonus</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {mitras.map((m) => {
+                    const mDeals = clientDeals.filter(
+                      (d) =>
+                        d.mitraId === m.id &&
+                        (d.status === 'active_subscription' || d.status === 'deal_closed')
+                    );
+                    const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+                    const totalDealClients = mDeals.length;
+                    const targetRev = Math.max(1, Number(bonusTarget.targetDealRevenue) || 50000000);
+                    const targetCli = Math.max(1, Number(bonusTarget.targetClientCount) || 3);
+                    const revPct = Math.min(100, Math.round((totalDealOmzet / targetRev) * 100));
+                    const cliPct = Math.min(100, Math.round((totalDealClients / targetCli) * 100));
+                    const isExceeded = totalDealOmzet >= targetRev || totalDealClients >= targetCli;
+
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900">{m.fullName}</div>
+                          <div className="text-[10px] font-mono text-slate-500">
+                            {m.memberCode} &bull; Ref: <strong className="text-[#113872]">{m.referralCode}</strong>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
+                          {totalDealClients} / {targetCli} Klien
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
+                          {formatRupiah(totalDealOmzet)}
+                          <div className="text-[10px] font-normal text-slate-400">
+                            Target: {formatRupiah(targetRev)}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {isExceeded ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                              🏆 Melampaui Target Standar ({Math.max(revPct, cliPct)}%)
+                            </span>
+                          ) : (
+                            <div className="space-y-1 max-w-[180px]">
+                              <span className="inline-block text-[10px] font-semibold text-amber-800">
+                                Progres Target: {Math.max(revPct, cliPct)}%
+                              </span>
+                              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-[#113872] rounded-full"
+                                  style={{ width: `${Math.max(revPct, cliPct)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
+                          {formatRupiah(m.totalCommission || 0)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-extrabold text-amber-700">
+                          {formatRupiah(m.totalBonus || 0)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenGrantBonusModal(m)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-xs transition-all"
+                          >
+                            <Gift className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Berikan Bonus</span>
+                          </button>
                         </td>
                       </tr>
                     );
@@ -2162,11 +2861,11 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
       {/* MODAL 3: REVIEW & KONFIRMASI KLIEN BARU (APPROVE DEAL vs TOLAK TIDAK DEAL) */}
       {dealToReview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+          <div className="bg-white rounded-2xl border border-amber-400/40 shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-5 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] border-b border-amber-400/30 text-white flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
-                  Verifikasi &amp; Konfirmasi Klien Baru
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                  Verifikasi &amp; Kunci Komisi Klien Baru
                 </span>
                 <h3 className="text-base font-bold font-display">
                   Review Data Klien &amp; Keputusan Deal
@@ -2200,25 +2899,88 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <span className="text-slate-500">Mitra Perujuk:</span>
                   <span className="font-bold text-blue-800">{dealToReview.mitraName} ({dealToReview.referralCode})</span>
                 </div>
-                <div className="flex justify-between pt-1.5 border-t border-slate-200">
-                  <span className="text-slate-600 font-semibold">Nilai Kontrak &amp; Komisi (Jika Deal):</span>
-                  <span className="font-mono font-bold text-emerald-700">
-                    {formatRupiah(dealToReview.dealValue)} → Komisi {formatRupiah(dealToReview.commissionAmount)}
+              </div>
+
+              {/* Pengaturan Nilai Deal & Komisi Per Klien (Dikunci Saat Deal) */}
+              <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900">
+                    Nilai Deal &amp; Persentase Komisi Klien (Dikunci Saat Deal)
+                  </span>
+                  <span className="text-[10px] font-bold bg-amber-200/80 text-amber-950 px-2 py-0.5 rounded">
+                    {
+                      calculateClientDealCommission(
+                        dealToReview.pricingType,
+                        reviewDealValue,
+                        commScheme
+                      ).tierLabel
+                    }
                   </span>
                 </div>
-                {dealToReview.customFields && Object.keys(dealToReview.customFields).length > 0 && (
-                  <div className="pt-2 mt-2 border-t border-slate-200 space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
-                      Data Tambahan Klien:
-                    </span>
-                    {Object.entries(dealToReview.customFields).map(([k, v]) => (
-                      <div key={k} className="flex justify-between text-[11px]">
-                        <span className="text-slate-500">{k}:</span>
-                        <span className="font-semibold text-slate-800">{v}</span>
-                      </div>
-                    ))}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Nilai Deal Kontrak (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={reviewDealValue}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setReviewDealValue(val);
+                        const autoTier = calculateClientDealCommission(
+                          dealToReview.pricingType,
+                          val,
+                          commScheme
+                        );
+                        setReviewCustomRate(autoTier.initialRate);
+                        if (dealToReview.pricingType !== 'case_by_case') {
+                          setReviewCustomRecurringRate(autoTier.recurringRate);
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                    />
                   </div>
-                )}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Komisi Deal (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={reviewCustomRate}
+                      onChange={(e) => setReviewCustomRate(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 font-mono font-bold text-emerald-700 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+                  {dealToReview.pricingType !== 'case_by_case' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Bln Berikutnya (%)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="any"
+                        value={reviewCustomRecurringRate}
+                        onChange={(e) => setReviewCustomRecurringRate(Number(e.target.value))}
+                        className="w-full px-2.5 py-1.5 font-mono font-bold text-blue-700 border border-slate-300 rounded-lg bg-white"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-amber-200/80 flex items-center justify-between">
+                  <span className="text-slate-700 font-semibold">Komisi Masuk Mitra Saat ACC:</span>
+                  <span className="font-mono font-extrabold text-emerald-700 text-sm">
+                    {formatRupiah(Math.round((reviewDealValue * reviewCustomRate) / 100))} ({reviewCustomRate}%)
+                  </span>
+                </div>
               </div>
 
               {/* Pengaturan Jadwal Langganan (Jika Bulanan / Tahunan) */}
@@ -2278,10 +3040,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 />
               </div>
 
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 leading-relaxed">
-                <strong>Aturan Komisi:</strong> Jika <strong>Approve Deal</strong>, komisi sebesar <strong>{formatRupiah(dealToReview.commissionAmount)}</strong> otomatis masuk ke saldo komisi aktif Mitra dan siap dicairkan. Jika <strong>Tolak / Tidak Deal</strong>, Mitra mendapatkan <strong>Rp 0 komisi</strong>.
-              </div>
-
               <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
@@ -2301,13 +3059,148 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 <button
                   type="button"
                   disabled={isReviewSubmitting}
-                  onClick={() => handleAccClient(dealToReview.id)}
-                  className="w-full sm:w-auto px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-all disabled:opacity-50"
+                  onClick={() =>
+                    handleAccClient(
+                      dealToReview.id,
+                      reviewStartDate,
+                      reviewBillingDay,
+                      reviewDealValue,
+                      reviewCustomRate,
+                      reviewCustomRecurringRate
+                    )
+                  }
+                  className="w-full sm:w-auto px-4 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-xs transition-all disabled:opacity-50"
                 >
-                  ✓ Approve Deal &amp; Cairkan Komisi ke Mitra
+                  ✓ Approve Deal &amp; Kunci Komisi Mitra
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3.5: PROSES PEMBERIAN BONUS KE MITRA */}
+      {mitraForBonus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-amber-400/40 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-5 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] border-b border-amber-400/30 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Gift className="w-5 h-5 text-amber-400 shrink-0" />
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 block">
+                    APRESIASI &amp; REWARD TARGET MITRA
+                  </span>
+                  <h3 className="text-sm font-bold font-display">
+                    Proses Pemberian Bonus ke Mitra
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMitraForBonus(null)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGrantBonusSubmit} className="p-5 space-y-4 text-xs">
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Nama Mitra Penerima:</span>
+                  <span className="font-bold text-slate-900">{mitraForBonus.fullName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ID Mitra / Kode Referral:</span>
+                  <span className="font-mono font-bold text-[#113872]">
+                    {mitraForBonus.memberCode} ({mitraForBonus.referralCode})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Bonus Sebelumnya:</span>
+                  <span className="font-mono font-bold text-emerald-700">
+                    {formatRupiah(mitraForBonus.totalBonus || 0)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Judul / Kategori Bonus *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={bonusTitleInput}
+                  onChange={(e) => setBonusTitleInput(e.target.value)}
+                  placeholder="Contoh: Bonus Melampaui Target Standar Bulanan"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Periode Target *
+                  </label>
+                  <select
+                    value={bonusPeriodInput}
+                    onChange={(e) => setBonusPeriodInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-semibold"
+                  >
+                    <option value="Target Bulanan">Target Bulanan</option>
+                    <option value="Target Tahunan">Target Tahunan</option>
+                    <option value="Bonus Khusus Prestasi">Bonus Khusus Prestasi</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nominal Bonus (Rp) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="10000"
+                    step="any"
+                    value={bonusAmountInput}
+                    onChange={(e) => setBonusAmountInput(Number(e.target.value))}
+                    className="w-full px-3 py-2 font-mono font-extrabold text-emerald-700 border border-emerald-300 rounded-lg bg-emerald-50/40"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Catatan Apresiasi / Keterangan Reward
+                </label>
+                <textarea
+                  rows={2}
+                  value={bonusNotesInput}
+                  onChange={(e) => setBonusNotesInput(e.target.value)}
+                  placeholder="Catatan apresiasi pencapaian target..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setMitraForBonus(null)}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isGrantingBonus}
+                  className="px-4 py-2 font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Gift className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isGrantingBonus ? 'Memproses...' : 'Berikan Bonus & Masukkan ke Saldo'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

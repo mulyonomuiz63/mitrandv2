@@ -8,6 +8,7 @@ import {
   DynamicFormField,
   ClientSystemFieldKey,
   resolveClientFormFields,
+  calculateClientDealCommission,
 } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
@@ -132,8 +133,13 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   if (!isOpen) return null;
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
-  const commissionRate = selectedService ? selectedService.commissionRate : 15;
-  const estimatedCommission = Math.round((dealValue * commissionRate) / 100);
+  const commissionCalc = calculateClientDealCommission(
+    pricingType,
+    dealValue,
+    dynamicSettings?.commissionScheme
+  );
+  const commissionRate = commissionCalc.initialRate;
+  const estimatedCommission = commissionCalc.initialAmount;
 
   const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const sId = e.target.value;
@@ -186,7 +192,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
     const ok = await confirm({
       title: 'Konfirmasi Input Data Klien Referral',
       message: `Apakah Anda yakin ingin mendaftarkan klien "${finalCompanyName}" untuk direview dan di-approve oleh Admin?`,
-      detail: `Perusahaan Klien: ${finalCompanyName}\nNama PIC: ${finalPicName} (${finalPicPhone || '-'})\nLayanan: ${selectedService?.name || '-'}\nNilai Kontrak: Rp ${Number(dealValue).toLocaleString('id-ID')}\nEstimasi Komisi Mitra: Rp ${estimatedCommission.toLocaleString('id-ID')}`,
+      detail: `Perusahaan Klien: ${finalCompanyName}\nNama PIC: ${finalPicName} (${finalPicPhone || '-'})\nLayanan: ${selectedService?.name || '-'}\nNilai Kontrak: Rp ${Number(dealValue).toLocaleString('id-ID')}\nSkema Komisi Klien: ${commissionCalc.tierLabel}\nEstimasi Komisi Closing: Rp ${estimatedCommission.toLocaleString('id-ID')}${pricingType !== 'case_by_case' ? `\nKomisi Langganan Bulan Berikutnya (${commissionCalc.recurringRate}%): Rp ${commissionCalc.recurringAmount.toLocaleString('id-ID')}/siklus` : ''}`,
       confirmText: 'Ya, Daftarkan Klien',
       cancelText: 'Batalkan',
       variant: 'primary',
@@ -241,33 +247,33 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-hidden">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl border border-amber-400/30 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
-        {/* FIXED STICKY HEADER */}
-        <div className="shrink-0 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-5 sm:p-6 relative">
+        {/* FIXED STICKY HEADER (Mitra ID Card Theme) */}
+        <div className="shrink-0 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] border-b border-amber-400/30 text-white p-5 sm:p-6 relative">
           <button
             onClick={onClose}
-            className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10"
+            className="absolute top-5 right-5 text-slate-300 hover:text-amber-300 transition-colors p-1.5 rounded-lg hover:bg-white/10"
             aria-label="Tutup"
           >
             <X className="w-5 h-5" />
           </button>
           
           <div className="flex items-center gap-3 mb-2">
-            <span className="px-2.5 py-1 text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded-md">
+            <span className="px-2.5 py-1 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-md">
               PORTAL DEAL KLIEN MITRA
             </span>
-            <span className="flex items-center gap-1 text-xs text-amber-300 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-md font-medium">
-              <Sparkles className="w-3.5 h-3.5" />
-              Auto-Tracking Komisi
+            <span className="flex items-center gap-1 text-xs text-blue-100 bg-white/10 border border-white/20 px-2 py-0.5 rounded-md font-medium">
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              Sistem Komisi Per Klien (10% / 15% / 20%)
             </span>
           </div>
           
           <h2 className="text-xl font-bold tracking-tight text-white">
             Input Data Klien &amp; Registrasi Proyek
           </h2>
-          <p className="text-xs text-slate-300 mt-1">
-            Data klien akan otomatis dihubungkan dengan Kode Referral Anda untuk penghitungan komisi closing atau royalti bulanan.
+          <p className="text-xs text-blue-100/90 mt-1">
+            Komisi dihitung otomatis berdasarkan nilai kesepakatan per klien (Langganan maupun Case-by-Case) dan dikunci saat deal.
           </p>
         </div>
 
@@ -771,26 +777,34 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     </p>
                   </div>
 
-                  {/* Calculated Commission Preview Box */}
-                  <div className="p-3 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl flex flex-col justify-between">
+                  {/* Calculated Commission Preview Box (Per-Client Tier System) */}
+                  <div className="p-3.5 bg-gradient-to-br from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 rounded-xl flex flex-col justify-between shadow-md">
                     <div>
-                      <div className="flex items-center justify-between text-xs text-emerald-800 font-medium">
-                        <span>Hak Komisi Mitra ({commissionRate}%):</span>
-                        <span className="px-2 py-0.5 bg-emerald-200/70 text-emerald-900 text-[10px] font-bold rounded">
-                          {pricingType === 'monthly_subscription' ? 'KOMISI BERULANG' : 'SEKALI CAIR'}
+                      <div className="flex items-center justify-between text-xs font-semibold text-amber-300">
+                        <span>Komisi Deal Klien ({commissionRate}%):</span>
+                        <span className="px-2 py-0.5 bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-bold rounded">
+                          {commissionCalc.tierLabel}
                         </span>
                       </div>
-                      <div className="text-xl font-extrabold text-emerald-700 mt-1 font-mono tracking-tight">
+                      <div className="text-xl font-extrabold text-white mt-1 font-mono tracking-tight">
                         Rp {estimatedCommission.toLocaleString('id-ID')}
-                        {pricingType === 'monthly_subscription' && (
-                          <span className="text-xs font-normal text-slate-600"> / bulan</span>
+                        {pricingType !== 'case_by_case' && (
+                          <span className="text-xs font-normal text-amber-300"> (Bulan ke-1)</span>
                         )}
                       </div>
+                      {pricingType !== 'case_by_case' && (
+                        <div className="mt-1.5 pt-1.5 border-t border-white/15 flex items-center justify-between text-[11px] text-blue-100">
+                          <span>Komisi Langganan Bulan Berikutnya ({commissionCalc.recurringRate}%):</span>
+                          <span className="font-mono font-bold text-emerald-300">
+                            Rp {commissionCalc.recurringAmount.toLocaleString('id-ID')} / siklus
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-[11px] text-emerald-900 mt-2 leading-tight">
-                      {pricingType === 'monthly_subscription'
-                        ? '✔️ Mitra menerima komisi ini setiap bulan selama kontrak klien masih aktif.'
-                        : '✔️ Komisi dicairkan 1x penuh setelah pembayaran klien diverifikasi tim finance.'}
+                    <p className="text-[10px] text-blue-100/90 mt-2 leading-tight">
+                      {pricingType !== 'case_by_case'
+                        ? `✔️ Langganan: <5 Jt (10%), 5–10 Jt (15%), ≥10 Jt (20%). Selama klien aktif langganan bulan berikutnya tetap dapat ${commissionCalc.recurringRate}% (dikunci sesuai komisi waktu deal).`
+                        : '✔️ Case-by-Case: <50 Jt (10%), 50–100 Jt (15%), ≥100 Jt (20%). Komisi dikunci sesuai kesepakatan waktu deal.'}
                     </p>
                   </div>
                 </div>
@@ -831,14 +845,14 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-sm transition-all disabled:opacity-50"
                 >
                   {isSubmitting ? (
                     <span>Memproses...</span>
                   ) : (
                     <>
                       <span>Simpan Klien &amp; Tautkan Referral</span>
-                      <ArrowRight className="w-4 h-4" />
+                      <ArrowRight className="w-4 h-4 text-amber-400" />
                     </>
                   )}
                 </button>

@@ -381,6 +381,111 @@ export interface ServiceItem {
   isActive: boolean;
 }
 
+export interface CommissionSchemeConfig {
+  subHighThreshold: number;
+  subHighRate: number;
+  subMidThreshold: number;
+  subMidRate: number;
+  subLowRate: number;
+  subRecurringRate: number;
+  caseHighThreshold: number;
+  caseHighRate: number;
+  caseMidThreshold: number;
+  caseMidRate: number;
+  caseLowRate: number;
+  updatedAt?: string;
+}
+
+export interface BonusTargetConfig {
+  periodType: 'monthly' | 'yearly';
+  targetDealRevenue: number;
+  targetClientCount: number;
+  standardBonusAmount: number;
+  rewardDescription: string;
+  updatedAt?: string;
+}
+
+export const DEFAULT_COMMISSION_SCHEME: CommissionSchemeConfig = {
+  subHighThreshold: 10000000,
+  subHighRate: 20,
+  subMidThreshold: 5000000,
+  subMidRate: 15,
+  subLowRate: 10,
+  subRecurringRate: 10,
+  caseHighThreshold: 100000000,
+  caseHighRate: 20,
+  caseMidThreshold: 50000000,
+  caseMidRate: 15,
+  caseLowRate: 10,
+};
+
+export const DEFAULT_BONUS_TARGET_CONFIG: BonusTargetConfig = {
+  periodType: 'monthly',
+  targetDealRevenue: 50000000,
+  targetClientCount: 3,
+  standardBonusAmount: 5000000,
+  rewardDescription: 'Bonus Tunai Prestasi, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah',
+};
+
+export const calculateClientDealCommission = (
+  pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription',
+  dealValue: number,
+  scheme?: Partial<CommissionSchemeConfig> | null
+): {
+  initialRate: number;
+  initialAmount: number;
+  recurringRate: number;
+  recurringAmount: number;
+  tierLabel: string;
+} => {
+  const cfg: CommissionSchemeConfig = {
+    ...DEFAULT_COMMISSION_SCHEME,
+    ...(scheme || {}),
+  };
+  const val = Math.max(0, Number(dealValue) || 0);
+
+  if (pricingType === 'monthly_subscription' || pricingType === 'annual_subscription') {
+    let initialRate = cfg.subLowRate;
+    let tierLabel = `Langganan < Rp ${(cfg.subMidThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.subLowRate}%)`;
+
+    if (val >= cfg.subHighThreshold) {
+      initialRate = cfg.subHighRate;
+      tierLabel = `Langganan ≥ Rp ${(cfg.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.subHighRate}%)`;
+    } else if (val >= cfg.subMidThreshold) {
+      initialRate = cfg.subMidRate;
+      tierLabel = `Langganan Rp ${(cfg.subMidThreshold / 1000000).toLocaleString('id-ID')}–${(cfg.subHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.subMidRate}%)`;
+    }
+
+    const recurringRate = cfg.subRecurringRate;
+    return {
+      initialRate,
+      initialAmount: Math.round((val * initialRate) / 100),
+      recurringRate,
+      recurringAmount: Math.round((val * recurringRate) / 100),
+      tierLabel,
+    };
+  }
+
+  let initialRate = cfg.caseLowRate;
+  let tierLabel = `Per Kasus < Rp ${(cfg.caseMidThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.caseLowRate}%)`;
+
+  if (val >= cfg.caseHighThreshold) {
+    initialRate = cfg.caseHighRate;
+    tierLabel = `Per Kasus ≥ Rp ${(cfg.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.caseHighRate}%)`;
+  } else if (val >= cfg.caseMidThreshold) {
+    initialRate = cfg.caseMidRate;
+    tierLabel = `Per Kasus Rp ${(cfg.caseMidThreshold / 1000000).toLocaleString('id-ID')}–${(cfg.caseHighThreshold / 1000000).toLocaleString('id-ID')} Juta (${cfg.caseMidRate}%)`;
+  }
+
+  return {
+    initialRate,
+    initialAmount: Math.round((val * initialRate) / 100),
+    recurringRate: 0,
+    recurringAmount: 0,
+    tierLabel,
+  };
+};
+
 export interface ClientDeal {
   id: string;
   mitraId: string;
@@ -395,6 +500,9 @@ export interface ClientDeal {
   pricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription';
   dealValue: number;
   commissionAmount: number;
+  appliedCommissionRate?: number;
+  lockedRecurringRate?: number;
+  recurringCommissionAmount?: number;
   status: 'pending_acc' | 'deal_closed' | 'active_subscription' | 'in_review' | 'cancelled' | 'rejected';
   date: string;
   recurringPaidMonths?: number;
@@ -445,6 +553,8 @@ export interface AppSettings {
   supportEmail: string;
   officeAddress: string;
   defaultCommissionRate: number;
+  commissionScheme?: CommissionSchemeConfig;
+  bonusTargetConfig?: BonusTargetConfig;
   allowClientSelfRegister: boolean;
   chatEnabled?: boolean;
   googleOAuthEnabled: boolean;
@@ -512,7 +622,9 @@ export interface ActivityLogItem {
     | 'service_delete'
     | 'tool_create'
     | 'tool_delete'
-    | 'settings_update';
+    | 'settings_update'
+    | 'bonus_grant'
+    | 'commission_scheme_update';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
   targetEntity: string;
   description: string;
@@ -823,7 +935,10 @@ let clientDeals: ClientDeal[] = [
     serviceName: 'Penyusunan Laporan Keuangan Bulanan & Tahunan (Komersial & Fiskal)',
     pricingType: 'monthly_subscription',
     dealValue: 12000000,
-    commissionAmount: 1800000,
+    commissionAmount: 2400000,
+    appliedCommissionRate: 20,
+    lockedRecurringRate: 10,
+    recurringCommissionAmount: 1200000,
     status: 'active_subscription',
     date: '2026-08-10',
     subscriptionStartDate: '2026-08-10',
@@ -832,7 +947,7 @@ let clientDeals: ClientDeal[] = [
     lastBilledDate: '2026-10-10',
     isBillingDue: true,
     recurringPaidMonths: 3,
-    notes: 'Klien berlangganan retainer laporan keuangan bulanan & review pajak sejak Agustus 2026.',
+    notes: 'Klien berlangganan retainer laporan keuangan bulanan & review pajak sejak Agustus 2026 (Deal ≥10 Jt: Komisi Awal 20%, Bulan Berikutnya 10%).',
   },
   {
     id: 'deal-02',
@@ -847,10 +962,13 @@ let clientDeals: ClientDeal[] = [
     serviceName: 'Pendampingan SP2DK, Pemeriksaan Pajak, & Keberatan DJP',
     pricingType: 'case_by_case',
     dealValue: 45000000,
-    commissionAmount: 9000000,
+    commissionAmount: 4500000,
+    appliedCommissionRate: 10,
+    lockedRecurringRate: 0,
+    recurringCommissionAmount: 0,
     status: 'deal_closed',
     date: '2026-10-15',
-    notes: 'Kasus SP2DK ketidaksesuaian omset PPN telah selesai diselesaikan dengan DJP, komisi 1x bayar cair.',
+    notes: 'Kasus SP2DK ketidaksesuaian omset PPN telah selesai diselesaikan dengan DJP (Case <50 Jt: Komisi 10% cair).',
   },
   {
     id: 'deal-03',
@@ -864,8 +982,11 @@ let clientDeals: ClientDeal[] = [
     serviceId: 'srv-03',
     serviceName: 'Paket Kepatuhan Pajak Bulanan (SPT Masa PPh 21/23/25/4(2) & PPN 1111)',
     pricingType: 'monthly_subscription',
-    dealValue: 5000000,
-    commissionAmount: 600000,
+    dealValue: 6000000,
+    commissionAmount: 900000,
+    appliedCommissionRate: 15,
+    lockedRecurringRate: 10,
+    recurringCommissionAmount: 600000,
     status: 'active_subscription',
     date: '2026-09-01',
     subscriptionStartDate: '2026-09-01',
@@ -874,7 +995,7 @@ let clientDeals: ClientDeal[] = [
     lastBilledDate: '2026-10-01',
     isBillingDue: true,
     recurringPaidMonths: 2,
-    notes: 'Pelaporan SPT Masa rutin setiap bulan.',
+    notes: 'Pelaporan SPT Masa rutin setiap bulan (Deal 5–10 Jt: Komisi Awal 15%, Bulan Berikutnya 10%).',
   },
   {
     id: 'deal-04',
@@ -889,7 +1010,10 @@ let clientDeals: ClientDeal[] = [
     serviceName: 'Penyusunan Laporan Keuangan Bulanan & Tahunan (Komersial & Fiskal)',
     pricingType: 'monthly_subscription',
     dealValue: 10000000,
-    commissionAmount: 1500000,
+    commissionAmount: 2000000,
+    appliedCommissionRate: 20,
+    lockedRecurringRate: 10,
+    recurringCommissionAmount: 1000000,
     status: 'pending_acc',
     date: '2026-11-09',
     subscriptionStartDate: '2026-11-09',
@@ -910,7 +1034,10 @@ let clientDeals: ClientDeal[] = [
     serviceName: 'Pendampingan SP2DK, Pemeriksaan Pajak, & Keberatan DJP',
     pricingType: 'case_by_case',
     dealValue: 35000000,
-    commissionAmount: 7000000,
+    commissionAmount: 3500000,
+    appliedCommissionRate: 10,
+    lockedRecurringRate: 0,
+    recurringCommissionAmount: 0,
     status: 'pending_acc',
     date: '2026-11-08',
     notes: 'Kebutuhan mendesak tanggapan SP2DK KPP Pratama Tebet.',
@@ -929,14 +1056,17 @@ let clientDeals: ClientDeal[] = [
     serviceName: 'Tax Planning, Restrukturisasi Bisnis & Dokumentasi Transfer Pricing (TP Doc)',
     pricingType: 'case_by_case',
     dealValue: 85000000,
-    commissionAmount: 15300000,
+    commissionAmount: 12750000,
+    appliedCommissionRate: 15,
+    lockedRecurringRate: 0,
+    recurringCommissionAmount: 0,
     status: 'deal_closed',
     date: '2026-06-15',
     periodStart: 'Februari 2024',
     periodEnd: 'April 2025',
     durationMonths: 15,
     paymentTermType: 'one_time',
-    notes: 'Perikatan restrukturisasi keuangan & pajak multi-bulan periode Feb 2024 s/d Apr 2025 (15 Bulan) - Sekali bayar.',
+    notes: 'Perikatan restrukturisasi keuangan & pajak multi-bulan periode Feb 2024 s/d Apr 2025 (15 Bulan) - Sekali bayar (Deal 50–100 Jt: Komisi 15%).',
   },
   {
     id: 'deal-07',
@@ -951,7 +1081,10 @@ let clientDeals: ClientDeal[] = [
     serviceName: 'Retainer Kepatuhan Pajak & Audit Keuangan Tahunan (Annual Retainer)',
     pricingType: 'annual_subscription',
     dealValue: 65000000,
-    commissionAmount: 9750000,
+    commissionAmount: 13000000,
+    appliedCommissionRate: 20,
+    lockedRecurringRate: 10,
+    recurringCommissionAmount: 6500000,
     status: 'active_subscription',
     date: '2026-03-20',
     subscriptionStartDate: '2026-03-20',
@@ -960,7 +1093,7 @@ let clientDeals: ClientDeal[] = [
     lastBilledDate: '2026-03-20',
     isBillingDue: false,
     recurringPaidYears: 1,
-    notes: 'Langganan tahunan retainer kepatuhan pajak & audit keuangan komprehensif.',
+    notes: 'Langganan tahunan retainer kepatuhan pajak & audit keuangan komprehensif (Deal ≥10 Jt: Komisi Awal 20%, Siklus Berikutnya 10%).',
   },
 ];
 
@@ -1035,6 +1168,8 @@ let appSettings: AppSettings = {
   supportEmail: 'advisory@ndtaxandlaw.com',
   officeAddress: 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
   defaultCommissionRate: 15,
+  commissionScheme: { ...DEFAULT_COMMISSION_SCHEME },
+  bonusTargetConfig: { ...DEFAULT_BONUS_TARGET_CONFIG },
   allowClientSelfRegister: true,
   chatEnabled: true,
   googleOAuthEnabled: false,
@@ -1990,6 +2125,9 @@ export const toSupabaseClientDeal = (deal: ClientDeal) => {
     rejectedAt: deal.rejectedAt,
     rejectionReason: deal.rejectionReason,
     customFields: deal.customFields,
+    appliedCommissionRate: deal.appliedCommissionRate,
+    lockedRecurringRate: deal.lockedRecurringRate,
+    recurringCommissionAmount: deal.recurringCommissionAmount,
   };
   const encodedNotes = `${cleanNotes}${cleanNotes ? ' ' : ''}<!--ND_META:${JSON.stringify(metaObj)}-->`;
 
@@ -2032,9 +2170,34 @@ export const fromSupabaseClientDeal = (row: any): ClientDeal => {
   }
   const cleanNotes = rawNotes.replace(ND_META_REGEX, '').trim();
 
+  const pType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription' =
+    row.pricingType || 'case_by_case';
+  const dVal = Number(row.dealValue) || 0;
+  const fallbackCalc = calculateClientDealCommission(pType, dVal, appSettings?.commissionScheme);
+
+  const appliedRate =
+    row.appliedCommissionRate ??
+    meta.appliedCommissionRate ??
+    (dVal > 0 && row.commissionAmount > 0
+      ? Math.round((Number(row.commissionAmount) / dVal) * 100)
+      : fallbackCalc.initialRate);
+
+  const lockedRecRate =
+    row.lockedRecurringRate ??
+    meta.lockedRecurringRate ??
+    (pType === 'case_by_case' ? 0 : fallbackCalc.recurringRate);
+
+  const recCommAmt =
+    row.recurringCommissionAmount ??
+    meta.recurringCommissionAmount ??
+    (pType === 'case_by_case' ? 0 : Math.round((dVal * lockedRecRate) / 100));
+
   return {
     ...row,
     notes: cleanNotes,
+    appliedCommissionRate: appliedRate,
+    lockedRecurringRate: lockedRecRate,
+    recurringCommissionAmount: recCommAmt,
     subscriptionStartDate: row.subscriptionStartDate || meta.subscriptionStartDate,
     billingDayOfMonth: row.billingDayOfMonth || meta.billingDayOfMonth,
     nextBillingDate: row.nextBillingDate || meta.nextBillingDate,
@@ -3380,11 +3543,19 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   }
 
   const otpCode = crypto.randomInt(100000, 999999).toString();
-  passwordResetTokens.set(normalizedEmail, {
+  const tokenPayload = {
     otp: otpCode,
     expiresAt: Date.now() + 30 * 60 * 1000,
     attempts: 0,
-  });
+  };
+  passwordResetTokens.set(normalizedEmail, tokenPayload);
+  if (supabase) {
+    try {
+      await supabase
+        .from('user_passwords')
+        .upsert([{ email: `__otp__:${normalizedEmail}`, password: JSON.stringify(tokenPayload) }]);
+    } catch {}
+  }
 
   const recipientName = isAdmin
     ? adminAccount.name
@@ -3416,22 +3587,65 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
 });
 
 app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
-  const { email, otpCode, newPassword } = req.body;
+  const { email, newPassword } = req.body;
+  const rawOtp = req.body.otpCode ?? req.body.otp ?? req.body.token ?? '';
   const normalizedEmail = sanitizeSqlIdentifier((email || '').trim().toLowerCase());
-  const cleanOtp = String(otpCode || '').trim();
+  const cleanOtp = String(rawOtp || '').replace(/\D/g, '').trim();
 
   if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
     return res.status(400).json({ success: false, message: 'Kata sandi minimal 6 karakter.' });
   }
 
-  if (!cleanOtp) {
+  if (!cleanOtp || cleanOtp.length < 6) {
     return res.status(400).json({
       success: false,
       message: 'Kode OTP pemulihan 6-digit wajib diisi.',
     });
   }
 
-  const storedToken = passwordResetTokens.get(normalizedEmail);
+  let storedToken = passwordResetTokens.get(normalizedEmail);
+
+  // Fallback 1: Check Supabase KV if server restarted
+  if (!storedToken && supabase) {
+    try {
+      const { data: kvOtp } = await supabase
+        .from('user_passwords')
+        .select('password')
+        .eq('email', `__otp__:${normalizedEmail}`)
+        .maybeSingle();
+      if (kvOtp?.password) {
+        const parsed = JSON.parse(kvOtp.password);
+        if (parsed && parsed.otp) {
+          storedToken = parsed;
+          passwordResetTokens.set(normalizedEmail, parsed);
+        }
+      }
+    } catch {}
+  }
+
+  // Fallback 2: Check recent emailLogs (within 60 mins) if server restarted before KV was written
+  if (!storedToken) {
+    const recentResetLog = emailLogs.find(
+      (log) =>
+        log.category === 'password_reset' &&
+        (log.recipient || '').toLowerCase() === normalizedEmail &&
+        Date.now() - new Date(log.sentAt || 0).getTime() < 60 * 60 * 1000
+    );
+    if (recentResetLog) {
+      const otpMatch =
+        (recentResetLog.subject || '').match(/(\d{6})/) ||
+        (recentResetLog.previewSnippet || '').match(/(\d{6})/);
+      if (otpMatch && otpMatch[1]) {
+        storedToken = {
+          otp: otpMatch[1],
+          expiresAt: Date.now() + 30 * 60 * 1000,
+          attempts: 0,
+        };
+        passwordResetTokens.set(normalizedEmail, storedToken);
+      }
+    }
+  }
+
   if (!storedToken || Date.now() > storedToken.expiresAt) {
     passwordResetTokens.delete(normalizedEmail);
     return res.status(400).json({
@@ -3456,6 +3670,11 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   }
 
   passwordResetTokens.delete(normalizedEmail);
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').delete().eq('email', `__otp__:${normalizedEmail}`);
+    } catch {}
+  }
 
   const isStaff = staffAccounts.some((s) => s.email.toLowerCase() === normalizedEmail);
   const existingRole =
@@ -4624,8 +4843,12 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   const selectedPricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription' =
     pricingType || (service ? service.pricingType : 'case_by_case');
   const nominalValue = Number(dealValue) || (service ? service.defaultPrice : 10000000);
-  const rate = service ? service.commissionRate : 15;
-  const commissionCalc = Math.round((nominalValue * rate) / 100);
+  const perClientComm = calculateClientDealCommission(
+    selectedPricingType,
+    nominalValue,
+    appSettings.commissionScheme
+  );
+  const commissionCalc = perClientComm.initialAmount;
 
   // Setiap klien baru yang diinput oleh Mitra maupun Klien mandiri SELALU berstatus 'pending_acc' (Sedang Ditinjau Admin)
   // dan belum mendapatkan komisi sebelum Admin melakukan review & approve (Deal).
@@ -4654,6 +4877,9 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     pricingType: selectedPricingType,
     dealValue: nominalValue,
     commissionAmount: commissionCalc,
+    appliedCommissionRate: perClientComm.initialRate,
+    lockedRecurringRate: perClientComm.recurringRate,
+    recurringCommissionAmount: perClientComm.recurringAmount,
     status: 'pending_acc',
     date: todayStr,
     subscriptionStartDate: startSubDate,
@@ -4677,13 +4903,13 @@ app.post('/api/clients', async (req: Request, res: Response) => {
     actionType: 'client_create',
     operation: 'CREATE',
     targetEntity: 'Input Klien (Menunggu Review Admin)',
-    description: `${newDeal.submittedBy === 'client_self' ? `Klien "${companyName}" mendaftar mandiri` : `Mitra "${newDeal.mitraName}" menginput klien baru "${companyName}"`} untuk layanan "${newDeal.serviceName}" senilai Rp ${nominalValue.toLocaleString('id-ID')} (Ref: ${newDeal.referralCode}). Status: Sedang Ditinjau Admin (Komisi Rp 0 sebelum di-approve).`,
+    description: `${newDeal.submittedBy === 'client_self' ? `Klien "${companyName}" mendaftar mandiri` : `Mitra "${newDeal.mitraName}" menginput klien baru "${companyName}"`} untuk layanan "${newDeal.serviceName}" senilai Rp ${nominalValue.toLocaleString('id-ID')} (${perClientComm.tierLabel}, Ref: ${newDeal.referralCode}). Status: Sedang Ditinjau Admin (Komisi Rp 0 sebelum di-approve).`,
   });
 
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
     title: 'Klien Baru Sedang Ditinjau Admin',
-    message: `${newDeal.companyName} terdaftar via kode referral ${newDeal.referralCode} (${newDeal.pricingType === 'annual_subscription' ? 'Langganan Tahunan' : newDeal.pricingType === 'monthly_subscription' ? 'Langganan Bulanan' : 'Case-by-Case'}). Menunggu review & approve deal dari Admin agar komisi masuk ke saldo Mitra.`,
+    message: `${newDeal.companyName} terdaftar via kode referral ${newDeal.referralCode} (${perClientComm.tierLabel}). Menunggu review & approve deal dari Admin agar komisi masuk ke saldo Mitra.`,
     type: 'client_deal',
     timestamp: new Date().toISOString(),
     isRead: false,
@@ -4704,10 +4930,17 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   res.status(201).json({ success: true, data: newDeal });
 });
 
-// Admin Reviews & Approves (Deal) Client -> Credits Commission Immediately to Mitra
+// Admin Reviews & Approves (Deal) Client -> Credits Commission Immediately to Mitra & Locks Deal-Time Rate
 app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { subscriptionStartDate, billingDayOfMonth, dealValue, notes } = req.body || {};
+  const {
+    subscriptionStartDate,
+    billingDayOfMonth,
+    dealValue,
+    notes,
+    customCommissionRate,
+    customRecurringRate,
+  } = req.body || {};
   const deal = clientDeals.find((d) => d.id === id);
 
   if (!deal) {
@@ -4719,11 +4952,35 @@ app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
   }
 
   if (dealValue !== undefined && Number(dealValue) > 0) {
-    const service = services.find((s) => s.id === deal.serviceId);
-    const rate = service ? service.commissionRate : 15;
     deal.dealValue = Number(dealValue);
-    deal.commissionAmount = Math.round((deal.dealValue * rate) / 100);
   }
+
+  const tierCalc = calculateClientDealCommission(
+    deal.pricingType,
+    deal.dealValue,
+    appSettings.commissionScheme
+  );
+
+  // Lock the deal-time commission rate & recurring rate onto the ClientDeal
+  const finalInitialRate =
+    customCommissionRate !== undefined && Number(customCommissionRate) >= 0
+      ? Number(customCommissionRate)
+      : tierCalc.initialRate;
+  const finalRecurringRate =
+    deal.pricingType === 'case_by_case'
+      ? 0
+      : customRecurringRate !== undefined && Number(customRecurringRate) >= 0
+        ? Number(customRecurringRate)
+        : tierCalc.recurringRate;
+
+  deal.appliedCommissionRate = finalInitialRate;
+  deal.commissionAmount = Math.round((deal.dealValue * finalInitialRate) / 100);
+  deal.lockedRecurringRate = finalRecurringRate;
+  deal.recurringCommissionAmount =
+    deal.pricingType === 'case_by_case'
+      ? 0
+      : Math.round((deal.dealValue * finalRecurringRate) / 100);
+
   if (notes !== undefined) {
     deal.notes = notes;
   }
@@ -4958,20 +5215,31 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
   deal.nextBillingDate = computeNextBillingDate(baseForNext, billingDay, deal.pricingType);
   deal.isBillingDue = false;
 
+  // Use the locked recurring rate from when the deal was made (default 10% for active subscriptions)
+  // Even if Admin later changes global commission settings, existing active subscriptions keep their deal-time rate!
+  const lockedRecurringRate = deal.lockedRecurringRate ?? 10;
+  const recurringCommission =
+    deal.recurringCommissionAmount && deal.recurringCommissionAmount > 0
+      ? deal.recurringCommissionAmount
+      : Math.round((deal.dealValue * lockedRecurringRate) / 100);
+
+  deal.lockedRecurringRate = lockedRecurringRate;
+  deal.recurringCommissionAmount = recurringCommission;
+
   const mitra = mitras.find((m) => m.id === deal.mitraId);
   if (mitra) {
-    mitra.totalCommission = (mitra.totalCommission || 0) + deal.commissionAmount;
-    mitra.pendingPayout = (mitra.pendingPayout || 0) + deal.commissionAmount;
+    mitra.totalCommission = (mitra.totalCommission || 0) + recurringCommission;
+    mitra.pendingPayout = (mitra.pendingPayout || 0) + recurringCommission;
   }
 
   const newCommTrx: CommissionTransaction = {
     id: `trx-${Date.now()}`,
     mitraId: deal.mitraId,
     mitraName: deal.mitraName,
-    serviceName: `${deal.serviceName} (${cycleLabel})`,
+    serviceName: `${deal.serviceName} (${cycleLabel} - Komisi Berulang ${lockedRecurringRate}%)`,
     clientName: deal.companyName,
     dealValue: deal.dealValue,
-    commissionAmount: deal.commissionAmount,
+    commissionAmount: recurringCommission,
     bonusAmount: 0,
     status: 'pending',
     date: todayStr,
@@ -4986,13 +5254,13 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
     actionType: 'client_update',
     operation: 'UPDATE',
     targetEntity: 'Approve Pembayaran Langganan Klien',
-    description: `Admin meng-approve pembayaran langganan ${cycleLabel} untuk klien "${deal.companyName}". Komisi berulang Rp ${deal.commissionAmount.toLocaleString('id-ID')} otomatis masuk ke saldo siap cair Mitra ${deal.mitraName}. Tagihan berikutnya: ${deal.nextBillingDate}.`,
+    description: `Admin meng-approve pembayaran langganan ${cycleLabel} untuk klien "${deal.companyName}". Komisi berulang ${lockedRecurringRate}% sebesar Rp ${recurringCommission.toLocaleString('id-ID')} otomatis masuk ke saldo siap cair Mitra ${deal.mitraName}. Tagihan berikutnya: ${deal.nextBillingDate}.`,
   });
 
   const notif: NotificationItem = {
     id: `notif-${Date.now()}`,
-    title: `Komisi Langganan Masuk (Approve ${cycleLabel})`,
-    message: `Pembayaran langganan ${cycleLabel} untuk klien "${deal.companyName}" telah di-approve Admin. Komisi Rp ${deal.commissionAmount.toLocaleString('id-ID')} otomatis masuk ke saldo siap cair Mitra ${deal.mitraName}.`,
+    title: `Komisi Langganan Masuk (Approve ${cycleLabel} - ${lockedRecurringRate}%)`,
+    message: `Pembayaran langganan ${cycleLabel} untuk klien "${deal.companyName}" telah di-approve Admin. Komisi berulang (${lockedRecurringRate}%) sebesar Rp ${recurringCommission.toLocaleString('id-ID')} otomatis masuk ke saldo siap cair Mitra ${deal.mitraName}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
@@ -5003,9 +5271,9 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
     await sendSystemEmail({
       recipient: mitra.email,
       recipientName: mitra.fullName,
-      subject: `Komisi Langganan Masuk (${cycleLabel}): ${deal.companyName} - Rp ${deal.commissionAmount.toLocaleString('id-ID')}`,
+      subject: `Komisi Langganan Masuk (${cycleLabel} - ${lockedRecurringRate}%): ${deal.companyName} - Rp ${recurringCommission.toLocaleString('id-ID')}`,
       category: 'recurring_invoice',
-      previewSnippet: `Pembayaran perpanjangan ${cycleLabel} untuk klien "${deal.companyName}" telah di-approve oleh Admin.\n\nKomisi royalti Anda sebesar Rp ${deal.commissionAmount.toLocaleString('id-ID')} telah ditambahkan ke dompet saldo siap cair Anda.`,
+      previewSnippet: `Pembayaran perpanjangan ${cycleLabel} untuk klien "${deal.companyName}" telah di-approve oleh Admin.\n\nKomisi berulang Anda (${lockedRecurringRate}% sesuai kesepakatan deal) sebesar Rp ${recurringCommission.toLocaleString('id-ID')} telah ditambahkan ke dompet saldo siap cair Anda.`,
     });
   }
 
@@ -5028,6 +5296,217 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
   }
 
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
+});
+
+// Admin Manages Global Per-Client Commission Scheme & Standard Bonus Target Config
+// Note: Active subscriptions and closed deals keep their deal-time locked commission rate!
+app.put('/api/admin/commission-scheme', async (req: Request, res: Response) => {
+  const { commissionScheme, bonusTargetConfig } = req.body || {};
+
+  if (commissionScheme && typeof commissionScheme === 'object') {
+    appSettings.commissionScheme = {
+      ...DEFAULT_COMMISSION_SCHEME,
+      ...(appSettings.commissionScheme || {}),
+      ...commissionScheme,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (bonusTargetConfig && typeof bonusTargetConfig === 'object') {
+    appSettings.bonusTargetConfig = {
+      ...DEFAULT_BONUS_TARGET_CONFIG,
+      ...(appSettings.bonusTargetConfig || {}),
+      ...bonusTargetConfig,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // Only update pending_acc deals that haven't been locked/approved yet;
+  // active_subscription and deal_closed deals strictly keep their deal-time locked rates!
+  for (const deal of clientDeals) {
+    if (deal.status === 'pending_acc') {
+      const calc = calculateClientDealCommission(
+        deal.pricingType,
+        deal.dealValue,
+        appSettings.commissionScheme
+      );
+      deal.appliedCommissionRate = calc.initialRate;
+      deal.commissionAmount = calc.initialAmount;
+      deal.lockedRecurringRate = calc.recurringRate;
+      deal.recurringCommissionAmount = calc.recurringAmount;
+    }
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'commission_scheme_update',
+    operation: 'UPDATE',
+    targetEntity: 'Manajemen Skema Komisi & Target Bonus Mitra',
+    description: `Admin memperbarui skema komisi per klien (Langganan: ${appSettings.commissionScheme?.subLowRate}%/${appSettings.commissionScheme?.subMidRate}%/${appSettings.commissionScheme?.subHighRate}% + Berulang ${appSettings.commissionScheme?.subRecurringRate}%, Case-by-Case: ${appSettings.commissionScheme?.caseLowRate}%/${appSettings.commissionScheme?.caseMidRate}%/${appSettings.commissionScheme?.caseHighRate}%) serta Target Bonus (${appSettings.bonusTargetConfig?.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'}). Klien yang sudah aktif langganan tetap menggunakan tarif komisi saat waktu deal.`,
+  });
+
+  saveDatabase();
+  await persistSettingsToSupabase();
+
+  res.json({
+    success: true,
+    message:
+      'Skema komisi per klien dan pengaturan target bonus berhasil disimpan. Klien yang sudah berstatus langganan aktif tetap memperoleh komisi sesuai kesepakatan waktu deal.',
+    data: {
+      commissionScheme: appSettings.commissionScheme,
+      bonusTargetConfig: appSettings.bonusTargetConfig,
+    },
+  });
+});
+
+// Admin Updates/Overrides Specific Client Deal Commission Rate
+app.put('/api/admin/clients/:id/commission', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { appliedCommissionRate, lockedRecurringRate, dealValue } = req.body || {};
+  const deal = clientDeals.find((d) => d.id === id);
+
+  if (!deal) {
+    return res.status(404).json({ success: false, message: 'Data klien tidak ditemukan.' });
+  }
+
+  if (dealValue !== undefined && Number(dealValue) > 0) {
+    deal.dealValue = Number(dealValue);
+  }
+
+  if (appliedCommissionRate !== undefined && Number(appliedCommissionRate) >= 0) {
+    deal.appliedCommissionRate = Number(appliedCommissionRate);
+    deal.commissionAmount = Math.round((deal.dealValue * deal.appliedCommissionRate) / 100);
+  }
+
+  if (
+    (deal.pricingType === 'monthly_subscription' || deal.pricingType === 'annual_subscription') &&
+    lockedRecurringRate !== undefined &&
+    Number(lockedRecurringRate) >= 0
+  ) {
+    deal.lockedRecurringRate = Number(lockedRecurringRate);
+    deal.recurringCommissionAmount = Math.round((deal.dealValue * deal.lockedRecurringRate) / 100);
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'client_update',
+    operation: 'UPDATE',
+    targetEntity: 'Penyesuaian Komisi Klien',
+    description: `Admin menyesuaikan komisi deal klien "${deal.companyName}" (Mitra: ${deal.mitraName}) menjadi ${deal.appliedCommissionRate}% (Rp ${deal.commissionAmount.toLocaleString('id-ID')})${deal.pricingType !== 'case_by_case' ? ` & Komisi Berulang ${deal.lockedRecurringRate}% (Rp ${(deal.recurringCommissionAmount || 0).toLocaleString('id-ID')})` : ''}.`,
+  });
+
+  saveDatabase();
+  if (supabase) {
+    try {
+      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+    } catch {}
+  }
+
+  res.json({
+    success: true,
+    message: `Komisi untuk klien "${deal.companyName}" berhasil diperbarui.`,
+    data: deal,
+  });
+});
+
+// Admin Grants Target / Performance Bonus to Mitra
+app.post('/api/admin/mitra/:id/bonus', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { bonusAmount, title, periodLabel, notes } = req.body || {};
+  const mitra = mitras.find((m) => m.id === id);
+
+  if (!mitra) {
+    return res.status(404).json({ success: false, message: 'Data mitra tidak ditemukan.' });
+  }
+
+  const amountNum = Math.round(Number(bonusAmount) || 0);
+  if (amountNum <= 0) {
+    return res.status(400).json({ success: false, message: 'Nominal bonus wajib lebih dari Rp 0.' });
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const bonusTitle = (title || 'Bonus Pencapaian Target Standar Mitra').trim();
+  const periodStr = (periodLabel || (appSettings.bonusTargetConfig?.periodType === 'yearly' ? 'Target Tahunan' : 'Target Bulanan')).trim();
+
+  mitra.totalBonus = (mitra.totalBonus || 0) + amountNum;
+  mitra.totalCommission = (mitra.totalCommission || 0) + amountNum;
+  mitra.pendingPayout = (mitra.pendingPayout || 0) + amountNum;
+
+  const bonusTrx: CommissionTransaction = {
+    id: `trx-bonus-${Date.now()}`,
+    mitraId: mitra.id,
+    mitraName: mitra.fullName,
+    serviceName: `🏆 ${bonusTitle} (${periodStr})`,
+    clientName: notes ? `Apresiasi Mitra: ${String(notes).trim()}` : 'Pencapaian Target Standar NDTAXANDLAW',
+    dealValue: 0,
+    commissionAmount: 0,
+    bonusAmount: amountNum,
+    status: 'pending',
+    date: todayStr,
+  };
+  commissions.unshift(bonusTrx);
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'bonus_grant',
+    operation: 'CREATE',
+    targetEntity: 'Pemberian Bonus Mitra',
+    description: `Admin memberikan bonus prestasi "${bonusTitle}" (${periodStr}) sebesar Rp ${amountNum.toLocaleString('id-ID')} kepada Mitra ${mitra.fullName}. Saldo bonus otomatis masuk ke saldo siap cair Mitra.`,
+  });
+
+  const notif: NotificationItem = {
+    id: `notif-bonus-${Date.now()}`,
+    title: `Selamat! Bonus Mitra Masuk: Rp ${amountNum.toLocaleString('id-ID')}`,
+    message: `Admin telah memberikan "${bonusTitle}" (${periodStr}) sebesar Rp ${amountNum.toLocaleString('id-ID')} kepada Mitra ${mitra.fullName}. Dana bonus telah masuk ke saldo siap cair Anda.`,
+    type: 'commission',
+    timestamp: new Date().toISOString(),
+    isRead: false,
+  };
+  notifications.unshift(notif);
+
+  if (mitra.email) {
+    await sendSystemEmail({
+      recipient: mitra.email,
+      recipientName: mitra.fullName,
+      subject: `Selamat! Anda Menerima Bonus Prestasi Mitra Rp ${amountNum.toLocaleString('id-ID')} - NDTAXANDLAW`,
+      category: 'client_acc',
+      previewSnippet: `Halo ${mitra.fullName},\n\nSelamat atas pencapaian performa Anda! Admin NDTAXANDLAW telah memberikan "${bonusTitle}" (${periodStr}) sebesar Rp ${amountNum.toLocaleString('id-ID')}.${notes ? `\n\nCatatan Apresiasi: ${notes}` : ''}\n\nDana bonus telah ditambahkan langsung ke dompet saldo siap cair Anda.`,
+    });
+  }
+
+  saveDatabase();
+
+  if (supabase) {
+    try {
+      await supabase.from('commissions').insert([bonusTrx]);
+      await supabase.from('notifications').insert([notif]);
+      await supabase
+        .from('mitras')
+        .update({
+          totalBonus: mitra.totalBonus,
+          totalCommission: mitra.totalCommission,
+          pendingPayout: mitra.pendingPayout,
+        })
+        .eq('id', mitra.id);
+    } catch (e) {
+      console.warn('Supabase bonus grant update error', e);
+    }
+  }
+
+  res.status(201).json({
+    success: true,
+    message: `Bonus sebesar Rp ${amountNum.toLocaleString('id-ID')} berhasil diberikan kepada ${mitra.fullName} dan masuk ke saldo siap cair.`,
+    data: { mitra, bonusTransaction: bonusTrx },
+  });
 });
 
 // Admin terminates client subscription -> automatically stops recurring commission for Mitra
