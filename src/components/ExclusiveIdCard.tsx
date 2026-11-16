@@ -39,7 +39,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   onOpenVerifyPreview,
   allowClientSelfRegister = true,
   supportPhone = '0812-8899-7711',
-  supportEmail = 'advisory@ndtaxlaw.com',
+  supportEmail = 'advisory@ndtaxandlaw.com',
 }) => {
   const confirm = useConfirm();
   const [isFlipped, setIsFlipped] = useState(false);
@@ -52,11 +52,11 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
   const clientSelfRegisterLink = typeof window !== 'undefined'
     ? `${window.location.origin}/?ref=${mitra.referralCode || 'ND-REF-0042'}`
-    : `https://ndtaxlaw.com/?ref=${mitra.referralCode || 'ND-REF-0042'}`;
+    : `https://ndtaxandlaw.com/?ref=${mitra.referralCode || 'ND-REF-0042'}`;
 
   const mitraVerificationLink = typeof window !== 'undefined'
     ? `${window.location.origin}/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`
-    : `https://ndtaxlaw.com/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`;
+    : `https://ndtaxandlaw.com/?verify=${encodeURIComponent(mitra.memberCode || 'ND-2026-0000')}`;
 
   useEffect(() => {
     let active = true;

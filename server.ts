@@ -5,9 +5,11 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
+import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
 import { supabase, isSupabaseConfigured, getSupabaseConfig, testSupabaseConnection } from './src/supabase.ts';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, resolveAvatarUrl, inferGenderFromName } from './src/avatars.ts';
+import type { ChatParticipant, ChatRoom, ChatMessage, ChatLinkPreview } from './src/types.ts';
 
 dotenv.config();
 
@@ -20,16 +22,11 @@ const PORT = process.env.PORT || 3000;
 // 1. Disable Express fingerprinting header
 app.disable('x-powered-by');
 
-// 2. Enterprise HTTP Security Headers (Defense against XSS, MIME-Sniffing, Clickjacking & Data Injection)
+// 2. Enterprise HTTP Security Headers (Defense against XSS, MIME-Sniffing & Data Injection)
 app.use((req: Request, res: Response, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss: ws:; object-src 'none'; base-uri 'self';"
-  );
   next();
 });
 
@@ -449,6 +446,7 @@ export interface AppSettings {
   officeAddress: string;
   defaultCommissionRate: number;
   allowClientSelfRegister: boolean;
+  chatEnabled?: boolean;
   googleOAuthEnabled: boolean;
   googleClientId: string;
   geminiApiEnabled: boolean;
@@ -1034,24 +1032,25 @@ let appSettings: AppSettings = {
   firmName: 'NDTAXANDLAW',
   tagline: 'Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi',
   supportPhone: '0812-8899-7711',
-  supportEmail: 'advisory@ndtaxlaw.com',
+  supportEmail: 'advisory@ndtaxandlaw.com',
   officeAddress: 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
   defaultCommissionRate: 15,
   allowClientSelfRegister: true,
+  chatEnabled: true,
   googleOAuthEnabled: false,
   googleClientId: '',
   geminiApiEnabled: true,
   geminiModel: 'gemini-3.8-flash',
   appEnvironment: (process.env.APP_ENV === 'development' ? 'development' : 'production') as 'development' | 'production',
   smtpEnabled: true,
-  smtpHost: process.env.SMTP_HOST || 'mail.ndtaxlaw.com',
+  smtpHost: process.env.SMTP_HOST || 'mail.ndtaxandlaw.com',
   smtpPort: Number(process.env.SMTP_PORT) || 465,
   smtpEncryption: (process.env.SMTP_ENCRYPTION as 'ssl' | 'tls' | 'none') || 'ssl',
-  smtpUser: process.env.SMTP_USER || 'notifications@ndtaxlaw.com',
+  smtpUser: process.env.SMTP_USER || 'notifications@ndtaxandlaw.com',
   smtpPassword: process.env.SMTP_PASS || '',
   smtpSenderName: 'NDTAXANDLAW System',
-  smtpSenderEmail: process.env.SMTP_USER || 'notifications@ndtaxlaw.com',
-  smtpReplyToEmail: 'advisory@ndtaxlaw.com',
+  smtpSenderEmail: process.env.SMTP_USER || 'notifications@ndtaxandlaw.com',
+  smtpReplyToEmail: 'advisory@ndtaxandlaw.com',
   emailOnRegistrationVerify: true,
   emailOnPayoutDisbursed: true,
   emailOnClientAcc: true,
@@ -1074,7 +1073,7 @@ let activityLogs: ActivityLogItem[] = [
     actorRole: 'admin',
     actorId: 'admin-01',
     actorName: 'Admin Operasional NDTAXANDLAW',
-    actorEmail: 'admin@ndtaxlaw.com',
+    actorEmail: 'admin@ndtaxandlaw.com',
     actionType: 'payout_approve',
     operation: 'UPDATE',
     targetEntity: 'Pembayaran Komisi Mitra',
@@ -1404,7 +1403,12 @@ export const sendSystemEmail = async (params: {
 
   // On Niagahoster / cPanel / Hostinger, sender email must match authenticated user or same domain to avoid 550 Sender Verify Failed
   let fromEmail = (appSettings.smtpSenderEmail || '').trim();
-  if (!fromEmail || fromEmail === 'notifications@ndtaxlaw.com' || !fromEmail.includes('@')) {
+  if (
+    !fromEmail ||
+    fromEmail === 'notifications@ndtaxandlaw.com' ||
+    fromEmail === 'notifications@ndtaxlaw.com' ||
+    !fromEmail.includes('@')
+  ) {
     fromEmail = user;
   }
   const fromName = (appSettings.smtpSenderName || appSettings.firmName || 'NDTAXANDLAW').replace(/"/g, '');
@@ -1816,7 +1820,7 @@ export const verifyUserPassword = (
 let adminAccount = {
   id: 'admin-01',
   name: 'Admin Operasional NDTAXANDLAW',
-  email: 'admin@ndtaxlaw.com',
+  email: 'admin@ndtaxandlaw.com',
   phone: '0812-8899-7711',
   position: 'Super Administrator Operasional',
   password: 'adminND2026!',
@@ -1829,7 +1833,7 @@ let staffAccounts: StaffMember[] = [
   {
     id: 'staff-01',
     name: 'Rina Kusuma, S.E.',
-    email: 'staf@ndtaxlaw.com',
+    email: 'staf@ndtaxandlaw.com',
     phone: '0812-7788-9900',
     position: 'Staf Operasional & Verifikasi Pajak',
     gender: 'female',
@@ -1841,12 +1845,82 @@ let staffAccounts: StaffMember[] = [
 ];
 
 const userPasswords = new Map<string, string>([
+  ['admin@ndtaxandlaw.com', encryptUserPassword('adminND2026!', 'admin')],
   ['admin@ndtaxlaw.com', encryptUserPassword('adminND2026!', 'admin')],
+  ['staf@ndtaxandlaw.com', encryptUserPassword('stafND2026!', 'staff')],
   ['staf@ndtaxlaw.com', encryptUserPassword('stafND2026!', 'staff')],
   ['bambang.sudirman@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
   ['dewi.lestari@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
   ['rian.pratama@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
 ]);
+
+// Seeded Real-Time Chat Rooms & Messages (1-on-1 & Group between Mitra & Staf)
+let chatRooms: ChatRoom[] = [
+  {
+    id: 'room-direct-mitra-01__staff-01',
+    type: 'direct',
+    name: 'Bambang Sudirman, S.H., M.Kn. & Rina Kusuma, S.E.',
+    participantIds: ['mitra-01', 'staff-01'],
+    createdBy: 'mitra-01',
+    createdAt: new Date(Date.now() - 3600 * 1000 * 2).toISOString(),
+    updatedAt: new Date(Date.now() - 60 * 1000 * 15).toISOString(),
+    lastMessageText: 'Baik Pak Bambang, dokumen SPT Masa PT Nusantara sudah kami verifikasi.',
+    lastMessageAt: new Date(Date.now() - 60 * 1000 * 15).toISOString(),
+    lastMessageSenderName: 'Rina Kusuma, S.E.',
+  },
+  {
+    id: 'room-group-koordinasi-pajak',
+    type: 'group',
+    name: 'Grup Koordinasi Mitra & Staf Pajak',
+    description: 'Ruang diskusi cepat koordinasi klien kepatuhan pajak & legalitas korporasi',
+    participantIds: ['staff-01', 'mitra-01', 'mitra-02'],
+    createdBy: 'staff-01',
+    createdAt: new Date(Date.now() - 3600 * 1000 * 5).toISOString(),
+    updatedAt: new Date(Date.now() - 60 * 1000 * 8).toISOString(),
+    lastMessageText: 'Silakan gunakan grup ini untuk koordinasi dokumen klien secara real-time.',
+    lastMessageAt: new Date(Date.now() - 60 * 1000 * 8).toISOString(),
+    lastMessageSenderName: 'Rina Kusuma, S.E.',
+  },
+];
+
+let chatMessages: ChatMessage[] = [
+  {
+    id: 'msg-seed-01',
+    roomId: 'room-direct-mitra-01__staff-01',
+    senderId: 'mitra-01',
+    senderName: 'Bambang Sudirman, S.H., M.Kn.',
+    senderRole: 'mitra',
+    senderAvatar: MALE_AVATAR_URL,
+    text: 'Selamat pagi Bu Rina, mohon bantuannya untuk cek kelengkapan berkas klien PT Nusantara Energi Makmur.',
+    createdAt: new Date(Date.now() - 60 * 1000 * 25).toISOString(),
+  },
+  {
+    id: 'msg-seed-02',
+    roomId: 'room-direct-mitra-01__staff-01',
+    senderId: 'staff-01',
+    senderName: 'Rina Kusuma, S.E.',
+    senderRole: 'staff',
+    senderAvatar: FEMALE_AVATAR_URL,
+    text: 'Baik Pak Bambang, dokumen SPT Masa PT Nusantara sudah kami verifikasi.',
+    replyTo: {
+      messageId: 'msg-seed-01',
+      senderId: 'mitra-01',
+      senderName: 'Bambang Sudirman, S.H., M.Kn.',
+      text: 'Selamat pagi Bu Rina, mohon bantuannya untuk cek kelengkapan berkas klien PT Nusantara Energi Makmur.',
+    },
+    createdAt: new Date(Date.now() - 60 * 1000 * 15).toISOString(),
+  },
+  {
+    id: 'msg-seed-03',
+    roomId: 'room-group-koordinasi-pajak',
+    senderId: 'staff-01',
+    senderName: 'Rina Kusuma, S.E.',
+    senderRole: 'staff',
+    senderAvatar: FEMALE_AVATAR_URL,
+    text: 'Selamat datang di Grup Koordinasi Mitra & Staf Pajak NDTAXANDLAW. Silakan gunakan grup ini untuk koordinasi dokumen klien secara real-time.',
+    createdAt: new Date(Date.now() - 60 * 1000 * 8).toISOString(),
+  },
+];
 
 // Store password reset OTP tokens in memory with attempt counter against brute-force
 const passwordResetTokens = new Map<string, { otp: string; expiresAt: number; attempts: number }>();
@@ -2075,6 +2149,8 @@ export const saveDatabase = () => {
       roles: systemRoles,
       adminProfile: safeAdminProfile,
       staffAccounts,
+      chatRooms,
+      chatMessages,
       userPasswords: passwordsObj,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), 'utf-8');
@@ -2145,6 +2221,12 @@ export const loadDatabase = () => {
       }
       if (Array.isArray(data.activityLogs)) {
         activityLogs = data.activityLogs;
+      }
+      if (Array.isArray(data.chatRooms)) {
+        chatRooms = data.chatRooms;
+      }
+      if (Array.isArray(data.chatMessages)) {
+        chatMessages = data.chatMessages;
       }
 
       if (data.userPasswords && typeof data.userPasswords === 'object') {
@@ -2334,6 +2416,24 @@ export const syncFromSupabase = async () => {
             const parsedEmails = JSON.parse(row.password);
             if (Array.isArray(parsedEmails)) {
               emailLogs = parsedEmails;
+            }
+          } catch {}
+          continue;
+        }
+        if (emailLower === '__sys_chat_rooms__@ndtaxlaw.internal') {
+          try {
+            const parsedRooms = JSON.parse(row.password);
+            if (Array.isArray(parsedRooms)) {
+              chatRooms = parsedRooms;
+            }
+          } catch {}
+          continue;
+        }
+        if (emailLower === '__sys_chat_messages__@ndtaxlaw.internal') {
+          try {
+            const parsedMsgs = JSON.parse(row.password);
+            if (Array.isArray(parsedMsgs)) {
+              chatMessages = parsedMsgs;
             }
           } catch {}
           continue;
@@ -2632,9 +2732,14 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     } catch {}
   }
 
-  // 1. Check Admin Login
-  if (normalizedEmail === adminAccount.email.toLowerCase()) {
+  // 1. Check Admin Login (Supports both @ndtaxandlaw.com and @ndtaxlaw.com)
+  const isAdminLoginMatch =
+    normalizedEmail === adminAccount.email.toLowerCase() ||
+    normalizedEmail === 'admin@ndtaxandlaw.com' ||
+    normalizedEmail === 'admin@ndtaxlaw.com';
+  if (isAdminLoginMatch) {
     const storedAdminCred =
+      userPasswords.get(normalizedEmail) ||
       userPasswords.get(adminAccount.email.toLowerCase()) ||
       encryptUserPassword(adminAccount.password, 'admin');
     const verifyRes = verifyUserPassword(password, storedAdminCred, 'admin');
@@ -2676,6 +2781,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
             'staff-management',
             'ai-reports',
             'idcard',
+            'chat',
           ],
           permissions: roleDef.permissions,
           gender: adminAccount.gender || 'male',
@@ -2687,8 +2793,15 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     return res.status(401).json({ success: false, message: 'Kata sandi admin tidak valid.' });
   }
 
-  // 1.5 Check Staff Login (Role di bawah Admin)
-  const staffMember = staffAccounts.find((s) => s.email.toLowerCase() === normalizedEmail);
+  // 1.5 Check Staff Login (Role di bawah Admin - supports @ndtaxandlaw.com & @ndtaxlaw.com)
+  const altStaffEmail = normalizedEmail.endsWith('@ndtaxandlaw.com')
+    ? normalizedEmail.replace('@ndtaxandlaw.com', '@ndtaxlaw.com')
+    : normalizedEmail.endsWith('@ndtaxlaw.com')
+    ? normalizedEmail.replace('@ndtaxlaw.com', '@ndtaxandlaw.com')
+    : normalizedEmail;
+  const staffMember = staffAccounts.find(
+    (s) => s.email.toLowerCase() === normalizedEmail || s.email.toLowerCase() === altStaffEmail
+  );
   if (staffMember) {
     if (!staffMember.isActive) {
       return res.status(403).json({
@@ -2698,7 +2811,9 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     }
 
     const storedStaffCred =
-      userPasswords.get(normalizedEmail) || encryptUserPassword('stafND2026!', 'staff');
+      userPasswords.get(normalizedEmail) ||
+      userPasswords.get(staffMember.email.toLowerCase()) ||
+      encryptUserPassword('stafND2026!', 'staff');
     const verifyRes = verifyUserPassword(password, storedStaffCred, 'staff');
     const isStaffPassValid = isProd ? verifyRes.valid : verifyRes.valid || password === 'stafND2026!';
 
@@ -3630,7 +3745,7 @@ app.get('/api/mitra/public-verify/:code', async (req: Request, res: Response) =>
       status: 'verified',
       firmName: appSettings.firmName || 'NDTAXANDLAW',
       supportPhone: appSettings.supportPhone || '0812-8899-7711',
-      supportEmail: appSettings.supportEmail || 'advisory@ndtaxlaw.com',
+      supportEmail: appSettings.supportEmail || 'advisory@ndtaxandlaw.com',
       officeAddress:
         appSettings.officeAddress ||
         'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
@@ -5302,7 +5417,7 @@ app.put('/api/settings', async (req: Request, res: Response) => {
 // 3.9 SMTP Email Server & Dispatch Log Endpoints
 app.post('/api/settings/test-email', async (req: Request, res: Response) => {
   const { targetEmail, smtpConfig } = req.body;
-  const emailToTest = (targetEmail || appSettings.supportEmail || 'admin@ndtaxlaw.com').trim();
+  const emailToTest = (targetEmail || appSettings.supportEmail || 'admin@ndtaxandlaw.com').trim();
 
   if (!emailToTest || !emailToTest.includes('@')) {
     return res.status(400).json({ success: false, message: 'Alamat email tujuan tidak valid.' });
@@ -5988,23 +6103,489 @@ app.post('/api/system/database-restore', async (req: Request, res: Response) => 
   }
 });
 
+// ========================================================
+// 4. REAL-TIME WHATSAPP-STYLE CHAT HUB (REST + WEBSOCKETS)
+// ========================================================
+const chatWsClients = new Set<WebSocket>();
+
+const broadcastChatEvent = (payload: Record<string, any>) => {
+  const raw = JSON.stringify(payload);
+  for (const client of chatWsClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(raw);
+      } catch {
+        // ignore
+      }
+    }
+  }
+};
+
+const persistChatToCloud = async () => {
+  saveDatabase();
+  if (supabase) {
+    try {
+      await supabase.from('user_passwords').upsert([
+        {
+          email: '__sys_chat_rooms__@ndtaxlaw.internal',
+          password: JSON.stringify(chatRooms.slice(0, 150)),
+        },
+        {
+          email: '__sys_chat_messages__@ndtaxlaw.internal',
+          password: JSON.stringify(chatMessages.slice(-400)),
+        },
+      ]);
+    } catch {
+      // ignore
+    }
+  }
+};
+
+const buildChatParticipantsList = (): ChatParticipant[] => {
+  const staffList: ChatParticipant[] = staffAccounts
+    .filter((s) => s.isActive)
+    .map((s) => {
+      const g = s.gender || inferGenderFromName(s.name);
+      return {
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        role: 'staff',
+        avatar: resolveAvatarUrl(s.avatarUrl, g, s.name),
+        code: s.position || 'Staf Operasional',
+        specialization: s.position || 'Staf Operasional & Verifikasi Pajak',
+      };
+    });
+
+  const mitraList: ChatParticipant[] = mitras.map((m) => {
+    const g = m.gender || inferGenderFromName(m.fullName);
+    return {
+      id: m.id,
+      name: m.fullName,
+      email: m.email,
+      role: 'mitra',
+      avatar: resolveAvatarUrl(m.avatarUrl, g, m.fullName),
+      code: m.memberCode,
+      specialization: m.specialization,
+    };
+  });
+
+  return [...staffList, ...mitraList];
+};
+
+const extractServerLinkMetadata = async (rawUrl: string): Promise<ChatLinkPreview | null> => {
+  try {
+    const parsed = new URL(rawUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    const hostname = parsed.hostname.replace(/^www\./i, '');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    try {
+      const resp = await fetch(parsed.toString(), {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; NDTaxAndLawChatBot/1.0)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      });
+      clearTimeout(timeout);
+
+      if (resp.ok) {
+        const html = (await resp.text()).slice(0, 65000);
+        const getMeta = (prop: string): string => {
+          const reg1 = new RegExp(
+            `<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`,
+            'i'
+          );
+          const reg2 = new RegExp(
+            `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`,
+            'i'
+          );
+          return reg1.exec(html)?.[1] || reg2.exec(html)?.[1] || '';
+        };
+
+        const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
+        const ogTitle = getMeta('og:title') || getMeta('twitter:title') || titleMatch?.[1] || hostname;
+        const ogDesc =
+          getMeta('og:description') ||
+          getMeta('twitter:description') ||
+          getMeta('description') ||
+          `Tautan referensi dari ${hostname}`;
+        const ogSite = getMeta('og:site_name') || hostname.toUpperCase();
+        let ogImage = getMeta('og:image') || getMeta('twitter:image') || '';
+        if (ogImage && ogImage.startsWith('/')) {
+          ogImage = `${parsed.origin}${ogImage}`;
+        }
+
+        return {
+          url: parsed.toString(),
+          title: ogTitle.trim().slice(0, 140),
+          description: ogDesc.trim().slice(0, 240),
+          siteName: ogSite.trim().slice(0, 60),
+          image: ogImage || undefined,
+        };
+      }
+    } catch {
+      clearTimeout(timeout);
+    }
+
+    return {
+      url: parsed.toString(),
+      title: `${hostname.toUpperCase()} — Tautan Eksternal`,
+      description: `Buka tautan ${parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : parsed.hostname} di tab baru.`,
+      siteName: hostname.toUpperCase(),
+    };
+  } catch {
+    return null;
+  }
+};
+
+// GET Chat State (Filtered by visibility: Admin sees all rooms for monitoring; Mitra & Staf see only rooms where they are members)
+app.get('/api/chat/state', (req: Request, res: Response) => {
+  const userId = String(req.query.userId || '').trim();
+  const role = String(req.query.role || 'mitra').trim().toLowerCase();
+  const isAdmin = role === 'admin';
+
+  const participants = buildChatParticipantsList();
+  const visibleRooms = chatRooms
+    .filter((r) => isAdmin || r.participantIds.includes(userId))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  const visibleRoomIds = new Set(visibleRooms.map((r) => r.id));
+  const visibleMessages = chatMessages.filter((m) => visibleRoomIds.has(m.roomId));
+
+  res.json({
+    chatEnabled: appSettings.chatEnabled !== false,
+    participants,
+    rooms: visibleRooms,
+    messages: visibleMessages,
+  });
+});
+
+// GET Link Metadata Preview (WhatsApp-style URL metadata)
+app.get('/api/chat/link-preview', async (req: Request, res: Response) => {
+  const rawUrl = String(req.query.url || '').trim();
+  if (!rawUrl) {
+    return res.status(400).json({ message: 'URL wajib diisi' });
+  }
+  const preview = await extractServerLinkMetadata(rawUrl);
+  if (!preview) {
+    return res.status(400).json({ message: 'Tidak dapat membaca metadata URL' });
+  }
+  res.json(preview);
+});
+
+// POST Create or Open Direct 1-on-1 Room between two participants (Mitra <-> Staf, Mitra <-> Mitra, Staf <-> Staf)
+app.post('/api/chat/rooms/direct', async (req: Request, res: Response) => {
+  const { userAId, userBId } = req.body;
+  if (!userAId || !userBId || userAId === userBId) {
+    return res.status(400).json({ message: 'Peserta percakapan tidak valid.' });
+  }
+
+  const sorted = [String(userAId), String(userBId)].sort();
+  const existing = chatRooms.find(
+    (r) =>
+      r.type === 'direct' &&
+      r.participantIds.length === 2 &&
+      r.participantIds.includes(sorted[0]) &&
+      r.participantIds.includes(sorted[1])
+  );
+
+  if (existing) {
+    return res.json(existing);
+  }
+
+  const participants = buildChatParticipantsList();
+  const pA = participants.find((p) => p.id === sorted[0]);
+  const pB = participants.find((p) => p.id === sorted[1]);
+  const nowIso = new Date().toISOString();
+
+  const newRoom: ChatRoom = {
+    id: `room-direct-${sorted[0]}__${sorted[1]}`,
+    type: 'direct',
+    name: `${pA?.name || sorted[0]} & ${pB?.name || sorted[1]}`,
+    participantIds: sorted,
+    createdBy: String(userAId),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  chatRooms.unshift(newRoom);
+  await persistChatToCloud();
+  broadcastChatEvent({ type: 'chat:room_updated', room: newRoom });
+  res.status(201).json(newRoom);
+});
+
+// POST Create Group Chat (Only visible to group members + Admin monitor)
+app.post('/api/chat/rooms/group', async (req: Request, res: Response) => {
+  const { name, description, participantIds, createdBy, createdByName } = req.body;
+  if (!name || !Array.isArray(participantIds) || participantIds.length < 2) {
+    return res.status(400).json({
+      message: 'Nama grup dan minimal 2 peserta wajib dipilih.',
+    });
+  }
+
+  const uniqueIds = Array.from(new Set(participantIds.map(String)));
+  const nowIso = new Date().toISOString();
+  const newRoom: ChatRoom = {
+    id: `room-group-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    type: 'group',
+    name: String(name).trim(),
+    description: String(description || 'Grup Diskusi Mitra & Staf').trim(),
+    participantIds: uniqueIds,
+    createdBy: String(createdBy || uniqueIds[0]),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastMessageText: `Grup "${String(name).trim()}" dibuat oleh ${createdByName || 'Anggota'}`,
+    lastMessageAt: nowIso,
+    lastMessageSenderName: String(createdByName || 'Sistem'),
+  };
+
+  chatRooms.unshift(newRoom);
+  await persistChatToCloud();
+  broadcastChatEvent({ type: 'chat:room_updated', room: newRoom });
+
+  res.status(201).json(newRoom);
+});
+
+// PUT Update Group Chat Members / Name
+app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const room = chatRooms.find((r) => r.id === id);
+  if (!room) {
+    return res.status(404).json({ message: 'Ruang grup tidak ditemukan.' });
+  }
+
+  const { name, description, participantIds } = req.body;
+  if (name) room.name = String(name).trim();
+  if (description !== undefined) room.description = String(description).trim();
+  if (Array.isArray(participantIds) && participantIds.length >= 2) {
+    room.participantIds = Array.from(new Set(participantIds.map(String)));
+  }
+  room.updatedAt = new Date().toISOString();
+
+  await persistChatToCloud();
+  broadcastChatEvent({ type: 'chat:room_updated', room });
+  res.json(room);
+});
+
+// POST Send Chat Message (Supports text, compressed image, quote reply, social forward, and auto link metadata)
+app.post('/api/chat/messages', async (req: Request, res: Response) => {
+  const {
+    roomId,
+    senderId,
+    senderName,
+    senderRole,
+    senderAvatar,
+    text,
+    imageUrl,
+    imageName,
+    imageOriginalSize,
+    imageCompressedSize,
+    replyTo,
+    linkPreview,
+    forwardedFrom,
+  } = req.body;
+
+  if (senderRole === 'admin') {
+    return res.status(403).json({
+      message: 'Admin berada dalam Mode Monitoring dan tidak mengirim pesan di ruang chat Mitra/Staf.',
+    });
+  }
+
+  const room = chatRooms.find((r) => r.id === roomId);
+  if (!room) {
+    return res.status(404).json({ message: 'Ruang percakapan tidak ditemukan.' });
+  }
+
+  if (!room.participantIds.includes(String(senderId))) {
+    return res.status(403).json({
+      message: 'Anda bukan anggota dari ruang percakapan atau grup ini.',
+    });
+  }
+
+  const cleanText = String(text || '').trim();
+  if (!cleanText && !imageUrl) {
+    return res.status(400).json({ message: 'Isi pesan atau gambar tidak boleh kosong.' });
+  }
+
+  let resolvedLinkPreview: ChatLinkPreview | undefined = linkPreview;
+  if (!resolvedLinkPreview && cleanText) {
+    const urlMatch = cleanText.match(/https?:\/\/[^\s<>"]+/i);
+    if (urlMatch) {
+      const extracted = await extractServerLinkMetadata(urlMatch[0]);
+      if (extracted) resolvedLinkPreview = extracted;
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const newMsg: ChatMessage = {
+    id: `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    roomId: room.id,
+    senderId: String(senderId),
+    senderName: String(senderName || 'Peserta'),
+    senderRole: senderRole === 'staff' ? 'staff' : 'mitra',
+    senderAvatar: String(senderAvatar || MALE_AVATAR_URL),
+    text: cleanText,
+    imageUrl: imageUrl ? String(imageUrl) : undefined,
+    imageName: imageName ? String(imageName) : undefined,
+    imageOriginalSize: imageOriginalSize ? Number(imageOriginalSize) : undefined,
+    imageCompressedSize: imageCompressedSize ? Number(imageCompressedSize) : undefined,
+    linkPreview: resolvedLinkPreview,
+    replyTo: replyTo || undefined,
+    forwardedFrom: forwardedFrom ? String(forwardedFrom) : undefined,
+    createdAt: nowIso,
+  };
+
+  chatMessages.push(newMsg);
+  if (chatMessages.length > 600) {
+    chatMessages = chatMessages.slice(-600);
+  }
+
+  room.updatedAt = nowIso;
+  room.lastMessageAt = nowIso;
+  room.lastMessageSenderName = newMsg.senderName;
+  room.lastMessageText =
+    cleanText || (imageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan baru');
+
+  await persistChatToCloud();
+  broadcastChatEvent({
+    type: 'chat:message_created',
+    message: newMsg,
+    room,
+  });
+
+  res.status(201).json(newMsg);
+});
+
+// PUT Edit Message (Allowed only within 5 minutes of createdAt, in both 1-on-1 & Group chat)
+app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { userId, text } = req.body;
+  const msg = chatMessages.find((m) => m.id === id);
+
+  if (!msg) {
+    return res.status(404).json({ message: 'Pesan tidak ditemukan.' });
+  }
+  if (msg.senderId !== String(userId)) {
+    return res.status(403).json({ message: 'Anda hanya dapat mengedit pesan milik Anda sendiri.' });
+  }
+  if (msg.isDeleted) {
+    return res.status(400).json({ message: 'Pesan yang sudah ditarik tidak dapat diedit.' });
+  }
+
+  const elapsedMs = Date.now() - new Date(msg.createdAt).getTime();
+  if (elapsedMs >= 5 * 60 * 1000) {
+    return res.status(400).json({
+      message: 'Batas waktu edit 5 menit telah berakhir. Pesan tidak dapat diubah lagi.',
+    });
+  }
+
+  const cleanText = String(text || '').trim();
+  if (!cleanText) {
+    return res.status(400).json({ message: 'Teks pesan tidak boleh kosong.' });
+  }
+
+  msg.text = cleanText;
+  msg.editedAt = new Date().toISOString();
+
+  const room = chatRooms.find((r) => r.id === msg.roomId);
+  if (room) {
+    room.lastMessageText = `${cleanText} (diedit)`;
+  }
+
+  await persistChatToCloud();
+  broadcastChatEvent({ type: 'chat:message_updated', message: msg });
+  res.json(msg);
+});
+
+// DELETE Recall / Unsend Message (Allowed only within 5 minutes of createdAt, in both 1-on-1 & Group chat)
+app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const userId = String(req.query.userId || req.body?.userId || '').trim();
+  const msg = chatMessages.find((m) => m.id === id);
+
+  if (!msg) {
+    return res.status(404).json({ message: 'Pesan tidak ditemukan.' });
+  }
+  if (msg.senderId !== userId) {
+    return res.status(403).json({ message: 'Anda hanya dapat menarik pesan milik Anda sendiri.' });
+  }
+
+  const elapsedMs = Date.now() - new Date(msg.createdAt).getTime();
+  if (elapsedMs >= 5 * 60 * 1000) {
+    return res.status(400).json({
+      message: 'Batas waktu penarikan pesan 5 menit telah berakhir.',
+    });
+  }
+
+  msg.isDeleted = true;
+  msg.deletedAt = new Date().toISOString();
+  msg.text = '';
+  msg.imageUrl = undefined;
+  msg.linkPreview = undefined;
+
+  const room = chatRooms.find((r) => r.id === msg.roomId);
+  if (room) {
+    room.lastMessageText = '🚫 Pesan telah ditarik';
+  }
+
+  await persistChatToCloud();
+  broadcastChatEvent({ type: 'chat:message_updated', message: msg });
+  res.json(msg);
+});
+
+// PUT Admin Toggle Chat Feature Active / Inactive
+app.put('/api/chat/settings', async (req: Request, res: Response) => {
+  const { chatEnabled } = req.body;
+  appSettings.chatEnabled = Boolean(chatEnabled);
+  saveDatabase();
+  await persistSettingsToSupabase();
+  broadcastChatEvent({
+    type: 'chat:sync',
+    chatEnabled: appSettings.chatEnabled,
+  });
+
+  res.json({
+    success: true,
+    message: appSettings.chatEnabled
+      ? 'Fitur Live Chat berhasil DIAKTIFKAN untuk seluruh Mitra & Staf.'
+      : 'Fitur Live Chat berhasil DINONAKTIFKAN untuk Mitra & Staf.',
+    settings: {
+      ...appSettings,
+      smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
+    },
+  });
+});
+
 // Production static serving vs Dev Vite Middleware
 async function startServer() {
   const distPath = path.join(__dirname, 'dist');
-  const hasDistBuild = fs.existsSync(path.join(distPath, 'index.html'));
+  const distIndexPath = path.join(distPath, 'index.html');
+  const hasDistBuild = fs.existsSync(distIndexPath);
   const isCompiledServer = __filename.endsWith('server.js');
   const shouldServeStaticDist =
-    hasDistBuild &&
-    (process.env.NODE_ENV === 'production' ||
-      process.env.APP_ENV === 'production' ||
-      isProductionMode() ||
-      isCompiledServer);
+    hasDistBuild && (process.env.NODE_ENV === 'production' || isCompiledServer);
 
   if (shouldServeStaticDist) {
-    app.use(express.static(distPath));
-    app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    const sendSanitizedDistHtml = (_req: Request, res: Response) => {
+      try {
+        const rawHtml = fs.readFileSync(distIndexPath, 'utf-8');
+        // Strip anonymous crossorigin attributes so partitioned auth cookies are always sent in iframe preview
+        const safeHtml = rawHtml.replace(/\scrossorigin(?:="[^"]*")?/gi, '');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.send(safeHtml);
+      } catch {
+        res.sendFile(distIndexPath);
+      }
+    };
+
+    app.get('/', sendSanitizedDistHtml);
+    app.get('/index.html', sendSanitizedDistHtml);
+    app.use(express.static(distPath, { index: false }));
+    app.get('*', sendSanitizedDistHtml);
   } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -6014,8 +6595,38 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, () => {
+  const httpServer = app.listen(PORT, () => {
     console.log(`NDTAXANDLAW Server is running on port ${PORT} (static=${shouldServeStaticDist})`);
+  });
+
+  // Attach Real-Time WebSocket Server at /ws/chat using noServer upgrade so other upgrades are untouched
+  const wss = new WebSocketServer({ noServer: true });
+  wss.on('connection', (ws: WebSocket) => {
+    chatWsClients.add(ws);
+    ws.on('close', () => {
+      chatWsClients.delete(ws);
+    });
+    ws.on('error', () => {
+      chatWsClients.delete(ws);
+    });
+  });
+
+  httpServer.on('upgrade', (request, socket, head) => {
+    const reqUrl = request.url || '';
+    if (reqUrl.startsWith('/ws/chat')) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      // Accept Vite client HMR WebSocket handshake cleanly so @vite/client never throws "WebSocket closed without opened"
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        try {
+          ws.send(JSON.stringify({ type: 'connected' }));
+        } catch {
+          // ignore
+        }
+      });
+    }
   });
 }
 

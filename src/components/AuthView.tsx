@@ -542,7 +542,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <input
                         type="text"
                         required
-                        placeholder="contoh: admin@ndtaxlaw.com atau mitra@example.com"
+                        placeholder="contoh: admin@ndtaxandlaw.com atau mitra@example.com"
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
                         className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -625,7 +625,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       {/* Admin Sample */}
                       <button
                         type="button"
-                        onClick={() => handleQuickLogin('admin@ndtaxlaw.com', 'adminND2026!')}
+                        onClick={() => handleQuickLogin('admin@ndtaxandlaw.com', 'adminND2026!')}
                         className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100 text-left transition-colors flex items-start gap-2"
                       >
                         <div className="w-7 h-7 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
@@ -633,7 +633,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         </div>
                         <div className="overflow-hidden">
                           <p className="font-bold text-slate-900 truncate">Admin Utama</p>
-                          <p className="text-[10px] text-slate-500 font-mono">admin@ndtaxlaw.com</p>
+                          <p className="text-[10px] text-slate-500 font-mono">admin@ndtaxandlaw.com</p>
                           <p className="text-[9px] text-blue-800 font-semibold mt-0.5">Akses: Penuh + Kelola Staf &amp; Log</p>
                         </div>
                       </button>
@@ -641,7 +641,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       {/* Staff Sample */}
                       <button
                         type="button"
-                        onClick={() => handleQuickLogin('staf@ndtaxlaw.com', 'stafND2026!')}
+                        onClick={() => handleQuickLogin('staf@ndtaxandlaw.com', 'stafND2026!')}
                         className="p-2.5 rounded-xl border border-indigo-200 bg-indigo-50/60 hover:bg-indigo-100 text-left transition-colors flex items-start gap-2"
                       >
                         <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5">
@@ -649,7 +649,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         </div>
                         <div className="overflow-hidden">
                           <p className="font-bold text-slate-900 truncate">Staf Operasional</p>
-                          <p className="text-[10px] text-slate-500 font-mono">staf@ndtaxlaw.com</p>
+                          <p className="text-[10px] text-slate-500 font-mono">staf@ndtaxandlaw.com</p>
                           <p className="text-[9px] text-indigo-800 font-semibold mt-0.5">Akses: Operasional (Di Bawah Admin)</p>
                         </div>
                       </button>

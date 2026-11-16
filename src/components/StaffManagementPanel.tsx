@@ -50,7 +50,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   const [adminData, setAdminData] = useState<AdminProfile>({
     id: currentUser.id || 'usr-admin-01',
     name: currentUser.name || 'Super Administrator',
-    email: currentUser.email || 'admin@ndtaxlaw.com',
+    email: currentUser.email || 'admin@ndtaxandlaw.com',
     phone: currentUser.phone || '0812-8899-7711',
     position: currentUser.position || 'Managing Partner & Super Admin',
     gender: currentUser.gender || 'male',
@@ -108,7 +108,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
           setAdminData({
             id: adm.id || 'usr-admin-01',
             name: adm.name || 'Super Administrator',
-            email: adm.email || 'admin@ndtaxlaw.com',
+            email: adm.email || 'admin@ndtaxandlaw.com',
             phone: adm.phone || '0812-8899-7711',
             position: adm.position || 'Managing Partner & Super Admin',
             gender: adm.gender || 'male',
@@ -891,7 +891,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                   required
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="Contoh: rina.staf@ndtaxlaw.com"
+                  placeholder="Contoh: rina.staf@ndtaxandlaw.com"
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>

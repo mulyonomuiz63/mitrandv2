@@ -83,10 +83,11 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     firmName: 'NDTAXANDLAW',
     tagline: 'Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi',
     supportPhone: '0812-8899-7711',
-    supportEmail: 'advisory@ndtaxlaw.com',
+    supportEmail: 'advisory@ndtaxandlaw.com',
     officeAddress: 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
     defaultCommissionRate: 15,
     allowClientSelfRegister: true,
+    chatEnabled: true,
     googleOAuthEnabled: false,
     googleClientId: '',
     geminiApiEnabled: true,
@@ -98,11 +99,11 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     smtpHost: 'smtp.gmail.com',
     smtpPort: 587,
     smtpEncryption: 'tls',
-    smtpUser: 'notifications@ndtaxlaw.com',
+    smtpUser: 'notifications@ndtaxandlaw.com',
     smtpPassword: '••••••••••••••••',
     smtpSenderName: 'NDTAXANDLAW System',
-    smtpSenderEmail: 'notifications@ndtaxlaw.com',
-    smtpReplyToEmail: 'advisory@ndtaxlaw.com',
+    smtpSenderEmail: 'notifications@ndtaxandlaw.com',
+    smtpReplyToEmail: 'advisory@ndtaxandlaw.com',
     emailOnRegistrationVerify: true,
     emailOnPayoutDisbursed: true,
     emailOnClientAcc: true,
@@ -873,7 +874,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                   />
                 </div>
 
-                <div className="sm:col-span-2 pt-2 border-t border-slate-200">
+                <div className="sm:col-span-2 pt-2 border-t border-slate-200 space-y-3">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input
                       type="checkbox"
@@ -890,6 +891,25 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       </span>
                     </div>
                   </label>
+
+                  {!isStaff && (
+                    <label className="flex items-center gap-3 cursor-pointer pt-2 border-t border-slate-100">
+                      <input
+                        type="checkbox"
+                        checked={settings.chatEnabled !== false}
+                        onChange={(e) => setSettings({ ...settings, chatEnabled: e.target.checked })}
+                        className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <span className="font-semibold text-slate-800">
+                          Aktifkan Fitur Live Chat Real-Time (Mitra &amp; Staf)
+                        </span>
+                        <span className="text-slate-500 block text-[11px]">
+                          Jika diaktifkan, ikon chat melayang di pojok kanan bawah akan tampil pada portal Mitra &amp; Staf untuk komunikasi 1-on-1 dan grup real-time (Admin memonitor seluruh percakapan). Jika dinonaktifkan, fitur chat tidak tampil di Mitra maupun Staf.
+                        </span>
+                      </div>
+                    </label>
+                  )}
                 </div>
               </div>
             </div>
@@ -3430,7 +3450,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           type="text"
                           value={settings.smtpHost}
                           onChange={(e) => setSettings({ ...settings, smtpHost: e.target.value })}
-                          placeholder="smtp.gmail.com atau mail.ndtaxlaw.com"
+                          placeholder="smtp.gmail.com atau mail.ndtaxandlaw.com"
                           className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 bg-white"
                         />
                       </div>
@@ -3470,7 +3490,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           type="text"
                           value={settings.smtpUser}
                           onChange={(e) => setSettings({ ...settings, smtpUser: e.target.value })}
-                          placeholder="notifications@ndtaxlaw.com"
+                          placeholder="notifications@ndtaxandlaw.com"
                           className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 bg-white"
                         />
                       </div>
@@ -3520,7 +3540,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           type="email"
                           value={settings.smtpSenderEmail}
                           onChange={(e) => setSettings({ ...settings, smtpSenderEmail: e.target.value })}
-                          placeholder="notifications@ndtaxlaw.com"
+                          placeholder="notifications@ndtaxandlaw.com"
                           className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 bg-white"
                         />
                       </div>

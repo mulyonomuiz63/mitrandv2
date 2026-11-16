@@ -323,6 +323,9 @@ export interface AppSettings {
   // Environment Mode (Development vs Production)
   appEnvironment: 'development' | 'production';
 
+  // Live Chat Feature Toggle (Managed by Admin: if false, hidden for Mitra & Staf)
+  chatEnabled?: boolean;
+
   // Dynamic Mitra Specialization & Custom Form Fields Configuration
   specializationEnabled?: boolean;
   specializationLabel?: string;
@@ -735,5 +738,74 @@ export function getClientFieldUsageCount(field: DynamicFormField, clientDeals: C
       }).length;
   }
 }
+
+export interface ChatParticipant {
+  id: string;
+  name: string;
+  email: string;
+  role: 'mitra' | 'staff' | 'admin';
+  avatar: string;
+  avatarUrl?: string;
+  badgeLabel?: string;
+  code?: string;
+  memberCode?: string;
+  specialization?: string;
+}
+
+export interface ChatLinkPreview {
+  url: string;
+  title: string;
+  description?: string;
+  image?: string;
+  siteName?: string;
+}
+
+export interface ChatReplyQuote {
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  imageUrl?: string;
+  hasImage?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  roomId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'mitra' | 'staff' | 'admin';
+  senderAvatar: string;
+  text: string;
+  imageUrl?: string;
+  imageName?: string;
+  imageOriginalSize?: number;
+  imageCompressedSize?: number;
+  linkPreview?: ChatLinkPreview;
+  replyTo?: ChatReplyQuote;
+  forwardedFrom?: string;
+  createdAt: string;
+  editedAt?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
+}
+
+export interface ChatRoom {
+  id: string;
+  type: 'direct' | 'group';
+  name?: string;
+  description?: string;
+  avatarUrl?: string;
+  participantIds: string[];
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageText?: string;
+  lastMessageAt?: string;
+  lastMessageSenderId?: string;
+  lastMessageSenderName?: string;
+}
+
 
 

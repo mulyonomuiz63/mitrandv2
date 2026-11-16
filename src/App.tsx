@@ -24,6 +24,7 @@ import { StaffProfileEditModal } from './components/StaffProfileEditModal';
 import { StaffManagementPanel } from './components/StaffManagementPanel';
 import { MitraPublicVerificationView } from './components/MitraPublicVerificationView';
 import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
+import { RealtimeChatHub } from './components/RealtimeChatHub';
 import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
@@ -40,8 +41,8 @@ import {
   Globe
 } from 'lucide-react';
 
-const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard', 'staff-management'];
-const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions'];
+const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard', 'staff-management', 'chat'];
+const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions', 'chat'];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
@@ -203,6 +204,9 @@ export default function App() {
         ? currentUser.allowedMenus
         : DEFAULT_STAFF_ALLOWED_MENUS;
 
+    const isChatAllowedForUser =
+      (effectivePortalRole === 'admin' && !isStaffRole) || settings?.chatEnabled !== false;
+
     const validTabs = isStaffRole
       ? [
           ...(staffMenus.includes('dashboard') ? ['dashboard'] : []),
@@ -210,12 +214,13 @@ export default function App() {
           ...(staffMenus.includes('verification') ? ['verification', 'idcard'] : []),
           ...(staffMenus.includes('marketing-tools') ? ['marketing-tools'] : []),
           ...(staffMenus.includes('commissions') ? ['commissions'] : []),
+          ...(isChatAllowedForUser ? ['chat'] : []),
         ]
       : currentUser.allowedTabs && currentUser.allowedTabs.length > 0
-        ? [...currentUser.allowedTabs, 'staff-management']
+        ? [...currentUser.allowedTabs, 'staff-management', ...(isChatAllowedForUser ? ['chat'] : [])]
         : effectivePortalRole === 'admin'
           ? ADMIN_VALID_TABS
-          : MITRA_VALID_TABS;
+          : MITRA_VALID_TABS.filter((t) => (t === 'chat' ? isChatAllowedForUser : true));
 
     const defaultRoleTab = isStaffRole
       ? validTabs[0] || 'dashboard'
@@ -231,7 +236,7 @@ export default function App() {
     if (!validTabs.includes(activeTab)) {
       setActiveTab(defaultRoleTab);
     }
-  }, [currentUser, currentRole, activeTab, activeMitraId]);
+  }, [currentUser, currentRole, activeTab, activeMitraId, settings?.chatEnabled]);
 
   useEffect(() => {
     try {
@@ -517,7 +522,7 @@ export default function App() {
           currentUser={currentUser}
           userAvatarUrl={loggedInAvatar}
           supportPhone={settings?.supportPhone || '0812-8899-7711'}
-          supportEmail={settings?.supportEmail || 'advisory@ndtaxlaw.com'}
+          supportEmail={settings?.supportEmail || 'advisory@ndtaxandlaw.com'}
           onEnterPortal={() => {
             if (currentUser) {
               setViewMode('portal');
@@ -610,7 +615,7 @@ export default function App() {
             onClick={() => setViewMode('landing')}
             className="text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1.5"
           >
-            ← Kembali ke Landing Page Jasa Keuangan &amp; Pajak
+            ← Kembali ke Halaman Program Kemitraan
           </button>
           <span className="text-slate-400">NDTAXANDLAW Partner Security Gateway</span>
         </div>
@@ -752,7 +757,7 @@ export default function App() {
                 onUpdateProfile={handleUpdateProfile}
                 allowClientSelfRegister={settings?.allowClientSelfRegister !== false}
                 supportPhone={settings?.supportPhone || '0812-8899-7711'}
-                supportEmail={settings?.supportEmail || 'advisory@ndtaxlaw.com'}
+                supportEmail={settings?.supportEmail || 'advisory@ndtaxandlaw.com'}
                 onOpenClientSelfRegister={
                   settings?.allowClientSelfRegister !== false
                     ? (refCode) => {
@@ -853,8 +858,92 @@ export default function App() {
               }}
             />
           )}
+
+          {activeTab === 'chat' && (
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-6">
+              <RealtimeChatHub
+                currentUserId={
+                  currentRole === 'mitra'
+                    ? activeMitra.id
+                    : currentUser?.id || (currentUser?.roleCode === 'staff' ? 'staff-01' : 'admin-01')
+                }
+                currentUserName={
+                  currentRole === 'mitra'
+                    ? activeMitra.fullName
+                    : currentUser?.name || 'Admin Operasional'
+                }
+                currentUserRole={
+                  currentRole === 'mitra'
+                    ? 'mitra'
+                    : currentUser?.roleCode === 'staff'
+                    ? 'staff'
+                    : 'admin'
+                }
+                currentUserAvatar={
+                  currentRole === 'mitra'
+                    ? resolveAvatarUrl(activeMitra.avatarUrl, activeMitra.gender, activeMitra.fullName)
+                    : resolveAvatarUrl(currentUser?.avatarUrl, currentUser?.gender || 'male', currentUser?.name)
+                }
+                currentUserCode={
+                  currentRole === 'mitra' ? activeMitra.memberCode : currentUser?.position
+                }
+                chatEnabled={settings?.chatEnabled !== false}
+                isChatPageOpen={true}
+                onOpenChatPage={() => setActiveTab('chat')}
+                onToggleChatEnabled={
+                  currentRole === 'admin' && currentUser?.roleCode !== 'staff'
+                    ? async (enabled) => {
+                        const res = await fetch('/api/chat/settings', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ chatEnabled: enabled }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data.settings) setSettings(data.settings);
+                        }
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          )}
         </main>
       </div>
+
+      {/* Floating Bottom-Right Chat Button (Shown when activeTab !== 'chat' and chat is enabled for Mitra/Staf or user is Admin) */}
+      {activeTab !== 'chat' && (
+        <RealtimeChatHub
+          currentUserId={
+            currentRole === 'mitra'
+              ? activeMitra.id
+              : currentUser?.id || (currentUser?.roleCode === 'staff' ? 'staff-01' : 'admin-01')
+          }
+          currentUserName={
+            currentRole === 'mitra'
+              ? activeMitra.fullName
+              : currentUser?.name || 'Admin Operasional'
+          }
+          currentUserRole={
+            currentRole === 'mitra'
+              ? 'mitra'
+              : currentUser?.roleCode === 'staff'
+              ? 'staff'
+              : 'admin'
+          }
+          currentUserAvatar={
+            currentRole === 'mitra'
+              ? resolveAvatarUrl(activeMitra.avatarUrl, activeMitra.gender, activeMitra.fullName)
+              : resolveAvatarUrl(currentUser?.avatarUrl, currentUser?.gender || 'male', currentUser?.name)
+          }
+          currentUserCode={
+            currentRole === 'mitra' ? activeMitra.memberCode : currentUser?.position
+          }
+          chatEnabled={settings?.chatEnabled !== false}
+          isChatPageOpen={false}
+          onOpenChatPage={() => setActiveTab('chat')}
+        />
+      )}
 
       {/* Corporate Modern Footer */}
       <footer className="bg-white border-t border-slate-200 py-6 text-xs text-slate-500">
@@ -876,7 +965,7 @@ export default function App() {
               onClick={() => setViewMode('landing')}
               className="text-blue-700 hover:underline font-semibold"
             >
-              Lihat Web Layanan Publik
+              Lihat Halaman Program Mitra
             </button>
             <span>·</span>
             <span className="flex items-center gap-1">

@@ -380,7 +380,7 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@ndtaxlaw.com"
+                    placeholder="email@ndtaxandlaw.com"
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
