@@ -723,7 +723,7 @@ export default function App() {
         </div>
 
         {/* Main Content Viewport */}
-        <main className="pb-16">
+        <main className={activeTab === 'chat' ? 'pb-3' : 'pb-16'}>
           {activeTab === 'dashboard' && (
             <AnalyticsDashboard
               salesHistory={salesHistory}
@@ -860,7 +860,7 @@ export default function App() {
           )}
 
           {activeTab === 'chat' && (
-            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-6">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3">
               <RealtimeChatHub
                 currentUserId={
                   currentRole === 'mitra'

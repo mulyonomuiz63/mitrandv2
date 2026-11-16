@@ -6600,7 +6600,13 @@ async function startServer() {
   });
 
   // Attach Real-Time WebSocket Server at /ws/chat using noServer upgrade so other upgrades are untouched
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => {
+      const first = protocols.values().next().value;
+      return first || false;
+    },
+  });
   wss.on('connection', (ws: WebSocket) => {
     chatWsClients.add(ws);
     ws.on('close', () => {

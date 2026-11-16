@@ -1035,73 +1035,42 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const selectedMeta = selectedRoom ? getRoomDisplayMeta(selectedRoom) : null;
 
   return (
-    <div className="space-y-4">
-      {/* Top Status & Admin Control Bar */}
-      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-emerald-700/40 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div className="flex items-start sm:items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
-            <MessageSquare className="w-6 h-6 text-emerald-300" />
+    <div className="space-y-2.5">
+      {/* Simple Top Header Bar: Icon + Chat - ND TAX AND LAW */}
+      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl px-4 py-2.5 shadow-md border border-emerald-700/40 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-5 h-5 text-emerald-300" />
           </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-white">
-                NDTAXANDLAW Real-Time Workspace Chat
-              </h2>
-              {isAdminMonitor ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-amber-200 text-[11px] font-bold">
-                  <Eye className="w-3.5 h-3.5" />
-                  MODE MONITORING ADMIN
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold">
-                  <Sparkles className="w-3 h-3" />
-                  REAL-TIME AKTIF
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-emerald-100/80 mt-0.5">
-              {isAdminMonitor
-                ? 'Admin dapat memonitor seluruh percakapan individu (1-on-1) dan grup antara Mitra & Staf serta mengatur aktivasi fitur chat.'
-                : 'Komunikasi real-time terenkripsi antar Mitra & Staf • Grup Privat • Kompresi Gambar Otomatis • Balas/Tag & Edit/Tarik < 5 Menit • Tekan ESC untuk menutup ruang chat aktif.'}
-            </p>
-          </div>
+          <h2 className="text-sm sm:text-base font-extrabold tracking-tight text-white">
+            Chat - ND TAX AND LAW
+          </h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {selectedRoomId && (
-            <div className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-[11px] font-semibold text-emerald-100 flex items-center gap-1.5">
-              <span className="px-1.5 py-0.5 rounded bg-white/20 text-white font-mono font-bold text-[10px]">
-                ESC
-              </span>
-              <span>Tutup obrolan aktif &amp; pilih kontak lain</span>
-            </div>
-          )}
-
-          {isAdminMonitor && onToggleChatEnabled && (
-            <button
-              type="button"
-              onClick={() => onToggleChatEnabled(!chatEnabled)}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all shadow-md cursor-pointer ${
-                chatEnabled
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                  : 'bg-rose-600 hover:bg-rose-500 text-white'
-              }`}
-            >
-              <Power className="w-4 h-4" />
-              {chatEnabled
-                ? 'Status Chat Mitra & Staf: AKTIF (Klik untuk Nonaktifkan)'
-                : 'Status Chat Mitra & Staf: NONAKTIF (Klik untuk Aktifkan)'}
-            </button>
-          )}
-        </div>
+        {isAdminMonitor && onToggleChatEnabled && (
+          <button
+            type="button"
+            onClick={() => onToggleChatEnabled(!chatEnabled)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all shadow-sm cursor-pointer ${
+              chatEnabled
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                : 'bg-rose-600 hover:bg-rose-500 text-white'
+            }`}
+          >
+            <Power className="w-3.5 h-3.5" />
+            <span>
+              {chatEnabled ? 'Chat Mitra & Staf: AKTIF' : 'Chat Mitra & Staf: NONAKTIF'}
+            </span>
+          </button>
+        )}
       </div>
 
-      {/* Main WhatsApp-Style Split Container */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[680px] h-[calc(100vh-220px)] max-h-[820px]">
+      {/* Main WhatsApp-Style Split Container — Full viewport fit on Desktop & Tablet, adaptive on Mobile */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden grid grid-cols-1 md:grid-cols-12 h-[calc(100dvh-225px)] sm:h-[calc(100dvh-235px)] min-h-[380px] max-h-[760px]">
         {/* LEFT SIDEBAR: Rooms, Groups & Participant Directory */}
         <div
-          className={`lg:col-span-4 border-r border-slate-200 flex flex-col bg-slate-50/60 h-full overflow-hidden ${
-            selectedRoomId ? 'hidden lg:flex' : 'flex'
+          className={`md:col-span-5 lg:col-span-4 border-r border-slate-200 flex flex-col bg-slate-50/60 h-full overflow-hidden ${
+            selectedRoomId ? 'hidden md:flex' : 'flex'
           }`}
         >
           {/* Sidebar Header */}
@@ -1411,28 +1380,28 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
         {/* RIGHT CONVERSATION PANE */}
         <div
-          className={`lg:col-span-8 flex flex-col h-full overflow-hidden bg-[#efeae2] ${
-            selectedRoomId ? 'flex' : 'hidden lg:flex'
+          className={`md:col-span-7 lg:col-span-8 flex flex-col h-full overflow-hidden bg-[#efeae2] ${
+            selectedRoomId ? 'flex' : 'hidden md:flex'
           }`}
         >
           {!selectedRoom || !selectedMeta ? (
             /* Empty State when no chat is selected (or after pressing ESC) */
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-slate-50 to-emerald-50/30">
-              <div className="w-20 h-20 rounded-3xl bg-emerald-600/10 border border-emerald-500/20 flex items-center justify-center mb-4 shadow-inner">
-                <MessageSquare className="w-10 h-10 text-emerald-600" />
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-slate-50 to-emerald-50/30">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-600/10 border border-emerald-500/20 flex items-center justify-center mb-3 shadow-inner">
+                <MessageSquare className="w-8 h-8 text-emerald-600" />
               </div>
-              <h3 className="text-lg font-extrabold text-slate-900">
+              <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
                 {isAdminMonitor
                   ? 'Panel Monitoring Percakapan Mitra & Staf'
                   : 'Pilih Percakapan atau Mulai Chat Baru'}
               </h3>
-              <p className="text-xs text-slate-600 max-w-md mt-1.5 leading-relaxed">
+              <p className="text-xs text-slate-600 max-w-md mt-1 leading-relaxed">
                 {isAdminMonitor
                   ? 'Pilih salah satu ruang percakapan 1-on-1 atau grup di sebelah kiri untuk memonitor komunikasi antara Mitra dan Staf secara real-time.'
                   : 'Pilih rekan Mitra, Staf Operasional, atau Grup Diskusi di panel kiri untuk mengirim pesan teks, tautan ber-meta preview, emoji/ikon, maupun gambar terkompresi.'}
               </p>
 
-              <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl w-full text-left">
+              <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl w-full text-left">
                 <div className="p-3 rounded-xl bg-white border border-slate-200 shadow-xs">
                   <p className="text-[11px] font-extrabold text-emerald-800">
                     ⚡ Real-Time &amp; Grup Privat
@@ -1462,12 +1431,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           ) : (
             <>
               {/* Active Room Header */}
-              <div className="px-4 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-3 shrink-0 shadow-xs">
+              <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between gap-3 shrink-0 shadow-xs">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     type="button"
                     onClick={() => setSelectedRoomId(null)}
-                    className="lg:hidden p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    className="md:hidden p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
                     title="Kembali ke daftar chat"
                   >
                     <ArrowLeft className="w-5 h-5" />

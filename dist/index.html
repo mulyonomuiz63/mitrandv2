@@ -13,8 +13,60 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="/assets/index-C-Z44ghc.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CVKjnkj4.css">
+    <script>
+      (function () {
+        window.addEventListener('unhandledrejection', function (e) {
+          var msg = e && e.reason && (e.reason.message || String(e.reason));
+          if (msg && msg.indexOf('WebSocket closed without opened') !== -1) {
+            e.preventDefault();
+          }
+        });
+        var OrigWS = window.WebSocket;
+        if (!OrigWS) return;
+        function PatchedWebSocket(url, protocols) {
+          var isViteHmr =
+            protocols === 'vite-hmr' ||
+            (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
+          if (isViteHmr) {
+            var target = new EventTarget();
+            target.readyState = 1;
+            target.protocol = 'vite-hmr';
+            target.url = String(url || '');
+            target.send = function () {};
+            target.close = function () {
+              target.readyState = 3;
+            };
+            var origAdd = target.addEventListener.bind(target);
+            target.addEventListener = function (type, listener, options) {
+              origAdd(type, listener, options);
+              if (type === 'open') {
+                setTimeout(function () {
+                  target.dispatchEvent(new Event('open'));
+                }, 0);
+              } else if (type === 'message') {
+                setTimeout(function () {
+                  target.dispatchEvent(
+                    new MessageEvent('message', { data: JSON.stringify({ type: 'connected' }) })
+                  );
+                }, 5);
+              }
+            };
+            return target;
+          }
+          return protocols !== undefined ? new OrigWS(url, protocols) : new OrigWS(url);
+        }
+        PatchedWebSocket.prototype = OrigWS.prototype;
+        PatchedWebSocket.CONNECTING = OrigWS.CONNECTING;
+        PatchedWebSocket.OPEN = OrigWS.OPEN;
+        PatchedWebSocket.CLOSING = OrigWS.CLOSING;
+        PatchedWebSocket.CLOSED = OrigWS.CLOSED;
+        try {
+          window.WebSocket = PatchedWebSocket;
+        } catch (_e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-GxntcEi-.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DxAMCND1.css">
   </head>
   <body class="bg-slate-50 text-slate-800 antialiased font-sans">
     <div id="root"></div>

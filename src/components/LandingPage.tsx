@@ -750,13 +750,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       </div>
                       <input
                         type="range"
-                        min={3}
+                        min={1}
                         max={36}
-                        step={3}
+                        step={1}
                         value={contractDurationMonths}
                         onChange={(e) => setContractDurationMonths(Number(e.target.value))}
                         className="w-full accent-emerald-400 cursor-pointer h-2 bg-slate-700 rounded-lg"
                       />
+                      <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                        <span>1 Bulan</span>
+                        <span>12 Bulan</span>
+                        <span>24 Bulan</span>
+                        <span>36 Bulan</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -813,7 +819,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     {simMode === 'bulanan' && (
                       <div className="flex items-center justify-between py-2 border-b border-white/10">
                         <span className="text-emerald-300 font-semibold">
-                          Komisi Berulang 10% / bulan (bln ke-2 s/d {contractDurationMonths}):
+                          {contractDurationMonths > 1
+                            ? `Komisi Berulang 10% / bulan (bln ke-2 s/d ${contractDurationMonths}):`
+                            : 'Komisi Berulang 10% / bulan (aktif mulai bln ke-2):'}
                         </span>
                         <span className="font-bold text-emerald-400 text-sm tabular-nums">
                           {formatRupiah(recurringMonthlyCommissionRupiah)} / bln

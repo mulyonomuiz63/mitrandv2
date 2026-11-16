@@ -6187,7 +6187,13 @@ async function startServer() {
   const httpServer = app.listen(PORT, () => {
     console.log(`NDTAXANDLAW Server is running on port ${PORT} (static=${shouldServeStaticDist})`);
   });
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => {
+      const first = protocols.values().next().value;
+      return first || false;
+    }
+  });
   wss.on("connection", (ws) => {
     chatWsClients.add(ws);
     ws.on("close", () => {
