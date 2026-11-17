@@ -562,6 +562,33 @@ export default function App() {
     }
   };
 
+  const handleDeleteNotification = async (id: string) => {
+    try {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      await fetch(`/api/notifications/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteAllNotifications = async () => {
+    try {
+      const targetIds = visibleNotifications.map((n) => n.id);
+      if (targetIds.length === 0) return;
+      const idSet = new Set(targetIds);
+      setNotifications((prev) => prev.filter((n) => !idSet.has(n.id)));
+      await fetch('/api/notifications/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: targetIds }),
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleLoginSuccess = (user: AuthUser) => {
     setCurrentUser(user);
     try {
@@ -1079,6 +1106,8 @@ export default function App() {
         onClose={() => setIsNotifDrawerOpen(false)}
         notifications={visibleNotifications}
         onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+        onDeleteNotification={handleDeleteNotification}
+        onDeleteAllNotifications={handleDeleteAllNotifications}
         onSelectAction={(tab) => setActiveTab(tab)}
         userRole={effectiveViewerRole}
       />

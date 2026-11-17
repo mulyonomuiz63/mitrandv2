@@ -360,11 +360,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="lg:col-span-7 space-y-6">
               <div className="space-y-3">
                 <h1
-                  className={`text-3xl sm:text-5xl lg:text-[52px] font-black tracking-tight leading-[1.08] uppercase ${
+                  className={`text-2xl sm:text-3xl md:text-4xl lg:text-[38px] xl:text-[42px] font-black tracking-tight leading-[1.18] uppercase ${
                     isDark ? 'text-white' : 'text-[#0B1D3A]'
                   }`}
                 >
-                  DIBUKA PELUANG BISNIS{' '}
+                  DIBUKA MITRA STRATEGIS{' '}
                   <span
                     className={
                       isDark
@@ -372,9 +372,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         : 'text-amber-600'
                     }
                   >
-                    TANPA MODAL.
+                    NDTAXANDLAW TIAP DAERAH.
                   </span>
-                  <span className={`block mt-2 ${isDark ? 'text-white' : 'text-[#0B1D3A]'}`}>
+                  <span className={`block mt-2 text-xl sm:text-2xl md:text-3xl lg:text-[32px] xl:text-[36px] leading-[1.2] ${isDark ? 'text-white' : 'text-[#0B1D3A]'}`}>
                     CLOSING BESAR, KOMISI BESAR,{' '}
                     <span className={isDark ? 'text-amber-400' : 'text-amber-600'}>
                       BONUS BESAR.
@@ -1270,10 +1270,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Final Call-To-Action Banner */}
           <div className="mt-14 bg-gradient-to-r from-[#12316B] via-[#0F2756] to-[#12316B] border-2 border-amber-400/60 rounded-3xl p-8 sm:p-10 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl text-white">
             <div className="space-y-2 text-center lg:text-left max-w-2xl">
-              <span className="text-xs font-extrabold uppercase tracking-widest text-amber-300">
-                DIBUKA PELUANG BISNIS TANPA MODAL.
+              <span className="text-[11px] sm:text-xs font-extrabold uppercase tracking-widest text-amber-300 block">
+                DIBUKA MITRA STRATEGIS NDTAXANDLAW TIAP DAERAH.
               </span>
-              <h3 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
+              <h3 className="text-xl sm:text-2xl lg:text-[26px] font-black text-white uppercase tracking-tight leading-snug">
                 CLOSING BESAR, KOMISI BESAR, BONUS BESAR!
               </h3>
             </div>

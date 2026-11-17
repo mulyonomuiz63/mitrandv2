@@ -9,6 +9,8 @@ import {
   ClientSystemFieldKey,
   resolveClientFormFields,
   calculateClientDealCommission,
+  OFFICIAL_ND_SERVICES,
+  resolveServicePricingType,
 } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
@@ -29,16 +31,18 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   settings,
 }) => {
   const confirm = useConfirm();
-  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>(OFFICIAL_ND_SERVICES);
   const [dynamicSettings, setDynamicSettings] = useState<AppSettings | null>(settings || null);
   const [loadingServices, setLoadingServices] = useState(false);
-  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [selectedServiceId, setSelectedServiceId] = useState(OFFICIAL_ND_SERVICES[0]?.id || '');
   const [companyName, setCompanyName] = useState('');
   const [picName, setPicName] = useState('');
   const [picPhone, setPicPhone] = useState('');
   const [picEmail, setPicEmail] = useState('');
-  const [dealValue, setDealValue] = useState<number>(10000000);
-  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription' | 'annual_subscription'>('case_by_case');
+  const [dealValue, setDealValue] = useState<number>(0);
+  const [pricingType, setPricingType] = useState<'case_by_case' | 'monthly_subscription' | 'annual_subscription'>(
+    resolveServicePricingType(OFFICIAL_ND_SERVICES[0])
+  );
   const [isCustomPeriod, setIsCustomPeriod] = useState<boolean>(false);
   
   // Interactive Month & Year Picker state (No manual typing)
@@ -101,7 +105,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
     if (serviceList.length > 0) {
       setSelectedServiceId(serviceList[0].id);
       setDealValue(0);
-      setPricingType(serviceList[0].pricingType);
+      setPricingType(resolveServicePricingType(serviceList[0]));
     }
   };
 
@@ -133,8 +137,10 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   if (!isOpen) return null;
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
+  const lockedPricingType = resolveServicePricingType(selectedService);
+  const effectivePricingType = selectedService ? lockedPricingType : pricingType;
   const commissionCalc = calculateClientDealCommission(
-    pricingType,
+    effectivePricingType,
     dealValue,
     dynamicSettings?.commissionScheme
   );
@@ -146,7 +152,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
     setSelectedServiceId(sId);
     const s = services.find((srv) => srv.id === sId);
     if (s) {
-      setPricingType(s.pricingType);
+      setPricingType(resolveServicePricingType(s));
     }
   };
 
@@ -213,13 +219,13 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
           picEmail: finalPicEmail,
           serviceId: selectedServiceId,
           dealValue: Number(dealValue),
-          pricingType,
+          pricingType: effectivePricingType,
           status: 'pending_acc',
-          subscriptionStartDate: pricingType !== 'case_by_case' ? subscriptionStartDate : undefined,
-          billingDayOfMonth: pricingType !== 'case_by_case' ? Number(billingDayOfMonth) : undefined,
-          periodStart: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodStart : undefined,
-          periodEnd: pricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
-          durationMonths: pricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
+          subscriptionStartDate: effectivePricingType !== 'case_by_case' ? subscriptionStartDate : undefined,
+          billingDayOfMonth: effectivePricingType !== 'case_by_case' ? Number(billingDayOfMonth) : undefined,
+          periodStart: effectivePricingType === 'case_by_case' && isCustomPeriod ? autoPeriodStart : undefined,
+          periodEnd: effectivePricingType === 'case_by_case' && isCustomPeriod ? autoPeriodEnd : undefined,
+          durationMonths: effectivePricingType === 'case_by_case' && isCustomPeriod ? autoDuration : undefined,
           paymentTermType: 'one_time',
           notes: finalNotes,
           customFields: Object.keys(cleanedCustomFields).length > 0 ? cleanedCustomFields : undefined,
@@ -575,65 +581,79 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     >
                       {services.map((srv) => (
                         <option key={srv.id} value={srv.id}>
-                          {srv.name} ({srv.category})
+                          {srv.name}
                         </option>
                       ))}
                     </select>
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Model Pembayaran &amp; Skema Komisi Klien
-                    </label>
+                    <div className="flex flex-wrap items-center justify-between gap-1 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Model Pembayaran &amp; Skema Komisi Klien
+                      </label>
+                      <span className="text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                        Otomatis mengikuti jenis layanan ({effectivePricingType === 'monthly_subscription' ? 'Langganan Bulanan' : effectivePricingType === 'annual_subscription' ? 'Langganan Tahunan' : 'Case-by-Case / Per Projek'})
+                      </span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                       <button
                         type="button"
-                        onClick={() => setPricingType('case_by_case')}
+                        disabled={effectivePricingType !== 'case_by_case'}
+                        onClick={() => {
+                          if (effectivePricingType === 'case_by_case') setPricingType('case_by_case');
+                        }}
                         className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                          pricingType === 'case_by_case'
+                          effectivePricingType === 'case_by_case'
                             ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
-                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                            : 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
                         }`}
                       >
-                        <span className="font-bold text-sm block">⚡ Case-by-Case</span>
-                        <span className={`block text-[11px] mt-0.5 ${pricingType === 'case_by_case' ? 'text-blue-100' : 'text-slate-500'}`}>
-                          1x Bayar (Proyek / Multi-Bulan)
+                        <span className="font-bold text-sm block">⚡ Case-by-Case (Per Projek)</span>
+                        <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'case_by_case' ? 'text-blue-100' : 'text-slate-400'}`}>
+                          1x Bayar (Per Projek / Multi-Bulan)
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => setPricingType('monthly_subscription')}
+                        disabled={effectivePricingType !== 'monthly_subscription'}
+                        onClick={() => {
+                          if (effectivePricingType === 'monthly_subscription') setPricingType('monthly_subscription');
+                        }}
                         className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                          pricingType === 'monthly_subscription'
+                          effectivePricingType === 'monthly_subscription'
                             ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
-                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                            : 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
                         }`}
                       >
                         <span className="font-bold text-sm block">🔄 Langganan Bulanan</span>
-                        <span className={`block text-[11px] mt-0.5 ${pricingType === 'monthly_subscription' ? 'text-blue-100' : 'text-slate-500'}`}>
+                        <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'monthly_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
                           Komisi tiap siklus bulanan
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => setPricingType('annual_subscription')}
+                        disabled={effectivePricingType !== 'annual_subscription'}
+                        onClick={() => {
+                          if (effectivePricingType === 'annual_subscription') setPricingType('annual_subscription');
+                        }}
                         className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                          pricingType === 'annual_subscription'
+                          effectivePricingType === 'annual_subscription'
                             ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
-                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                            : 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
                         }`}
                       >
                         <span className="font-bold text-sm block">📅 Langganan Tahunan</span>
-                        <span className={`block text-[11px] mt-0.5 ${pricingType === 'annual_subscription' ? 'text-blue-100' : 'text-slate-500'}`}>
+                        <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'annual_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
                           Annual Retainer Perikatan
                         </span>
                       </button>
                     </div>
 
                     {/* Subscription Start Date & Recurring Billing Day */}
-                    {(pricingType === 'monthly_subscription' || pricingType === 'annual_subscription') && (
+                    {(effectivePricingType === 'monthly_subscription' || effectivePricingType === 'annual_subscription') && (
                       <div className="mt-3 p-3.5 bg-white rounded-xl border border-blue-200 shadow-2xs grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -663,7 +683,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                           >
                             {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
                               <option key={d} value={d}>
-                                Setiap Tanggal {d} ({pricingType === 'annual_subscription' ? 'Tahunan' : 'Bulanan'})
+                                Setiap Tanggal {d} ({effectivePricingType === 'annual_subscription' ? 'Tahunan' : 'Bulanan'})
                               </option>
                             ))}
                           </select>
@@ -672,7 +692,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     )}
 
                     {/* Case by case custom multi-month period section */}
-                    {pricingType === 'case_by_case' && (
+                    {effectivePricingType === 'case_by_case' && (
                       <div className="mt-3 p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800">
                           <input
@@ -755,11 +775,11 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                       />
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      {pricingType === 'monthly_subscription'
+                      {effectivePricingType === 'monthly_subscription'
                         ? 'Nominal tagihan retensi per bulan ke klien.'
-                        : pricingType === 'annual_subscription'
+                        : effectivePricingType === 'annual_subscription'
                         ? 'Nominal tagihan retensi per tahun ke klien.'
-                        : 'Total nilai kontrak satu kali pengerjaan.'}
+                        : 'Total nilai kontrak satu kali pengerjaan (Per Projek / Case-by-Case).'}
                     </p>
                   </div>
 
@@ -774,11 +794,11 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                       </div>
                       <div className="text-xl font-extrabold text-white mt-1 font-mono tracking-tight">
                         Rp {estimatedCommission.toLocaleString('id-ID')}
-                        {pricingType !== 'case_by_case' && (
+                        {effectivePricingType !== 'case_by_case' && (
                           <span className="text-xs font-normal text-amber-300"> (Bulan ke-1)</span>
                         )}
                       </div>
-                      {pricingType !== 'case_by_case' && (
+                      {effectivePricingType !== 'case_by_case' && (
                         <div className="mt-1.5 pt-1.5 border-t border-white/15 flex items-center justify-between text-[11px] text-blue-100">
                           <span>Komisi Langganan Bulan Berikutnya ({commissionCalc.recurringRate}%):</span>
                           <span className="font-mono font-bold text-emerald-300">
@@ -788,9 +808,9 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                       )}
                     </div>
                     <p className="text-[10px] text-blue-100/90 mt-2 leading-tight">
-                      {pricingType !== 'case_by_case'
+                      {effectivePricingType !== 'case_by_case'
                         ? `✔️ Langganan: <5 Jt (10%), 5–10 Jt (15%), ≥10 Jt (20%). Selama klien aktif langganan bulan berikutnya tetap dapat ${commissionCalc.recurringRate}% (dikunci sesuai komisi waktu deal).`
-                        : '✔️ Case-by-Case: <50 Jt (10%), 50–100 Jt (15%), ≥100 Jt (20%). Komisi dikunci sesuai kesepakatan waktu deal.'}
+                        : '✔️ Case-by-Case (Per Projek): <50 Jt (10%), 50–100 Jt (15%), ≥100 Jt (20%). Komisi dikunci sesuai kesepakatan waktu deal.'}
                     </p>
                   </div>
                 </div>

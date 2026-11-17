@@ -7,7 +7,8 @@ import {
   X, 
   Sparkles,
   Building2,
-  Settings
+  Settings,
+  Trash2
 } from 'lucide-react';
 import { NotificationItem } from '../types';
 
@@ -16,6 +17,8 @@ interface NotificationDrawerProps {
   onClose: () => void;
   notifications: NotificationItem[];
   onMarkAllAsRead: () => void;
+  onDeleteNotification?: (id: string) => void;
+  onDeleteAllNotifications?: () => void;
   onSelectAction: (type: string) => void;
   userRole?: 'admin' | 'staff' | 'mitra';
 }
@@ -25,6 +28,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   onClose,
   notifications,
   onMarkAllAsRead,
+  onDeleteNotification,
+  onDeleteAllNotifications,
   onSelectAction,
   userRole = 'mitra',
 }) => {
@@ -108,31 +113,46 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
         <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col justify-between animate-in slide-in-from-right duration-300">
           {/* Header */}
-          <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-800 flex items-center justify-center">
+          <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-800 flex items-center justify-center shrink-0">
                 <Bell className="w-4 h-4" />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 font-display">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-slate-900 font-display truncate">
                   Notifikasi Sistem
                 </h3>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-[11px] text-slate-500 truncate">
                   {subtitleText}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 shrink-0">
+              {notifications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onMarkAllAsRead}
+                  className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:bg-blue-50 px-2 py-1 rounded transition-colors cursor-pointer"
+                >
+                  Tandai Dibaca
+                </button>
+              )}
+              {notifications.length > 0 && onDeleteAllNotifications && (
+                <button
+                  type="button"
+                  onClick={onDeleteAllNotifications}
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2 py-1 rounded flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Hapus semua notifikasi"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Semua</span>
+                </button>
+              )}
               <button
-                onClick={onMarkAllAsRead}
-                className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 px-2 py-1 rounded"
-              >
-                Tandai Dibaca
-              </button>
-              <button
+                type="button"
                 onClick={onClose}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -175,9 +195,24 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1">
                         {getCategoryBadge(item.type)}
-                        {!item.isRead && (
-                          <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!item.isRead && (
+                            <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+                          )}
+                          {onDeleteNotification && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteNotification(item.id);
+                              }}
+                              title="Hapus notifikasi ini"
+                              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <h4 className="font-bold text-slate-900 line-clamp-1">
                         {item.title}
@@ -210,3 +245,4 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
     </div>
   );
 };
+

@@ -271,6 +271,171 @@ export interface ServiceItem {
   isActive: boolean;
 }
 
+export function resolveServicePricingType(
+  service?: Pick<ServiceItem, 'name' | 'pricingType'> | null
+): 'case_by_case' | 'monthly_subscription' | 'annual_subscription' {
+  if (!service) return 'monthly_subscription';
+  const nameLower = (service.name || '').toLowerCase();
+  if (nameLower.includes('(bulanan)')) {
+    return 'monthly_subscription';
+  }
+  if (
+    nameLower.includes('(per projek)') ||
+    nameLower.includes('(per proyek)') ||
+    nameLower.includes('(case by case)') ||
+    nameLower.includes('(case-by-case)')
+  ) {
+    return 'case_by_case';
+  }
+  if (nameLower.includes('(tahunan)')) {
+    return 'annual_subscription';
+  }
+  return service.pricingType || 'case_by_case';
+}
+
+export const OFFICIAL_ND_SERVICES: ServiceItem[] = [
+  {
+    id: 'srv-nd-01',
+    name: 'Jasa Perpajakan (Bulanan)',
+    category: 'Kepatuhan Pajak',
+    defaultPrice: 5000000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 15,
+    description: 'Layanan kepatuhan, administrasi, dan pelaporan perpajakan rutin bulanan.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-02',
+    name: 'Jasa Akuntansi (Bulanan)',
+    category: 'Laporan Keuangan',
+    defaultPrice: 5000000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 15,
+    description: 'Layanan pembukuan dan penyusunan laporan keuangan akuntansi rutin bulanan.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-03',
+    name: 'Jasa Keuangan (Bulanan)',
+    category: 'Konsultasi Finansial',
+    defaultPrice: 5000000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 15,
+    description: 'Layanan manajemen, analisis, dan advisori keuangan perusahaan rutin bulanan.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-04',
+    name: 'Jasa Akuntansi & Perpajakan (Bulanan)',
+    category: 'Kepatuhan Pajak',
+    defaultPrice: 7500000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 15,
+    description: 'Paket terpadu pembukuan akuntansi dan kepatuhan perpajakan rutin bulanan.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-05',
+    name: 'Jasa Keuangan, Akuntansi, & Perpajakan (Bulanan)',
+    category: 'Laporan Keuangan',
+    defaultPrice: 10000000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 20,
+    description: 'Paket komprehensif pengelolaan keuangan, akuntansi, dan perpajakan rutin bulanan.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-06',
+    name: 'Jasa Hukum (Bulanan)',
+    category: 'Legalitas Korporasi',
+    defaultPrice: 7500000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 15,
+    description: 'Layanan retainer konsultan hukum korporasi dan pendampingan legal bulanan.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-07',
+    name: 'Jasa Lainnya (Bulanan)',
+    category: 'Konsultasi Finansial',
+    defaultPrice: 5000000,
+    pricingType: 'monthly_subscription',
+    commissionRate: 15,
+    description: 'Layanan kustom berlangganan bulanan sesuai kebutuhan spesifik klien.',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-08',
+    name: 'Jasa Perpajakan (Per Projek)',
+    category: 'Kepatuhan Pajak',
+    defaultPrice: 15000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Penanganan kasus atau pekerjaan perpajakan berbasis per projek (Case-by-Case).',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-09',
+    name: 'Jasa Akuntansi (Per Projek)',
+    category: 'Laporan Keuangan',
+    defaultPrice: 15000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Penyusunan atau rekonstruksi laporan akuntansi berbasis per projek (Case-by-Case).',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-10',
+    name: 'Jasa Keuangan (Per Projek)',
+    category: 'Konsultasi Finansial',
+    defaultPrice: 20000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Advisori dan restrukturisasi keuangan berbasis per projek (Case-by-Case).',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-11',
+    name: 'Jasa Akuntansi & Perpajakan (Per Projek)',
+    category: 'Kepatuhan Pajak',
+    defaultPrice: 25000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Penanganan terpadu akuntansi dan perpajakan berbasis per projek (Case-by-Case).',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-12',
+    name: 'Jasa Keuangan, Akuntansi & Perpajakan (Per Projek)',
+    category: 'Laporan Keuangan',
+    defaultPrice: 35000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Solusi menyeluruh keuangan, akuntansi, dan perpajakan berbasis per projek (Case-by-Case).',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-13',
+    name: 'Jasa Hukum (Per Projek)',
+    category: 'Legalitas Korporasi',
+    defaultPrice: 25000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Pendampingan hukum, litigasi, atau legalitas korporasi berbasis per projek (Case-by-Case).',
+    isActive: true,
+  },
+  {
+    id: 'srv-nd-14',
+    name: 'Jasa Lainnya (Per Projek)',
+    category: 'Konsultasi Finansial',
+    defaultPrice: 15000000,
+    pricingType: 'case_by_case',
+    commissionRate: 10,
+    description: 'Layanan profesional khusus berbasis per projek (Case-by-Case) sesuai kesepakatan.',
+    isActive: true,
+  },
+];
+
 export interface CommissionSchemeConfig {
   // Sistem Langganan (monthly_subscription / annual_subscription)
   subHighThreshold: number; // default: 10000000 (>= 10 Juta)

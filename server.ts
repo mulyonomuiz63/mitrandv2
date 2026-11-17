@@ -9,7 +9,14 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
 import { supabase, isSupabaseConfigured, getSupabaseConfig, testSupabaseConnection } from './src/supabase.ts';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, resolveAvatarUrl, inferGenderFromName } from './src/avatars.ts';
-import type { ChatParticipant, ChatRoom, ChatMessage, ChatLinkPreview } from './src/types.ts';
+import {
+  OFFICIAL_ND_SERVICES,
+  resolveServicePricingType,
+  type ChatParticipant,
+  type ChatRoom,
+  type ChatMessage,
+  type ChatLinkPreview,
+} from './src/types.ts';
 
 dotenv.config();
 
@@ -890,88 +897,60 @@ let marketingTools: MarketingTool[] = [
   },
 ];
 
-let services: ServiceItem[] = [
-  {
-    id: 'srv-01',
-    name: 'Penyusunan Laporan Keuangan Bulanan & Tahunan (Komersial & Fiskal)',
-    category: 'Laporan Keuangan',
-    defaultPrice: 7500000,
-    pricingType: 'monthly_subscription',
-    commissionRate: 15,
-    description: 'Penyusunan Neraca, Laba Rugi, Cashflow, Jurnal Penyesuaian, Buku Besar, dan Rekonsiliasi Bank berkala sesuai PSAK.',
-    isActive: true,
-  },
-  {
-    id: 'srv-02',
-    name: 'Kepatuhan & Pelaporan SPT Tahunan Badan (PPh Badan 1771)',
-    category: 'Kepatuhan Pajak',
-    defaultPrice: 15000000,
-    pricingType: 'case_by_case',
-    commissionRate: 15,
-    description: 'Kalkulasi kredit pajak, koreksi fiskal positif/negatif, lampiran khusus, dan e-filing resmi DJP dengan garansi nihil teguran formil.',
-    isActive: true,
-  },
-  {
-    id: 'srv-03',
-    name: 'Paket Kepatuhan Pajak Bulanan (SPT Masa PPh 21/23/25/4(2) & PPN 1111)',
-    category: 'Kepatuhan Pajak',
-    defaultPrice: 4500000,
-    pricingType: 'monthly_subscription',
-    commissionRate: 12,
-    description: 'Pembuatan bukti potong Unifikasi, rekonsiliasi faktur pajak keluaran/masukan, dan pelaporan tepat waktu setiap bulan.',
-    isActive: true,
-  },
-  {
-    id: 'srv-04',
-    name: 'Pendampingan SP2DK, Pemeriksaan Pajak, & Keberatan DJP',
-    category: 'Pendampingan Audit',
-    defaultPrice: 35000000,
-    pricingType: 'case_by_case',
-    commissionRate: 20,
-    description: 'Penyusunan tanggapan tertulis resmi SP2DK, rekonsiliasi data pengujian silang, dan pendampingan tatap muka dengan Account Representative DJP.',
-    isActive: true,
-  },
-  {
-    id: 'srv-05',
-    name: 'Tax Planning, Restrukturisasi Bisnis & Dokumentasi Transfer Pricing (TP Doc)',
-    category: 'Konsultasi Finansial',
-    defaultPrice: 50000000,
-    pricingType: 'case_by_case',
-    commissionRate: 18,
-    description: 'Optimasi beban pajak korporasi secara legal (tax avoidance vs evasion compliant), skema holding, dan Master/Local File TP Doc.',
-    isActive: true,
-  },
-  {
-    id: 'srv-06',
-    name: 'Pendirian Legalitas PT / PMA, Perizinan OSS-RBA & NIB Berbasis Risiko',
-    category: 'Legalitas Korporasi',
-    defaultPrice: 18000000,
-    pricingType: 'case_by_case',
-    commissionRate: 15,
-    description: 'Akta Notaris, SK Kemenkumham, NPWP Badan, NIB Berbasis Risiko OSS-RBA, dan sertifikat standar operasional.',
-    isActive: true,
-  },
-  {
-    id: 'srv-07',
-    name: 'Retainer Kepatuhan Pajak & Audit Keuangan Tahunan (Annual Retainer)',
-    category: 'Kepatuhan Pajak',
-    defaultPrice: 65000000,
-    pricingType: 'annual_subscription',
-    commissionRate: 15,
-    description: 'Paket langganan komprehensif 1 tahun penuh: SPT Tahunan Badan, SPT Masa 12 bulan, audit internal laporan keuangan, dan konsultasi tak terbatas.',
-    isActive: true,
-  },
-  {
-    id: 'srv-08',
-    name: 'Retainer Konsultan Hukum Korporasi & Pengawasan Kontrak (Tahunan)',
-    category: 'Legalitas Korporasi',
-    defaultPrice: 85000000,
-    pricingType: 'annual_subscription',
-    commissionRate: 15,
-    description: 'Pendampingan legal corporate retainer tahunan: legal opinion, review & drafting kontrak bisnis berkala, dan penanganan sengketa ketenagakerjaan.',
-    isActive: true,
-  },
-];
+const LEGACY_SEEDED_SERVICE_IDS = new Set([
+  'srv-01',
+  'srv-02',
+  'srv-03',
+  'srv-04',
+  'srv-05',
+  'srv-06',
+  'srv-07',
+  'srv-08',
+]);
+
+export const normalizeServicesCatalog = (
+  rawList: ServiceItem[]
+): { list: ServiceItem[]; migrated: boolean } => {
+  if (!Array.isArray(rawList) || rawList.length === 0) {
+    return {
+      list: OFFICIAL_ND_SERVICES.map((s) => ({ ...s })),
+      migrated: true,
+    };
+  }
+
+  let migrated = false;
+  const filtered = rawList
+    .filter((s) => {
+      if (!s || LEGACY_SEEDED_SERVICE_IDS.has(s.id)) {
+        migrated = true;
+        return false;
+      }
+      return true;
+    })
+    .map((s) => {
+      const resolvedPricing = resolveServicePricingType(s);
+      if (s.pricingType !== resolvedPricing) {
+        migrated = true;
+      }
+      return {
+        ...s,
+        pricingType: resolvedPricing,
+      };
+    });
+
+  const hasOfficial = filtered.some((s) => s.id.startsWith('srv-nd-'));
+  if (!hasOfficial) {
+    migrated = true;
+    return {
+      list: [...OFFICIAL_ND_SERVICES.map((s) => ({ ...s })), ...filtered],
+      migrated,
+    };
+  }
+
+  return { list: filtered, migrated };
+};
+
+let services: ServiceItem[] = OFFICIAL_ND_SERVICES.map((s) => ({ ...s }));
 
 let clientDeals: ClientDeal[] = [
   {
@@ -2495,7 +2474,9 @@ export const loadDatabase = () => {
         console.log('[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).');
       } else {
         if (Array.isArray(data.mitras)) mitras = normalizeMitraAvatars(data.mitras);
-        if (Array.isArray(data.services)) services = data.services;
+        if (Array.isArray(data.services)) {
+          services = normalizeServicesCatalog(data.services).list;
+        }
         if (Array.isArray(data.clientDeals)) clientDeals = normalizeClientDeals(data.clientDeals);
         if (Array.isArray(data.payoutRequests)) payoutRequests = data.payoutRequests;
         if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
@@ -2534,7 +2515,16 @@ export const syncFromSupabase = async () => {
     // 2. Services
     const { data: dbServices, error: errS } = await supabase.from('services').select('*');
     if (!errS && Array.isArray(dbServices)) {
-      services = dbServices;
+      const normSrv = normalizeServicesCatalog(dbServices);
+      services = normSrv.list;
+      if (normSrv.migrated) {
+        try {
+          await supabase.from('services').delete().in('id', Array.from(LEGACY_SEEDED_SERVICE_IDS));
+          await supabase.from('services').upsert(services);
+        } catch (e) {
+          console.warn('[Supabase Services Catalog Sync Warning]', e);
+        }
+      }
       console.log(`[Supabase Cloud] Sinkronisasi ${services.length} layanan dari Supabase`);
     }
 
@@ -4707,7 +4697,12 @@ app.get('/api/services', async (req: Request, res: Response) => {
     try {
       const { data, error } = await supabase.from('services').select('*');
       if (!error && Array.isArray(data)) {
-        services = data;
+        const normSrv = normalizeServicesCatalog(data);
+        services = normSrv.list;
+        if (normSrv.migrated) {
+          await supabase.from('services').delete().in('id', Array.from(LEGACY_SEEDED_SERVICE_IDS));
+          await supabase.from('services').upsert(services);
+        }
         saveDatabase();
       }
     } catch (e) {
@@ -4715,6 +4710,8 @@ app.get('/api/services', async (req: Request, res: Response) => {
     }
   } else if (isProductionMode()) {
     return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  } else {
+    services = normalizeServicesCatalog(services).list;
   }
 
   if (all === 'true') {
@@ -4729,12 +4726,22 @@ app.post('/api/services', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, message: 'Nama, kategori, dan nominal default wajib diisi.' });
   }
 
+  const resolvedPricingType = resolveServicePricingType({
+    name,
+    pricingType:
+      pricingType === 'monthly_subscription'
+        ? 'monthly_subscription'
+        : pricingType === 'annual_subscription'
+        ? 'annual_subscription'
+        : 'case_by_case',
+  });
+
   const newService: ServiceItem = {
     id: `srv-${Date.now()}`,
     name,
     category: category || 'Laporan Keuangan',
     defaultPrice: Number(defaultPrice) || 5000000,
-    pricingType: pricingType === 'monthly_subscription' ? 'monthly_subscription' : (pricingType === 'annual_subscription' ? 'annual_subscription' : 'case_by_case'),
+    pricingType: resolvedPricingType,
     commissionRate: Number(commissionRate) || 15,
     description: description || 'Layanan profesional NDTAXANDLAW.',
     isActive: true,
@@ -4791,6 +4798,7 @@ app.put('/api/services/:id', async (req: Request, res: Response) => {
   if (category !== undefined) service.category = category;
   if (defaultPrice !== undefined) service.defaultPrice = Number(defaultPrice);
   if (pricingType !== undefined) service.pricingType = pricingType;
+  service.pricingType = resolveServicePricingType(service);
   if (commissionRate !== undefined) service.commissionRate = Number(commissionRate);
   if (description !== undefined) service.description = description;
   if (isActive !== undefined) service.isActive = Boolean(isActive);
@@ -4941,7 +4949,9 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   const service = services.find((s) => s.id === serviceId);
 
   const selectedPricingType: 'case_by_case' | 'monthly_subscription' | 'annual_subscription' =
-    pricingType || (service ? service.pricingType : 'case_by_case');
+    service
+      ? resolveServicePricingType(service)
+      : pricingType || 'case_by_case';
   const nominalValue = Number(dealValue) || (service ? service.defaultPrice : 10000000);
   const perClientComm = calculateClientDealCommission(
     selectedPricingType,
@@ -6400,6 +6410,37 @@ app.post('/api/notifications/read-all', async (req: Request, res: Response) => {
     }
   }
   saveDatabase();
+  res.json({ success: true, data: notifications });
+});
+
+app.delete('/api/notifications/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  notifications = notifications.filter((n) => n.id !== id);
+  if (supabase) {
+    try {
+      await supabase.from('notifications').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Supabase delete notification error', e);
+    }
+  }
+  saveDatabase();
+  res.json({ success: true, data: notifications });
+});
+
+app.post('/api/notifications/delete-batch', async (req: Request, res: Response) => {
+  const targetIds: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (targetIds.length > 0) {
+    const idSet = new Set(targetIds);
+    notifications = notifications.filter((n) => !idSet.has(n.id));
+    if (supabase) {
+      try {
+        await supabase.from('notifications').delete().in('id', targetIds);
+      } catch (e) {
+        console.warn('Supabase batch delete notifications error', e);
+      }
+    }
+    saveDatabase();
+  }
   res.json({ success: true, data: notifications });
 });
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Edit2, Trash2, Check, ShieldCheck, Tag, DollarSign, Percent, Layers, CheckCircle } from 'lucide-react';
-import { ServiceItem } from '../types';
+import { ServiceItem, resolveServicePricingType } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 
 interface ServicesManagementModalProps {
@@ -74,7 +74,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
     setName(srv.name);
     setCategory(srv.category);
     setDefaultPrice(srv.defaultPrice);
-    setPricingType(srv.pricingType);
+    setPricingType(resolveServicePricingType(srv));
     setCommissionRate(srv.commissionRate);
     setDescription(srv.description);
     setShowAddForm(true);
@@ -313,8 +313,19 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Contoh: Audit Forensik & Rekonsiliasi Fiskal Lanjutan"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setName(val);
+                      const lower = val.toLowerCase();
+                      if (lower.includes('(bulanan)')) {
+                        setPricingType('monthly_subscription');
+                      } else if (lower.includes('(per projek)') || lower.includes('(per proyek)') || lower.includes('(case by case)')) {
+                        setPricingType('case_by_case');
+                      } else if (lower.includes('(tahunan)')) {
+                        setPricingType('annual_subscription');
+                      }
+                    }}
+                    placeholder="Contoh: Jasa Perpajakan (Bulanan) atau Jasa Perpajakan (Per Projek)"
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#113872] outline-none"
                   />
                 </div>
@@ -343,9 +354,15 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                   <select
                     value={pricingType}
                     onChange={(e) => setPricingType(e.target.value as any)}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white outline-none"
+                    disabled={
+                      name.toLowerCase().includes('(bulanan)') ||
+                      name.toLowerCase().includes('(per projek)') ||
+                      name.toLowerCase().includes('(per proyek)') ||
+                      name.toLowerCase().includes('(tahunan)')
+                    }
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white outline-none disabled:bg-slate-100 disabled:text-slate-600"
                   >
-                    <option value="case_by_case">Case-by-Case (Proyek Sekali Bayar)</option>
+                    <option value="case_by_case">Case-by-Case (Per Projek / Sekali Bayar)</option>
                     <option value="monthly_subscription">Langganan Bulanan (Retainer Rutin)</option>
                     <option value="annual_subscription">Langganan Tahunan (Annual Retainer)</option>
                   </select>
