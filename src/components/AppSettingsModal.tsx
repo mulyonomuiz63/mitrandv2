@@ -43,6 +43,7 @@ import {
   DynamicFormField,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  resolveSpecializationOptions,
   DEFAULT_BANK_OPTIONS,
   DEFAULT_MITRA_FORM_FIELDS,
   DEFAULT_CLIENT_FORM_FIELDS,
@@ -237,10 +238,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               ...data.data,
               specializationEnabled: data.data.specializationEnabled ?? true,
               specializationLabel: data.data.specializationLabel || DEFAULT_SPECIALIZATION_LABEL,
-              specializationOptions:
-                Array.isArray(data.data.specializationOptions) && data.data.specializationOptions.length > 0
-                  ? data.data.specializationOptions
-                  : DEFAULT_SPECIALIZATION_OPTIONS,
+              specializationOptions: resolveSpecializationOptions(data.data),
               mitraCustomFields: resolveMitraFormFields(data.data),
               clientCustomFields: resolveClientFormFields(data.data),
               mitraFieldsInitialized: true,

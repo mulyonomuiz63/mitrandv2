@@ -18,6 +18,7 @@ import {
   MitraSystemFieldKey,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  resolveSpecializationOptions,
   isBankFormField,
   resolveMitraFormFields,
 } from '../types';
@@ -63,7 +64,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   );
 
   const activeSpecOptions = React.useMemo(() => {
-    const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+    const raw = resolveSpecializationOptions(settings);
     const filtered = raw.filter((o) => o.isActive);
     return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
   }, [settings]);
@@ -90,8 +91,10 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       : DEFAULT_BANK_OPTIONS;
 
   const [fullName, setFullName] = useState(mitra.fullName);
-  const [nik, setNik] = useState(mitra.nik);
-  const [phone, setPhone] = useState(mitra.phone);
+  const [nik, setNik] = useState(
+    mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik
+  );
+  const [phone, setPhone] = useState(mitra.phone === '-' ? '' : mitra.phone);
   const [gender, setGender] = useState<'male' | 'female'>(mitra.gender || inferGenderFromName(mitra.fullName));
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string>(() => {
     if (
@@ -103,16 +106,32 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     }
     return '';
   });
-  const [specialization, setSpecialization] = useState(mitra.specialization);
+  const [specialization, setSpecialization] = useState(
+    mitra.specialization && activeSpecOptions.some((o) => o.label === mitra.specialization)
+      ? mitra.specialization
+      : activeSpecOptions[0]?.label || 'Business Partner'
+  );
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>(
     mitra.customFields || {}
   );
   const [bankCustomFieldValues, setBankCustomFieldValues] = useState<Record<string, string>>(
     mitra.bankDetails?.customBankFields || {}
   );
-  const [bankName, setBankName] = useState(mitra.bankDetails.bankName);
-  const [accountNumber, setAccountNumber] = useState(mitra.bankDetails.accountNumber);
-  const [accountHolder, setAccountHolder] = useState(mitra.bankDetails.accountHolder);
+  const [bankName, setBankName] = useState(
+    !mitra.bankDetails?.bankName || mitra.bankDetails.bankName === '-'
+      ? bankOptions[0] || 'Bank Central Asia (BCA)'
+      : mitra.bankDetails.bankName
+  );
+  const [accountNumber, setAccountNumber] = useState(
+    !mitra.bankDetails?.accountNumber || mitra.bankDetails.accountNumber === '-'
+      ? ''
+      : mitra.bankDetails.accountNumber
+  );
+  const [accountHolder, setAccountHolder] = useState(
+    !mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder === '-'
+      ? mitra.fullName
+      : mitra.bankDetails.accountHolder
+  );
   
   // Password change
   const [newPassword, setNewPassword] = useState('');
@@ -126,8 +145,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
   useEffect(() => {
     setFullName(mitra.fullName);
-    setNik(mitra.nik);
-    setPhone(mitra.phone);
+    setNik(mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik);
+    setPhone(mitra.phone === '-' ? '' : mitra.phone);
     setGender(mitra.gender || inferGenderFromName(mitra.fullName));
     if (
       mitra.avatarUrl &&
@@ -138,7 +157,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     } else {
       setCustomAvatarUrl('');
     }
-    setSpecialization(mitra.specialization);
+    setSpecialization(
+      mitra.specialization && activeSpecOptions.some((o) => o.label === mitra.specialization)
+        ? mitra.specialization
+        : activeSpecOptions[0]?.label || 'Business Partner'
+    );
     setCustomFieldValues(mitra.customFields || {});
     const initialBankCustom: Record<string, string> = {
       ...(mitra.bankDetails?.customBankFields || {}),
@@ -149,10 +172,22 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       }
     });
     setBankCustomFieldValues(initialBankCustom);
-    setBankName(mitra.bankDetails.bankName);
-    setAccountNumber(mitra.bankDetails.accountNumber);
-    setAccountHolder(mitra.bankDetails.accountHolder);
-  }, [mitra, isOpen, activeMitraBankCustomFields]);
+    setBankName(
+      !mitra.bankDetails?.bankName || mitra.bankDetails.bankName === '-'
+        ? bankOptions[0] || 'Bank Central Asia (BCA)'
+        : mitra.bankDetails.bankName
+    );
+    setAccountNumber(
+      !mitra.bankDetails?.accountNumber || mitra.bankDetails.accountNumber === '-'
+        ? ''
+        : mitra.bankDetails.accountNumber
+    );
+    setAccountHolder(
+      !mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder === '-'
+        ? mitra.fullName
+        : mitra.bankDetails.accountHolder
+    );
+  }, [mitra, isOpen, activeMitraBankCustomFields, activeSpecOptions, bankOptions]);
 
   if (!isOpen) return null;
 

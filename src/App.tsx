@@ -25,7 +25,7 @@ import { StaffManagementPanel } from './components/StaffManagementPanel';
 import { MitraPublicVerificationView } from './components/MitraPublicVerificationView';
 import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
 import { RealtimeChatHub } from './components/RealtimeChatHub';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS } from './types';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
   ShieldCheck, 
@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 
 const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard', 'staff-management', 'chat'];
-const MITRA_VALID_TABS = ['idcard', 'dashboard', 'marketing-tools', 'commissions', 'chat'];
+const MITRA_VALID_TABS = ['dashboard', 'idcard', 'marketing-tools', 'commissions', 'chat'];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
@@ -96,11 +96,11 @@ export default function App() {
         if (parsed.role === 'admin') {
           return savedTab && ADMIN_VALID_TABS.includes(savedTab) ? savedTab : 'dashboard';
         } else {
-          return savedTab && MITRA_VALID_TABS.includes(savedTab) ? savedTab : 'idcard';
+          return savedTab && MITRA_VALID_TABS.includes(savedTab) ? savedTab : 'dashboard';
         }
       }
     } catch {}
-    return 'idcard';
+    return 'dashboard';
   });
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -132,6 +132,8 @@ export default function App() {
   const [isServicesModalOpen, setIsServicesModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [isIncompleteProfileAlertOpen, setIsIncompleteProfileAlertOpen] = useState(false);
+  const [dismissedProfileAlertForId, setDismissedProfileAlertForId] = useState<string | null>(null);
 
   // Dark / Light Theme Mode for Portal (Mitra, Staf, & Admin)
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
@@ -252,7 +254,7 @@ export default function App() {
 
     const defaultRoleTab = isStaffRole
       ? validTabs[0] || 'dashboard'
-      : currentUser.defaultTab || (effectivePortalRole === 'admin' ? 'dashboard' : 'idcard');
+      : 'dashboard';
 
     if (effectivePortalRole === 'mitra') {
       const targetId = currentUser.mitraId || currentUser.id;
@@ -371,7 +373,65 @@ export default function App() {
 
   const activeMitra = resolvedLoggedInMitra;
 
-  const unreadNotifCount = notifications.filter((n) => !n.isRead).length;
+  const effectiveViewerRole: 'admin' | 'staff' | 'mitra' =
+    currentRole === 'mitra'
+      ? 'mitra'
+      : currentUser?.roleCode === 'staff'
+      ? 'staff'
+      : 'admin';
+
+  const visibleNotifications = React.useMemo(() => {
+    const mitraCompanyNames = clientDeals
+      .filter((d) => d.mitraId === activeMitra.id)
+      .map((d) => d.companyName);
+    return filterNotificationsForViewer(notifications, {
+      viewerRole: effectiveViewerRole,
+      mitraId: activeMitra.id,
+      mitraName: activeMitra.fullName,
+      mitraMemberCode: activeMitra.memberCode,
+      mitraReferralCode: activeMitra.referralCode,
+      mitraClientCompanyNames: mitraCompanyNames,
+    });
+  }, [notifications, effectiveViewerRole, activeMitra, clientDeals]);
+
+  const unreadNotifCount = visibleNotifications.filter((n) => !n.isRead).length;
+
+  // Check if logged-in Mitra still has incomplete profile / bank details
+  const isMitraProfileIncomplete = React.useMemo(() => {
+    if (currentRole !== 'mitra' || !activeMitra || activeMitra.id === 'mitra-empty') {
+      return false;
+    }
+    const missingBank =
+      !activeMitra.bankDetails?.accountNumber ||
+      activeMitra.bankDetails.accountNumber.trim() === '' ||
+      activeMitra.bankDetails.accountNumber.trim() === '-' ||
+      !activeMitra.bankDetails?.bankName ||
+      activeMitra.bankDetails.bankName.trim() === '' ||
+      activeMitra.bankDetails.bankName.trim() === '-';
+    const missingNik =
+      !activeMitra.nik ||
+      activeMitra.nik.trim() === '' ||
+      activeMitra.nik.trim() === '-' ||
+      activeMitra.nik.trim() === '3201000000000000';
+    const missingPhone =
+      !activeMitra.phone ||
+      activeMitra.phone.trim() === '' ||
+      activeMitra.phone.trim() === '-';
+    return missingBank || missingNik || missingPhone;
+  }, [currentRole, activeMitra]);
+
+  useEffect(() => {
+    if (
+      viewMode === 'portal' &&
+      currentRole === 'mitra' &&
+      isMitraProfileIncomplete &&
+      dismissedProfileAlertForId !== activeMitra.id
+    ) {
+      setIsIncompleteProfileAlertOpen(true);
+    } else if (!isMitraProfileIncomplete) {
+      setIsIncompleteProfileAlertOpen(false);
+    }
+  }, [viewMode, currentRole, isMitraProfileIncomplete, dismissedProfileAlertForId, activeMitra.id]);
 
   // Handlers
   const handleRegisterMitra = async (formData: {
@@ -487,8 +547,16 @@ export default function App() {
 
   const handleMarkAllNotificationsAsRead = async () => {
     try {
-      await fetch('/api/notifications/read-all', { method: 'POST' });
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      const targetIds = visibleNotifications.map((n) => n.id);
+      await fetch('/api/notifications/read-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: targetIds }),
+      });
+      const idSet = new Set(targetIds);
+      setNotifications((prev) =>
+        prev.map((n) => (idSet.size === 0 || idSet.has(n.id) ? { ...n, isRead: true } : n))
+      );
     } catch (err) {
       console.error(err);
     }
@@ -508,9 +576,10 @@ export default function App() {
       } catch {}
     } else {
       setCurrentRole('mitra');
-      setActiveTab('idcard');
+      setActiveTab('dashboard');
+      setDismissedProfileAlertForId(null);
       try {
-        localStorage.setItem('nd_active_tab', 'idcard');
+        localStorage.setItem('nd_active_tab', 'dashboard');
       } catch {}
       const mitraTargetId = user.mitraId || user.id;
       if (mitraTargetId) {
@@ -644,7 +713,7 @@ export default function App() {
         <AuthView
           onLoginSuccess={handleLoginSuccess}
           onRegisterSubmit={async (formData) => {
-            await handleRegisterMitra(formData);
+            return await handleRegisterMitra(formData);
           }}
           appEnvironment={settings?.appEnvironment || 'development'}
           initialMode={authInitialMode}
@@ -1008,9 +1077,10 @@ export default function App() {
       <NotificationDrawer
         isOpen={isNotifDrawerOpen}
         onClose={() => setIsNotifDrawerOpen(false)}
-        notifications={notifications}
+        notifications={visibleNotifications}
         onMarkAllAsRead={handleMarkAllNotificationsAsRead}
         onSelectAction={(tab) => setActiveTab(tab)}
+        userRole={effectiveViewerRole}
       />
 
       <ClientInputModal
@@ -1041,9 +1111,64 @@ export default function App() {
         }}
       />
 
+      {/* Popup Alert Informasi Lengkapi Data Diri Mitra (Shown when Mitra registers & logs in or has incomplete data diri) */}
+      {isIncompleteProfileAlertOpen && currentRole === 'mitra' && (
+        <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-amber-300/60 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] px-6 py-4 border-b border-amber-400/40 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+                <UserCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white font-display">
+                  Informasi Kelengkapan Data Diri
+                </h3>
+                <p className="text-[11px] text-amber-200/90">
+                  Portal Mitra Resmi NDTAXANDLAW
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-700 leading-relaxed">
+                Halo <strong>{activeMitra.fullName}</strong>, selamat datang di Portal Mitra NDTAXANDLAW!
+              </p>
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
+                Data diri atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Silakan lengkapi data diri Anda sekarang agar proses verifikasi akun dan pencairan komisi dapat diproses dengan lancar.
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDismissedProfileAlertForId(activeMitra.id);
+                    setIsIncompleteProfileAlertOpen(false);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Nanti Saja
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDismissedProfileAlertForId(activeMitra.id);
+                    setIsIncompleteProfileAlertOpen(false);
+                    setIsProfileOpen(true);
+                  }}
+                  className="px-4 py-2.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <span>Lengkapi Data Diri</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Interactive Onboarding Tooltip / Spotlight Tour for Mitra, Staf, & Admin */}
       <OnboardingSpotlightTour
-        isOpen={isTourOpen}
+        isOpen={isTourOpen && !isIncompleteProfileAlertOpen}
         onClose={handleCloseOnboardingTour}
         currentRole={currentRole}
         currentUser={currentUser}

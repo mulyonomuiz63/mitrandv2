@@ -44,13 +44,38 @@ export interface DynamicFormField {
 export const DEFAULT_SPECIALIZATION_LABEL = 'Bidang Keahlian / Profesi Mitra';
 
 export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
-  { id: 'spec-1', label: 'Konsultan Perpajakan & Tax Planning', isActive: true },
-  { id: 'spec-2', label: 'Hukum Korporasi & Bisnis', isActive: true },
-  { id: 'spec-3', label: 'Akuntansi & Pembukuan Korporat', isActive: true },
-  { id: 'spec-4', label: 'Legalitas & Perizinan OSS-RBA', isActive: true },
-  { id: 'spec-5', label: 'Kuasa Hukum Pengadilan Pajak', isActive: true },
-  { id: 'spec-6', label: 'Business Partner / Referral Umum', isActive: true },
+  { id: 'spec-1', label: 'Business Partner', isActive: true },
 ];
+
+const LEGACY_SEEDED_SPEC_LABELS = new Set([
+  'Konsultan Perpajakan & Tax Planning',
+  'Hukum Korporasi & Bisnis',
+  'Akuntansi & Pembukuan Korporat',
+  'Legalitas & Perizinan OSS-RBA',
+  'Kuasa Hukum Pengadilan Pajak',
+  'Business Partner / Referral Umum',
+]);
+
+export function resolveSpecializationOptions(
+  settings?: { specializationOptions?: SpecializationOptionItem[] } | null
+): SpecializationOptionItem[] {
+  const raw = settings?.specializationOptions;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return DEFAULT_SPECIALIZATION_OPTIONS;
+  }
+  const customOrValid = raw.filter(
+    (item) => item && item.label && !LEGACY_SEEDED_SPEC_LABELS.has(item.label.trim())
+  );
+  if (customOrValid.length === 0) {
+    return DEFAULT_SPECIALIZATION_OPTIONS;
+  }
+  const hasBusinessPartner = customOrValid.some(
+    (item) => item.label.trim().toLowerCase() === 'business partner'
+  );
+  return hasBusinessPartner
+    ? customOrValid
+    : [{ id: 'spec-1', label: 'Business Partner', isActive: true }, ...customOrValid];
+}
 
 export const DEFAULT_BANK_OPTIONS: string[] = [
   'Bank Central Asia (BCA)',
@@ -577,9 +602,126 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal';
+  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal' | 'system_update';
   timestamp: string;
   isRead: boolean;
+  targetAudience?: 'admin_only' | 'admin_staff' | 'mitra';
+  mitraId?: string;
+}
+
+export function isSystemUpdateNotification(notif: NotificationItem): boolean {
+  if (
+    notif.type === 'system_update' ||
+    notif.targetAudience === 'admin_only' ||
+    notif.id.startsWith('notif-sys-') ||
+    notif.type === 'tools_update' ||
+    notif.type === 'training'
+  ) {
+    return true;
+  }
+  const combined = `${notif.title || ''} ${notif.message || ''}`.toLowerCase();
+  if (
+    combined.includes('pengaturan sistem') ||
+    combined.includes('update sistem') ||
+    combined.includes('perbaikan sistem') ||
+    combined.includes('pembaruan sistem') ||
+    combined.includes('konfigurasi sistem') ||
+    combined.includes('katalog layanan') ||
+    combined.includes('skema komisi') ||
+    combined.includes('tools marketing') ||
+    combined.includes('materi pelatihan') ||
+    combined.includes('materi video') ||
+    combined.includes('brosur digital') ||
+    combined.includes('server smtp')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function filterNotificationsForViewer(
+  notifications: NotificationItem[],
+  options: {
+    viewerRole: 'admin' | 'staff' | 'mitra';
+    mitraId?: string;
+    mitraName?: string;
+    mitraMemberCode?: string;
+    mitraReferralCode?: string;
+    mitraClientCompanyNames?: string[];
+  }
+): NotificationItem[] {
+  const {
+    viewerRole,
+    mitraId,
+    mitraName,
+    mitraMemberCode,
+    mitraReferralCode,
+    mitraClientCompanyNames = [],
+  } = options;
+
+  return notifications.filter((notif) => {
+    const isSysUpdate = isSystemUpdateNotification(notif);
+
+    // 1. Admin (Super Admin) receives all system process notifications AND system update notifications
+    if (viewerRole === 'admin') {
+      return true;
+    }
+
+    // 2. Neither Staf nor Mitra should EVER receive system/configuration/tools update notifications
+    if (isSysUpdate) {
+      return false;
+    }
+
+    // 3. Staf receives all operational workflow process notifications (verification, client_deal, commission)
+    if (viewerRole === 'staff') {
+      return true;
+    }
+
+    // 4. Mitra ONLY receives operational process notifications that specifically belong to this Mitra
+    if (viewerRole === 'mitra') {
+      if (notif.targetAudience === 'admin_staff' || notif.id.startsWith('notif-ops-')) {
+        return false;
+      }
+
+      const titleLower = (notif.title || '').toLowerCase();
+      // Alerts meant for Admin/Staf to verify new registrants
+      if (titleLower.startsWith('pendaftaran mitra baru')) {
+        return false;
+      }
+
+      // Check explicit mitraId field
+      if (notif.mitraId) {
+        return Boolean(mitraId && notif.mitraId === mitraId);
+      }
+
+      // Check encoded ID prefix: notif-mtr-<mitraId>-<timestamp>
+      if (notif.id.startsWith('notif-mtr-')) {
+        if (!mitraId) return false;
+        return notif.id.startsWith(`notif-mtr-${mitraId}-`);
+      }
+
+      // Fallback for legacy notifications in database without encoded ID: match by Mitra identity or client names
+      const msgLower = `${notif.title || ''} ${notif.message || ''}`.toLowerCase();
+      if (mitraName && mitraName.trim().length > 2 && msgLower.includes(mitraName.trim().toLowerCase())) {
+        return true;
+      }
+      if (mitraMemberCode && mitraMemberCode !== '-' && msgLower.includes(mitraMemberCode.toLowerCase())) {
+        return true;
+      }
+      if (mitraReferralCode && mitraReferralCode !== '-' && msgLower.includes(mitraReferralCode.toLowerCase())) {
+        return true;
+      }
+      for (const company of mitraClientCompanyNames) {
+        if (company && company.trim().length > 2 && msgLower.includes(company.trim().toLowerCase())) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    return false;
+  });
 }
 
 export interface SalesHistoryMonth {

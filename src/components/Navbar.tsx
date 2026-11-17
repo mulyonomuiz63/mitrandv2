@@ -135,7 +135,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
               <button
                 type="button"
-                onClick={() => onTabChange(currentRole === 'admin' ? 'dashboard' : 'idcard')}
+                onClick={() => onTabChange('dashboard')}
                 className="flex items-center focus:outline-hidden text-left shrink-0 cursor-pointer"
               >
                 <div className="logo-light-box bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl shrink-0 flex items-center shadow-2xs">
@@ -494,27 +494,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <>
                   <button
                     type="button"
-                    data-tour="tour-nav-idcard"
-                    onClick={() => onTabChange('idcard')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                      activeTab === 'idcard'
-                        ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <CreditCard className="w-3.5 h-3.5 shrink-0" />
-                    <span>Kartu Identitas Eksklusif</span>
-                    {activeMitra.status === 'verified' && (
-                      <CheckCircle2
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          activeTab === 'idcard' ? 'text-emerald-300' : 'text-emerald-600'
-                        }`}
-                      />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
                     data-tour="tour-nav-dashboard"
                     onClick={() => onTabChange('dashboard')}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
@@ -524,7 +503,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                     }`}
                   >
                     <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />
-                    <span>Dashboard Mitra</span>
+                    <span>Dashboard</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-tour="tour-nav-idcard"
+                    onClick={() => onTabChange('idcard')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      activeTab === 'idcard'
+                        ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                    <span>Kartu Identitas</span>
+                    {activeMitra.status === 'verified' && (
+                      <CheckCircle2
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          activeTab === 'idcard' ? 'text-emerald-300' : 'text-emerald-600'
+                        }`}
+                      />
+                    )}
                   </button>
 
                   <button
@@ -704,20 +704,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="max-w-lg mx-auto grid grid-cols-5 gap-1 items-center">
             <button
               type="button"
-              data-tour="tour-nav-idcard"
-              onClick={() => onTabChange('idcard')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-                activeTab === 'idcard'
-                  ? 'text-blue-700 bg-blue-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <CreditCard className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">ID Mitra</span>
-            </button>
-
-            <button
-              type="button"
               data-tour="tour-nav-dashboard"
               onClick={() => onTabChange('dashboard')}
               className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
@@ -728,6 +714,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <LayoutDashboard className="w-4 h-4" />
               <span className="text-[10px] mt-0.5 truncate">Dashboard</span>
+            </button>
+
+            <button
+              type="button"
+              data-tour="tour-nav-idcard"
+              onClick={() => onTabChange('idcard')}
+              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+                activeTab === 'idcard'
+                  ? 'text-blue-700 bg-blue-50 font-bold'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              <span className="text-[10px] mt-0.5 truncate">Kartu Identitas</span>
             </button>
 
             <button

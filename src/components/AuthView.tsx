@@ -25,6 +25,7 @@ import {
   MitraSystemFieldKey,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  resolveSpecializationOptions,
   isBankFormField,
   resolveMitraFormFields,
 } from '../types';
@@ -43,7 +44,7 @@ interface AuthViewProps {
     gender?: 'male' | 'female';
     avatarUrl?: string;
     customFields?: Record<string, string>;
-  }) => Promise<void>;
+  }) => Promise<any>;
   appEnvironment?: 'development' | 'production';
   initialMode?: 'login' | 'register';
   supportPhone?: string;
@@ -91,7 +92,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   );
 
   const activeSpecOptions = React.useMemo(() => {
-    const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+    const raw = resolveSpecializationOptions(settings);
     const filtered = raw.filter((o) => o.isActive);
     return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
   }, [settings]);
@@ -141,7 +142,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regNik, setRegNik] = useState('');
   const [regGender, setRegGender] = useState<'male' | 'female'>('male');
   const [regSpecialization, setRegSpecialization] = useState(
-    activeSpecOptions[0]?.label || 'Konsultan Perpajakan & Tax Planning'
+    activeSpecOptions[0]?.label || 'Business Partner'
   );
   const [regCustomFields, setRegCustomFields] = useState<Record<string, string>>({});
   const [regBankCustomFields, setRegBankCustomFields] = useState<Record<string, string>>({});
@@ -245,12 +246,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
         ...regCustomFields,
         ...regBankCustomFields,
       };
-      await onRegisterSubmit({
+      const regResult = await onRegisterSubmit({
         fullName: regFullName || (regEmail ? regEmail.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email: regEmail,
         phone: isSysActive('phone') ? regPhone : '-',
-        nik: isSysActive('nik') && regNik ? regNik : '3201000000000000',
-        specialization: specEnabled ? regSpecialization : 'Mitra Referral & Konsultan Bisnis',
+        nik: isSysActive('nik') && regNik ? regNik : '-',
+        specialization: specEnabled ? regSpecialization : 'Business Partner',
         gender: regGender,
         avatarUrl: getDefaultAvatar(regGender),
         bankDetails: {
@@ -261,6 +262,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
         password: regPassword || 'mitraND2026!',
         customFields: Object.keys(regCustomFields).length > 0 ? regCustomFields : undefined,
       });
+
+      if (regResult && regResult.user) {
+        onLoginSuccess(regResult.user);
+        return;
+      }
 
       setVerifyEmail(regEmail);
       setVerifyToken('');
@@ -617,7 +623,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     disabled={isLoading}
                     className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <span>{isLoading ? 'Memverifikasi...' : 'Masuk ke Portal'}</span>
+                    <span>{isLoading ? 'Memverifikasi...' : 'Masuk'}</span>
                     <ArrowRight className="w-4 h-4 text-amber-400" />
                   </button>
                 </form>
@@ -963,7 +969,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   disabled={isLoading}
                   className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 mt-4"
                 >
-                  <span>{isLoading ? 'Mendaftarkan...' : 'Kirim Berkas Pendaftaran Mitra'}</span>
+                  <span>{isLoading ? 'Mendaftarkan...' : 'Daftar Mitra'}</span>
                   <ArrowRight className="w-4 h-4 text-amber-400" />
                 </button>
               </form>

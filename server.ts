@@ -210,13 +210,37 @@ export interface DynamicFormField {
 export const DEFAULT_SPECIALIZATION_LABEL = 'Bidang Keahlian / Profesi Mitra';
 
 export const DEFAULT_SPECIALIZATION_OPTIONS: SpecializationOptionItem[] = [
-  { id: 'spec-1', label: 'Konsultan Perpajakan & Tax Planning', isActive: true },
-  { id: 'spec-2', label: 'Hukum Korporasi & Bisnis', isActive: true },
-  { id: 'spec-3', label: 'Akuntansi & Pembukuan Korporat', isActive: true },
-  { id: 'spec-4', label: 'Legalitas & Perizinan OSS-RBA', isActive: true },
-  { id: 'spec-5', label: 'Kuasa Hukum Pengadilan Pajak', isActive: true },
-  { id: 'spec-6', label: 'Business Partner / Referral Umum', isActive: true },
+  { id: 'spec-1', label: 'Business Partner', isActive: true },
 ];
+
+const LEGACY_SEEDED_SPEC_LABELS = new Set([
+  'Konsultan Perpajakan & Tax Planning',
+  'Hukum Korporasi & Bisnis',
+  'Akuntansi & Pembukuan Korporat',
+  'Legalitas & Perizinan OSS-RBA',
+  'Kuasa Hukum Pengadilan Pajak',
+  'Business Partner / Referral Umum',
+]);
+
+export const normalizeSpecializationOptions = (
+  raw?: SpecializationOptionItem[]
+): SpecializationOptionItem[] => {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return DEFAULT_SPECIALIZATION_OPTIONS;
+  }
+  const customOrValid = raw.filter(
+    (item) => item && item.label && !LEGACY_SEEDED_SPEC_LABELS.has(item.label.trim())
+  );
+  if (customOrValid.length === 0) {
+    return DEFAULT_SPECIALIZATION_OPTIONS;
+  }
+  const hasBusinessPartner = customOrValid.some(
+    (item) => item.label.trim().toLowerCase() === 'business partner'
+  );
+  return hasBusinessPartner
+    ? customOrValid
+    : [{ id: 'spec-1', label: 'Business Partner', isActive: true }, ...customOrValid];
+};
 
 export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
   {
@@ -704,10 +728,21 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal';
+  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal' | 'system_update';
   timestamp: string;
   isRead: boolean;
+  targetAudience?: 'admin_only' | 'admin_staff' | 'mitra';
+  mitraId?: string;
 }
+
+const toSupabaseNotification = (n: NotificationItem) => ({
+  id: n.id,
+  title: n.title,
+  message: n.message,
+  type: n.type,
+  timestamp: n.timestamp,
+  isRead: Boolean(n.isRead),
+});
 
 // Initial Data with Default Male/Female Avatars
 let mitras: Mitra[] = [
@@ -1698,28 +1733,33 @@ let commissions: CommissionTransaction[] = [
 
 let notifications: NotificationItem[] = [
   {
-    id: 'notif-01',
-    title: 'Tools Marketing Baru Ditambahkan',
-    message: 'Admin telah mengunggah "Deck Presentasi Pitching Dewan Direksi (PDF)" ke repositori tools marketing.',
-    type: 'tools_update',
+    id: 'notif-mtr-mitra-01-verify',
+    title: 'Status Kemitraan Disetujui (Lulus Verifikasi)',
+    message: 'Selamat! Pendaftaran Mitra R. Hendra Wijaya, S.E., BKP (ND-TAX-LAW-0042) telah disetujui dan divalidasi oleh Admin.',
+    type: 'verification',
     timestamp: '2026-11-06T09:30:00Z',
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: 'mitra-01',
   },
   {
-    id: 'notif-02',
-    title: 'Materi Pelatihan Baru Tersedia',
-    message: 'Akses modul eksklusif "Playbook Strategi Closing Klien Konsultan Hukum Pajak" sekarang terbuka untuk semua mitra.',
-    type: 'training',
-    timestamp: '2026-11-04T14:15:00Z',
-    isRead: false,
-  },
-  {
-    id: 'notif-03',
+    id: 'notif-mtr-mitra-01-payout',
     title: 'Pencairan Komisi Diproses',
-    message: 'Komisi transaksi PT Global Indo Logistik sebesar Rp 23.000.000 telah ditransfer ke rekening Bank Mandiri.',
+    message: 'Komisi transaksi PT Global Indo Logistik untuk Mitra R. Hendra Wijaya, S.E., BKP sebesar Rp 23.000.000 telah ditransfer ke rekening Bank Mandiri.',
     type: 'commission',
     timestamp: '2026-10-26T11:00:00Z',
     isRead: true,
+    targetAudience: 'mitra',
+    mitraId: 'mitra-01',
+  },
+  {
+    id: 'notif-sys-init-01',
+    title: 'Pengaturan Sistem Diperbarui',
+    message: 'Konfigurasi sistem portal, skema komisi per klien, dan server email SMTP telah diperbarui oleh Admin.',
+    type: 'system_update',
+    timestamp: '2026-11-04T14:15:00Z',
+    isRead: true,
+    targetAudience: 'admin_only',
   },
 ];
 
@@ -1849,8 +1889,8 @@ let systemRoles: RoleDefinition[] = [
     name: 'Mitra Konsultan & Referral',
     description: 'Akses portal kemitraan eksklusif: kartu identitas mitra, input klien referral, pelacakan komisi, penarikan dana, dan materi promosi.',
     portalView: 'mitra',
-    defaultTab: 'idcard',
-    allowedTabs: ['idcard', 'dashboard', 'marketing-tools', 'commissions'],
+    defaultTab: 'dashboard',
+    allowedTabs: ['dashboard', 'idcard', 'marketing-tools', 'commissions'],
     permissions: ['view_idcard', 'input_client', 'view_commissions', 'request_payout', 'download_tools'],
     isSystem: true,
     isActive: true,
@@ -4060,10 +4100,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     email: normalizedEmail,
     phone: safePhone,
     nik: (nik || '').trim() || '-',
-    specialization:
-      appSettings.specializationEnabled === false
-        ? (specialization || 'Mitra Referral & Konsultan Bisnis')
-        : (specialization || 'Konsultan Perpajakan & Tax Planning'),
+    specialization: specialization || 'Business Partner',
     status: 'pending',
     gender: resolvedGender,
     avatarUrl: req.body.avatarUrl || getDefaultAvatar(resolvedGender, safeFullName),
@@ -4076,7 +4113,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     paidPayout: 0,
     referredClientsCount: 0,
     activeSubscribersCount: 0,
-    emailVerified: false,
+    emailVerified: true,
     verificationToken,
     verificationTokenExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };
@@ -4115,39 +4152,56 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   const emailResult = await sendSystemEmail({
     recipient: normalizedEmail,
     recipientName: fullName,
-    subject: `Kode Verifikasi Email & Aktivasi Kemitraan NDTAXANDLAW: ${verificationToken}`,
+    subject: `Selamat Bergabung di Kemitraan NDTAXANDLAW (${newMitra.memberCode})`,
     category: 'registration_verify',
-    previewSnippet: `Halo ${fullName},\n\nSelamat bergabung di jaringan Kemitraan NDTAXANDLAW.\nKode verifikasi email 6-digit Anda adalah: ${verificationToken}\n\nSilakan masukkan kode ini pada formulir aktivasi akun untuk mengaktifkan akun Anda sebelum dapat masuk (login).`,
+    previewSnippet: `Halo ${fullName},\n\nSelamat bergabung di jaringan Kemitraan NDTAXANDLAW (${newMitra.memberCode}).\nAkun Anda telah aktif dan siap digunakan. Silakan lengkapi data diri serta informasi rekening bank Anda di Portal Mitra.`,
   });
 
   const newNotif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-ops-${Date.now()}`,
     title: 'Pendaftaran Mitra Baru',
-    message: `${fullName} baru saja mendaftar kemitraan (Menunggu verifikasi email & approval).`,
+    message: `${fullName} (${newMitra.memberCode}) baru saja mendaftar kemitraan (Menunggu validasi Admin).`,
     type: 'verification',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'admin_staff',
   };
   notifications.unshift(newNotif);
 
   if (supabase) {
     try {
-      await supabase.from('notifications').insert([newNotif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(newNotif)]);
     } catch {}
   }
 
   saveDatabase();
 
+  const roleDef = getRoleDefinition('mitra');
+
   res.status(201).json({
     success: true,
     data: newMitra,
-    needsEmailVerification: true,
+    user: {
+      id: newMitra.id,
+      name: newMitra.fullName,
+      email: newMitra.email,
+      role: 'mitra',
+      roleCode: roleDef.code,
+      roleName: roleDef.name,
+      portalView: 'mitra',
+      defaultTab: 'dashboard',
+      allowedTabs: ['dashboard', 'idcard', 'marketing-tools', 'commissions'],
+      permissions: roleDef.permissions,
+      mitraId: newMitra.id,
+      referralCode: newMitra.referralCode,
+      gender: resolvedGender,
+      avatarUrl: newMitra.avatarUrl,
+    },
+    needsEmailVerification: false,
     email: normalizedEmail,
     emailSent: emailResult.success,
     emailError: emailResult.error,
-    message: emailResult.success
-      ? `Pendaftaran berhasil disimpan! Kode verifikasi 6-digit telah dikirimkan ke email ${normalizedEmail}. Silakan cek inbox/spam Anda.`
-      : `Pendaftaran berhasil disimpan, namun pengiriman email verifikasi mengalami kendala SMTP: ${emailResult.message}`,
+    message: `Pendaftaran berhasil! Selamat datang di Portal Mitra NDTAXANDLAW.`,
   });
 });
 
@@ -4183,12 +4237,14 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
     }
 
     const notif: NotificationItem = {
-      id: `notif-${Date.now()}`,
+      id: `notif-mtr-${mitra.id}-${Date.now()}`,
       title: 'Status Kemitraan Disetujui (Lulus Verifikasi)',
       message: `Selamat! Pendaftaran Mitra ${mitra.fullName} telah disetujui oleh Admin. Kartu Identitas Eksklusif (${mitra.memberCode}), Kode Referral (${mitra.referralCode}), dan fitur Input Klien kini telah aktif penuh.`,
       type: 'verification',
       timestamp: new Date().toISOString(),
       isRead: false,
+      targetAudience: 'mitra',
+      mitraId: mitra.id,
     };
     notifications.unshift(notif);
 
@@ -4204,7 +4260,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
 
     if (supabase) {
       try {
-        await supabase.from('notifications').insert([notif]);
+        await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       } catch (e) {
         console.warn('Supabase insert error', e);
       }
@@ -4222,12 +4278,14 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
     } as any;
 
     const notif: NotificationItem = {
-      id: `notif-${Date.now()}`,
+      id: `notif-mtr-${mitra.id}-${Date.now()}`,
       title: 'Verifikasi Pendaftaran Mitra Ditolak — Perlu Perbaikan Data',
       message: `Pendaftaran Mitra ${mitra.fullName} ditolak oleh Admin. Alasan: "${reasonText}". Silakan perbaiki data diri Anda dan ajukan ulang verifikasi.`,
       type: 'verification',
       timestamp: new Date().toISOString(),
       isRead: false,
+      targetAudience: 'mitra',
+      mitraId: mitra.id,
     };
     notifications.unshift(notif);
 
@@ -4243,7 +4301,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
 
     if (supabase) {
       try {
-        await supabase.from('notifications').insert([notif]);
+        await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       } catch (e) {
         console.warn('Supabase insert error', e);
       }
@@ -4343,17 +4401,19 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     }
 
     const notif: NotificationItem = {
-      id: `notif-${Date.now()}`,
+      id: `notif-mtr-${mitra.id}-${Date.now()}`,
       title: 'Pengajuan Ulang Verifikasi Data Mitra',
-      message: `Mitra "${mitra.fullName}" telah memperbaiki data pendaftaran dan mengajukan ulang verifikasi kepada Admin.`,
+      message: `Mitra "${mitra.fullName}" (${mitra.memberCode}) telah memperbaiki data pendaftaran dan mengajukan ulang verifikasi kepada Admin.`,
       type: 'verification',
       timestamp: new Date().toISOString(),
       isRead: false,
+      targetAudience: 'mitra',
+      mitraId: mitra.id,
     };
     notifications.unshift(notif);
     if (supabase) {
       try {
-        await supabase.from('notifications').insert([notif]);
+        await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       } catch {}
     }
   }
@@ -4467,18 +4527,19 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
   }
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-sys-${Date.now()}`,
     title: 'Tools Marketing Baru Ditambahkan',
-    message: `Admin telah menambahkan materi baru: "${title}" (${category}). Mitra dapat mengunduhnya sekarang.`,
-    type: 'tools_update',
+    message: `Admin telah menambahkan materi baru: "${title}" (${category}).`,
+    type: 'system_update',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'admin_only',
   };
   notifications.unshift(notif);
 
   if (supabase) {
     try {
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
     } catch (e) {
       console.warn('Supabase insert notif error', e);
     }
@@ -4612,19 +4673,21 @@ app.post('/api/commissions/payout', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${mitra.id}-${Date.now()}`,
     title: 'Pengajuan Penarikan Komisi',
     message: `Pengajuan pencairan komisi sebesar Rp ${nominalAmount.toLocaleString('id-ID')} oleh ${mitra.fullName} ke ${mitra.bankDetails.bankName} (${mitra.bankDetails.accountNumber}) sedang diproses finance.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: mitra.id,
   };
   notifications.unshift(notif);
 
   if (supabase) {
     try {
       await supabase.from('payout_requests').insert([newPayout]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
     } catch (e) {
       console.warn('Supabase insert payout error', e);
     }
@@ -4691,12 +4754,13 @@ app.post('/api/services', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-sys-${Date.now()}`,
     title: 'Katalog Layanan Diperbarui',
-    message: `Admin menambahkan layanan baru: "${name}" (${newService.pricingType === 'monthly_subscription' ? 'Langganan Bulanan' : 'Case by Case'}). Mitra dapat mulai menawarkan ke klien.`,
-    type: 'tools_update',
+    message: `Admin menambahkan layanan baru: "${name}" (${newService.pricingType === 'monthly_subscription' ? 'Langganan Bulanan' : 'Case by Case'}).`,
+    type: 'system_update',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'admin_only',
   };
   notifications.unshift(notif);
 
@@ -4705,7 +4769,7 @@ app.post('/api/services', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('services').insert([newService]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
     } catch (e) {
       console.warn('Supabase insert service error', e);
     }
@@ -4943,12 +5007,14 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${newDeal.mitraId}-${Date.now()}`,
     title: 'Klien Baru Sedang Ditinjau Admin',
-    message: `${newDeal.companyName} terdaftar via kode referral ${newDeal.referralCode} (${perClientComm.tierLabel}). Menunggu review & approve deal dari Admin agar komisi masuk ke saldo Mitra.`,
+    message: `${newDeal.companyName} terdaftar melalui Mitra ${newDeal.mitraName} (${newDeal.referralCode} • ${perClientComm.tierLabel}). Menunggu validasi & approve deal dari Admin agar komisi masuk ke saldo Mitra.`,
     type: 'client_deal',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: newDeal.mitraId,
   };
   notifications.unshift(notif);
 
@@ -4957,7 +5023,7 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('client_deals').insert([toSupabaseClientDeal(newDeal)]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
     } catch (e) {
       console.warn('Supabase client deal insert error', e);
     }
@@ -5084,12 +5150,14 @@ app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${deal.mitraId}-${Date.now()}`,
     title: 'Deal Klien Di-Approve Admin (Komisi Masuk)',
     message: `Admin telah meng-approve deal klien "${deal.companyName}". Komisi ${deal.pricingType === 'annual_subscription' ? 'Tahun Ke-1' : deal.pricingType === 'monthly_subscription' ? 'Bulan Ke-1' : '1x Bayar (Case-by-Case)'} sebesar Rp ${deal.commissionAmount.toLocaleString('id-ID')} telah masuk ke saldo siap cair Mitra ${deal.mitraName}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: deal.mitraId,
   };
   notifications.unshift(notif);
 
@@ -5109,7 +5177,7 @@ app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
     try {
       await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
       await supabase.from('commissions').insert([newCommTrx]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
 
       if (mitra) {
         await supabase.from('mitras').update({
@@ -5157,12 +5225,14 @@ app.put('/api/clients/:id/reject', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${deal.mitraId}-${Date.now()}`,
     title: 'Hasil Review Klien: Tidak Deal / Ditolak',
-    message: `Pengajuan klien "${deal.companyName}" dinyatakan Tidak Deal oleh Admin (${deal.rejectionReason}). Komisi untuk pengajuan ini adalah Rp 0.`,
+    message: `Pengajuan klien "${deal.companyName}" (Mitra: ${deal.mitraName}) dinyatakan Tidak Deal oleh Admin (${deal.rejectionReason}). Komisi untuk pengajuan ini adalah Rp 0.`,
     type: 'client_deal',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: deal.mitraId,
   };
   notifications.unshift(notif);
 
@@ -5171,7 +5241,7 @@ app.put('/api/clients/:id/reject', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
     } catch (e) {
       console.warn('Supabase reject client error', e);
     }
@@ -5294,12 +5364,14 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${deal.mitraId}-${Date.now()}`,
     title: `Komisi Langganan Masuk (Approve ${cycleLabel} - ${lockedRecurringRate}%)`,
     message: `Pembayaran langganan ${cycleLabel} untuk klien "${deal.companyName}" telah di-approve Admin. Komisi berulang (${lockedRecurringRate}%) sebesar Rp ${recurringCommission.toLocaleString('id-ID')} otomatis masuk ke saldo siap cair Mitra ${deal.mitraName}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: deal.mitraId,
   };
   notifications.unshift(notif);
 
@@ -5319,7 +5391,7 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
     try {
       await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
       await supabase.from('commissions').insert([newCommTrx]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       if (mitra) {
         await supabase.from('mitras').update({
           totalCommission: mitra.totalCommission,
@@ -5507,12 +5579,14 @@ app.post('/api/admin/mitra/:id/bonus', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-bonus-${Date.now()}`,
+    id: `notif-mtr-${mitra.id}-${Date.now()}`,
     title: `Selamat! Bonus Mitra Masuk: Rp ${amountNum.toLocaleString('id-ID')}`,
     message: `Admin telah memberikan "${bonusTitle}" (${periodStr}) sebesar Rp ${amountNum.toLocaleString('id-ID')} kepada Mitra ${mitra.fullName}. Dana bonus telah masuk ke saldo siap cair Anda.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: mitra.id,
   };
   notifications.unshift(notif);
 
@@ -5531,7 +5605,7 @@ app.post('/api/admin/mitra/:id/bonus', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('commissions').insert([bonusTrx]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       await supabase
         .from('mitras')
         .update({
@@ -5588,12 +5662,14 @@ app.put('/api/clients/:id/terminate', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${deal.mitraId}-${Date.now()}`,
     title: 'Langganan Klien Berakhir / Diputus',
     message: `Klien "${deal.companyName}" (${deal.serviceName}) telah berhenti berlangganan per ${deal.terminatedAt}. Komisi berulang untuk Mitra ${deal.mitraName} otomatis dihentikan.`,
     type: 'client_deal',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: deal.mitraId,
   };
   notifications.unshift(notif);
 
@@ -5602,7 +5678,7 @@ app.put('/api/clients/:id/terminate', async (req: Request, res: Response) => {
   if (supabase) {
     try {
       await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
 
       if (mitra) {
         await supabase.from('mitras').update({
@@ -5770,12 +5846,14 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${payout.mitraId}-${Date.now()}`,
     title: 'Pencairan Komisi Telah Ditransfer',
     message: `Dana komisi kotor Rp ${payout.amount.toLocaleString('id-ID')} (Net Rp ${(payout.netAmountTransferred || payout.amount).toLocaleString('id-ID')}) untuk ${payout.mitraName} telah berhasil ditransfer ke ${payout.bankDetails.bankName} (${payout.bankDetails.accountNumber}) dengan Ref #${payout.transferRefNumber}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: payout.mitraId,
   };
   notifications.unshift(notif);
 
@@ -5794,7 +5872,7 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
   if (supabase) {
     try {
       await supabase.from('payout_requests').upsert([payout]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       if (mitra) {
         await supabase.from('mitras').update({
           pendingPayout: mitra.pendingPayout,
@@ -5917,12 +5995,14 @@ app.post('/api/commissions/direct-disburse', async (req: Request, res: Response)
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-mtr-${mitra.id}-${Date.now()}`,
     title: 'Komisi Anda Telah Dicairkan Admin',
     message: `Dana komisi kotor Rp ${grossAmount.toLocaleString('id-ID')} (Bersih Diterima Rp ${finalNet.toLocaleString('id-ID')}) untuk ${mitra.fullName} telah dicairkan oleh Admin ke rekening ${newPayout.bankDetails.bankName} (${newPayout.bankDetails.accountNumber}) dengan Ref #${newPayout.transferRefNumber}.`,
     type: 'commission',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'mitra',
+    mitraId: mitra.id,
   };
   notifications.unshift(notif);
 
@@ -5941,7 +6021,7 @@ app.post('/api/commissions/direct-disburse', async (req: Request, res: Response)
   if (supabase) {
     try {
       await supabase.from('payout_requests').upsert([newPayout, ...updatedPendingPayIds]);
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
       await supabase
         .from('mitras')
         .update({
@@ -6024,6 +6104,7 @@ app.get('/api/settings', async (req: Request, res: Response) => {
     }
     appSettings.clientFieldsInitialized = true;
   }
+  appSettings.specializationOptions = normalizeSpecializationOptions(appSettings.specializationOptions);
   const clientSafeSettings: AppSettings = {
     ...appSettings,
     smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
@@ -6057,12 +6138,13 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   });
 
   const notif: NotificationItem = {
-    id: `notif-${Date.now()}`,
+    id: `notif-sys-${Date.now()}`,
     title: 'Pengaturan Sistem Diperbarui',
-    message: 'Konfigurasi profil layanan, server SMTP email & notifikasi otomatis, OAuth Google, dan integrasi AI telah diperbarui.',
-    type: 'tools_update',
+    message: 'Konfigurasi profil layanan, server SMTP email & notifikasi otomatis, OAuth Google, dan integrasi sistem telah diperbarui oleh Admin.',
+    type: 'system_update',
     timestamp: new Date().toISOString(),
     isRead: false,
+    targetAudience: 'admin_only',
   };
   notifications.unshift(notif);
 
@@ -6071,7 +6153,7 @@ app.put('/api/settings', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('notifications').insert([notif]);
+      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
     } catch (e) {
       console.warn('Supabase notification insert error', e);
     }
@@ -6296,12 +6378,25 @@ app.get('/api/notifications', async (req: Request, res: Response) => {
 });
 
 app.post('/api/notifications/read-all', async (req: Request, res: Response) => {
-  notifications = notifications.map((n) => ({ ...n, isRead: true }));
-  if (supabase) {
-    try {
-      await supabase.from('notifications').update({ isRead: true }).neq('isRead', true);
-    } catch (e) {
-      console.warn('Supabase mark read notifications error', e);
+  const targetIds: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (targetIds.length > 0) {
+    const idSet = new Set(targetIds);
+    notifications = notifications.map((n) => (idSet.has(n.id) ? { ...n, isRead: true } : n));
+    if (supabase) {
+      try {
+        await supabase.from('notifications').update({ isRead: true }).in('id', targetIds);
+      } catch (e) {
+        console.warn('Supabase mark read notifications error', e);
+      }
+    }
+  } else {
+    notifications = notifications.map((n) => ({ ...n, isRead: true }));
+    if (supabase) {
+      try {
+        await supabase.from('notifications').update({ isRead: true }).neq('isRead', true);
+      } catch (e) {
+        console.warn('Supabase mark read notifications error', e);
+      }
     }
   }
   saveDatabase();

@@ -16,6 +16,7 @@ import {
   MitraSystemFieldKey,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
+  resolveSpecializationOptions,
   isBankFormField,
   resolveMitraFormFields,
 } from '../types';
@@ -68,7 +69,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   );
 
   const activeSpecOptions = React.useMemo(() => {
-    const raw = settings?.specializationOptions || DEFAULT_SPECIALIZATION_OPTIONS;
+    const raw = resolveSpecializationOptions(settings);
     const filtered = raw.filter((o) => o.isActive);
     return filtered.length > 0 ? filtered : DEFAULT_SPECIALIZATION_OPTIONS;
   }, [settings]);
@@ -100,7 +101,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [nik, setNik] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [specialization, setSpecialization] = useState(
-    activeSpecOptions[0]?.label || 'Konsultan Perpajakan & Tax Planning'
+    activeSpecOptions[0]?.label || 'Business Partner'
   );
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [bankCustomFieldValues, setBankCustomFieldValues] = useState<Record<string, string>>({});
@@ -143,8 +144,8 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
         fullName: fullName || (email ? email.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email,
         phone: isSysActive('phone') ? phone : '-',
-        nik: isSysActive('nik') && nik ? nik : '3201000000000000',
-        specialization: specEnabled ? specialization : 'Mitra Referral & Konsultan Bisnis',
+        nik: isSysActive('nik') && nik ? nik : '-',
+        specialization: specEnabled ? specialization : 'Business Partner',
         gender,
         avatarUrl: getDefaultAvatar(gender),
         bankDetails: {
@@ -466,7 +467,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                 disabled={isSubmitting}
                 className="px-5 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-xs disabled:opacity-50"
               >
-                {isSubmitting ? 'Mendaftarkan...' : 'Kirim Pendaftaran Mitra'}
+                {isSubmitting ? 'Mendaftarkan...' : 'Daftar Mitra'}
               </button>
             </div>
           </form>
