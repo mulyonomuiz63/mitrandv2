@@ -1134,7 +1134,7 @@ var DEFAULT_STAFF_ALLOWED_MENUS = [
 var mitras = [
   {
     id: "mitra-01",
-    memberCode: "ND-TAX-LAW-0042",
+    memberCode: "ND-2026-LAW-0042",
     referralCode: "ND-REF-0042",
     fullName: "Bambang Sudirman, S.H., M.Kn.",
     email: "bambang.sudirman@example.com",
@@ -1160,7 +1160,7 @@ var mitras = [
   },
   {
     id: "mitra-02",
-    memberCode: "ND-TAX-LAW-0077",
+    memberCode: "ND-2026-TAX-0077",
     referralCode: "ND-REF-0077",
     fullName: "Dewi Lestari, S.E., B.K.P.",
     email: "dewi.lestari@example.com",
@@ -1186,7 +1186,7 @@ var mitras = [
   },
   {
     id: "mitra-03",
-    memberCode: "ND-TAX-LAW-0089",
+    memberCode: "ND-2026-LAW-0089",
     referralCode: "ND-REF-0089",
     fullName: "Rian Pratama, S.H.",
     email: "rian.pratama@example.com",
@@ -1536,7 +1536,7 @@ var payoutRequests = [
     id: "pay-001",
     mitraId: "mitra-01",
     mitraName: "Bambang Sudirman, S.H., M.Kn.",
-    memberCode: "ND-TAX-LAW-0042",
+    memberCode: "ND-2026-LAW-0042",
     amount: 62e5,
     bankDetails: {
       bankName: "Bank Central Asia (BCA)",
@@ -1551,7 +1551,7 @@ var payoutRequests = [
     id: "pay-002",
     mitraId: "mitra-02",
     mitraName: "Dewi Lestari, S.E., B.K.P.",
-    memberCode: "ND-TAX-LAW-0077",
+    memberCode: "ND-2026-TAX-0077",
     amount: 18e6,
     bankDetails: {
       bankName: "Bank Mandiri",
@@ -1574,7 +1574,7 @@ var payoutRequests = [
     id: "pay-003",
     mitraId: "mitra-01",
     mitraName: "Bambang Sudirman, S.H., M.Kn.",
-    memberCode: "ND-TAX-LAW-0042",
+    memberCode: "ND-2026-LAW-0042",
     amount: 1125e4,
     bankDetails: {
       bankName: "Bank Central Asia (BCA)",
@@ -2351,27 +2351,12 @@ var passwordResetTokens = /* @__PURE__ */ new Map();
 var isProductionMode = () => {
   return appSettings.appEnvironment === "production" || process.env.NODE_ENV === "production" || process.env.APP_ENV === "production";
 };
-var formatMitraMemberCode = (rawCode, fallbackId) => {
-  const trimmed = String(rawCode || "").trim().toUpperCase();
-  if (trimmed.startsWith("ND-TAX-LAW-")) {
-    const suffix = trimmed.slice("ND-TAX-LAW-".length).trim();
-    if (suffix) return `ND-TAX-LAW-${suffix}`;
-  }
-  const parts = trimmed.split("-").filter(Boolean);
-  const lastSegment = parts.length > 0 ? parts[parts.length - 1] : "";
-  if (lastSegment && /\d/.test(lastSegment)) {
-    return `ND-TAX-LAW-${lastSegment}`;
-  }
-  const idDigits = String(fallbackId || "").replace(/\D/g, "").slice(-4);
-  return `ND-TAX-LAW-${idDigits || "0001"}`;
-};
 var normalizeMitraAvatars = (list) => {
   return list.map((m) => {
     const gender = m.gender || inferGenderFromName(m.fullName);
     const bankMeta = m.bankDetails || {};
     return {
       ...m,
-      memberCode: formatMitraMemberCode(m.memberCode, m.id),
       gender,
       avatarUrl: resolveAvatarUrl(m.avatarUrl, gender, m.fullName),
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || void 0,
@@ -3918,9 +3903,8 @@ app.get("/api/mitra/public-verify/:code", async (req, res) => {
     }
   }
   const normalizedQuery = rawCode.toUpperCase();
-  const formattedQuery = formatMitraMemberCode(rawCode).toUpperCase();
   const matched = mitras.find(
-    (m) => (m.memberCode || "").trim().toUpperCase() === normalizedQuery || (m.memberCode || "").trim().toUpperCase() === formattedQuery || (m.referralCode || "").trim().toUpperCase() === normalizedQuery || (m.id || "").trim().toUpperCase() === normalizedQuery
+    (m) => (m.memberCode || "").trim().toUpperCase() === normalizedQuery || (m.referralCode || "").trim().toUpperCase() === normalizedQuery || (m.id || "").trim().toUpperCase() === normalizedQuery
   );
   if (!matched || matched.status !== "verified") {
     return res.status(404).json({
@@ -3985,7 +3969,7 @@ app.post("/api/mitra/register", async (req, res) => {
   };
   const newMitra = {
     id: `mitra-${Date.now()}`,
-    memberCode: `ND-TAX-LAW-${Math.floor(1e3 + Math.random() * 9e3)}`,
+    memberCode: `ND-${(/* @__PURE__ */ new Date()).getFullYear()}-PEN-${Math.floor(1e3 + Math.random() * 9e3)}`,
     referralCode: generatedReferralCode,
     fullName: safeFullName,
     email: normalizedEmail,
@@ -4089,7 +4073,10 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
   mitra.status = status;
   const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   if (status === "verified") {
-    mitra.memberCode = formatMitraMemberCode(mitra.memberCode, mitra.id);
+    if (!mitra.memberCode || mitra.memberCode.includes("-PEN-")) {
+      const randomCode = Math.floor(100 + Math.random() * 900);
+      mitra.memberCode = `ND-${(/* @__PURE__ */ new Date()).getFullYear()}-LAW-${randomCode}`;
+    }
     mitra.rejectionReason = void 0;
     mitra.rejectedAt = void 0;
     if (mitra.bankDetails) {
@@ -5058,7 +5045,7 @@ Komisi berulang Anda (${lockedRecurringRate}% sesuai kesepakatan deal) sebesar R
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
 });
 app.put("/api/admin/commission-scheme", async (req, res) => {
-  const { commissionScheme, bonusTargetConfig, payoutSchedule, payoutScheduleNote } = req.body || {};
+  const { commissionScheme, bonusTargetConfig } = req.body || {};
   if (commissionScheme && typeof commissionScheme === "object") {
     appSettings.commissionScheme = {
       ...DEFAULT_COMMISSION_SCHEME,
@@ -5074,12 +5061,6 @@ app.put("/api/admin/commission-scheme", async (req, res) => {
       ...bonusTargetConfig,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
-  }
-  if (payoutSchedule === "awal_bulan" || payoutSchedule === "pertengahan_bulan" || payoutSchedule === "akhir_bulan") {
-    appSettings.payoutSchedule = payoutSchedule;
-  }
-  if (typeof payoutScheduleNote === "string") {
-    appSettings.payoutScheduleNote = payoutScheduleNote;
   }
   for (const deal of clientDeals) {
     if (deal.status === "pending_acc") {
@@ -5464,131 +5445,6 @@ No. Referensi: #${payout.transferRefNumber}`
     }
   }
   res.json({ success: true, data: payout });
-});
-app.post("/api/commissions/direct-disburse", async (req, res) => {
-  const {
-    mitraId,
-    amount,
-    pph21Deduction,
-    pph21Rate,
-    adminFeeDeduction,
-    netAmountTransferred,
-    proofFileUrl,
-    proofFileName,
-    transferRefNumber,
-    notes
-  } = req.body || {};
-  const mitra = mitras.find((m) => m.id === mitraId);
-  if (!mitra) {
-    return res.status(404).json({ success: false, message: "Data Mitra tidak ditemukan." });
-  }
-  const grossAmount = Math.max(0, Number(amount) || Number(mitra.pendingPayout) || 0);
-  if (grossAmount <= 0) {
-    return res.status(400).json({ success: false, message: "Mitra belum memiliki saldo komisi siap cair." });
-  }
-  const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-  const pphVal = pph21Deduction !== void 0 && pph21Deduction !== "" ? Math.max(0, Number(pph21Deduction)) : 0;
-  const pphPercent = pph21Rate !== void 0 && pph21Rate !== "" ? Number(pph21Rate) : pphVal > 0 ? Number((pphVal / grossAmount * 100).toFixed(1)) : 0;
-  const adminFeeVal = adminFeeDeduction !== void 0 && adminFeeDeduction !== "" ? Math.max(0, Number(adminFeeDeduction)) : 0;
-  const calculatedNet = Math.max(0, grossAmount - pphVal - adminFeeVal);
-  const finalNet = netAmountTransferred !== void 0 && netAmountTransferred !== "" ? Number(netAmountTransferred) : calculatedNet;
-  const newPayout = {
-    id: `pay-${Date.now()}`,
-    mitraId: mitra.id,
-    mitraName: mitra.fullName,
-    memberCode: mitra.memberCode,
-    amount: grossAmount,
-    bankDetails: mitra.bankDetails || {
-      bankName: "-",
-      accountNumber: "-",
-      accountHolder: mitra.fullName
-    },
-    requestDate: todayStr,
-    processedDate: todayStr,
-    status: "approved",
-    pph21Deduction: pphVal,
-    pph21Rate: pphPercent,
-    adminFeeDeduction: adminFeeVal,
-    netAmountTransferred: finalNet,
-    proofFileUrl: proofFileUrl || void 0,
-    proofFileName: proofFileName || void 0,
-    transferRefNumber: transferRefNumber || `TRX-ND-${Date.now().toString().slice(-8)}`,
-    disbursedBy: "Admin Operasional NDTAXANDLAW",
-    notes: notes || `Pencairan komisi terjadwal oleh Admin ke rekening ${mitra.fullName}.`
-  };
-  payoutRequests.unshift(newPayout);
-  const updatedPendingPayIds = [];
-  for (const p of payoutRequests) {
-    if (p.id !== newPayout.id && p.mitraId === mitra.id && p.status === "pending") {
-      p.status = "approved";
-      p.processedDate = todayStr;
-      p.transferRefNumber = newPayout.transferRefNumber;
-      p.disbursedBy = newPayout.disbursedBy;
-      updatedPendingPayIds.push(p);
-    }
-  }
-  mitra.pendingPayout = Math.max(0, (mitra.pendingPayout || 0) - grossAmount);
-  mitra.paidPayout = (mitra.paidPayout || 0) + grossAmount;
-  let remainingToMarkPaid = grossAmount;
-  const paidCommissionIds = [];
-  for (const c of commissions) {
-    if (c.mitraId === mitra.id && c.status !== "paid" && remainingToMarkPaid > 0) {
-      c.status = "paid";
-      remainingToMarkPaid -= c.commissionAmount;
-      paidCommissionIds.push(c.id);
-    }
-  }
-  recordActivity({
-    actorRole: "admin",
-    actorId: adminAccount.id,
-    actorName: adminAccount.name,
-    actorEmail: adminAccount.email,
-    actionType: "payout_approve",
-    operation: "CREATE",
-    targetEntity: "Pencairan Komisi Langsung oleh Admin",
-    description: `Admin mencairkan & mentransfer komisi Mitra "${mitra.fullName}" sebesar Bersih Rp ${finalNet.toLocaleString("id-ID")} (Kotor: Rp ${grossAmount.toLocaleString("id-ID")}, PPh21: Rp ${pphVal.toLocaleString("id-ID")}) ke ${newPayout.bankDetails.bankName} ${newPayout.bankDetails.accountNumber} (Ref: #${newPayout.transferRefNumber}).`
-  });
-  const notif = {
-    id: `notif-${Date.now()}`,
-    title: "Komisi Anda Telah Dicairkan Admin",
-    message: `Dana komisi kotor Rp ${grossAmount.toLocaleString("id-ID")} (Bersih Diterima Rp ${finalNet.toLocaleString("id-ID")}) untuk ${mitra.fullName} telah dicairkan oleh Admin ke rekening ${newPayout.bankDetails.bankName} (${newPayout.bankDetails.accountNumber}) dengan Ref #${newPayout.transferRefNumber}.`,
-    type: "commission",
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    isRead: false
-  };
-  notifications.unshift(notif);
-  if (mitra.email) {
-    await sendSystemEmail({
-      recipient: mitra.email,
-      recipientName: mitra.fullName,
-      subject: `Pencairan Komisi Resmi NDTAXANDLAW: Rp ${finalNet.toLocaleString("id-ID")} ke ${newPayout.bankDetails.bankName}`,
-      category: "payout_disbursed",
-      previewSnippet: `Dana komisi kemitraan Anda telah dicairkan secara terjadwal oleh Admin via ${newPayout.bankDetails.bankName} (${newPayout.bankDetails.accountNumber}) a.n ${newPayout.bankDetails.accountHolder}.
-
-Jumlah Kotor: Rp ${grossAmount.toLocaleString("id-ID")}
-Potongan PPh 21 (${pphPercent}%): Rp ${pphVal.toLocaleString("id-ID")}
-Biaya Admin: Rp ${adminFeeVal.toLocaleString("id-ID")}
-Total Bersih Ditransfer: Rp ${finalNet.toLocaleString("id-ID")}
-No. Referensi: #${newPayout.transferRefNumber}`
-    });
-  }
-  saveDatabase();
-  if (supabase) {
-    try {
-      await supabase.from("payout_requests").upsert([newPayout, ...updatedPendingPayIds]);
-      await supabase.from("notifications").insert([notif]);
-      await supabase.from("mitras").update({
-        pendingPayout: mitra.pendingPayout,
-        paidPayout: mitra.paidPayout
-      }).eq("id", mitra.id);
-      for (const commId of paidCommissionIds) {
-        await supabase.from("commissions").update({ status: "paid" }).eq("id", commId);
-      }
-    } catch (e) {
-      console.warn("Supabase direct disburse error", e);
-    }
-  }
-  return res.json({ success: true, data: newPayout });
 });
 app.get("/api/settings", async (req, res) => {
   if (supabase) {
@@ -6721,7 +6577,6 @@ export {
   encryptUserPassword,
   escapeHtml,
   extractUserRole,
-  formatMitraMemberCode,
   fromSupabaseClientDeal,
   fromSupabaseEmailLogRow,
   getRoleDefinition,

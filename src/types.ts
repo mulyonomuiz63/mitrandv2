@@ -269,6 +269,12 @@ export interface BonusTargetConfig {
   targetDealRevenue: number;   // e.g. Rp 50.000.000 (monthly) or Rp 500.000.000 (yearly)
   targetClientCount: number;   // e.g. 3 klien (monthly) or 24 klien (yearly)
   standardBonusAmount: number; // e.g. Rp 5.000.000
+  monthlyTargetDealRevenue?: number;
+  monthlyTargetClientCount?: number;
+  monthlyStandardBonusAmount?: number;
+  yearlyTargetDealRevenue?: number;
+  yearlyTargetClientCount?: number;
+  yearlyStandardBonusAmount?: number;
   rewardDescription: string;   // e.g. 'Bonus Tunai, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah'
   updatedAt?: string;
 }
@@ -292,6 +298,12 @@ export const DEFAULT_BONUS_TARGET_CONFIG: BonusTargetConfig = {
   targetDealRevenue: 50000000,
   targetClientCount: 3,
   standardBonusAmount: 5000000,
+  monthlyTargetDealRevenue: 50000000,
+  monthlyTargetClientCount: 3,
+  monthlyStandardBonusAmount: 5000000,
+  yearlyTargetDealRevenue: 500000000,
+  yearlyTargetClientCount: 24,
+  yearlyStandardBonusAmount: 50000000,
   rewardDescription: 'Bonus Tunai Prestasi, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah',
 };
 
@@ -440,6 +452,9 @@ export interface AppSettings {
   supportPhone: string;
   supportEmail: string;
   officeAddress: string;
+  logoUrl?: string;
+  appVersion?: string;
+  copyrightText?: string;
   defaultCommissionRate: number;
   commissionScheme?: CommissionSchemeConfig;
   bonusTargetConfig?: BonusTargetConfig;

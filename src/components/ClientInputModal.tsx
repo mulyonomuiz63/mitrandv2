@@ -100,7 +100,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
     setErrorMessage('');
     if (serviceList.length > 0) {
       setSelectedServiceId(serviceList[0].id);
-      setDealValue(serviceList[0].defaultPrice);
+      setDealValue(0);
       setPricingType(serviceList[0].pricingType);
     }
   };
@@ -146,7 +146,6 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
     setSelectedServiceId(sId);
     const s = services.find((srv) => srv.id === sId);
     if (s) {
-      setDealValue(s.defaultPrice);
       setPricingType(s.pricingType);
     }
   };
@@ -259,22 +258,9 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
             <X className="w-5 h-5" />
           </button>
           
-          <div className="flex items-center gap-3 mb-2">
-            <span className="px-2.5 py-1 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-md">
-              PORTAL DEAL KLIEN MITRA
-            </span>
-            <span className="flex items-center gap-1 text-xs text-blue-100 bg-white/10 border border-white/20 px-2 py-0.5 rounded-md font-medium">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              Sistem Komisi Per Klien (10% / 15% / 20%)
-            </span>
-          </div>
-          
           <h2 className="text-xl font-bold tracking-tight text-white">
-            Input Data Klien &amp; Registrasi Proyek
+            Input Data Klien
           </h2>
-          <p className="text-xs text-blue-100/90 mt-1">
-            Komisi dihitung otomatis berdasarkan nilai kesepakatan per klien (Langganan maupun Case-by-Case) dan dikunci saat deal.
-          </p>
         </div>
 
         {/* Modal Content / Form Area */}
@@ -740,10 +726,6 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                                 </span>
                               </div>
                             </div>
-
-                            <p className="text-[10px] text-slate-500 leading-relaxed">
-                              ℹ️ Durasi perikatan otomatis terhitung berdasarkan pilihan bulan dan tahun di atas. Meskipun perikatan mencakup multi-bulan (misal: Februari 2024 s/d April 2025 = 15 Bulan), skema transaksi tetap case-by-case (sekali bayar lunas, komisi mitra cair 1x).
-                            </p>
                           </div>
                         )}
                       </div>
@@ -760,11 +742,15 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     <div className="relative">
                       <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-500">Rp</span>
                       <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={dealValue}
-                        onChange={(e) => setDealValue(Number(e.target.value))}
+                        type="text"
+                        inputMode="numeric"
+                        value={String(dealValue)}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, '');
+                          const cleaned = digits.replace(/^0+(?=\d)/, '');
+                          setDealValue(cleaned === '' ? 0 : Number(cleaned));
+                        }}
                         className="w-full pl-10 pr-3 py-2 text-sm font-semibold text-slate-900 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                       />
                     </div>
@@ -851,7 +837,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     <span>Memproses...</span>
                   ) : (
                     <>
-                      <span>Simpan Klien &amp; Tautkan Referral</span>
+                      <span>Simpan</span>
                       <ArrowRight className="w-4 h-4 text-amber-400" />
                     </>
                   )}

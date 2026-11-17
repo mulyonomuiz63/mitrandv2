@@ -572,6 +572,9 @@ export default function App() {
               ? () => setViewMode('client_register')
               : undefined
           }
+          logoUrl={settings?.logoUrl}
+          copyrightText={settings?.copyrightText}
+          appVersion={settings?.appVersion}
         />
 
         {/* Global Modals available from Landing Page */}
@@ -638,16 +641,6 @@ export default function App() {
   if (viewMode === 'auth' || !currentUser) {
     return (
       <div className="relative">
-        <div className="bg-slate-900 text-slate-300 px-4 py-2.5 text-xs flex items-center justify-between border-b border-slate-800">
-          <button
-            onClick={() => setViewMode('landing')}
-            className="text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1.5"
-          >
-            ← Kembali ke Halaman Program Kemitraan
-          </button>
-          <span className="text-slate-400">NDTAXANDLAW Partner Security Gateway</span>
-        </div>
-
         <AuthView
           onLoginSuccess={handleLoginSuccess}
           onRegisterSubmit={async (formData) => {
@@ -658,6 +651,7 @@ export default function App() {
           supportPhone={settings?.supportPhone || '0812-8899-7711'}
           firmName={settings?.firmName || 'NDTAXANDLAW'}
           settings={settings}
+          onBackToLanding={() => setViewMode('landing')}
         />
 
         <RegistrationModal
@@ -697,6 +691,7 @@ export default function App() {
           appEnvironment={settings?.appEnvironment || 'development'}
           themeMode={themeMode}
           onToggleTheme={handleToggleThemeMode}
+          logoUrl={settings?.logoUrl}
         />
 
         {/* Executive Sub-Header / Persona Context Bar (Matched to Mitra ID Card Royal Navy & Gold Theme) */}
@@ -761,6 +756,8 @@ export default function App() {
                 allowClientSelfRegister={settings?.allowClientSelfRegister !== false}
                 supportPhone={settings?.supportPhone || '0812-8899-7711'}
                 supportEmail={settings?.supportEmail || 'advisory@ndtaxandlaw.com'}
+                officeAddress={settings?.officeAddress}
+                logoUrl={settings?.logoUrl}
                 onOpenClientSelfRegister={
                   settings?.allowClientSelfRegister !== false
                     ? (refCode) => {
@@ -957,12 +954,19 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
-              src="/assets/aistudio/logo_c3fdb6de.png"
+              src={settings?.logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
               alt="ND TAX AND LAW"
-              className="h-6 w-auto object-contain"
+              className="h-7 w-auto object-contain"
             />
           </div>
-          <span>Hak Cipta &copy; 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.</span>
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2">
+            <span>{settings?.copyrightText || 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.'}</span>
+            {settings?.appVersion && (
+              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold">
+                {settings.appVersion}
+              </span>
+            )}
+          </div>
         </div>
       </footer>
 

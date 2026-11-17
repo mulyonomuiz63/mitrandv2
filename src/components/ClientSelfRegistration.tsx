@@ -231,7 +231,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
           <div className="flex items-center gap-3">
             <div className="bg-white px-2.5 py-1.5 rounded-lg shadow-sm">
               <img
-                src="/assets/aistudio/logo_c3fdb6de.png"
+                src={dynamicSettings?.logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
                 alt="NDTAXANDLAW Logo"
                 className="h-8 w-auto object-contain"
               />
@@ -251,7 +251,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
             className="inline-flex items-center gap-1.5 text-xs text-amber-300 hover:text-white transition-colors bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-lg border border-amber-400/40"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>Kembali ke Web Layanan</span>
+            <span>Kembali</span>
           </button>
         </div>
 
@@ -387,9 +387,6 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
               <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
                 Formulir Pendaftaran Klien Baru
               </h1>
-              <p className="text-xs text-blue-200 mt-1">
-                Lengkapi rincian profil perusahaan dan kebutuhan perpajakan Anda. Tim ahli NDTAXANDLAW akan mempersiapkan proposal dan penanganan terbaik.
-              </p>
             </div>
 
             {errorMsg && (
@@ -743,7 +740,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                     <span>Mengirimkan Data...</span>
                   ) : (
                     <>
-                      <span>Kirim Pendaftaran &amp; Dapatkan Jadwal Konsultasi</span>
+                      <span>Kirim Pendaftaran</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
@@ -752,6 +749,25 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
             </form>
           </div>
         )}
+
+        {/* Copyright Footer */}
+        <div className="mt-8 pt-6 border-t border-amber-400/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-amber-200/80">
+          <div className="flex items-center gap-2">
+            <img
+              src={dynamicSettings?.logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
+              alt="ND TAX AND LAW"
+              className="h-7 w-auto object-contain"
+            />
+          </div>
+          <div className="text-center sm:text-right flex flex-wrap items-center justify-center sm:justify-end gap-2">
+            <span>{dynamicSettings?.copyrightText || 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.'}</span>
+            {dynamicSettings?.appVersion && (
+              <span className="px-2 py-0.5 rounded bg-white/10 text-amber-300 text-[10px] font-bold">
+                {dynamicSettings.appVersion}
+              </span>
+            )}
+          </div>
+        </div>
 
       </div>
     </div>

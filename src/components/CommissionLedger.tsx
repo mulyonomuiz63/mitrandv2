@@ -254,9 +254,6 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 : Number(mitra.pendingPayout) || 0
             )}
           </p>
-          <span className="text-[11px] text-slate-500 mt-1 block">
-            Dicairkan Admin: {scheduleLabel}
-          </span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
@@ -264,12 +261,12 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
               {userRole === 'admin' ? 'Jadwal Pencairan Admin' : 'Rekening Bank Mitra'}
             </p>
-            {userRole === 'mitra' && (
+            {userRole === 'mitra' && !hasBankCompleted && (
               <button
                 onClick={onEditBankDetails}
                 className="text-xs text-blue-700 hover:underline font-semibold"
               >
-                {hasBankCompleted ? 'Ubah' : 'Lengkapi'}
+                Lengkapi
               </button>
             )}
           </div>
@@ -277,9 +274,6 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             <>
               <p className="text-sm font-bold text-slate-900 mt-2">
                 {scheduleLabel}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Admin mencairkan langsung ke rekening Mitra tanpa Mitra perlu mengajukan penarikan.
               </p>
             </>
           ) : hasBankCompleted ? (
@@ -941,9 +935,6 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             <h3 className="text-base font-bold text-slate-900 font-display">
               Riwayat Hasil Komisi Klien (Deal &amp; Pembayaran Langganan)
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Rincian komisi otomatis setiap kali klien berhasil deal atau membayar tagihan langganan yang telah di-approve Admin.
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1047,9 +1038,6 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 <Receipt className="w-5 h-5 text-blue-700" />
                 <span>Riwayat Pencairan Komisi, Potongan PPh 21, &amp; Bukti Transfer Bank</span>
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Rincian transparansi dana yang ditransfer ke rekening bank Anda, bukti potong pajak PPh 21 tenaga ahli, biaya admin, serta slip transfer resmi.
-              </p>
             </div>
 
             <div className="text-xs text-slate-500 font-medium">

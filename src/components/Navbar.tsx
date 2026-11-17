@@ -47,6 +47,7 @@ interface NavbarProps {
   appEnvironment?: 'development' | 'production';
   themeMode?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  logoUrl?: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -67,6 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onStartOnboardingTour,
   themeMode = 'light',
   onToggleTheme,
+  logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -138,35 +140,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <div className="logo-light-box bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl shrink-0 flex items-center shadow-2xs">
                   <img
-                    src="/assets/aistudio/logo_c3fdb6de.png"
+                    src={logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
                     alt="ND TAX AND LAW"
-                    className="h-6 sm:h-8 w-[108px] sm:w-[134px] object-contain shrink-0"
+                    className="h-7 sm:h-9 w-auto max-w-[134px] object-contain shrink-0"
                   />
                 </div>
               </button>
             </div>
 
-            {/* Right: Role Badge, Desktop Actions, Notifications & Profile/Menu */}
+            {/* Right: Desktop Actions, Notifications & Profile/Menu */}
             <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0" ref={menuRef}>
-              {/* Role Badge */}
-              {currentRole === 'admin' ? (
-                isStaff ? (
-                  <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-indigo-950 bg-indigo-100/90 border border-indigo-300 rounded-lg flex items-center gap-1 shadow-2xs shrink-0">
-                    <UserCheck className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
-                    <span>Staf</span>
-                  </span>
-                ) : (
-                  <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-blue-950 bg-blue-100/90 border border-blue-300 rounded-lg flex items-center gap-1 shadow-2xs shrink-0">
-                    <ShieldCheck className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                    <span>Admin</span>
-                  </span>
-                )
-              ) : (
-                <span className="px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-bold text-emerald-950 bg-emerald-100/90 border border-emerald-300 rounded-lg flex items-center gap-1 shadow-2xs shrink-0">
-                  <UserCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                  <span>Mitra</span>
-                </span>
-              )}
 
               {/* Primary Action CTA on Desktop/Tablet (Hidden on Mobile to keep mobile navbar clean) */}
               {currentRole === 'mitra' && onOpenClientInput && (
@@ -569,7 +552,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     }`}
                   >
                     <DollarSign className="w-3.5 h-3.5 shrink-0" />
-                    <span>Komisi &amp; Payout</span>
+                    <span>Monitoring</span>
                   </button>
                 </>
               ) : (
@@ -586,23 +569,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       }`}
                     >
                       <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />
-                      <span>{isStaff ? 'Dashboard Operasional' : 'Dashboard Admin'}</span>
-                    </button>
-                  )}
-
-                  {canAccessMenu('admin-operations') && (
-                    <button
-                      type="button"
-                      data-tour="tour-nav-operations"
-                      onClick={() => onTabChange('admin-operations')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                        activeTab === 'admin-operations'
-                          ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
-                          : 'text-slate-700 bg-blue-50/70 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/80'
-                      }`}
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span>Validasi Klien &amp; Payout</span>
+                      <span>Dashboard</span>
                     </button>
                   )}
 
@@ -618,27 +585,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                       }`}
                     >
                       <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span>Verifikasi Mitra</span>
+                      <span>Mitra</span>
                     </button>
                   )}
 
-                  {!isStaff && (
+                  {canAccessMenu('admin-operations') && (
                     <button
                       type="button"
-                      data-tour="tour-nav-logs"
-                      onClick={() => onTabChange('activity-logs')}
+                      data-tour="tour-nav-operations"
+                      onClick={() => onTabChange('admin-operations')}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                        activeTab === 'activity-logs'
+                        activeTab === 'admin-operations'
                           ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
-                          : 'text-slate-700 bg-indigo-50/60 hover:bg-indigo-100 hover:text-indigo-900 border border-indigo-200/80'
+                          : 'text-slate-700 bg-blue-50/70 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/80'
                       }`}
                     >
-                      <Activity
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          activeTab === 'activity-logs' ? 'text-amber-300' : 'text-indigo-600'
-                        }`}
-                      />
-                      <span>Log Aktivitas &amp; Email</span>
+                      <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span>Klien &amp; Payout</span>
                     </button>
                   )}
 
@@ -670,7 +633,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       }`}
                     >
                       <DollarSign className="w-3.5 h-3.5 shrink-0" />
-                      <span>Komisi &amp; Payout</span>
+                      <span>Monitoring</span>
                     </button>
                   )}
 
@@ -690,7 +653,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                           activeTab === 'staff-management' ? 'text-amber-300' : 'text-emerald-700'
                         }`}
                       />
-                      <span>Manajemen Staf &amp; Admin</span>
+                      <span>Staf</span>
+                    </button>
+                  )}
+
+                  {!isStaff && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-logs"
+                      onClick={() => onTabChange('activity-logs')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                        activeTab === 'activity-logs'
+                          ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                          : 'text-slate-700 bg-indigo-50/60 hover:bg-indigo-100 hover:text-indigo-900 border border-indigo-200/80'
+                      }`}
+                    >
+                      <Activity
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          activeTab === 'activity-logs' ? 'text-amber-300' : 'text-indigo-600'
+                        }`}
+                      />
+                      <span>Log Aktifitas</span>
                     </button>
                   )}
                 </>
@@ -777,7 +760,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <DollarSign className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Komisi</span>
+              <span className="text-[10px] mt-0.5 truncate">Monitoring</span>
             </button>
 
             <button
@@ -808,23 +791,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }`}
               >
                 <LayoutDashboard className="w-4 h-4" />
-                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Home</span>
-              </button>
-            )}
-
-            {canAccessMenu('admin-operations') && (
-              <button
-                type="button"
-                data-tour="tour-nav-operations"
-                onClick={() => onTabChange('admin-operations')}
-                className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
-                  activeTab === 'admin-operations'
-                    ? 'text-blue-700 bg-blue-50 font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Validasi</span>
+                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Dashboard</span>
               </button>
             )}
 
@@ -844,19 +811,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {canAccessMenu('commissions') && (
+            {canAccessMenu('admin-operations') && (
               <button
                 type="button"
-                data-tour="tour-nav-commissions"
-                onClick={() => onTabChange('commissions')}
+                data-tour="tour-nav-operations"
+                onClick={() => onTabChange('admin-operations')}
                 className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
-                  activeTab === 'commissions'
+                  activeTab === 'admin-operations'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
-                <DollarSign className="w-4 h-4" />
-                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Komisi</span>
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Klien &amp; Payout</span>
               </button>
             )}
 
@@ -876,19 +843,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {!isStaff && (
+            {canAccessMenu('commissions') && (
               <button
                 type="button"
-                data-tour="tour-nav-logs"
-                onClick={() => onTabChange('activity-logs')}
-                className={`flex-1 min-w-[48px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
-                  activeTab === 'activity-logs'
-                    ? 'text-indigo-700 bg-indigo-50 font-bold'
+                data-tour="tour-nav-commissions"
+                onClick={() => onTabChange('commissions')}
+                className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                  activeTab === 'commissions'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
-                <Activity className="w-4 h-4" />
-                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Log</span>
+                <DollarSign className="w-4 h-4" />
+                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Monitoring</span>
               </button>
             )}
 
@@ -905,6 +872,22 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Users className="w-4 h-4" />
                 <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Staf</span>
+              </button>
+            )}
+
+            {!isStaff && (
+              <button
+                type="button"
+                data-tour="tour-nav-logs"
+                onClick={() => onTabChange('activity-logs')}
+                className={`flex-1 min-w-[48px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                  activeTab === 'activity-logs'
+                    ? 'text-indigo-700 bg-indigo-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Log</span>
               </button>
             )}
           </div>

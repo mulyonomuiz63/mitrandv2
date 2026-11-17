@@ -41,6 +41,9 @@ interface LandingPageProps {
   userAvatarUrl?: string;
   supportPhone?: string;
   supportEmail?: string;
+  logoUrl?: string;
+  copyrightText?: string;
+  appVersion?: string;
 }
 
 type SimulationMode = 'per_kasus' | 'bulanan';
@@ -52,6 +55,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   userAvatarUrl,
   supportPhone = '0812-8899-7711',
   supportEmail = 'kemitraan@ndtaxandlaw.co.id',
+  logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
+  copyrightText = 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.',
+  appVersion,
 }) => {
   // Theme Mode State (Dark / Light) persisted in localStorage
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
@@ -196,9 +202,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               title="ND TAX AND LAW"
             >
               <img
-                src="/assets/aistudio/logo_c3fdb6de.png"
+                src={logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
                 alt="ND TAX AND LAW"
-                className="h-6 sm:h-8 w-[108px] sm:w-[136px] object-contain shrink-0"
+                className="h-8 sm:h-10 w-auto max-w-[140px] object-contain shrink-0"
               />
             </button>
             <div
@@ -391,106 +397,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 .
               </p>
 
-              {/* Key Commission Highlights from Poster */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
-                <div
-                  className={`rounded-2xl p-4 border ${
-                    isDark
-                      ? 'bg-white/[0.06] border-amber-400/30'
-                      : 'bg-white border-amber-300 shadow-sm'
-                  }`}
-                >
-                  <div
-                    className={`text-[11px] font-bold uppercase tracking-wider ${
-                      isDark ? 'text-amber-300' : 'text-amber-700'
-                    }`}
-                  >
-                    KOMISI CLOSING AWAL
-                  </div>
-                  <div
-                    className={`text-2xl sm:text-3xl font-black mt-1 tabular-nums ${
-                      isDark ? 'text-white' : 'text-[#12316B]'
-                    }`}
-                  >
-                    Hingga 20%
-                  </div>
-                  <p
-                    className={`text-xs mt-1 ${
-                      isDark ? 'text-slate-300' : 'text-slate-600'
-                    }`}
-                  >
-                    Dari nilai kontrak Jasa Per Kasus maupun Bulanan
-                  </p>
-                </div>
-
-                <div
-                  className={`rounded-2xl p-4 border ${
-                    isDark
-                      ? 'bg-white/[0.06] border-emerald-400/30'
-                      : 'bg-white border-emerald-300 shadow-sm'
-                  }`}
-                >
-                  <div
-                    className={`text-[11px] font-bold uppercase tracking-wider ${
-                      isDark ? 'text-emerald-300' : 'text-emerald-700'
-                    }`}
-                  >
-                    KOMISI BERULANG
-                  </div>
-                  <div
-                    className={`text-2xl sm:text-3xl font-black mt-1 tabular-nums ${
-                      isDark ? 'text-emerald-400' : 'text-emerald-600'
-                    }`}
-                  >
-                    +10% / Bulan
-                  </div>
-                  <p
-                    className={`text-xs mt-1 ${
-                      isDark ? 'text-slate-300' : 'text-slate-600'
-                    }`}
-                  >
-                    Mengalir terus setiap bulan sepanjang kontrak klien aktif
-                  </p>
-                </div>
-
-                <div
-                  className={`rounded-2xl p-4 border ${
-                    isDark
-                      ? 'bg-white/[0.06] border-blue-400/30'
-                      : 'bg-white border-blue-200 shadow-sm'
-                  }`}
-                >
-                  <div
-                    className={`text-[11px] font-bold uppercase tracking-wider ${
-                      isDark ? 'text-blue-300' : 'text-blue-800'
-                    }`}
-                  >
-                    MODAL PENDAFTARAN
-                  </div>
-                  <div
-                    className={`text-2xl sm:text-3xl font-black mt-1 tabular-nums ${
-                      isDark ? 'text-white' : 'text-[#12316B]'
-                    }`}
-                  >
-                    Rp 0 (Gratis)
-                  </div>
-                  <p
-                    className={`text-xs mt-1 ${
-                      isDark ? 'text-slate-300' : 'text-slate-600'
-                    }`}
-                  >
-                    Langsung dapat ID Card Ber-QR &amp; Link Referral Otomatis
-                  </p>
-                </div>
-              </div>
-
               {/* Primary CTA Buttons */}
               <div className="flex flex-wrap items-center gap-3.5 pt-2">
                 <button
                   onClick={onOpenRegister}
                   className="px-6 sm:px-7 py-3.5 sm:py-4 text-xs sm:text-sm font-black text-slate-950 bg-gradient-to-r from-amber-400 via-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl shadow-xl shadow-amber-500/20 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer"
                 >
-                  <span>Daftar Mitra Sekarang</span>
+                  <span>Daftar Sekarang</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
@@ -505,7 +418,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <Calculator
                     className={`w-4 h-4 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
                   />
-                  <span>Hitung Simulasi Komisi</span>
+                  <span>Simulasi Komisi</span>
                 </a>
               </div>
 
@@ -555,36 +468,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               >
                 Skema Komisi Besar: Jasa Per Kasus &amp; Jasa Bulanan
               </h2>
-            </div>
-
-            <div
-              className={`rounded-2xl px-5 py-3.5 flex items-center gap-3 self-start md:self-auto border ${
-                isDark
-                  ? 'bg-amber-400/10 border-amber-400/40'
-                  : 'bg-amber-50 border-amber-300'
-              }`}
-            >
-              <BadgePercent
-                className={`w-8 h-8 shrink-0 ${
-                  isDark ? 'text-amber-400' : 'text-amber-600'
-                }`}
-              />
-              <div>
-                <div
-                  className={`text-xs font-bold uppercase tracking-wider ${
-                    isDark ? 'text-amber-300' : 'text-amber-800'
-                  }`}
-                >
-                  MAKSIMAL KOMISI MITRA
-                </div>
-                <div
-                  className={`text-lg font-black ${
-                    isDark ? 'text-white' : 'text-[#0B1D3A]'
-                  }`}
-                >
-                  20% Komisi Awal + 10% Tiap Bulan
-                </div>
-              </div>
             </div>
           </div>
 
@@ -840,7 +723,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 isDark ? 'text-white' : 'text-[#0B1D3A]'
               }`}
             >
-              Hitung Sendiri Potensi Komisi &amp; Passive Income Anda
+              Hitung Sendiri Potensi Komisi &amp; Passive Income
             </h2>
           </div>
 
@@ -1156,7 +1039,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     onClick={onOpenRegister}
                     className="w-full py-3.5 px-5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
                   >
-                    <span>Daftar Mitra Sekarang</span>
+                    <span>Daftar Sekarang</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -1400,7 +1283,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onOpenRegister}
                 className="px-7 py-4 text-xs sm:text-sm font-black text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xl transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer"
               >
-                <span>Daftar Mitra Sekarang</span>
+                <span>Daftar Sekarang</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
               <button
@@ -1414,84 +1297,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* QUIET FOOTER */}
-      <footer className="bg-[#040A17] text-slate-400 text-xs py-12 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pb-8 border-b border-white/10">
-            <div className="space-y-3">
-              <div className="bg-white inline-flex px-3 py-1.5 rounded-lg">
-                <img
-                  src="/assets/aistudio/logo_c3fdb6de.png"
-                  alt="ND TAX AND LAW"
-                  className="h-7 w-auto object-contain"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                Navigasi Kemitraan
-              </h4>
-              <ul className="space-y-1.5 text-xs">
-                <li>
-                  <a href="#skema-komisi" className="hover:text-amber-400 transition-colors">
-                    Skema Komisi Per Kasus &amp; Bulanan
-                  </a>
-                </li>
-                <li>
-                  <a href="#simulasi-komisi" className="hover:text-amber-400 transition-colors">
-                    Kalkulator Simulasi Komisi Mitra
-                  </a>
-                </li>
-                <li>
-                  <a href="#bonus-mitra" className="hover:text-amber-400 transition-colors">
-                    Program Bonus Mitra Berprestasi
-                  </a>
-                </li>
-                <li>
-                  <button
-                    onClick={onOpenRegister}
-                    className="hover:text-amber-400 transition-colors text-left cursor-pointer"
-                  >
-                    Daftar Mitra Baru
-                  </button>
-                </li>
-              </ul>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                Dukungan Mitra Strategis
-              </h4>
-              <ul className="space-y-2 text-xs">
-                <li className="flex items-center gap-2">
-                  <Phone className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{supportPhone} (Hotline Kemitraan)</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Mail className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{supportEmail}</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Terintegrasi Sistem Pelacakan Komisi Real-Time</span>
-                </li>
-              </ul>
-            </div>
+      {/* UNIFIED FOOTER MATCHING LOGGED-IN PORTAL */}
+      <footer className="bg-gradient-to-r from-[#071B3B] via-[#0B2A59] to-[#051229] border-t border-amber-400/20 text-slate-300 text-xs py-6 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
+              alt="ND TAX AND LAW"
+              className="h-8 w-auto object-contain shrink-0"
+            />
           </div>
-
-          <div className="pt-6 flex flex-wrap items-center justify-between gap-4 text-[11px] text-slate-500">
-            <div>
-              © 2026 NDTAXANDLAW. Program Mitra Strategis — Seluruh Hak Cipta Dilindungi.
-            </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={onEnterPortal}
-                className="text-slate-400 hover:text-amber-400 cursor-pointer"
-              >
-                Masuk Portal Kemitraan
-              </button>
-            </div>
+          <div className="text-center sm:text-right text-amber-200/80 text-xs flex flex-wrap items-center justify-center sm:justify-end gap-2">
+            <span>{copyrightText || 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.'}</span>
+            {appVersion && (
+              <span className="px-2 py-0.5 rounded bg-white/10 text-amber-300 text-[10px] font-bold">
+                {appVersion}
+              </span>
+            )}
           </div>
         </div>
       </footer>

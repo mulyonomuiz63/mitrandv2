@@ -509,19 +509,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
             <UserPlus className="w-4 h-4" />
             <span>+ Tambah Staf Baru</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSection('admin_profile')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-              activeSection === 'admin_profile'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'bg-white/10 text-slate-200 hover:bg-white/20'
-            }`}
-          >
-            <KeyRound className="w-4 h-4" />
-            <span>Edit Data &amp; Password Admin</span>
-          </button>
         </div>
       </div>
 

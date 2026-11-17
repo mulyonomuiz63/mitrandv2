@@ -284,6 +284,18 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     }
   };
 
+  const isDealInBillingWindow = (d: ClientDeal): boolean => {
+    if (d.status !== 'active_subscription') return false;
+    if (d.isBillingDue) return true;
+    if (!d.nextBillingDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextDate = new Date(`${d.nextBillingDate}T00:00:00`);
+    if (isNaN(nextDate.getTime())) return false;
+    const diffDays = Math.ceil((nextDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays <= 3;
+  };
+
   const fetchCommissionSchemeSettings = async () => {
     try {
       const res = await fetch('/api/settings');
@@ -293,7 +305,28 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
           setCommScheme({ ...DEFAULT_COMMISSION_SCHEME, ...data.data.commissionScheme });
         }
         if (data.data.bonusTargetConfig) {
-          setBonusTarget({ ...DEFAULT_BONUS_TARGET_CONFIG, ...data.data.bonusTargetConfig });
+          const raw = data.data.bonusTargetConfig;
+          const pType: 'monthly' | 'yearly' = raw.periodType === 'yearly' ? 'yearly' : 'monthly';
+          const mRev = raw.monthlyTargetDealRevenue ?? (pType === 'monthly' ? raw.targetDealRevenue : DEFAULT_BONUS_TARGET_CONFIG.monthlyTargetDealRevenue) ?? 50000000;
+          const mCount = raw.monthlyTargetClientCount ?? (pType === 'monthly' ? raw.targetClientCount : DEFAULT_BONUS_TARGET_CONFIG.monthlyTargetClientCount) ?? 3;
+          const mBonus = raw.monthlyStandardBonusAmount ?? (pType === 'monthly' ? raw.standardBonusAmount : DEFAULT_BONUS_TARGET_CONFIG.monthlyStandardBonusAmount) ?? 5000000;
+          const yRev = raw.yearlyTargetDealRevenue ?? (pType === 'yearly' ? raw.targetDealRevenue : DEFAULT_BONUS_TARGET_CONFIG.yearlyTargetDealRevenue) ?? 500000000;
+          const yCount = raw.yearlyTargetClientCount ?? (pType === 'yearly' ? raw.targetClientCount : DEFAULT_BONUS_TARGET_CONFIG.yearlyTargetClientCount) ?? 24;
+          const yBonus = raw.yearlyStandardBonusAmount ?? (pType === 'yearly' ? raw.standardBonusAmount : DEFAULT_BONUS_TARGET_CONFIG.yearlyStandardBonusAmount) ?? 50000000;
+          setBonusTarget({
+            ...DEFAULT_BONUS_TARGET_CONFIG,
+            ...raw,
+            periodType: pType,
+            monthlyTargetDealRevenue: mRev,
+            monthlyTargetClientCount: mCount,
+            monthlyStandardBonusAmount: mBonus,
+            yearlyTargetDealRevenue: yRev,
+            yearlyTargetClientCount: yCount,
+            yearlyStandardBonusAmount: yBonus,
+            targetDealRevenue: pType === 'yearly' ? yRev : mRev,
+            targetClientCount: pType === 'yearly' ? yCount : mCount,
+            standardBonusAmount: pType === 'yearly' ? yBonus : mBonus,
+          });
         }
         if (data.data.payoutSchedule) {
           setPayoutSchedule(data.data.payoutSchedule);
@@ -1077,20 +1110,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                                 &ldquo;{deal.notes}&rdquo;
                               </p>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => setSelectedClientDetail(deal)}
-                              className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 px-2 py-0.5 rounded transition-colors"
-                            >
-                              <FileCheck2 className="w-3 h-3" />
-                              <span>
-                                {deal.pricingType === 'monthly_subscription'
-                                  ? 'Detail Paket Langganan Bulanan'
-                                  : deal.pricingType === 'annual_subscription'
-                                    ? 'Detail Paket Langganan Tahunan'
-                                    : 'Detail Paket Case-by-Case'}
-                              </span>
-                            </button>
                           </td>
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             {deal.pricingType === 'annual_subscription' ? (
@@ -1367,34 +1386,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                               </div>
                             ) : deal.pricingType === 'annual_subscription' || deal.pricingType === 'monthly_subscription' ? (
                               <div className="flex flex-col items-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedClientDetail(deal)}
-                                  className="px-2.5 py-1.5 text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
-                                  title="Klik untuk melihat detail lengkap informasi langganan yang sedang berjalan dan data klien"
-                                >
-                                  <span>
-                                    📋{' '}
-                                    {deal.pricingType === 'annual_subscription'
-                                      ? 'Informasi Langganan Tahunan Berjalan'
-                                      : 'Informasi Langganan Bulanan Berjalan'}
-                                  </span>
-                                </button>
-                                {isPaymentDue && (
+                                {isDealInBillingWindow(deal) ? (
                                   <button
                                     type="button"
-                                    onClick={() => handleConfirmRecurringBill(deal.id, deal.pricingType)}
-                                    disabled={processingId === deal.id}
-                                    className="px-3 py-1.5 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors flex items-center gap-1"
-                                    title="Waktu pembayaran tiba: Approve pembayaran langganan agar komisi masuk ke Mitra"
+                                    onClick={() => setSelectedClientDetail(deal)}
+                                    className="px-3 py-1.5 text-[11px] font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 border border-amber-500 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                                    title="Memasuki jadwal tagihan (H-3 s/d jatuh tempo): Klik untuk melihat detail & approve pembayaran"
                                   >
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span>
-                                      Approve Pembayaran{' '}
-                                      {deal.pricingType === 'annual_subscription'
-                                        ? `Tahun Ke-${(deal.recurringPaidYears || 1) + 1}`
-                                        : `Bulan #${(deal.recurringPaidMonths || 1) + 1}`}
-                                    </span>
+                                    <span>Tagihan Baru</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedClientDetail(deal)}
+                                    className="px-3 py-1.5 text-[11px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+                                    title="Klik untuk melihat detail informasi langganan dan data klien"
+                                  >
+                                    <span>Detail</span>
                                   </button>
                                 )}
                                 <button
@@ -1420,10 +1428,10 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setSelectedClientDetail(deal)}
-                                  className="px-2.5 py-1.5 text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
-                                  title="Klik untuk melihat detail lengkap paket case-by-case dan data klien"
+                                  className="px-3 py-1.5 text-[11px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+                                  title="Klik untuk melihat detail paket case-by-case dan data klien"
                                 >
-                                  <span>📋 Informasi Paket Case-by-Case &amp; Klien</span>
+                                  <span>Detail</span>
                                 </button>
                                 <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
                                   ✓ Kontrak Case-by-Case Aktif (1x Bayar)
@@ -1619,9 +1627,13 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                             type="button"
                             disabled={readyBalance <= 0}
                             onClick={() => openDirectDisburseModal(m)}
-                            className="px-3.5 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 disabled:bg-slate-200 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed rounded-lg shadow-xs transition-all cursor-pointer"
+                            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all ${
+                              readyBalance > 0
+                                ? 'text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 cursor-pointer'
+                                : 'bg-slate-200 text-slate-600 border border-slate-300 cursor-not-allowed'
+                            }`}
                           >
-                            {readyBalance > 0 ? 'Proses Pencairan Komisi' : 'Saldo Rp 0'}
+                            {readyBalance > 0 ? 'Proses Pencairan Komisi' : 'Belum Ada Komisi'}
                           </button>
                         </td>
                       </tr>
@@ -1756,15 +1768,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
           {/* Top Hero Card (Mitra ID Card Royal Navy & Gold Theme) */}
           <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded">
-                  MANAJEMEN KOMISI &amp; BONUS MITRA
-                </span>
-                <span className="text-xs text-blue-100 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                  Proteksi Komisi Waktu Deal Aktif
-                </span>
-              </div>
               <h2 className="text-lg sm:text-xl font-bold font-display">
                 Pengaturan Komisi Berbasis Per Klien, Target Standar &amp; Pemberian Bonus Mitra
               </h2>
@@ -2009,7 +2012,21 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => setBonusTarget({ ...bonusTarget, periodType: 'monthly' })}
+                        onClick={() => {
+                          const mRev = bonusTarget.monthlyTargetDealRevenue ?? 50000000;
+                          const mCount = bonusTarget.monthlyTargetClientCount ?? 3;
+                          const mBonus = bonusTarget.monthlyStandardBonusAmount ?? 5000000;
+                          setBonusTarget({
+                            ...bonusTarget,
+                            periodType: 'monthly',
+                            monthlyTargetDealRevenue: mRev,
+                            monthlyTargetClientCount: mCount,
+                            monthlyStandardBonusAmount: mBonus,
+                            targetDealRevenue: mRev,
+                            targetClientCount: mCount,
+                            standardBonusAmount: mBonus,
+                          });
+                        }}
                         className={`py-2 px-3 rounded-xl font-bold border text-center transition-all ${
                           bonusTarget.periodType === 'monthly'
                             ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border-amber-400/40 shadow-xs'
@@ -2020,7 +2037,21 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setBonusTarget({ ...bonusTarget, periodType: 'yearly' })}
+                        onClick={() => {
+                          const yRev = bonusTarget.yearlyTargetDealRevenue ?? 500000000;
+                          const yCount = bonusTarget.yearlyTargetClientCount ?? 24;
+                          const yBonus = bonusTarget.yearlyStandardBonusAmount ?? 50000000;
+                          setBonusTarget({
+                            ...bonusTarget,
+                            periodType: 'yearly',
+                            yearlyTargetDealRevenue: yRev,
+                            yearlyTargetClientCount: yCount,
+                            yearlyStandardBonusAmount: yBonus,
+                            targetDealRevenue: yRev,
+                            targetClientCount: yCount,
+                            standardBonusAmount: yBonus,
+                          });
+                        }}
                         className={`py-2 px-3 rounded-xl font-bold border text-center transition-all ${
                           bonusTarget.periodType === 'yearly'
                             ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border-amber-400/40 shadow-xs'
@@ -2039,10 +2070,27 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={bonusTarget.targetDealRevenue}
-                      onChange={(e) =>
-                        setBonusTarget({ ...bonusTarget, targetDealRevenue: Number(e.target.value) })
+                      value={
+                        bonusTarget.periodType === 'yearly'
+                          ? bonusTarget.yearlyTargetDealRevenue ?? bonusTarget.targetDealRevenue
+                          : bonusTarget.monthlyTargetDealRevenue ?? bonusTarget.targetDealRevenue
                       }
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (bonusTarget.periodType === 'yearly') {
+                          setBonusTarget({
+                            ...bonusTarget,
+                            yearlyTargetDealRevenue: val,
+                            targetDealRevenue: val,
+                          });
+                        } else {
+                          setBonusTarget({
+                            ...bonusTarget,
+                            monthlyTargetDealRevenue: val,
+                            targetDealRevenue: val,
+                          });
+                        }
+                      }}
                       className="w-full px-3 py-2 font-mono font-bold border border-slate-300 rounded-lg"
                     />
                   </div>
@@ -2054,25 +2102,59 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <input
                       type="number"
                       min="1"
-                      value={bonusTarget.targetClientCount}
-                      onChange={(e) =>
-                        setBonusTarget({ ...bonusTarget, targetClientCount: Number(e.target.value) })
+                      value={
+                        bonusTarget.periodType === 'yearly'
+                          ? bonusTarget.yearlyTargetClientCount ?? bonusTarget.targetClientCount
+                          : bonusTarget.monthlyTargetClientCount ?? bonusTarget.targetClientCount
                       }
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (bonusTarget.periodType === 'yearly') {
+                          setBonusTarget({
+                            ...bonusTarget,
+                            yearlyTargetClientCount: val,
+                            targetClientCount: val,
+                          });
+                        } else {
+                          setBonusTarget({
+                            ...bonusTarget,
+                            monthlyTargetClientCount: val,
+                            targetClientCount: val,
+                          });
+                        }
+                      }}
                       className="w-full px-3 py-2 font-mono font-bold border border-slate-300 rounded-lg"
                     />
                   </div>
 
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      Nominal Bonus Standar Mitra Berprestasi (Rp)
+                      Nominal Bonus Standar Mitra Berprestasi ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'}) (Rp)
                     </label>
                     <input
                       type="number"
                       min="0"
-                      value={bonusTarget.standardBonusAmount}
-                      onChange={(e) =>
-                        setBonusTarget({ ...bonusTarget, standardBonusAmount: Number(e.target.value) })
+                      value={
+                        bonusTarget.periodType === 'yearly'
+                          ? bonusTarget.yearlyStandardBonusAmount ?? bonusTarget.standardBonusAmount
+                          : bonusTarget.monthlyStandardBonusAmount ?? bonusTarget.standardBonusAmount
                       }
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (bonusTarget.periodType === 'yearly') {
+                          setBonusTarget({
+                            ...bonusTarget,
+                            yearlyStandardBonusAmount: val,
+                            standardBonusAmount: val,
+                          });
+                        } else {
+                          setBonusTarget({
+                            ...bonusTarget,
+                            monthlyStandardBonusAmount: val,
+                            standardBonusAmount: val,
+                          });
+                        }
+                      }}
                       className="w-full px-3 py-2 font-mono font-extrabold text-emerald-700 border border-emerald-300 rounded-lg bg-emerald-50/40"
                     />
                   </div>
@@ -3404,23 +3486,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             {/* Header */}
             <div className="shrink-0 p-5 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white flex items-center justify-between">
               <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-blue-500/25 border border-blue-400/40 text-blue-200 rounded">
-                    {selectedClientDetail.status === 'active_subscription'
-                      ? selectedClientDetail.pricingType === 'annual_subscription'
-                        ? 'INFORMASI LANGGANAN TAHUNAN BERJALAN'
-                        : 'INFORMASI LANGGANAN BULANAN BERJALAN'
-                      : selectedClientDetail.status === 'deal_closed'
-                        ? 'INFORMASI PAKET CASE-BY-CASE AKTIF'
-                        : selectedClientDetail.status === 'pending_acc'
-                          ? 'DETAIL PENGAJUAN KLIEN & PAKET'
-                          : 'ARSIP & RIWAYAT KONTRAK KLIEN'}
-                  </span>
-                  <span className="font-mono text-[11px] text-slate-300">
-                    ID: {selectedClientDetail.id}
-                  </span>
-                </div>
-                <h3 className="text-base sm:text-lg font-bold font-display mt-1">
+                <h3 className="text-base sm:text-lg font-bold font-display">
                   {selectedClientDetail.companyName}
                 </h3>
                 <p className="text-[11px] text-blue-200 font-medium mt-0.5">
@@ -3720,10 +3786,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             </div>
 
             {/* Footer Actions */}
-            <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[11px] text-slate-500">
-                Informasi detail paket &amp; data klien tersimpan permanen di sistem.
-              </div>
+            <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-end gap-2">
               <div className="flex flex-wrap items-center gap-2 ml-auto">
                 {selectedClientDetail.status === 'pending_acc' && (
                   <button
@@ -3740,21 +3803,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 )}
                 {selectedClientDetail.status === 'active_subscription' && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const target = selectedClientDetail;
-                        setSelectedClientDetail(null);
-                        handleConfirmRecurringBill(target.id, target.pricingType);
-                      }}
-                      className="px-3 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors"
-                      title="Catat & approve pembayaran siklus langganan berikutnya untuk mencairkan komisi rutin Mitra"
-                    >
-                      ✓ Approve Pembayaran{' '}
-                      {selectedClientDetail.pricingType === 'annual_subscription'
-                        ? `Tahun Ke-${(selectedClientDetail.recurringPaidYears || 1) + 1}`
-                        : `Bulan #${(selectedClientDetail.recurringPaidMonths || 1) + 1}`}
-                    </button>
+                    {isDealInBillingWindow(selectedClientDetail) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = selectedClientDetail;
+                          setSelectedClientDetail(null);
+                          handleConfirmRecurringBill(target.id, target.pricingType);
+                        }}
+                        className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+                        title="Catat & approve pembayaran siklus langganan berikutnya untuk mencairkan komisi rutin Mitra"
+                      >
+                        ✓ Approve Pembayaran{' '}
+                        {selectedClientDetail.pricingType === 'annual_subscription'
+                          ? `Tahun Ke-${(selectedClientDetail.recurringPaidYears || 1) + 1}`
+                          : `Bulan #${(selectedClientDetail.recurringPaidMonths || 1) + 1}`}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

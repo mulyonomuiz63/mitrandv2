@@ -92,6 +92,8 @@ interface ExclusiveIdCardProps {
   allowClientSelfRegister?: boolean;
   supportPhone?: string;
   supportEmail?: string;
+  officeAddress?: string;
+  logoUrl?: string;
 }
 
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
@@ -103,6 +105,8 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   allowClientSelfRegister = true,
   supportPhone = '0812-8899-7711',
   supportEmail = 'advisory@ndtaxandlaw.com',
+  officeAddress = 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
+  logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
 }) => {
   const confirm = useConfirm();
   const [isFlipped, setIsFlipped] = useState(false);
@@ -217,9 +221,9 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <img
-                  src="/assets/aistudio/logo_c3fdb6de.png"
+                  src={logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
                   alt="NDTAXANDLAW"
-                  className="h-9 w-auto object-contain filter brightness-110 drop-shadow"
+                  className="h-10 w-auto object-contain filter brightness-110 drop-shadow"
                 />
               </div>
 
@@ -310,84 +314,29 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               )}
             </div>
 
-            {/* Card Footer: Verification Tag */}
+            {/* Card Footer: Office Address from Admin Settings */}
             <div className="flex items-end justify-between pt-2 border-t border-white/10">
-              <div>
-                <p className="text-[9px] text-slate-400 uppercase tracking-wider">Kredensial Resmi</p>
-                <p className="text-xs font-semibold text-slate-200">Mitra Konsultan NDTAXANDLAW</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-medium text-slate-200 leading-snug line-clamp-2">
+                  {officeAddress || 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950'}
+                </p>
               </div>
-
-              {isInteractive ? (
-                <button
-                  type="button"
-                  onClick={() => setShowQrModal(true)}
-                  className="text-[10px] font-semibold text-amber-300 hover:text-amber-200 underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Detail Link QR</span>
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              ) : (
-                <div className="text-[9px] font-mono text-amber-300">
-                  Verified QR Credential
-                </div>
-              )}
             </div>
           </div>
         ) : (
-          /* BACK OF CARD */
-          <div className="relative z-10 h-full flex flex-col justify-between text-white text-xs">
-            {/* Magnetic Strip */}
-            <div className="w-full h-9 bg-black/80 -mx-6 -mt-2 px-6 flex items-center justify-between">
-              <span className="text-[9px] font-mono tracking-widest text-slate-400">
-                NDTAXANDLAW-SECURITY-ENCRYPTED-PARTNER-ID
-              </span>
-              <span className="text-[9px] font-mono text-amber-400">OFFICIAL</span>
-            </div>
-
-            {/* Bank payout verification & Terms */}
-            <div className="py-1.5 space-y-2 text-[10px] text-slate-300">
-              <div className="p-2.5 rounded-lg bg-white/5 border border-white/10">
-                <p className="text-[9px] text-amber-300 uppercase tracking-wider font-semibold">
-                  Rekening Pencairan Komisi Terdaftar:
-                </p>
-                <p className="font-semibold text-white mt-0.5">
-                  {mitra.bankDetails.bankName} - <span className="font-mono text-amber-200">{mitra.bankDetails.accountNumber}</span>
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  a.n. {mitra.bankDetails.accountHolder}
-                </p>
-                {mitra.bankDetails.customBankFields &&
-                  Object.keys(mitra.bankDetails.customBankFields).length > 0 && (
-                    <div className="mt-1 pt-1 border-t border-white/10 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-slate-300">
-                      {Object.entries(mitra.bankDetails.customBankFields).map(([k, v]) =>
-                        v ? (
-                          <span key={k}>
-                            <span className="text-slate-400">{k}:</span>{' '}
-                            <strong className="text-white">{v}</strong>
-                          </span>
-                        ) : null
-                      )}
-                    </div>
-                  )}
-              </div>
-
-              <p className="text-[9px] text-slate-400 leading-relaxed">
-                1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
-                <br />
-                2. Pindai QR Code untuk memvalidasi keabsahan surat tugas atau mandat pendampingan klien.
+          /* BACK OF CARD — HANYA PERATURAN */
+          <div className="relative z-10 h-full flex flex-col justify-center text-white">
+            <div className="p-5 rounded-xl bg-white/5 border border-amber-400/30 space-y-3">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-amber-300 border-b border-white/10 pb-2">
+                Peraturan &amp; Ketentuan Kartu Identitas
               </p>
-            </div>
-
-            {/* Footer contact & Barcode */}
-            <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[9px] text-slate-400">
-              <div>
-                <p className="font-semibold text-slate-200">Head Office NDTAXANDLAW</p>
-                <p>Menara Kadin Indonesia, Jakarta Selatan</p>
-                <p>Hotline: {supportPhone} | {supportEmail}</p>
-              </div>
-              <div className="text-right font-mono text-slate-300">
-                <div className="text-xs tracking-widest">||| | |||| | ||||| ||</div>
-                <p className="text-[8px] text-slate-400 mt-0.5">{mitra.memberCode}</p>
+              <div className="space-y-2.5 text-xs text-slate-200 leading-relaxed">
+                <p>
+                  1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
+                </p>
+                <p>
+                  2. Pindai QR Code untuk memvalidasi keabsahan surat tugas atau mandat pendampingan klien.
+                </p>
               </div>
             </div>
           </div>

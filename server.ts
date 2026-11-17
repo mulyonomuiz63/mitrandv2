@@ -401,6 +401,12 @@ export interface BonusTargetConfig {
   targetDealRevenue: number;
   targetClientCount: number;
   standardBonusAmount: number;
+  monthlyTargetDealRevenue?: number;
+  monthlyTargetClientCount?: number;
+  monthlyStandardBonusAmount?: number;
+  yearlyTargetDealRevenue?: number;
+  yearlyTargetClientCount?: number;
+  yearlyStandardBonusAmount?: number;
   rewardDescription: string;
   updatedAt?: string;
 }
@@ -424,6 +430,12 @@ export const DEFAULT_BONUS_TARGET_CONFIG: BonusTargetConfig = {
   targetDealRevenue: 50000000,
   targetClientCount: 3,
   standardBonusAmount: 5000000,
+  monthlyTargetDealRevenue: 50000000,
+  monthlyTargetClientCount: 3,
+  monthlyStandardBonusAmount: 5000000,
+  yearlyTargetDealRevenue: 500000000,
+  yearlyTargetClientCount: 24,
+  yearlyStandardBonusAmount: 50000000,
   rewardDescription: 'Bonus Tunai Prestasi, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah',
 };
 
@@ -552,6 +564,9 @@ export interface AppSettings {
   supportPhone: string;
   supportEmail: string;
   officeAddress: string;
+  logoUrl?: string;
+  appVersion?: string;
+  copyrightText?: string;
   defaultCommissionRate: number;
   commissionScheme?: CommissionSchemeConfig;
   bonusTargetConfig?: BonusTargetConfig;
@@ -1169,6 +1184,9 @@ let appSettings: AppSettings = {
   supportPhone: '0812-8899-7711',
   supportEmail: 'advisory@ndtaxandlaw.com',
   officeAddress: 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
+  logoUrl: '/assets/aistudio/logo_nd_vertikal.svg',
+  appVersion: 'v2.5.0',
+  copyrightText: 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.',
   defaultCommissionRate: 15,
   commissionScheme: { ...DEFAULT_COMMISSION_SCHEME },
   bonusTargetConfig: { ...DEFAULT_BONUS_TARGET_CONFIG },

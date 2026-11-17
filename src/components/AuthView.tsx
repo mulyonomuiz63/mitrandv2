@@ -4,6 +4,7 @@ import {
   Lock, 
   Mail, 
   ArrowRight, 
+  ArrowLeft,
   CheckCircle2, 
   AlertCircle, 
   KeyRound, 
@@ -48,6 +49,7 @@ interface AuthViewProps {
   supportPhone?: string;
   firmName?: string;
   settings?: AppSettings | null;
+  onBackToLanding?: () => void;
 }
 
 const DEFAULT_BANK_OPTIONS = [
@@ -67,6 +69,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   supportPhone = '0812-8899-7711',
   firmName = 'NDTAXANDLAW',
   settings,
+  onBackToLanding,
 }) => {
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'verify'>(initialMode);
 
@@ -416,14 +419,28 @@ export const AuthView: React.FC<AuthViewProps> = ({
           />
           <div className="absolute -right-24 -bottom-24 w-80 h-80 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
 
-          {/* Top Brand Header (Hanya Logo NDTAXANDLAW) */}
+          {/* Top Brand Header: Logo Sebelah Kiri & Tombol Kembali Sebelah Kanan */}
           <div className="relative z-10">
-            <div className="inline-flex items-center bg-slate-900/70 px-3.5 py-2 rounded-xl border border-amber-300/25 shadow-md">
-              <img
-                src="/assets/aistudio/logo_c3fdb6de.png"
-                alt="ND TAX AND LAW"
-                className="h-8 sm:h-9 w-auto object-contain filter brightness-110"
-              />
+            <div className="flex items-center justify-between gap-3">
+              <div className="inline-flex items-center bg-slate-900/70 px-3.5 py-2 rounded-xl border border-amber-300/25 shadow-md">
+                <img
+                  src={settings?.logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
+                  alt="ND TAX AND LAW"
+                  className="h-9 sm:h-10 w-auto object-contain filter brightness-110"
+                />
+              </div>
+
+              {onBackToLanding && (
+                <button
+                  type="button"
+                  onClick={onBackToLanding}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs shadow-md transition-all cursor-pointer shrink-0"
+                  title="Kembali ke Halaman Utama"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Kembali</span>
+                </button>
+              )}
             </div>
 
             <h2 className="text-xl sm:text-2xl font-bold font-display mt-8 leading-snug">
@@ -453,16 +470,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
               <div>
                 <p className="font-semibold text-white">Komisi Transparan &amp; Payout Bank</p>
                 <p className="text-[11px] text-slate-300 mt-0.5">Pencairan komisi &amp; bonus langsung ke rekening bank terdaftar.</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
-              <div className="w-6 h-6 rounded-md bg-blue-400/20 text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="font-semibold text-white">Generator Analitik AI Gemini</p>
-                <p className="text-[11px] text-slate-300 mt-0.5">Laporan evaluasi performa dan rekomendasi taktis bulanan otomatis.</p>
               </div>
             </div>
           </div>
@@ -1169,9 +1176,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
             )}
           </div>
 
-          {/* Footer Assistance */}
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center text-xs text-slate-400">
-            <span>Butuh bantuan akses akun? Hubungi hotline sekretariat {firmName || 'NDTAXANDLAW'} di {supportPhone || '0812-8899-7711'}.</span>
+          {/* Footer Copyright */}
+          <div className="mt-6 pt-4 border-t border-slate-100 text-center text-xs text-slate-400 flex flex-wrap items-center justify-center gap-2">
+            <span>{settings?.copyrightText || 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.'}</span>
+            {settings?.appVersion && (
+              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-bold">
+                {settings.appVersion}
+              </span>
+            )}
           </div>
         </div>
       </div>
