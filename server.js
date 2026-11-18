@@ -3,6 +3,7 @@ import express from "express";
 import dotenv2 from "dotenv";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
@@ -2892,7 +2893,7 @@ var syncFromSupabase = async () => {
       console.log(`[Supabase Cloud] Sinkronisasi ${payoutRequests.length} pengajuan pencairan dari Supabase`);
     }
     const { data: dbTools, error: errT } = await supabase.from("marketing_tools").select("*");
-    if (!errT && Array.isArray(dbTools)) {
+    if (!errT && Array.isArray(dbTools) && dbTools.length > 0) {
       marketingTools = dbTools;
       console.log(`[Supabase Cloud] Sinkronisasi ${marketingTools.length} tools marketing dari Supabase`);
     }
@@ -3004,6 +3005,41 @@ var syncFromSupabase = async () => {
             const parsedMsgs = JSON.parse(row.password);
             if (Array.isArray(parsedMsgs)) {
               chatMessages = parsedMsgs;
+            }
+          } catch {
+          }
+          continue;
+        }
+        if (emailLower === "__sys_marketing_tools__@ndtaxlaw.internal") {
+          try {
+            const parsedTools = JSON.parse(row.password);
+            if (Array.isArray(parsedTools) && parsedTools.length > 0) {
+              const mergedToolsMap = /* @__PURE__ */ new Map();
+              for (const t of [...marketingTools, ...parsedTools]) {
+                if (t && t.id && !mergedToolsMap.has(t.id)) {
+                  mergedToolsMap.set(t.id, t);
+                }
+              }
+              marketingTools = Array.from(mergedToolsMap.values());
+            }
+          } catch {
+          }
+          continue;
+        }
+        if (emailLower.startsWith("__sys_file_") && emailLower.endsWith("__@ndtaxlaw.internal")) {
+          try {
+            const parsedFile = JSON.parse(row.password);
+            if (parsedFile && parsedFile.fileName && parsedFile.base64) {
+              const safeName = path.basename(parsedFile.fileName);
+              const buf = Buffer.from(parsedFile.base64, "base64");
+              const pubDir = path.join(__dirname, "public", "uploads", "marketing-tools");
+              const homeDir = path.join(os.homedir(), ".ndtaxandlaw_storage", "uploads", "marketing-tools");
+              if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
+              if (!fs.existsSync(homeDir)) fs.mkdirSync(homeDir, { recursive: true });
+              const pubTarget = path.join(pubDir, safeName);
+              const homeTarget = path.join(homeDir, safeName);
+              if (!fs.existsSync(pubTarget)) fs.writeFileSync(pubTarget, buf);
+              if (!fs.existsSync(homeTarget)) fs.writeFileSync(homeTarget, buf);
             }
           } catch {
           }
@@ -4542,9 +4578,99 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
   res.json({ success: true, data: mitra });
 });
 var MARKETING_UPLOADS_DIR = path.join(__dirname, "public", "uploads", "marketing-tools");
-if (!fs.existsSync(MARKETING_UPLOADS_DIR)) {
-  fs.mkdirSync(MARKETING_UPLOADS_DIR, { recursive: true });
+var DATA_UPLOADS_DIR = path.join(DATA_DIR, "uploads", "marketing-tools");
+var PERSISTENT_HOME_UPLOADS_DIR = path.join(
+  os.homedir(),
+  ".ndtaxandlaw_storage",
+  "uploads",
+  "marketing-tools"
+);
+for (const dir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR]) {
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+  }
 }
+try {
+  for (const backupDir of [PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR]) {
+    if (fs.existsSync(backupDir)) {
+      for (const file of fs.readdirSync(backupDir)) {
+        const srcPath = path.join(backupDir, file);
+        const destPath = path.join(MARKETING_UPLOADS_DIR, file);
+        if (!fs.existsSync(destPath) && fs.statSync(srcPath).isFile()) {
+          fs.copyFileSync(srcPath, destPath);
+        }
+      }
+    }
+  }
+} catch {
+}
+var getMimeTypeFromExt = (filename) => {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  return "application/octet-stream";
+};
+app.get("/uploads/marketing-tools/:filename", async (req, res) => {
+  const safeName = path.basename(String(req.params.filename || ""));
+  if (!safeName) {
+    return res.status(404).end();
+  }
+  const primaryPath = path.join(MARKETING_UPLOADS_DIR, safeName);
+  const homeBackupPath = path.join(PERSISTENT_HOME_UPLOADS_DIR, safeName);
+  const dataBackupPath = path.join(DATA_UPLOADS_DIR, safeName);
+  if (fs.existsSync(primaryPath)) {
+    res.setHeader("Content-Type", getMimeTypeFromExt(safeName));
+    res.setHeader("Cache-Control", "public, max-age=604800");
+    return res.sendFile(primaryPath);
+  }
+  for (const candidate of [homeBackupPath, dataBackupPath]) {
+    if (fs.existsSync(candidate)) {
+      try {
+        if (!fs.existsSync(MARKETING_UPLOADS_DIR)) {
+          fs.mkdirSync(MARKETING_UPLOADS_DIR, { recursive: true });
+        }
+        fs.copyFileSync(candidate, primaryPath);
+        res.setHeader("Content-Type", getMimeTypeFromExt(safeName));
+        res.setHeader("Cache-Control", "public, max-age=604800");
+        return res.sendFile(primaryPath);
+      } catch {
+        res.setHeader("Content-Type", getMimeTypeFromExt(safeName));
+        return res.sendFile(candidate);
+      }
+    }
+  }
+  if (supabase) {
+    try {
+      const cloudKey = `__sys_file_${safeName.toLowerCase()}__@ndtaxlaw.internal`;
+      const { data } = await supabase.from("user_passwords").select("password").eq("email", cloudKey).maybeSingle();
+      if (data?.password) {
+        const parsed = JSON.parse(data.password);
+        if (parsed?.base64) {
+          const buf = Buffer.from(parsed.base64, "base64");
+          for (const dir of [MARKETING_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR]) {
+            try {
+              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+              fs.writeFileSync(path.join(dir, safeName), buf);
+            } catch {
+            }
+          }
+          res.setHeader("Content-Type", parsed.mime || getMimeTypeFromExt(safeName));
+          res.setHeader("Cache-Control", "public, max-age=604800");
+          return res.send(buf);
+        }
+      }
+    } catch {
+    }
+  }
+  return res.status(404).json({ success: false, message: "File tidak ditemukan." });
+});
 app.use("/uploads", express.static(path.join(__dirname, "public", "uploads"), { maxAge: "7d" }));
 var formatFileSizeServer = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -4566,6 +4692,19 @@ var compressBinaryBuffer = (buf, ext) => {
   }
   return buf;
 };
+var persistMarketingToolsToCloud = async () => {
+  if (!supabase) return;
+  try {
+    await supabase.from("user_passwords").upsert([
+      {
+        email: "__sys_marketing_tools__@ndtaxlaw.internal",
+        password: JSON.stringify(marketingTools)
+      }
+    ]);
+  } catch (e) {
+    console.warn("Supabase KV marketing_tools backup warning:", e);
+  }
+};
 var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
   const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
   if (!match) return null;
@@ -4583,8 +4722,27 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
   const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
   const safeBaseName = String(originalName || "materi-marketing").replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9-_]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "materi-marketing";
   const fileName = `${Date.now()}-${safeBaseName}.${ext}`;
-  const fullPath = path.join(MARKETING_UPLOADS_DIR, fileName);
-  fs.writeFileSync(fullPath, optimizedBuffer);
+  for (const targetDir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR]) {
+    try {
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(targetDir, fileName), optimizedBuffer);
+    } catch {
+    }
+  }
+  if (supabase && optimizedBuffer.length <= 18 * 1024 * 1024) {
+    const cloudKey = `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`;
+    const cloudPayload = JSON.stringify({
+      fileName,
+      mime: getMimeTypeFromExt(fileName),
+      base64: optimizedBuffer.toString("base64"),
+      savedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    supabase.from("user_passwords").upsert([{ email: cloudKey, password: cloudPayload }]).then(() => {
+    }, () => {
+    });
+  }
   return {
     hostedUrl: `/uploads/marketing-tools/${fileName}`,
     savedBytes: optimizedBuffer.length,
@@ -4621,9 +4779,26 @@ app.post("/api/marketing-tools/upload", (req, res) => {
 app.get("/api/marketing-tools", async (req, res) => {
   if (supabase) {
     try {
-      const { data, error } = await supabase.from("marketing_tools").select("*");
-      if (!error && Array.isArray(data)) {
-        marketingTools = data;
+      const [{ data: tableData, error: tableErr }, { data: kvData }] = await Promise.all([
+        supabase.from("marketing_tools").select("*"),
+        supabase.from("user_passwords").select("password").eq("email", "__sys_marketing_tools__@ndtaxlaw.internal").maybeSingle()
+      ]);
+      let kvTools = [];
+      if (kvData?.password) {
+        try {
+          const parsed = JSON.parse(kvData.password);
+          if (Array.isArray(parsed)) kvTools = parsed;
+        } catch {
+        }
+      }
+      if (!tableErr && Array.isArray(tableData) && tableData.length > 0 || kvTools.length > 0) {
+        const merged = /* @__PURE__ */ new Map();
+        for (const t of [...Array.isArray(tableData) ? tableData : [], ...kvTools]) {
+          if (t && t.id && !merged.has(t.id)) {
+            merged.set(t.id, t);
+          }
+        }
+        marketingTools = Array.from(merged.values());
         saveDatabase();
         return res.json({ success: true, data: marketingTools });
       }
@@ -4669,7 +4844,7 @@ app.post("/api/marketing-tools", async (req, res) => {
     thumbnailUrl: finalThumbnailUrl,
     description: description || "Materi pendukung pemasaran resmi NDTAXANDLAW.",
     targetProduct: targetProduct || "Layanan Konsultasi Pajak & Hukum",
-    duration: duration || void 0,
+    ...duration ? { duration } : {},
     createdAt: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
   };
   marketingTools.unshift(newTool);
@@ -4685,10 +4860,14 @@ app.post("/api/marketing-tools", async (req, res) => {
   });
   if (supabase) {
     try {
-      await supabase.from("marketing_tools").insert([newTool]);
+      const { error: insErr } = await supabase.from("marketing_tools").upsert([newTool]);
+      if (insErr) {
+        console.warn("Supabase marketing_tools table insert warning (using KV backup):", insErr.message);
+      }
     } catch (e) {
       console.warn("Supabase insert tool error", e);
     }
+    await persistMarketingToolsToCloud();
   }
   const notif = {
     id: `notif-sys-${Date.now()}`,
@@ -4716,12 +4895,19 @@ app.delete("/api/marketing-tools/:id", async (req, res) => {
   marketingTools = marketingTools.filter((t) => t.id !== id);
   if (target?.downloadUrl && target.downloadUrl.startsWith("/uploads/marketing-tools/")) {
     const fileName = path.basename(target.downloadUrl);
-    const filePath = path.join(MARKETING_UPLOADS_DIR, fileName);
-    if (fs.existsSync(filePath)) {
+    for (const dir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR]) {
+      const filePath = path.join(dir, fileName);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+        }
+      }
+    }
+    if (supabase) {
       try {
-        fs.unlinkSync(filePath);
-      } catch (err) {
-        console.warn("Failed to delete hosted marketing tool file:", err);
+        await supabase.from("user_passwords").delete().eq("email", `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`);
+      } catch {
       }
     }
   }
@@ -4741,6 +4927,7 @@ app.delete("/api/marketing-tools/:id", async (req, res) => {
     } catch (e) {
       console.warn("Supabase delete tool error", e);
     }
+    await persistMarketingToolsToCloud();
   }
   saveDatabase();
   res.json({ success: true, message: "Materi berhasil dihapus" });

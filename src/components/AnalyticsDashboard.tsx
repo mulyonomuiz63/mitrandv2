@@ -285,6 +285,168 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
       </div>
 
+      {/* UPGRADED & IMMEDIATELY VISIBLE REWARD SHOWCASE FOR MITRA (CARDS ONLY, NO DUPLICATE TABLE) */}
+      {userRole === 'mitra' && (() => {
+        const rewardTiers = [
+          {
+            tier: 'TIER 1',
+            shortTarget: 'RP 500 JUTA',
+            targetVal: 500_000_000,
+            formattedTarget: 'Rp 500.000.000',
+            title: 'Jalan-Jalan LN',
+            desc: 'Apresiasi perjalanan eksklusif ke Luar Negeri bagi mitra yang mencapai penjualan Rp 500 Juta.',
+            Icon: Plane,
+          },
+          {
+            tier: 'TIER 2',
+            shortTarget: 'RP 1 MILIAR',
+            targetVal: 1_000_000_000,
+            formattedTarget: 'Rp 1.000.000.000',
+            title: 'Motor Baru',
+            desc: 'Reward unit kendaraan roda dua baru bagi mitra strategis dengan capaian penjualan Rp 1 Miliar.',
+            Icon: Award,
+          },
+          {
+            tier: 'TIER 3',
+            shortTarget: 'RP 1,5 MILIAR',
+            targetVal: 1_500_000_000,
+            formattedTarget: 'Rp 1.500.000.000',
+            title: 'Umroh',
+            desc: 'Hadiah ibadah Umroh / perjalanan spiritual VIP penuh fasilitas dengan capaian Rp 1,5 Miliar.',
+            Icon: Landmark,
+          },
+          {
+            tier: 'TIER 4',
+            shortTarget: 'RP 5 MILIAR',
+            targetVal: 5_000_000_000,
+            formattedTarget: 'Rp 5.000.000.000',
+            title: 'Mobil Baru',
+            desc: 'Reward unit Mobil Baru berkelas untuk mitra strategis dengan capaian penjualan Rp 5 Miliar.',
+            Icon: Car,
+          },
+          {
+            tier: 'TIER 5',
+            shortTarget: 'RP 10 MILIAR',
+            targetVal: 10_000_000_000,
+            formattedTarget: 'Rp 10.000.000.000',
+            title: 'Rumah Baru',
+            desc: 'Grand reward properti Rumah Baru sebagai puncak pencapaian kemitraan Rp 10 Miliar.',
+            Icon: Home,
+          },
+        ];
+
+        const nextTier = rewardTiers.find((t) => totalMitraSales < t.targetVal) || rewardTiers[rewardTiers.length - 1];
+        const overallPct = Math.min(100, Math.round((totalMitraSales / nextTier.targetVal) * 100));
+
+        return (
+          <div className="rounded-2xl p-5 sm:p-6 bg-gradient-to-b from-[#D4973B] via-[#C98A2C] to-[#B8791E] shadow-lg border border-amber-300/40 space-y-5">
+            {/* Compact Executive Header & Live Progress */}
+            <div className="bg-[#081A3E] rounded-xl p-4 border border-white/15 flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-white shadow-md">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider">
+                    PROGRAM REWARD &amp; BONUS MITRA
+                  </span>
+                  <span className="text-[11px] font-semibold text-amber-300">
+                    Target Per Bulan / Per Tahun
+                  </span>
+                </div>
+                <h2 className="text-base sm:text-lg font-extrabold text-white mt-1">
+                  Capaian Penjualan &amp; Hadiah Eksklusif Mitra Strategis
+                </h2>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:min-w-[360px]">
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-medium">
+                      Target Berikutnya: <strong className="text-amber-400">{nextTier.title}</strong>
+                    </span>
+                    <span className="font-mono font-bold text-amber-300">{overallPct}%</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      style={{ width: `${Math.max(overallPct, totalMitraSales > 0 ? 4 : 0)}%` }}
+                      className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all duration-500"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-300">
+                    <span>Capaian Anda: {formatRupiah(totalMitraSales)}</span>
+                    <span>Target: {nextTier.formattedTarget}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 5 Upgraded Reward Cards (Immediately Visible & Compact) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
+              {rewardTiers.map((item, idx) => {
+                const TierIcon = item.Icon;
+                const isUnlocked = totalMitraSales >= item.targetVal;
+                const isCurrentTarget = !isUnlocked && item.tier === nextTier.tier;
+                const tierPct = Math.min(100, Math.round((totalMitraSales / item.targetVal) * 100));
+
+                return (
+                  <div
+                    key={idx}
+                    className={`bg-[#0B2559] rounded-2xl p-4 sm:p-5 text-center text-white shadow-lg border transition-transform hover:-translate-y-0.5 flex flex-col justify-between ${
+                      isUnlocked
+                        ? 'border-emerald-400 ring-2 ring-emerald-400/30'
+                        : isCurrentTarget
+                        ? 'border-amber-400 ring-2 ring-amber-400/30'
+                        : 'border-white/10'
+                    }`}
+                  >
+                    <div className="w-full flex flex-col items-center">
+                      <span className="inline-block px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-3">
+                        {item.tier} &bull; {item.shortTarget}
+                      </span>
+
+                      <div className="w-12 h-12 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-2.5 bg-amber-400/10">
+                        <TierIcon className="w-6 h-6" />
+                      </div>
+
+                      <h4 className="text-base font-extrabold text-white">{item.title}</h4>
+                      <p className="text-[11px] font-mono font-bold text-amber-400 mt-0.5">
+                        Capaian {item.formattedTarget}
+                      </p>
+                      <p className="text-[11px] text-slate-200 leading-relaxed mt-2 line-clamp-3">
+                        {item.desc}
+                      </p>
+                    </div>
+
+                    <div className="mt-3.5 pt-2.5 border-t border-white/10 w-full space-y-1.5">
+                      <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${tierPct}%` }}
+                          className={`h-full rounded-full ${
+                            isUnlocked ? 'bg-emerald-400' : 'bg-amber-400'
+                          }`}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-bold">
+                        <span
+                          className={
+                            isUnlocked
+                              ? 'text-emerald-400'
+                              : isCurrentTarget
+                              ? 'text-amber-300'
+                              : 'text-slate-400'
+                          }
+                        >
+                          {isUnlocked ? '✓ TARGET TERCAPAI' : isCurrentTarget ? 'TARGET AKTIF' : 'BELUM TERCAPAI'}
+                        </span>
+                        <span className="font-mono text-slate-300">{tierPct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Main Sales Bar Chart */}
       <div className="grid grid-cols-1 gap-6">
         {/* Sales Performance Chart */}
@@ -376,166 +538,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
         </div>
       </div>
-
-      {/* MOTIVATIONAL REWARD TIERS & TABLE FOR MITRA DASHBOARD (COMPLETE WITH NUMBERS) */}
-      {userRole === 'mitra' && (
-        <div className="rounded-3xl p-6 sm:p-10 bg-gradient-to-b from-[#D4973B] via-[#C98A2C] to-[#B8791E] shadow-xl border border-amber-300/40 space-y-8">
-          {/* 5 Reward Tier Cards with Full Numbers */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-5">
-            {/* TIER 1 */}
-            <div className="bg-[#0B2559] rounded-2xl p-5 sm:p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
-              <div className="w-full flex flex-col items-center">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-4">
-                  TIER 1 &bull; RP 500 JUTA
-                </span>
-                <div className="w-15 h-15 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-3.5">
-                  <Plane className="w-7 h-7" />
-                </div>
-                <h4 className="text-base sm:text-lg font-extrabold text-white">Jalan-Jalan LN</h4>
-                <p className="text-[11px] font-mono font-bold text-amber-400 mt-1">
-                  Capaian Rp 500.000.000
-                </p>
-                <p className="text-xs text-slate-200 leading-relaxed mt-2.5">
-                  Apresiasi perjalanan eksklusif ke Luar Negeri bagi mitra yang mencapai penjualan Rp 500 Juta.
-                </p>
-              </div>
-            </div>
-
-            {/* TIER 2 */}
-            <div className="bg-[#0B2559] rounded-2xl p-5 sm:p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
-              <div className="w-full flex flex-col items-center">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-4">
-                  TIER 2 &bull; RP 1 MILIAR
-                </span>
-                <div className="w-15 h-15 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-3.5">
-                  <Award className="w-7 h-7" />
-                </div>
-                <h4 className="text-base sm:text-lg font-extrabold text-white">Motor Baru</h4>
-                <p className="text-[11px] font-mono font-bold text-amber-400 mt-1">
-                  Capaian Rp 1.000.000.000
-                </p>
-                <p className="text-xs text-slate-200 leading-relaxed mt-2.5">
-                  Reward unit kendaraan roda dua baru bagi mitra strategis dengan capaian penjualan Rp 1 Miliar.
-                </p>
-              </div>
-            </div>
-
-            {/* TIER 3 */}
-            <div className="bg-[#0B2559] rounded-2xl p-5 sm:p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
-              <div className="w-full flex flex-col items-center">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-4">
-                  TIER 3 &bull; RP 1,5 MILIAR
-                </span>
-                <div className="w-15 h-15 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-3.5">
-                  <Landmark className="w-7 h-7" />
-                </div>
-                <h4 className="text-base sm:text-lg font-extrabold text-white">Umroh</h4>
-                <p className="text-[11px] font-mono font-bold text-amber-400 mt-1">
-                  Capaian Rp 1.500.000.000
-                </p>
-                <p className="text-xs text-slate-200 leading-relaxed mt-2.5">
-                  Hadiah ibadah Umroh / perjalanan spiritual VIP penuh fasilitas dengan capaian Rp 1,5 Miliar.
-                </p>
-              </div>
-            </div>
-
-            {/* TIER 4 */}
-            <div className="bg-[#0B2559] rounded-2xl p-5 sm:p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
-              <div className="w-full flex flex-col items-center">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-4">
-                  TIER 4 &bull; RP 5 MILIAR
-                </span>
-                <div className="w-15 h-15 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-3.5">
-                  <Car className="w-7 h-7" />
-                </div>
-                <h4 className="text-base sm:text-lg font-extrabold text-white">Mobil Baru</h4>
-                <p className="text-[11px] font-mono font-bold text-amber-400 mt-1">
-                  Capaian Rp 5.000.000.000
-                </p>
-                <p className="text-xs text-slate-200 leading-relaxed mt-2.5">
-                  Reward unit Mobil Baru berkelas untuk mitra strategis dengan capaian penjualan Rp 5 Miliar.
-                </p>
-              </div>
-            </div>
-
-            {/* TIER 5 */}
-            <div className="bg-[#0B2559] rounded-2xl p-5 sm:p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
-              <div className="w-full flex flex-col items-center">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-4">
-                  TIER 5 &bull; RP 10 MILIAR
-                </span>
-                <div className="w-15 h-15 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-3.5">
-                  <Home className="w-7 h-7" />
-                </div>
-                <h4 className="text-base sm:text-lg font-extrabold text-white">Rumah Baru</h4>
-                <p className="text-[11px] font-mono font-bold text-amber-400 mt-1">
-                  Capaian Rp 10.000.000.000
-                </p>
-                <p className="text-xs text-slate-200 leading-relaxed mt-2.5">
-                  Grand reward properti Rumah Baru sebagai puncak pencapaian kemitraan Rp 10 Miliar.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Complete Sales Achievement & Reward Table */}
-          <div className="max-w-4xl mx-auto">
-            <div className="rounded-2xl overflow-hidden shadow-2xl border border-white/15 bg-[#081A3E]">
-              <div className="px-6 py-4 bg-[#061430] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <h3 className="text-sm sm:text-base font-extrabold text-amber-400 uppercase tracking-wide">
-                  TABEL CAPAIAN PENJUALAN &amp; HADIAH / BONUS MITRA
-                </h3>
-                <span className="text-xs font-medium text-slate-300">
-                  Target Per Bulan / Per Tahun
-                </span>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs sm:text-sm text-white border-collapse">
-                  <thead>
-                    <tr className="bg-[#0B2358] text-amber-400 font-extrabold uppercase text-xs border-b border-white/10">
-                      <th className="py-3.5 px-5 text-left w-20">NO</th>
-                      <th className="py-3.5 px-5 text-center">CAPAIAN PENJUALAN</th>
-                      <th className="py-3.5 px-5 text-right">HADIAH/BONUS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10 font-mono">
-                    <tr className="hover:bg-white/5 transition-colors">
-                      <td className="py-3.5 px-5 font-bold text-amber-400">1</td>
-                      <td className="py-3.5 px-5 text-center font-bold text-white">Rp 500.000.000</td>
-                      <td className="py-3.5 px-5 text-right font-sans font-extrabold text-amber-400">Jalan-Jalan LN</td>
-                    </tr>
-                    <tr className="hover:bg-white/5 transition-colors">
-                      <td className="py-3.5 px-5 font-bold text-amber-400">2</td>
-                      <td className="py-3.5 px-5 text-center font-bold text-white">Rp 1.000.000.000</td>
-                      <td className="py-3.5 px-5 text-right font-sans font-extrabold text-amber-400">Motor Baru</td>
-                    </tr>
-                    <tr className="hover:bg-white/5 transition-colors">
-                      <td className="py-3.5 px-5 font-bold text-amber-400">3</td>
-                      <td className="py-3.5 px-5 text-center font-bold text-white">Rp 1.500.000.000</td>
-                      <td className="py-3.5 px-5 text-right font-sans font-extrabold text-amber-400">Umroh</td>
-                    </tr>
-                    <tr className="hover:bg-white/5 transition-colors">
-                      <td className="py-3.5 px-5 font-bold text-amber-400">4</td>
-                      <td className="py-3.5 px-5 text-center font-bold text-white">Rp 5.000.000.000</td>
-                      <td className="py-3.5 px-5 text-right font-sans font-extrabold text-amber-400">Mobil Baru</td>
-                    </tr>
-                    <tr className="hover:bg-white/5 transition-colors">
-                      <td className="py-3.5 px-5 font-bold text-amber-400">5</td>
-                      <td className="py-3.5 px-5 text-center font-bold text-white">Rp 10.000.000.000</td>
-                      <td className="py-3.5 px-5 text-right font-sans font-extrabold text-amber-400">Rumah Baru</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <p className="text-center text-xs italic text-slate-950 font-medium mt-4">
-              *Syarat dan ketentuan berlaku sesuai kebijakan pencapaian target bulanan maupun tahunan Mitra Strategis NDTAXANDLAW.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
