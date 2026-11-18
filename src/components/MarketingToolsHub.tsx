@@ -15,14 +15,20 @@ import {
   Upload,
   X,
   FileUp,
-  Pencil
+  Pencil,
+  Clock,
+  AlertCircle,
+  Camera,
+  Lock
 } from 'lucide-react';
-import { MarketingTool } from '../types';
+import { MarketingTool, Mitra } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 
 interface MarketingToolsHubProps {
   tools: MarketingTool[];
   userRole: 'admin' | 'mitra';
+  activeMitra?: Mitra;
+  onEditProfile?: () => void;
   onAddTool: (tool: Partial<MarketingTool>) => Promise<void>;
   onUpdateTool?: (id: string, updates: Partial<MarketingTool>) => Promise<void>;
   onDeleteTool: (id: string) => Promise<void>;
@@ -31,6 +37,8 @@ interface MarketingToolsHubProps {
 export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   tools,
   userRole,
+  activeMitra,
+  onEditProfile,
   onAddTool,
   onUpdateTool,
   onDeleteTool,
@@ -388,6 +396,181 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   };
 
   const currentFileAccept = getFileAcceptConfig(newFileType);
+
+  const isMitraUnverified =
+    userRole === 'mitra' && activeMitra && activeMitra.status !== 'verified';
+  const isMitraRejected =
+    userRole === 'mitra' && activeMitra && activeMitra.status === 'rejected';
+
+  if (isMitraUnverified && activeMitra) {
+    return (
+      <div className="max-w-7xl mx-auto py-5 sm:py-6 px-3 sm:px-6 lg:px-8">
+        <div className="mb-5 sm:mb-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-display">
+            Tools Marketing &amp; Materi Pelatihan
+          </h1>
+        </div>
+
+        {/* Status Banner: Rejected vs Pending */}
+        {isMitraRejected ? (
+          <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-red-50 border-2 border-red-300 text-red-950 shadow-xs space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 border border-red-300 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-600 text-white rounded">
+                    VERIFIKASI DATA DITOLAK ADMIN
+                  </span>
+                  {activeMitra.rejectedAt && (
+                    <span className="text-xs font-mono text-red-700">
+                      Tanggal: {activeMitra.rejectedAt}
+                    </span>
+                  )}
+                </div>
+                <p className="font-bold text-base text-red-950 mt-1">
+                  Data Pendaftaran Anda Memerlukan Perbaikan Sebelum Dapat Disetujui
+                </p>
+
+                <div className="mt-2.5 p-3.5 rounded-xl bg-white border border-red-200 text-xs text-slate-800">
+                  <span className="font-bold text-red-800 block uppercase tracking-wider text-[10px] mb-1">
+                    Keterangan / Alasan Penolakan dari Admin:
+                  </span>
+                  <p className="font-semibold text-slate-900 text-sm leading-relaxed">
+                    "{activeMitra.rejectionReason || 'Data pendaftaran belum sesuai dengan kriteria verifikasi Admin. Silakan periksa kembali kelengkapan data diri, NIK KTP, atau rekening bank Anda.'}"
+                  </p>
+                </div>
+
+                {onEditProfile && (
+                  <div className="mt-3.5">
+                    <button
+                      type="button"
+                      onClick={onEditProfile}
+                      className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Perbaiki Data Diri &amp; Ajukan Ulang</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold">Pendaftaran Anda Sedang Dalam Proses Verifikasi Admin</p>
+              <p className="text-amber-800 mt-0.5">
+                Akses ke katalog Tools Marketing, Brosur Digital, Proposal Penawaran, Company Profile, dan Video Presentasi saat ini terkunci hingga akun Anda disetujui (Approve) oleh Admin NDTAXANDLAW.
+              </p>
+              {onEditProfile && (
+                <button
+                  type="button"
+                  onClick={onEditProfile}
+                  className="mt-2 text-xs font-semibold text-amber-900 underline hover:text-amber-950 cursor-pointer"
+                >
+                  Pastikan kelengkapan data diri, foto profil &amp; rekening bank pencairan di sini &rarr;
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Dark Locked Banner matching ExclusiveIdCard */}
+        <div className="mb-6 p-5 bg-slate-900 text-white rounded-2xl border border-slate-700 shadow-md space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded uppercase tracking-wider">
+                  KATALOG TOOLS MARKETING &amp; PELATIHAN (BELUM AKTIF)
+                </span>
+                <span className="text-xs text-slate-400">
+                  Menunggu Persetujuan (Approve) Admin
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed pt-1">
+                Dokumen resmi pemasaran, brosur, proposal penawaran, dan materi pelatihan eksklusif hanya dapat diakses dan diunduh oleh Mitra resmi yang telah diverifikasi Admin.
+              </p>
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-mono text-amber-300 shrink-0 text-center flex items-center justify-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-300" />
+              <span>MENUNGGU APPROVE ADMIN</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Locked Dashed Card Placeholder matching ExclusiveIdCard */}
+        <div className="w-full">
+          <div
+            className={`w-full bg-white border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center space-y-4 shadow-xs ${
+              isMitraRejected ? 'border-red-300' : 'border-slate-300'
+            }`}
+          >
+            <div
+              className={`w-14 h-14 rounded-2xl border flex items-center justify-center mx-auto ${
+                isMitraRejected
+                  ? 'bg-red-50 border-red-200 text-red-600'
+                  : 'bg-amber-50 border-amber-200 text-amber-600'
+              }`}
+            >
+              {isMitraRejected ? <AlertCircle className="w-7 h-7" /> : <Clock className="w-7 h-7" />}
+            </div>
+            <div className="space-y-1.5">
+              <span
+                className={`inline-block px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full ${
+                  isMitraRejected
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {isMitraRejected
+                  ? 'Status: Data Ditolak — Perlu Perbaikan & Pengajuan Ulang'
+                  : 'Status: Sedang Dalam Verifikasi Admin'}
+              </span>
+              <h3 className="text-base font-bold text-slate-900 font-display">
+                Tools Marketing &amp; Materi Pelatihan Belum Tersedia
+              </h3>
+              <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+                {isMitraRejected ? (
+                  <>
+                    Pendaftaran Anda ditolak sementara oleh Admin dengan alasan:{' '}
+                    <strong className="text-red-700">
+                      "{activeMitra.rejectionReason || 'Data belum sesuai kriteria verifikasi.'}"
+                    </strong>
+                    . Silakan perbaiki data diri Anda dan ajukan ulang agar dapat disetujui Admin.
+                  </>
+                ) : (
+                  <>
+                    Seluruh materi promosi resmi (Brosur PDF, Proposal Penawaran, Company Profile, Banner Grafis, serta Video Presentasi) baru akan terbuka dan dapat diunduh setelah akun Anda <strong>disetujui (Approve) oleh Admin</strong>.
+                  </>
+                )}
+              </p>
+            </div>
+            {onEditProfile && (
+              <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={onEditProfile}
+                  className={`px-4 py-2 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+                    isMitraRejected
+                      ? 'text-white bg-red-600 hover:bg-red-700 shadow-xs'
+                      : 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200'
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>
+                    {isMitraRejected ? 'Perbaiki Data Diri & Ajukan Ulang' : 'Edit Data Diri & Foto Profil'}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8">

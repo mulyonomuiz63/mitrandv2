@@ -966,6 +966,8 @@ export default function App() {
             <MarketingToolsHub
               tools={marketingTools}
               userRole={currentRole}
+              activeMitra={activeMitra}
+              onEditProfile={() => setIsProfileOpen(true)}
               onAddTool={handleAddMarketingTool}
               onUpdateTool={handleUpdateMarketingTool}
               onDeleteTool={handleDeleteMarketingTool}
