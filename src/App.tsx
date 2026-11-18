@@ -755,6 +755,7 @@ export default function App() {
     return (
       <MitraPublicVerificationView
         verifyCode={verifyMemberCode || activeMitra?.memberCode || ''}
+        logoUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
         onBackToHome={() => {
           if (typeof window !== 'undefined' && window.location.search) {
             window.history.replaceState({}, '', window.location.pathname);
@@ -953,6 +954,7 @@ export default function App() {
                 supportEmail={settings?.supportEmail || 'advisory@ndtaxandlaw.com'}
                 officeAddress={settings?.officeAddress}
                 logoUrl={settings?.logoUrl}
+                logoHorizontalUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
                 onOpenClientSelfRegister={
                   settings?.allowClientSelfRegister !== false
                     ? (refCode) => {

@@ -736,6 +736,9 @@ export interface AppSettings {
   supportEmail: string;
   officeAddress: string;
   logoUrl?: string;
+  logoVerticalUrl?: string;
+  logoHorizontalUrl?: string;
+  activeLogoType?: 'vertical' | 'horizontal';
   appVersion?: string;
   copyrightText?: string;
   defaultCommissionRate: number;

@@ -94,6 +94,7 @@ interface ExclusiveIdCardProps {
   supportEmail?: string;
   officeAddress?: string;
   logoUrl?: string;
+  logoHorizontalUrl?: string;
 }
 
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
@@ -108,6 +109,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   supportEmail = 'advisory@ndtaxandlaw.com',
   officeAddress = 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
   logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
+  logoHorizontalUrl,
 }) => {
   const confirm = useConfirm();
   const [isFlipped, setIsFlipped] = useState(false);
@@ -722,7 +724,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             <div className="flex justify-center mb-3">
               <div className="logo-light-box px-3 py-1.5 rounded-xl bg-white border border-slate-200 inline-flex items-center justify-center">
                 <img
-                  src="/assets/aistudio/logo_c3fdb6de.png"
+                  src={logoHorizontalUrl || logoUrl || '/assets/aistudio/logo_c3fdb6de.png'}
                   alt="NDTAXANDLAW"
                   className="h-7 w-auto object-contain"
                 />

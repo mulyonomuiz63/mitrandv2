@@ -26,6 +26,24 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
   onClose,
   payout,
 }) => {
+  const [receiptLogoUrl, setReceiptLogoUrl] = React.useState<string>('/assets/aistudio/logo_c3fdb6de.png');
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json?.success && json?.data) {
+          setReceiptLogoUrl(
+            json.data.logoHorizontalUrl ||
+              json.data.logoUrl ||
+              '/assets/aistudio/logo_c3fdb6de.png'
+          );
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
   if (!isOpen || !payout) return null;
 
   const formatRupiah = (val: number) => {
@@ -85,7 +103,7 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
             <div>
               <img
-                src="/assets/aistudio/logo_c3fdb6de.png"
+                src={receiptLogoUrl || '/assets/aistudio/logo_c3fdb6de.png'}
                 alt="ND TAX AND LAW"
                 className="h-10 w-auto object-contain mb-1"
               />

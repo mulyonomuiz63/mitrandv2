@@ -620,6 +620,9 @@ export interface AppSettings {
   supportEmail: string;
   officeAddress: string;
   logoUrl?: string;
+  logoVerticalUrl?: string;
+  logoHorizontalUrl?: string;
+  activeLogoType?: 'vertical' | 'horizontal';
   appVersion?: string;
   copyrightText?: string;
   defaultCommissionRate: number;
@@ -1225,6 +1228,9 @@ let appSettings: AppSettings = {
   supportEmail: 'advisory@ndtaxandlaw.com',
   officeAddress: 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
   logoUrl: '/assets/aistudio/logo_nd_vertikal.svg',
+  logoVerticalUrl: '/assets/aistudio/logo_nd_vertikal.svg',
+  logoHorizontalUrl: '/assets/aistudio/logo_c3fdb6de.png',
+  activeLogoType: 'vertical',
   appVersion: 'v2.5.0',
   copyrightText: 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.',
   defaultCommissionRate: 15,
@@ -6732,6 +6738,54 @@ app.get('/api/settings', async (req: Request, res: Response) => {
     appSettings.clientFieldsInitialized = true;
   }
   appSettings.specializationOptions = normalizeSpecializationOptions(appSettings.specializationOptions);
+
+  // Normalize & convert any raw base64 data: URLs in logo fields into hosted static files
+  let logoMigrated = false;
+  if (appSettings.logoUrl && appSettings.logoUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(appSettings.logoUrl, 'logo-resmi-nd', 'png');
+    if (saved?.hostedUrl) {
+      appSettings.logoUrl = saved.hostedUrl;
+      logoMigrated = true;
+    }
+  }
+  if (appSettings.logoVerticalUrl && appSettings.logoVerticalUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(appSettings.logoVerticalUrl, 'logo-vertikal-nd', 'png');
+    if (saved?.hostedUrl) {
+      appSettings.logoVerticalUrl = saved.hostedUrl;
+      logoMigrated = true;
+    }
+  }
+  if (appSettings.logoHorizontalUrl && appSettings.logoHorizontalUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(appSettings.logoHorizontalUrl, 'logo-horizontal-nd', 'png');
+    if (saved?.hostedUrl) {
+      appSettings.logoHorizontalUrl = saved.hostedUrl;
+      logoMigrated = true;
+    }
+  }
+  if (!appSettings.logoVerticalUrl) {
+    appSettings.logoVerticalUrl =
+      appSettings.logoUrl && appSettings.logoUrl !== '/assets/aistudio/logo_c3fdb6de.png'
+        ? appSettings.logoUrl
+        : '/assets/aistudio/logo_nd_vertikal.svg';
+  }
+  if (!appSettings.logoHorizontalUrl) {
+    appSettings.logoHorizontalUrl =
+      appSettings.logoUrl === '/assets/aistudio/logo_c3fdb6de.png'
+        ? appSettings.logoUrl
+        : '/assets/aistudio/logo_c3fdb6de.png';
+  }
+  if (!appSettings.activeLogoType) {
+    appSettings.activeLogoType =
+      appSettings.logoUrl === appSettings.logoHorizontalUrl &&
+      appSettings.logoUrl !== appSettings.logoVerticalUrl
+        ? 'horizontal'
+        : 'vertical';
+  }
+  if (logoMigrated) {
+    saveDatabase();
+    persistSettingsToSupabase().catch(() => {});
+  }
+
   const clientSafeSettings: AppSettings = {
     ...appSettings,
     smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
@@ -6744,8 +6798,25 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   if (updates.smtpPassword === '••••••••••••••••') {
     delete updates.smtpPassword;
   }
+  if (typeof updates.logoUrl === 'string' && updates.logoUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(updates.logoUrl, 'logo-resmi-nd', 'png');
+    if (saved?.hostedUrl) updates.logoUrl = saved.hostedUrl;
+  }
+  if (typeof updates.logoVerticalUrl === 'string' && updates.logoVerticalUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(updates.logoVerticalUrl, 'logo-vertikal-nd', 'png');
+    if (saved?.hostedUrl) updates.logoVerticalUrl = saved.hostedUrl;
+  }
+  if (typeof updates.logoHorizontalUrl === 'string' && updates.logoHorizontalUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(updates.logoHorizontalUrl, 'logo-horizontal-nd', 'png');
+    if (saved?.hostedUrl) updates.logoHorizontalUrl = saved.hostedUrl;
+  }
   const previousEnv = appSettings.appEnvironment;
   appSettings = { ...appSettings, ...updates };
+  if (appSettings.activeLogoType === 'horizontal' && appSettings.logoHorizontalUrl) {
+    appSettings.logoUrl = appSettings.logoHorizontalUrl;
+  } else if (appSettings.activeLogoType === 'vertical' && appSettings.logoVerticalUrl) {
+    appSettings.logoUrl = appSettings.logoVerticalUrl;
+  }
 
   // Jika beralih ke mode production, langsung sinkronkan penuh dari Supabase (tanpa dummy lokal)
   if (previousEnv !== 'production' && appSettings.appEnvironment === 'production' && supabase) {

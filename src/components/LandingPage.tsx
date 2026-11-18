@@ -1273,18 +1273,48 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </footer>
 
-      {/* FLOATING SCROLL-TO-TOP BUTTON (One-click smooth scroll to top) */}
-      {showScrollTop && (
-        <button
-          type="button"
-          onClick={scrollToTop}
-          title="Kembali ke Atas"
-          aria-label="Scroll ke atas"
-          className="fixed bottom-20 lg:bottom-7 right-4 sm:right-6 z-40 w-11 h-11 flex items-center justify-center rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-2xl shadow-amber-500/30 border-2 border-white/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+      {/* FLOATING BOTTOM-RIGHT ACTIONS: SCROLL-TO-TOP & WHATSAPP CONSULTATION HOTLINE */}
+      <div className="fixed bottom-20 lg:bottom-7 right-4 sm:right-6 z-40 flex flex-col items-end gap-3">
+        {showScrollTop && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            title="Kembali ke Atas"
+            aria-label="Scroll ke atas"
+            className="w-11 h-11 flex items-center justify-center rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-2xl shadow-amber-500/30 border-2 border-white/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          >
+            <ArrowUp className="w-5 h-5 stroke-[2.5]" />
+          </button>
+        )}
+
+        <a
+          href={`https://wa.me/${
+            (supportPhone || '0812-8899-7711')
+              .replace(/\D/g, '')
+              .replace(/^0/, '62') || '6281288997711'
+          }?text=${encodeURIComponent(
+            'Halo Tim Konsultan NDTAXANDLAW, saya ingin berkonsultasi mengenai layanan perpajakan, akuntansi, keuangan, dan hukum bisnis / kemitraan strategis. Mohon informasinya, terima kasih.'
+          )}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Konsultasi via WhatsApp Hotline (${supportPhone || '0812-8899-7711'})`}
+          aria-label="Konsultasi via WhatsApp"
+          className="group relative flex items-center justify-center w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[#25D366] hover:bg-[#1ebe5d] text-white shadow-2xl shadow-emerald-600/40 border-2 border-white/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
         >
-          <ArrowUp className="w-5 h-5 stroke-[2.5]" />
-        </button>
-      )}
+          <span className="absolute -inset-1 rounded-full bg-[#25D366]/35 animate-ping pointer-events-none" />
+          <svg
+            viewBox="0 0 32 32"
+            fill="currentColor"
+            className="w-7 h-7 sm:w-7.5 sm:h-7.5 relative z-10 drop-shadow-xs"
+            aria-hidden="true"
+          >
+            <path d="M16.004 3.2c-7.068 0-12.8 5.732-12.8 12.8 0 2.257.59 4.46 1.71 6.404L3.09 28.8l6.565-1.722a12.742 12.742 0 0 0 6.349 1.682h.005c7.068 0 12.8-5.732 12.8-12.8 0-3.42-1.332-6.635-3.75-9.054A12.716 12.716 0 0 0 16.004 3.2zm0 23.398h-.004a10.61 10.61 0 0 1-5.409-1.482l-.388-.23-4.022 1.055 1.073-3.92-.252-.402a10.583 10.583 0 0 1-1.628-5.659c0-5.862 4.77-10.631 10.634-10.631 2.84 0 5.509 1.106 7.516 3.115a10.562 10.562 0 0 1 3.112 7.517c0 5.863-4.77 10.637-10.632 10.637zm5.832-7.965c-.32-.16-1.892-.934-2.186-1.04-.293-.107-.506-.16-.72.16-.213.32-.826 1.04-1.013 1.253-.186.214-.373.24-.693.08-.32-.16-1.351-.498-2.573-1.588-.951-.848-1.593-1.896-1.78-2.216-.186-.32-.02-.493.14-.653.144-.143.32-.373.48-.56.16-.186.213-.32.32-.533.107-.213.053-.4-.027-.56-.08-.16-.72-1.734-.986-2.374-.26-.624-.524-.54-.72-.55l-.613-.01c-.213 0-.56.08-.853.4-.293.32-1.12 1.093-1.12 2.667 0 1.573 1.146 3.093 1.306 3.307.16.213 2.256 3.445 5.465 4.83.764.33 1.36.527 1.824.675.766.243 1.464.209 2.015.127.615-.092 1.892-.773 2.159-1.52.266-.747.266-1.387.186-1.52-.08-.133-.293-.213-.613-.373z" />
+          </svg>
+          <span className="hidden sm:inline-flex items-center gap-1.5 absolute right-full mr-3 px-3 py-1.5 rounded-xl bg-slate-900/95 text-white text-xs font-bold whitespace-nowrap shadow-xl border border-white/15 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
+            <span>Konsultasi WhatsApp</span>
+          </span>
+        </a>
+      </div>
 
       {/* ANDROID APK-STYLE BOTTOM NAVIGATION BAR ON MOBILE & TABLET */}
       <nav

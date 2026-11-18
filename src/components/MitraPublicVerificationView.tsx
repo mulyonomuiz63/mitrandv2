@@ -17,6 +17,7 @@ import { resolveAvatarUrl, MALE_AVATAR_URL } from '../avatars';
 interface MitraPublicVerificationViewProps {
   verifyCode: string;
   onBackToHome: () => void;
+  logoUrl?: string;
 }
 
 interface VerifiedMitraPublicData {
@@ -38,6 +39,7 @@ interface VerifiedMitraPublicData {
 export const MitraPublicVerificationView: React.FC<MitraPublicVerificationViewProps> = ({
   verifyCode,
   onBackToHome,
+  logoUrl,
 }) => {
   const [loading, setLoading] = useState(true);
   const [verifiedData, setVerifiedData] = useState<VerifiedMitraPublicData | null>(null);
@@ -81,7 +83,7 @@ export const MitraPublicVerificationView: React.FC<MitraPublicVerificationViewPr
         <div className="flex items-center justify-between pb-5 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <img
-              src="/assets/aistudio/logo_c3fdb6de.png"
+              src={logoUrl || '/assets/aistudio/logo_c3fdb6de.png'}
               alt="NDTAXANDLAW"
               className="h-8 sm:h-9 w-auto object-contain brightness-110"
             />
