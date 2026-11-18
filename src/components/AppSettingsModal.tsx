@@ -656,14 +656,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-5 sm:p-6 relative flex justify-between items-center shrink-0">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded">
-                KONFIGURASI SISTEM
-              </span>
-              <span className="text-xs text-slate-400">
-                Panel Kontrol Layanan NDTAXANDLAW
-              </span>
-            </div>
             <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
               <Settings className="w-5 h-5 text-blue-400" />
               <span>Pengaturan Aplikasi &amp; Integrasi</span>
@@ -707,7 +699,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
               }`}
             >
               <ListChecks className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Form &amp; Spesialisasi Dinamis</span>
+              <span>Manajemen Form Input</span>
             </button>
           )}
 
@@ -1006,14 +998,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
           {activeTab === 'forms' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* Info Aturan Proteksi Hapus Data */}
-              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-3 text-xs text-blue-950">
-                <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
+              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3 text-xs text-blue-950">
+                <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0" />
                 <div>
                   <p className="font-bold text-blue-900">
                     Manajemen Input Default &amp; Dinamis + Proteksi Data Terpakai
-                  </p>
-                  <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                    Seluruh input <strong>Default (Bawaan)</strong> maupun <strong>Input Tambahan</strong> untuk Pendaftaran Mitra dan Data Klien ditampilkan di bawah ini. Admin dapat <strong>mengedit</strong> label/opsi, <strong>menonaktifkan (mengurangi)</strong> dari form, atau <strong>menghapus</strong> input tersebut. <strong>Aturan Keamanan:</strong> Jika suatu input atau pilihan spesialisasi <strong>sudah digunakan oleh Mitra/Klien yang terdaftar</strong>, maka input tersebut <strong>terkunci dari penghapusan</strong> (hanya dapat diedit atau dinonaktifkan). Input hanya dapat dihapus jika <strong>belum digunakan (0 data)</strong>.
                   </p>
                 </div>
               </div>
@@ -1030,9 +1019,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         Manajemen Pilihan Bidang Keahlian / Profesi Mitra
                       </h4>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Kelola daftar pilihan pada dropdown <strong>"{settings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}"</strong>. Pilihan default maupun tambahan dapat diedit, dinonaktifkan, atau dihapus (selama belum ada Mitra yang terdaftar dengan pilihan tersebut).
-                    </p>
                   </div>
 
                   <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-2xs">
@@ -1334,9 +1320,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         Kelola Field Input Data Diri Mitra
                       </h4>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Semua field input <strong>Data Diri Default Bawaan</strong> (Nama Lengkap, Email, No. WhatsApp, NIK, Bidang Keahlian) maupun <strong>Input Tambahan Data Diri</strong> ditampilkan di bawah ini. Anda dapat mengedit, menonaktifkan/mengurangi, atau menghapus field yang belum digunakan oleh Mitra terdaftar.
-                    </p>
                   </div>
 
                   <button
@@ -1783,9 +1766,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         Kelola Field &amp; Pilihan Bank Rekening Pencairan Komisi Mitra
                       </h4>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Kelola seluruh input pada bagian <strong>Data Rekening Pencairan Komisi Mitra</strong> secara dinamis: Anda dapat <strong>menambah/mengurangi pilihan Nama Bank</strong>, <strong>menambah field rekening baru</strong> (misal: Cabang Bank/KCP, Kode Swift/BI-FAST, Nomor E-Wallet Cadangan, NPWP Rekening), maupun <strong>mengedit, mengurangi (menonaktifkan), atau menghapus</strong> field rekening bawaan selama belum digunakan oleh Mitra terdaftar.
-                    </p>
                   </div>
 
                   <button
@@ -1827,34 +1807,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           <p className="text-xs font-bold text-slate-800">
                             Daftar Pilihan Nama Bank Pencairan Komisi ({currentBankOptions.length} Bank)
                           </p>
-                          <p className="text-[11px] text-slate-500">
-                            Tambah bank baru atau kurangi/hapus bank dari dropdown <strong>"{bankNameField.label}"</strong>. Bank yang sudah dipilih oleh Mitra terdaftar terkunci dari penghapusan.
-                          </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const missingBanks = DEFAULT_BANK_OPTIONS.filter(
-                              (defBank) =>
-                                !currentBankOptions.some(
-                                  (b) => b.toLowerCase() === defBank.toLowerCase()
-                                )
-                            );
-                            if (missingBanks.length === 0) return;
-                            const nextOpts = [...currentBankOptions, ...missingBanks];
-                            const updated = allFields.map((f) =>
-                              f.systemKey === 'bankName' ? { ...f, options: nextOpts } : f
-                            );
-                            setSettings({
-                              ...settings,
-                              mitraCustomFields: updated,
-                              mitraFieldsInitialized: true,
-                            });
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg shrink-0"
-                        >
-                          ↺ Pulihkan Pilihan Bank Default
-                        </button>
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
@@ -2375,9 +2328,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         Kelola Field Input Data Klien
                       </h4>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Semua field input Klien <strong>Default Bawaan</strong> (Nama Perusahaan, Nama PIC, No. WhatsApp PIC, Email PIC, Catatan) maupun <strong>Input Tambahan</strong> ditampilkan di bawah ini. Field yang sudah digunakan oleh data Klien tidak dapat dihapus, namun dapat diedit atau dinonaktifkan.
-                    </p>
                   </div>
 
                   <button
@@ -2793,22 +2743,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
           {activeTab === 'environment' && (
             <div className="space-y-5 animate-in fade-in duration-200">
               {/* Header Banner */}
-              <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl border border-blue-800 shadow-xs flex items-start justify-between gap-4">
+              <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl border border-blue-800 shadow-xs flex items-center justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-white/20 text-blue-200">
-                      Sistem Operasional
-                    </span>
-                    <span className="text-xs text-blue-300 font-mono">
-                      Status Saat Ini: <strong className="text-white uppercase">{settings.appEnvironment}</strong>
-                    </span>
-                  </div>
                   <h3 className="text-base font-bold font-display text-white">
                     Konfigurasi Mode Lingkungan Aplikasi (Dev vs Prod)
                   </h3>
-                  <p className="text-xs text-blue-200/90 mt-1 leading-relaxed">
-                    Atur perilaku sistem saat dalam fase pengujian lokal (Development) vs saat sudah di-upload ke server hosting (Production).
-                  </p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
                   {settings.appEnvironment === 'production' ? (
@@ -2830,7 +2769,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
                         <Wrench className="w-4 h-4" />
@@ -2848,29 +2787,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       {settings.appEnvironment === 'development' && <Check className="w-3 h-3 stroke-[3]" />}
                     </div>
                   </div>
-
-                  <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                    Dirancang untuk pengembang dan admin saat menguji alur sistem tanpa hambatan login berulang.
-                  </p>
-
-                  <div className="space-y-2 border-t border-slate-200 pt-3 text-xs text-slate-700">
-                    <div className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <span><strong>Tombol Switch [Mitra | Admin]</strong> tampil di navbar atas untuk inspeksi cepat.</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <span><strong>Pilihan Akun Demo 1-Klik</strong> tampil di halaman login untuk masuk cepat.</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <span><strong>Pilihan Ganti Mitra</strong> di sub-header aktif untuk simulasi profil berbeda.</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Password bypass uji coba (<code>mitraND2026!</code>) dapat digunakan.</span>
-                    </div>
-                  </div>
                 </div>
 
                 {/* 2. PRODUCTION MODE */}
@@ -2882,7 +2798,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-900 flex items-center justify-center font-bold">
                         <Rocket className="w-4 h-4" />
@@ -2900,48 +2816,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       {settings.appEnvironment === 'production' && <Check className="w-3 h-3 stroke-[3]" />}
                     </div>
                   </div>
-
-                  <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                    Dirancang saat aplikasi sudah di-deploy ke hosting publik (seperti Hostinger VPS/Cloud) untuk penggunaan riil.
-                  </p>
-
-                  <div className="space-y-2 border-t border-slate-200 pt-3 text-xs text-slate-700">
-                    <div className="flex items-start gap-2">
-                      <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Hanya Terkoneksi Database Supabase</strong>: Tidak memakai data dummy atau cache file lokal. Data yang dihapus di Supabase langsung hilang saat di-refresh.</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Enkripsi Password Kuat (SCRYPT + AES-256-GCM)</strong>: Seluruh kata sandi user tersimpan terenkripsi kuat (<code>ndenc$v2</code>).</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Sistem Role Dinamis</strong>: Mendukung pemisahan hak akses ketat (saat ini aktif: <code>admin</code> &amp; <code>mitra</code>, siap ditambah role baru).</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                      <span><strong>Tombol Switch &amp; Akun Demo Disembunyikan</strong>: Pengguna wajib login riil sesuai role masing-masing.</span>
-                    </div>
-                  </div>
                 </div>
-              </div>
-
-              {/* Hostinger / VPS Configuration Note */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                  <Server className="w-4 h-4 text-blue-700" />
-                  <span>Pengaturan Otomatis di Hostinger / Cloud VPS (.env)</span>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Selain memilih mode melalui panel ini, Anda juga dapat mengunci mode production secara permanen pada server Hostinger Anda dengan menambahkan variabel di file <code>.env</code>:
-                </p>
-                <div className="bg-slate-900 text-slate-100 p-3 rounded-lg font-mono text-xs overflow-x-auto select-all">
-                  NODE_ENV=production<br />
-                  APP_ENV=production
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Saat server Node.js dijalankan di Hostinger dengan variabel tersebut, sistem secara otomatis mengunci seluruh portal ke dalam Mode Production tanpa konfigurasi ulang.
-                </p>
               </div>
             </div>
           )}
@@ -2950,22 +2825,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
           {activeTab === 'supabase' && (
             <div className="space-y-5 animate-in fade-in duration-200">
               {/* Header Banner */}
-              <div className="p-4 bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-xl border border-emerald-800/60 shadow-xs flex items-start justify-between gap-4">
+              <div className="p-4 bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-xl border border-emerald-800/60 shadow-xs flex items-center justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Cloud Database PostgreSQL
-                    </span>
-                    <span className="text-xs text-emerald-300 font-mono">
-                      Supabase Integration Hub
-                    </span>
-                  </div>
                   <h3 className="text-base font-bold font-display text-white">
                     Koneksi &amp; Skema Database Supabase
                   </h3>
-                  <p className="text-xs text-emerald-200/90 mt-1 leading-relaxed max-w-xl">
-                    Hubungkan NDTAXANDLAW ke database PostgreSQL cloud Supabase agar seluruh data kemitraan, klien, deal, dan pencairan komisi tersimpan permanen dan scalable.
-                  </p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
                   <Server className="w-6 h-6 text-emerald-400" />
@@ -3006,9 +2870,12 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           {supabaseStatus?.success ? 'ONLINE' : 'PERLU SETUP'}
                         </span>
                       </div>
-                      <p className="text-xs mt-1 text-slate-700 leading-relaxed">
-                        {supabaseStatus?.message || 'Memeriksa status koneksi ke endpoint Supabase...'}
-                      </p>
+                      {supabaseStatus?.message &&
+                        !supabaseStatus.message.includes('Koneksi ke Supabase berhasil aktif') && (
+                          <p className="text-xs mt-1 text-slate-700 leading-relaxed">
+                            {supabaseStatus.message}
+                          </p>
+                        )}
                       {supabaseStatus?.url && (
                         <p className="text-[11px] font-mono text-slate-600 mt-1">
                           Endpoint: <strong>{supabaseStatus.url}</strong>
@@ -3066,9 +2933,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         MURNI DATA SUPABASE
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-600 mt-1">
-                      Mengambil langsung seluruh isi tabel dari <strong>Database Production Supabase</strong> Anda (tanpa mencampur data lokal/dummy) ke dalam 1 file cadangan, serta memulihkan kembali langsung ke tabel-tabel di Supabase.
-                    </p>
                   </div>
 
                   <button
@@ -3088,9 +2952,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                       <Upload className="w-3.5 h-3.5 text-blue-700" />
                       <span>Restore Data ke Tabel Supabase</span>
-                    </p>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">
-                      Pilih file hasil backup Supabase Anda, tentukan mode pemulihan, lalu klik <strong>Restore ke Supabase</strong> untuk mengembalikan seluruh baris tabel ke database Supabase.
                     </p>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -3194,9 +3055,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-600 mt-1">
-                      Setiap kali ada pembaruan aplikasi yang menambah <strong>tabel baru</strong> atau <strong>kolom baru</strong>, sistem otomatis menyusun query SQL di bawah ini. Anda cukup klik <strong>Copy Query SQL</strong> lalu jalankan (<strong>RUN</strong>) di SQL Editor Supabase.
-                    </p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
@@ -3472,9 +3330,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-600">
-                        Digunakan untuk mengirim verifikasi email pendaftaran akun, bukti pencairan komisi, notifikasi validasi ACC klien, dan instruksi keamanan.
-                      </p>
                     </div>
 
                     <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -3640,97 +3495,79 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       <Mail className="w-3.5 h-3.5 text-blue-600" />
                       Aktivasi Notifikasi Email Otomatis (Triggers)
                     </h5>
-                    <p className="text-[11px] text-slate-500">
-                      Pilih peristiwa transaksi yang otomatis memicu pengiriman email konfirmasi ke mitra maupun tim operasional:
-                    </p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                       {/* 1. Verifikasi Email Akun Daftar */}
-                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={settings.emailOnRegistrationVerify}
                           onChange={(e) => setSettings({ ...settings, emailOnRegistrationVerify: e.target.checked })}
-                          className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
                         />
                         <div>
                           <span className="text-xs font-bold text-slate-800 block">
                             ✉️ Verifikasi Email Akun Daftar Baru
                           </span>
-                          <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
-                            Kirimkan link verifikasi dan pengumuman kode referral resmi otomatis saat mitra selesai registrasi.
-                          </span>
                         </div>
                       </label>
 
                       {/* 2. Informasi Pencairan Komisi */}
-                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={settings.emailOnPayoutDisbursed}
                           onChange={(e) => setSettings({ ...settings, emailOnPayoutDisbursed: e.target.checked })}
-                          className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
                         />
                         <div>
                           <span className="text-xs font-bold text-slate-800 block">
                             💸 Informasi Pencairan Komisi Mitra
                           </span>
-                          <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
-                            Kirimkan rincian transfer bank, potongan pajak PPh 21, dan slip pencairan resmi setelah di-ACC finance.
-                          </span>
                         </div>
                       </label>
 
                       {/* 3. Validasi Keberhasilan Client (ACC) */}
-                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={settings.emailOnClientAcc}
                           onChange={(e) => setSettings({ ...settings, emailOnClientAcc: e.target.checked })}
-                          className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
                         />
                         <div>
                           <span className="text-xs font-bold text-slate-800 block">
                             🤝 Validasi Keberhasilan Client (Deal ACC)
                           </span>
-                          <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
-                            Notifikasi instan ke mitra saat klien referral berhasil di-ACC admin dan komisi telah dikreditkan ke saldo.
-                          </span>
                         </div>
                       </label>
 
                       {/* 4. Reset & Keamanan Password */}
-                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={settings.emailOnPasswordReset}
                           onChange={(e) => setSettings({ ...settings, emailOnPasswordReset: e.target.checked })}
-                          className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
                         />
                         <div>
                           <span className="text-xs font-bold text-slate-800 block">
                             🔑 Reset Password &amp; Keamanan Akun
                           </span>
-                          <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
-                            Kirimkan kode OTP atau tautan pemulihan kata sandi saat pengguna memilih lupa password.
-                          </span>
                         </div>
                       </label>
 
                       {/* 5. Tagihan Retainer Bulanan / Tahunan */}
-                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors sm:col-span-2">
+                      <label className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-blue-50/50 transition-colors sm:col-span-2">
                         <input
                           type="checkbox"
                           checked={settings.emailOnRecurringInvoice}
                           onChange={(e) => setSettings({ ...settings, emailOnRecurringInvoice: e.target.checked })}
-                          className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
                         />
                         <div>
                           <span className="text-xs font-bold text-slate-800 block">
                             📑 Konfirmasi Siklus Pembayaran Langganan (Bulanan &amp; Tahunan)
-                          </span>
-                          <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
-                            Pemberitahuan royalti berulang ke mitra saat klien langganan berhasil memperpanjang masa kontrak perikatan.
                           </span>
                         </div>
                       </label>

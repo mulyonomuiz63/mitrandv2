@@ -652,7 +652,7 @@ ${FULL_IDEMPOTENT_SCHEMA_SQL}`;
     }
     return {
       success: true,
-      message: hasPendingMigration ? `Supabase Terhubung (${existingTables.length}/${tableChecks.length} tabel aktif). Tersedia query update untuk ${missingTables.length} tabel tambahan & ${tablesWithMissingCols.reduce((a, b) => a + b.missingColumns.length, 0)} kolom baru.` : `Koneksi ke Supabase berhasil aktif dan seluruh ${tableChecks.length} tabel serta kolom database sudah lengkap!`,
+      message: hasPendingMigration ? `Supabase Terhubung (${existingTables.length}/${tableChecks.length} tabel aktif). Tersedia query update untuk ${missingTables.length} tabel tambahan & ${tablesWithMissingCols.reduce((a, b) => a + b.missingColumns.length, 0)} kolom baru.` : "",
       tablesFound: existingTables,
       tableChecks,
       hasPendingMigration,

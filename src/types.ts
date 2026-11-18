@@ -1054,8 +1054,8 @@ export const STAFF_MENU_OPTIONS: StaffMenuOption[] = [
   },
   {
     key: 'settings-forms',
-    label: 'Pengaturan: Form & Spesialisasi Dinamis',
-    description: 'Mengakses tab Form & Spesialisasi Dinamis (input mitra, rekening bank, dan input klien).',
+    label: 'Pengaturan: Manajemen Form Input',
+    description: 'Mengakses tab Manajemen Form Input (input mitra, rekening bank, dan input klien).',
     category: 'pengaturan',
   },
 ];
