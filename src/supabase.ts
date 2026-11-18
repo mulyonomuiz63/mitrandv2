@@ -261,6 +261,50 @@ CREATE TABLE IF NOT EXISTS public.email_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 13. TABEL RUANG PERCAKAPAN CHAT (CHAT ROOMS: PERSONAL & GRUP)
+CREATE TABLE IF NOT EXISTS public.chat_rooms (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'direct',
+    name TEXT,
+    description TEXT,
+    "avatarUrl" TEXT,
+    "participantIds" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "createdByName" TEXT,
+    "createdAt" TEXT,
+    "updatedAt" TEXT,
+    "lastMessageText" TEXT,
+    "lastMessageAt" TEXT,
+    "lastMessageSenderId" TEXT,
+    "lastMessageSenderName" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. TABEL RIWAYAT PESAN & REAKSI CHAT (CHAT MESSAGES)
+CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id TEXT PRIMARY KEY,
+    "roomId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderName" TEXT NOT NULL,
+    "senderRole" TEXT NOT NULL,
+    "senderAvatar" TEXT,
+    text TEXT DEFAULT '',
+    "imageUrl" TEXT,
+    "imageName" TEXT,
+    "imageOriginalSize" NUMERIC,
+    "imageCompressedSize" NUMERIC,
+    "linkPreview" JSONB,
+    "replyTo" JSONB,
+    "forwardedFrom" TEXT,
+    reactions JSONB DEFAULT '[]'::jsonb,
+    "createdAt" TEXT NOT NULL,
+    "editedAt" TEXT,
+    "isDeleted" BOOLEAN DEFAULT false,
+    "deletedAt" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '[]'::jsonb;
+
 -- AKTIFKAN RLS & KEBIJAKAN AKSES API (AMAN DIJALANKAN ULANG)
 ALTER TABLE public.mitras ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
@@ -274,6 +318,8 @@ ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Public Anon Access mitras" ON public.mitras;
 CREATE POLICY "Public Anon Access mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
@@ -309,7 +355,13 @@ DROP POLICY IF EXISTS "Public Anon Access activity_logs" ON public.activity_logs
 CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
-CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`;
+CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access chat_rooms" ON public.chat_rooms;
+CREATE POLICY "Public Anon Access chat_rooms" ON public.chat_rooms FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access chat_messages" ON public.chat_messages;
+CREATE POLICY "Public Anon Access chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);`;
 
 const TABLE_DEFINITIONS: Array<{
   table: string;
@@ -594,6 +646,62 @@ CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL
 ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
 CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`,
+  },
+  {
+    table: 'chat_rooms',
+    label: 'Ruang Percakapan Chat (Personal & Grup)',
+    createSql: `CREATE TABLE IF NOT EXISTS public.chat_rooms (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'direct',
+    name TEXT,
+    description TEXT,
+    "avatarUrl" TEXT,
+    "participantIds" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "createdByName" TEXT,
+    "createdAt" TEXT,
+    "updatedAt" TEXT,
+    "lastMessageText" TEXT,
+    "lastMessageAt" TEXT,
+    "lastMessageSenderId" TEXT,
+    "lastMessageSenderName" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access chat_rooms" ON public.chat_rooms;
+CREATE POLICY "Public Anon Access chat_rooms" ON public.chat_rooms FOR ALL USING (true) WITH CHECK (true);`,
+  },
+  {
+    table: 'chat_messages',
+    label: 'Riwayat Pesan & Reaksi Chat',
+    createSql: `CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id TEXT PRIMARY KEY,
+    "roomId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderName" TEXT NOT NULL,
+    "senderRole" TEXT NOT NULL,
+    "senderAvatar" TEXT,
+    text TEXT DEFAULT '',
+    "imageUrl" TEXT,
+    "imageName" TEXT,
+    "imageOriginalSize" NUMERIC,
+    "imageCompressedSize" NUMERIC,
+    "linkPreview" JSONB,
+    "replyTo" JSONB,
+    "forwardedFrom" TEXT,
+    reactions JSONB DEFAULT '[]'::jsonb,
+    "createdAt" TEXT NOT NULL,
+    "editedAt" TEXT,
+    "isDeleted" BOOLEAN DEFAULT false,
+    "deletedAt" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access chat_messages" ON public.chat_messages;
+CREATE POLICY "Public Anon Access chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);`,
+    columnsToVerify: [
+      { name: 'reactions', alterSql: 'ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT \'[]\'::jsonb;' },
+    ],
   },
 ];
 

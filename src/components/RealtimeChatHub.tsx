@@ -66,6 +66,8 @@ const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
   },
 ];
 
+const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏', '🎉', '✅'];
+
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 function formatFileSize(bytes: number): string {
@@ -291,6 +293,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
   // Highlighted message when clicking a quote reply
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+
+  // Active reaction picker message ID (for both Group & Personal 1-on-1 chat)
+  const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
 
   // Clock tick every second so 5-minute edit/recall window updates live
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -1026,6 +1031,33 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           method: 'DELETE',
         }
       );
+      if (res.ok) {
+        const updated: ChatMessage = await res.json();
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Toggle emoji reaction on any message (Group Chat & Personal 1-on-1 Chat)
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (isAdminMonitor) return;
+    setActiveReactionPickerMsgId(null);
+    try {
+      const res = await fetch(`/api/chat/messages/${messageId}/reactions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-skip-crud-alert': 'true',
+        },
+        body: JSON.stringify({
+          userId: currentUserId,
+          userName: currentUserName,
+          userRole: currentUserRole,
+          emoji,
+        }),
+      });
       if (res.ok) {
         const updated: ChatMessage = await res.json();
         setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
@@ -1898,7 +1930,75 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                     </div>
                                   </a>
                                 )}
+                                {/* Grouped Message Reactions Display (Group & Personal Chat) */}
+                                {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                                    {Object.entries(
+                                      msg.reactions.reduce<
+                                        Record<
+                                          string,
+                                          { count: number; names: string[]; hasMine: boolean }
+                                        >
+                                      >((acc, r) => {
+                                        if (!r || !r.emoji) return acc;
+                                        if (!acc[r.emoji]) {
+                                          acc[r.emoji] = { count: 0, names: [], hasMine: false };
+                                        }
+                                        acc[r.emoji].count += 1;
+                                        acc[r.emoji].names.push(
+                                          r.userId === currentUserId ? 'Anda' : r.userName
+                                        );
+                                        if (r.userId === currentUserId) {
+                                          acc[r.emoji].hasMine = true;
+                                        }
+                                        return acc;
+                                      }, {})
+                                    ).map(([emojiKey, info]) => (
+                                      <button
+                                        key={emojiKey}
+                                        type="button"
+                                        disabled={isAdminMonitor}
+                                        onClick={() => handleToggleReaction(msg.id, emojiKey)}
+                                        title={`Reaksi dari: ${info.names.join(', ')}`}
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-all ${
+                                          info.hasMine
+                                            ? 'bg-emerald-600/15 border-emerald-500 text-emerald-900 shadow-2xs'
+                                            : 'bg-white/90 border-slate-300 text-slate-700 hover:bg-white'
+                                        } ${isAdminMonitor ? 'cursor-default' : 'cursor-pointer hover:scale-105'}`}
+                                      >
+                                        <span className="text-xs leading-none">{emojiKey}</span>
+                                        <span className="text-[10px]">{info.count}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                               </>
+                            )}
+
+                            {/* Floating Quick Emoji Reaction Picker Bar */}
+                            {!msg.isDeleted && !isAdminMonitor && activeReactionPickerMsgId === msg.id && (
+                              <div className="mt-2 p-1.5 rounded-2xl bg-white border border-slate-200 shadow-lg flex flex-wrap items-center gap-1 z-20 animate-in fade-in zoom-in-95 duration-150">
+                                {QUICK_REACTION_EMOJIS.map((emojiOpt) => {
+                                  const myReacted = msg.reactions?.some(
+                                    (r) => r.userId === currentUserId && r.emoji === emojiOpt
+                                  );
+                                  return (
+                                    <button
+                                      key={emojiOpt}
+                                      type="button"
+                                      onClick={() => handleToggleReaction(msg.id, emojiOpt)}
+                                      className={`w-7 h-7 rounded-full flex items-center justify-center text-sm transition-transform hover:scale-125 cursor-pointer ${
+                                        myReacted
+                                          ? 'bg-emerald-100 ring-2 ring-emerald-500'
+                                          : 'hover:bg-slate-100'
+                                      }`}
+                                      title={`Beri reaksi ${emojiOpt}`}
+                                    >
+                                      {emojiOpt}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             )}
 
                             {/* Timestamp + Edited Indicator + Action Buttons */}
@@ -1913,31 +2013,51 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                 )}
                               </div>
 
-                              {/* Message Actions: Reply, Forward (WA/Social), Edit (<5m), Recall (<5m) */}
+                              {/* Message Actions: React, Reply, Forward (WA/Social), Edit (<5m), Recall (<5m) */}
                               {!msg.isDeleted && (
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1 flex-wrap">
                                   {!isAdminMonitor && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setReplyingTo({
-                                          messageId: msg.id,
-                                          senderId: msg.senderId,
-                                          senderName: msg.senderName,
-                                          text:
-                                            msg.text ||
-                                            (msg.imageUrl ? 'Lampiran Gambar' : 'Pesan'),
-                                          imageUrl: msg.imageUrl,
-                                        });
-                                        setEditingMessage(null);
-                                        composerInputRef.current?.focus();
-                                      }}
-                                      className="px-1.5 py-0.5 rounded bg-black/5 hover:bg-emerald-600 hover:text-white text-slate-700 text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                                      title="Balas / Tag pesan ini"
-                                    >
-                                      <Reply className="w-3 h-3" />
-                                      Balas
-                                    </button>
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setActiveReactionPickerMsgId((prev) =>
+                                            prev === msg.id ? null : msg.id
+                                          )
+                                        }
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                                          activeReactionPickerMsgId === msg.id
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-black/5 hover:bg-emerald-600 hover:text-white text-slate-700'
+                                        }`}
+                                        title="Berikan reaksi emoji pada pesan ini"
+                                      >
+                                        <Smile className="w-3 h-3" />
+                                        Reaksi
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReplyingTo({
+                                            messageId: msg.id,
+                                            senderId: msg.senderId,
+                                            senderName: msg.senderName,
+                                            text:
+                                              msg.text ||
+                                              (msg.imageUrl ? 'Lampiran Gambar' : 'Pesan'),
+                                            imageUrl: msg.imageUrl,
+                                          });
+                                          setEditingMessage(null);
+                                          composerInputRef.current?.focus();
+                                        }}
+                                        className="px-1.5 py-0.5 rounded bg-black/5 hover:bg-emerald-600 hover:text-white text-slate-700 text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                        title="Balas / Tag pesan ini"
+                                      >
+                                        <Reply className="w-3 h-3" />
+                                        Balas
+                                      </button>
+                                    </>
                                   )}
 
                                   <button

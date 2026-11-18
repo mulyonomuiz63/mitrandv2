@@ -256,6 +256,50 @@ CREATE TABLE IF NOT EXISTS public.email_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 13. TABEL RUANG PERCAKAPAN CHAT (CHAT ROOMS: PERSONAL & GRUP)
+CREATE TABLE IF NOT EXISTS public.chat_rooms (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'direct',
+    name TEXT,
+    description TEXT,
+    "avatarUrl" TEXT,
+    "participantIds" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "createdByName" TEXT,
+    "createdAt" TEXT,
+    "updatedAt" TEXT,
+    "lastMessageText" TEXT,
+    "lastMessageAt" TEXT,
+    "lastMessageSenderId" TEXT,
+    "lastMessageSenderName" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. TABEL RIWAYAT PESAN & REAKSI CHAT (CHAT MESSAGES)
+CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id TEXT PRIMARY KEY,
+    "roomId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderName" TEXT NOT NULL,
+    "senderRole" TEXT NOT NULL,
+    "senderAvatar" TEXT,
+    text TEXT DEFAULT '',
+    "imageUrl" TEXT,
+    "imageName" TEXT,
+    "imageOriginalSize" NUMERIC,
+    "imageCompressedSize" NUMERIC,
+    "linkPreview" JSONB,
+    "replyTo" JSONB,
+    "forwardedFrom" TEXT,
+    reactions JSONB DEFAULT '[]'::jsonb,
+    "createdAt" TEXT NOT NULL,
+    "editedAt" TEXT,
+    "isDeleted" BOOLEAN DEFAULT false,
+    "deletedAt" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '[]'::jsonb;
+
 -- AKTIFKAN RLS & KEBIJAKAN AKSES API (AMAN DIJALANKAN ULANG)
 ALTER TABLE public.mitras ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
@@ -269,6 +313,8 @@ ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Public Anon Access mitras" ON public.mitras;
 CREATE POLICY "Public Anon Access mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
@@ -304,7 +350,13 @@ DROP POLICY IF EXISTS "Public Anon Access activity_logs" ON public.activity_logs
 CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
-CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`;
+CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access chat_rooms" ON public.chat_rooms;
+CREATE POLICY "Public Anon Access chat_rooms" ON public.chat_rooms FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access chat_messages" ON public.chat_messages;
+CREATE POLICY "Public Anon Access chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);`;
 var TABLE_DEFINITIONS = [
   {
     table: "mitras",
@@ -583,6 +635,62 @@ CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL
 ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
 CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`
+  },
+  {
+    table: "chat_rooms",
+    label: "Ruang Percakapan Chat (Personal & Grup)",
+    createSql: `CREATE TABLE IF NOT EXISTS public.chat_rooms (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'direct',
+    name TEXT,
+    description TEXT,
+    "avatarUrl" TEXT,
+    "participantIds" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "createdByName" TEXT,
+    "createdAt" TEXT,
+    "updatedAt" TEXT,
+    "lastMessageText" TEXT,
+    "lastMessageAt" TEXT,
+    "lastMessageSenderId" TEXT,
+    "lastMessageSenderName" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access chat_rooms" ON public.chat_rooms;
+CREATE POLICY "Public Anon Access chat_rooms" ON public.chat_rooms FOR ALL USING (true) WITH CHECK (true);`
+  },
+  {
+    table: "chat_messages",
+    label: "Riwayat Pesan & Reaksi Chat",
+    createSql: `CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id TEXT PRIMARY KEY,
+    "roomId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderName" TEXT NOT NULL,
+    "senderRole" TEXT NOT NULL,
+    "senderAvatar" TEXT,
+    text TEXT DEFAULT '',
+    "imageUrl" TEXT,
+    "imageName" TEXT,
+    "imageOriginalSize" NUMERIC,
+    "imageCompressedSize" NUMERIC,
+    "linkPreview" JSONB,
+    "replyTo" JSONB,
+    "forwardedFrom" TEXT,
+    reactions JSONB DEFAULT '[]'::jsonb,
+    "createdAt" TEXT NOT NULL,
+    "editedAt" TEXT,
+    "isDeleted" BOOLEAN DEFAULT false,
+    "deletedAt" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access chat_messages" ON public.chat_messages;
+CREATE POLICY "Public Anon Access chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);`,
+    columnsToVerify: [
+      { name: "reactions", alterSql: "ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '[]'::jsonb;" }
+    ]
   }
 ];
 var testSupabaseConnection = async () => {
@@ -2750,6 +2858,15 @@ var saveDatabase = () => {
     console.error("[Storage Error] Gagal menyimpan konfigurasi ke disk:", err);
   }
 };
+var LEGACY_SEEDED_CHAT_ROOM_IDS = /* @__PURE__ */ new Set([
+  "room-direct-mitra-01__staff-01",
+  "room-group-koordinasi-pajak"
+]);
+var LEGACY_SEEDED_CHAT_MSG_IDS = /* @__PURE__ */ new Set([
+  "msg-seed-01",
+  "msg-seed-02",
+  "msg-seed-03"
+]);
 var loadDatabase = () => {
   try {
     if (isProductionMode() && supabase) {
@@ -2762,6 +2879,8 @@ var loadDatabase = () => {
       notifications = [];
       activityLogs = [];
       emailLogs = [];
+      chatRooms = [];
+      chatMessages = [];
       cleanupLocalDatabaseFileInProduction();
       console.log("[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Cloud Supabase 100%.");
       return;
@@ -2825,6 +2944,8 @@ var loadDatabase = () => {
         marketingTools = [];
         commissions = [];
         notifications = [];
+        chatRooms = [];
+        chatMessages = [];
         cleanupLocalDatabaseFileInProduction();
         console.log("[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).");
       } else {
@@ -2849,6 +2970,8 @@ var loadDatabase = () => {
       notifications = [];
       activityLogs = [];
       emailLogs = [];
+      chatRooms = [];
+      chatMessages = [];
       cleanupLocalDatabaseFileInProduction();
     }
   } catch (err) {
@@ -2902,6 +3025,23 @@ var syncFromSupabase = async () => {
       notifications = dbNotifs;
       console.log(`[Supabase Cloud] Sinkronisasi ${notifications.length} notifikasi dari Supabase`);
     }
+    let tableChatRooms = [];
+    let tableChatMessages = [];
+    try {
+      const [{ data: dbRooms, error: errCR }, { data: dbMsgs, error: errCM }] = await Promise.all([
+        supabase.from("chat_rooms").select("*"),
+        supabase.from("chat_messages").select("*").order("createdAt", { ascending: true })
+      ]);
+      if (!errCR && Array.isArray(dbRooms)) {
+        tableChatRooms = dbRooms;
+      }
+      if (!errCM && Array.isArray(dbMsgs)) {
+        tableChatMessages = dbMsgs;
+      }
+    } catch {
+    }
+    let kvChatRooms = [];
+    let kvChatMessages = [];
     const { data: dbPasswords, error: errP } = await supabase.from("user_passwords").select("*");
     if (!errP && Array.isArray(dbPasswords)) {
       const toUpgradeInSupabase = [];
@@ -2994,7 +3134,7 @@ var syncFromSupabase = async () => {
           try {
             const parsedRooms = JSON.parse(row.password);
             if (Array.isArray(parsedRooms)) {
-              chatRooms = parsedRooms;
+              kvChatRooms = parsedRooms;
             }
           } catch {
           }
@@ -3004,7 +3144,7 @@ var syncFromSupabase = async () => {
           try {
             const parsedMsgs = JSON.parse(row.password);
             if (Array.isArray(parsedMsgs)) {
-              chatMessages = parsedMsgs;
+              kvChatMessages = parsedMsgs;
             }
           } catch {
           }
@@ -3102,6 +3242,44 @@ var syncFromSupabase = async () => {
         userPasswords.set(adminEmail, adminEnc);
         toUpgradeInSupabase.push({ email: adminEmail, password: adminEnc });
       }
+      const mergedRoomsMap = /* @__PURE__ */ new Map();
+      for (const r of [...tableChatRooms, ...kvChatRooms]) {
+        if (!r || !r.id) continue;
+        if (isProductionMode() && LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) continue;
+        const existing = mergedRoomsMap.get(r.id);
+        if (!existing || new Date(r.updatedAt || 0).getTime() >= new Date(existing.updatedAt || 0).getTime()) {
+          mergedRoomsMap.set(r.id, r);
+        }
+      }
+      if (mergedRoomsMap.size > 0 || isProductionMode()) {
+        chatRooms = Array.from(mergedRoomsMap.values()).sort(
+          (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+        );
+      }
+      const mergedMsgsMap = /* @__PURE__ */ new Map();
+      for (const m of [...tableChatMessages, ...kvChatMessages]) {
+        if (!m || !m.id) continue;
+        if (isProductionMode() && LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) continue;
+        const existing = mergedMsgsMap.get(m.id);
+        if (!existing) {
+          mergedMsgsMap.set(m.id, m);
+        } else {
+          const nextReactions = Array.isArray(m.reactions) && m.reactions.length > 0 ? m.reactions : existing.reactions;
+          mergedMsgsMap.set(m.id, {
+            ...existing,
+            ...m,
+            reactions: nextReactions
+          });
+        }
+      }
+      if (mergedMsgsMap.size > 0 || isProductionMode()) {
+        chatMessages = Array.from(mergedMsgsMap.values()).sort(
+          (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+        );
+      }
+      console.log(
+        `[Supabase Cloud] Sinkronisasi ${chatRooms.length} ruang chat & ${chatMessages.length} pesan chat dari Supabase`
+      );
       if (toUpgradeInSupabase.length > 0) {
         await supabase.from("user_passwords").upsert(toUpgradeInSupabase);
         console.log(`[Supabase Cloud] Sinkronisasi pengaturan, profil admin, akun staf, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
@@ -6974,18 +7152,106 @@ var broadcastChatEvent = (payload) => {
     }
   }
 };
-var persistChatToCloud = async () => {
+var syncChatFromSupabase = async () => {
+  if (!supabase) return;
+  try {
+    const [
+      { data: dbRooms, error: errCR },
+      { data: dbMsgs, error: errCM },
+      { data: kvRows, error: errKV }
+    ] = await Promise.all([
+      supabase.from("chat_rooms").select("*"),
+      supabase.from("chat_messages").select("*").order("createdAt", { ascending: true }),
+      supabase.from("user_passwords").select("email, password").in("email", [
+        "__sys_chat_rooms__@ndtaxlaw.internal",
+        "__sys_chat_messages__@ndtaxlaw.internal"
+      ])
+    ]);
+    const tableRooms = !errCR && Array.isArray(dbRooms) ? dbRooms : [];
+    const tableMsgs = !errCM && Array.isArray(dbMsgs) ? dbMsgs : [];
+    let kvRooms = [];
+    let kvMsgs = [];
+    if (!errKV && Array.isArray(kvRows)) {
+      for (const row of kvRows) {
+        const key = String(row.email || "").toLowerCase();
+        if (key === "__sys_chat_rooms__@ndtaxlaw.internal" && row.password) {
+          try {
+            const parsed = JSON.parse(row.password);
+            if (Array.isArray(parsed)) kvRooms = parsed;
+          } catch {
+          }
+        } else if (key === "__sys_chat_messages__@ndtaxlaw.internal" && row.password) {
+          try {
+            const parsed = JSON.parse(row.password);
+            if (Array.isArray(parsed)) kvMsgs = parsed;
+          } catch {
+          }
+        }
+      }
+    }
+    const mergedRooms = /* @__PURE__ */ new Map();
+    for (const r of [...chatRooms, ...tableRooms, ...kvRooms]) {
+      if (!r || !r.id) continue;
+      if (isProductionMode() && LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) continue;
+      const prev = mergedRooms.get(r.id);
+      if (!prev || new Date(r.updatedAt || 0).getTime() >= new Date(prev.updatedAt || 0).getTime()) {
+        mergedRooms.set(r.id, r);
+      }
+    }
+    chatRooms = Array.from(mergedRooms.values()).sort(
+      (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+    );
+    const mergedMsgs = /* @__PURE__ */ new Map();
+    for (const m of [...chatMessages, ...tableMsgs, ...kvMsgs]) {
+      if (!m || !m.id) continue;
+      if (isProductionMode() && LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) continue;
+      const prev = mergedMsgs.get(m.id);
+      if (!prev) {
+        mergedMsgs.set(m.id, m);
+      } else {
+        mergedMsgs.set(m.id, {
+          ...prev,
+          ...m,
+          reactions: Array.isArray(m.reactions) ? m.reactions : prev.reactions
+        });
+      }
+    }
+    chatMessages = Array.from(mergedMsgs.values()).sort(
+      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+    );
+  } catch (err) {
+    console.warn("[Supabase Chat Sync Warning]", err);
+  }
+};
+var persistChatToCloud = async (specificRoom, specificMsg) => {
+  if (isProductionMode()) {
+    chatRooms = chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id));
+    chatMessages = chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id));
+  }
   saveDatabase();
   if (supabase) {
+    try {
+      if (specificRoom) {
+        await supabase.from("chat_rooms").upsert([specificRoom]);
+      } else if (chatRooms.length > 0) {
+        await supabase.from("chat_rooms").upsert(chatRooms);
+      }
+      if (specificMsg) {
+        await supabase.from("chat_messages").upsert([specificMsg]);
+      } else if (chatMessages.length > 0) {
+        await supabase.from("chat_messages").upsert(chatMessages);
+      }
+    } catch {
+    }
     try {
       await supabase.from("user_passwords").upsert([
         {
           email: "__sys_chat_rooms__@ndtaxlaw.internal",
-          password: JSON.stringify(chatRooms.slice(0, 150))
+          password: JSON.stringify(chatRooms)
         },
         {
           email: "__sys_chat_messages__@ndtaxlaw.internal",
-          password: JSON.stringify(chatMessages.slice(-400))
+          password: JSON.stringify(chatMessages)
         }
       ]);
     } catch {
@@ -7077,14 +7343,19 @@ var extractServerLinkMetadata = async (rawUrl) => {
     return null;
   }
 };
-app.get("/api/chat/state", (req, res) => {
+app.get("/api/chat/state", async (req, res) => {
   const userId = String(req.query.userId || "").trim();
   const role = String(req.query.role || "mitra").trim().toLowerCase();
   const isAdmin = role === "admin";
+  if (supabase && (isProductionMode() || chatRooms.length === 0)) {
+    await syncChatFromSupabase();
+  }
+  const activeRooms = isProductionMode() ? chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) : chatRooms;
+  const activeMessages = isProductionMode() ? chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) : chatMessages;
   const participants = buildChatParticipantsList();
-  const visibleRooms = chatRooms.filter((r) => isAdmin || r.participantIds.includes(userId)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const visibleRooms = activeRooms.filter((r) => isAdmin || r.participantIds.includes(userId)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const visibleRoomIds = new Set(visibleRooms.map((r) => r.id));
-  const visibleMessages = chatMessages.filter((m) => visibleRoomIds.has(m.roomId));
+  const visibleMessages = activeMessages.filter((m) => visibleRoomIds.has(m.roomId));
   res.json({
     chatEnabled: appSettings.chatEnabled !== false,
     participants,
@@ -7110,7 +7381,7 @@ app.post("/api/chat/rooms/direct", async (req, res) => {
   }
   const sorted = [String(userAId), String(userBId)].sort();
   const existing = chatRooms.find(
-    (r) => r.type === "direct" && r.participantIds.length === 2 && r.participantIds.includes(sorted[0]) && r.participantIds.includes(sorted[1])
+    (r) => r.type === "direct" && r.participantIds.length === 2 && r.participantIds.includes(sorted[0]) && r.participantIds.includes(sorted[1]) && (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
   );
   if (existing) {
     return res.json(existing);
@@ -7129,7 +7400,7 @@ app.post("/api/chat/rooms/direct", async (req, res) => {
     updatedAt: nowIso
   };
   chatRooms.unshift(newRoom);
-  await persistChatToCloud();
+  await persistChatToCloud(newRoom, void 0);
   broadcastChatEvent({ type: "chat:room_updated", room: newRoom });
   res.status(201).json(newRoom);
 });
@@ -7156,7 +7427,7 @@ app.post("/api/chat/rooms/group", async (req, res) => {
     lastMessageSenderName: String(createdByName || "Sistem")
   };
   chatRooms.unshift(newRoom);
-  await persistChatToCloud();
+  await persistChatToCloud(newRoom, void 0);
   broadcastChatEvent({ type: "chat:room_updated", room: newRoom });
   res.status(201).json(newRoom);
 });
@@ -7173,7 +7444,7 @@ app.put("/api/chat/rooms/:id", async (req, res) => {
     room.participantIds = Array.from(new Set(participantIds.map(String)));
   }
   room.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  await persistChatToCloud();
+  await persistChatToCloud(room, void 0);
   broadcastChatEvent({ type: "chat:room_updated", room });
   res.json(room);
 });
@@ -7211,6 +7482,17 @@ app.post("/api/chat/messages", async (req, res) => {
   if (!cleanText && !imageUrl) {
     return res.status(400).json({ message: "Isi pesan atau gambar tidak boleh kosong." });
   }
+  let finalImageUrl = imageUrl ? String(imageUrl) : void 0;
+  if (finalImageUrl && finalImageUrl.startsWith("data:")) {
+    const saved = saveDataUrlToHostingServer(
+      finalImageUrl,
+      imageName || `chat-img-${Date.now()}`,
+      "jpg"
+    );
+    if (saved) {
+      finalImageUrl = saved.hostedUrl;
+    }
+  }
   let resolvedLinkPreview = linkPreview;
   if (!resolvedLinkPreview && cleanText) {
     const urlMatch = cleanText.match(/https?:\/\/[^\s<>"]+/i);
@@ -7228,30 +7510,74 @@ app.post("/api/chat/messages", async (req, res) => {
     senderRole: senderRole === "staff" ? "staff" : "mitra",
     senderAvatar: String(senderAvatar || MALE_AVATAR_URL),
     text: cleanText,
-    imageUrl: imageUrl ? String(imageUrl) : void 0,
+    imageUrl: finalImageUrl,
     imageName: imageName ? String(imageName) : void 0,
     imageOriginalSize: imageOriginalSize ? Number(imageOriginalSize) : void 0,
     imageCompressedSize: imageCompressedSize ? Number(imageCompressedSize) : void 0,
     linkPreview: resolvedLinkPreview,
     replyTo: replyTo || void 0,
     forwardedFrom: forwardedFrom ? String(forwardedFrom) : void 0,
+    reactions: [],
     createdAt: nowIso
   };
   chatMessages.push(newMsg);
-  if (chatMessages.length > 600) {
-    chatMessages = chatMessages.slice(-600);
-  }
   room.updatedAt = nowIso;
   room.lastMessageAt = nowIso;
   room.lastMessageSenderName = newMsg.senderName;
-  room.lastMessageText = cleanText || (imageUrl ? "\u{1F4F7} Mengirim gambar terkompresi" : "Pesan baru");
-  await persistChatToCloud();
+  room.lastMessageText = cleanText || (finalImageUrl ? "\u{1F4F7} Mengirim gambar terkompresi" : "Pesan baru");
+  await persistChatToCloud(room, newMsg);
   broadcastChatEvent({
     type: "chat:message_created",
     message: newMsg,
     room
   });
   res.status(201).json(newMsg);
+});
+app.post("/api/chat/messages/:id/reactions", async (req, res) => {
+  const { id } = req.params;
+  const { userId, userName, userRole, emoji } = req.body;
+  if (!userId || !emoji) {
+    return res.status(400).json({ message: "User dan emoji reaksi wajib diisi." });
+  }
+  const msg = chatMessages.find((m) => m.id === id);
+  if (!msg) {
+    return res.status(404).json({ message: "Pesan tidak ditemukan." });
+  }
+  if (msg.isDeleted) {
+    return res.status(400).json({ message: "Tidak dapat memberi reaksi pada pesan yang telah ditarik." });
+  }
+  const room = chatRooms.find((r) => r.id === msg.roomId);
+  if (room && userRole !== "admin" && !room.participantIds.includes(String(userId))) {
+    return res.status(403).json({ message: "Anda bukan anggota dari ruang percakapan ini." });
+  }
+  const currentReactions = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
+  const existingIdx = currentReactions.findIndex((r) => r.userId === String(userId));
+  const cleanEmoji = String(emoji).trim();
+  if (existingIdx !== -1) {
+    if (currentReactions[existingIdx].emoji === cleanEmoji) {
+      currentReactions.splice(existingIdx, 1);
+    } else {
+      currentReactions[existingIdx] = {
+        emoji: cleanEmoji,
+        userId: String(userId),
+        userName: String(userName || "Peserta"),
+        userRole: userRole === "staff" ? "staff" : userRole === "admin" ? "admin" : "mitra",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
+  } else {
+    currentReactions.push({
+      emoji: cleanEmoji,
+      userId: String(userId),
+      userName: String(userName || "Peserta"),
+      userRole: userRole === "staff" ? "staff" : userRole === "admin" ? "admin" : "mitra",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  }
+  msg.reactions = currentReactions;
+  await persistChatToCloud(void 0, msg);
+  broadcastChatEvent({ type: "chat:message_updated", message: msg });
+  res.json(msg);
 });
 app.put("/api/chat/messages/:id", async (req, res) => {
   const { id } = req.params;
@@ -7282,7 +7608,7 @@ app.put("/api/chat/messages/:id", async (req, res) => {
   if (room) {
     room.lastMessageText = `${cleanText} (diedit)`;
   }
-  await persistChatToCloud();
+  await persistChatToCloud(room, msg);
   broadcastChatEvent({ type: "chat:message_updated", message: msg });
   res.json(msg);
 });
@@ -7307,11 +7633,12 @@ app.delete("/api/chat/messages/:id", async (req, res) => {
   msg.text = "";
   msg.imageUrl = void 0;
   msg.linkPreview = void 0;
+  msg.reactions = [];
   const room = chatRooms.find((r) => r.id === msg.roomId);
   if (room) {
     room.lastMessageText = "\u{1F6AB} Pesan telah ditarik";
   }
-  await persistChatToCloud();
+  await persistChatToCloud(room, msg);
   broadcastChatEvent({ type: "chat:message_updated", message: msg });
   res.json(msg);
 });
@@ -7408,6 +7735,8 @@ export {
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
   DEFAULT_STAFF_ALLOWED_MENUS,
+  LEGACY_SEEDED_CHAT_MSG_IDS,
+  LEGACY_SEEDED_CHAT_ROOM_IDS,
   calculateClientDealCommission,
   cleanupLocalDatabaseFileInProduction,
   computeDynamicSalesHistory,

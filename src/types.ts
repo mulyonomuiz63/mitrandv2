@@ -1318,6 +1318,14 @@ export interface ChatReplyQuote {
   hasImage?: boolean;
 }
 
+export interface ChatMessageReaction {
+  emoji: string;
+  userId: string;
+  userName: string;
+  userRole: 'mitra' | 'staff' | 'admin';
+  createdAt: string;
+}
+
 export interface ChatMessage {
   id: string;
   roomId: string;
@@ -1333,6 +1341,7 @@ export interface ChatMessage {
   linkPreview?: ChatLinkPreview;
   replyTo?: ChatReplyQuote;
   forwardedFrom?: string;
+  reactions?: ChatMessageReaction[];
   createdAt: string;
   editedAt?: string;
   isDeleted?: boolean;

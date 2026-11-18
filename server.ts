@@ -2427,6 +2427,16 @@ export const saveDatabase = () => {
   }
 };
 
+export const LEGACY_SEEDED_CHAT_ROOM_IDS = new Set([
+  'room-direct-mitra-01__staff-01',
+  'room-group-koordinasi-pajak',
+]);
+export const LEGACY_SEEDED_CHAT_MSG_IDS = new Set([
+  'msg-seed-01',
+  'msg-seed-02',
+  'msg-seed-03',
+]);
+
 export const loadDatabase = () => {
   try {
     // Jika Mode Production & Supabase aktif, jangan buat atau baca file database lokal dari disk
@@ -2440,6 +2450,8 @@ export const loadDatabase = () => {
       notifications = [];
       activityLogs = [];
       emailLogs = [];
+      chatRooms = [];
+      chatMessages = [];
       cleanupLocalDatabaseFileInProduction();
       console.log('[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Cloud Supabase 100%.');
       return;
@@ -2519,6 +2531,8 @@ export const loadDatabase = () => {
         marketingTools = [];
         commissions = [];
         notifications = [];
+        chatRooms = [];
+        chatMessages = [];
         cleanupLocalDatabaseFileInProduction();
         console.log('[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).');
       } else {
@@ -2543,6 +2557,8 @@ export const loadDatabase = () => {
       notifications = [];
       activityLogs = [];
       emailLogs = [];
+      chatRooms = [];
+      chatMessages = [];
       cleanupLocalDatabaseFileInProduction();
     }
   } catch (err) {
@@ -2611,6 +2627,25 @@ export const syncFromSupabase = async () => {
       notifications = dbNotifs;
       console.log(`[Supabase Cloud] Sinkronisasi ${notifications.length} notifikasi dari Supabase`);
     }
+
+    // 7b. Chat Rooms & Chat Messages (Read from dedicated public.chat_rooms / public.chat_messages tables if available)
+    let tableChatRooms: ChatRoom[] = [];
+    let tableChatMessages: ChatMessage[] = [];
+    try {
+      const [{ data: dbRooms, error: errCR }, { data: dbMsgs, error: errCM }] = await Promise.all([
+        supabase.from('chat_rooms').select('*'),
+        supabase.from('chat_messages').select('*').order('createdAt', { ascending: true }),
+      ]);
+      if (!errCR && Array.isArray(dbRooms)) {
+        tableChatRooms = dbRooms as ChatRoom[];
+      }
+      if (!errCM && Array.isArray(dbMsgs)) {
+        tableChatMessages = dbMsgs as ChatMessage[];
+      }
+    } catch {}
+
+    let kvChatRooms: ChatRoom[] = [];
+    let kvChatMessages: ChatMessage[] = [];
 
     // 8. User Passwords & Encrypted Credentials + System KV (Settings, Roles, Activity Logs, Email Logs)
     const { data: dbPasswords, error: errP } = await supabase.from('user_passwords').select('*');
@@ -2703,7 +2738,7 @@ export const syncFromSupabase = async () => {
           try {
             const parsedRooms = JSON.parse(row.password);
             if (Array.isArray(parsedRooms)) {
-              chatRooms = parsedRooms;
+              kvChatRooms = parsedRooms;
             }
           } catch {}
           continue;
@@ -2712,7 +2747,7 @@ export const syncFromSupabase = async () => {
           try {
             const parsedMsgs = JSON.parse(row.password);
             if (Array.isArray(parsedMsgs)) {
-              chatMessages = parsedMsgs;
+              kvChatMessages = parsedMsgs;
             }
           } catch {}
           continue;
@@ -2822,6 +2857,50 @@ export const syncFromSupabase = async () => {
         userPasswords.set(adminEmail, adminEnc);
         toUpgradeInSupabase.push({ email: adminEmail, password: adminEnc });
       }
+
+      const mergedRoomsMap = new Map<string, ChatRoom>();
+      for (const r of [...tableChatRooms, ...kvChatRooms]) {
+        if (!r || !r.id) continue;
+        if (isProductionMode() && LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) continue;
+        const existing = mergedRoomsMap.get(r.id);
+        if (!existing || new Date(r.updatedAt || 0).getTime() >= new Date(existing.updatedAt || 0).getTime()) {
+          mergedRoomsMap.set(r.id, r);
+        }
+      }
+      if (mergedRoomsMap.size > 0 || isProductionMode()) {
+        chatRooms = Array.from(mergedRoomsMap.values()).sort(
+          (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+        );
+      }
+
+      const mergedMsgsMap = new Map<string, ChatMessage>();
+      for (const m of [...tableChatMessages, ...kvChatMessages]) {
+        if (!m || !m.id) continue;
+        if (isProductionMode() && LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) continue;
+        const existing = mergedMsgsMap.get(m.id);
+        if (!existing) {
+          mergedMsgsMap.set(m.id, m);
+        } else {
+          // Prefer whichever has latest edit/deletion or more up-to-date reactions
+          const nextReactions =
+            Array.isArray(m.reactions) && m.reactions.length > 0
+              ? m.reactions
+              : existing.reactions;
+          mergedMsgsMap.set(m.id, {
+            ...existing,
+            ...m,
+            reactions: nextReactions,
+          });
+        }
+      }
+      if (mergedMsgsMap.size > 0 || isProductionMode()) {
+        chatMessages = Array.from(mergedMsgsMap.values()).sort(
+          (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+        );
+      }
+      console.log(
+        `[Supabase Cloud] Sinkronisasi ${chatRooms.length} ruang chat & ${chatMessages.length} pesan chat dari Supabase`
+      );
 
       if (toUpgradeInSupabase.length > 0) {
         await supabase.from('user_passwords').upsert(toUpgradeInSupabase);
@@ -7464,18 +7543,116 @@ const broadcastChatEvent = (payload: Record<string, any>) => {
   }
 };
 
-const persistChatToCloud = async () => {
+const syncChatFromSupabase = async () => {
+  if (!supabase) return;
+  try {
+    const [
+      { data: dbRooms, error: errCR },
+      { data: dbMsgs, error: errCM },
+      { data: kvRows, error: errKV },
+    ] = await Promise.all([
+      supabase.from('chat_rooms').select('*'),
+      supabase.from('chat_messages').select('*').order('createdAt', { ascending: true }),
+      supabase
+        .from('user_passwords')
+        .select('email, password')
+        .in('email', [
+          '__sys_chat_rooms__@ndtaxlaw.internal',
+          '__sys_chat_messages__@ndtaxlaw.internal',
+        ]),
+    ]);
+
+    const tableRooms: ChatRoom[] = !errCR && Array.isArray(dbRooms) ? (dbRooms as ChatRoom[]) : [];
+    const tableMsgs: ChatMessage[] = !errCM && Array.isArray(dbMsgs) ? (dbMsgs as ChatMessage[]) : [];
+    let kvRooms: ChatRoom[] = [];
+    let kvMsgs: ChatMessage[] = [];
+
+    if (!errKV && Array.isArray(kvRows)) {
+      for (const row of kvRows) {
+        const key = String(row.email || '').toLowerCase();
+        if (key === '__sys_chat_rooms__@ndtaxlaw.internal' && row.password) {
+          try {
+            const parsed = JSON.parse(row.password);
+            if (Array.isArray(parsed)) kvRooms = parsed;
+          } catch {}
+        } else if (key === '__sys_chat_messages__@ndtaxlaw.internal' && row.password) {
+          try {
+            const parsed = JSON.parse(row.password);
+            if (Array.isArray(parsed)) kvMsgs = parsed;
+          } catch {}
+        }
+      }
+    }
+
+    const mergedRooms = new Map<string, ChatRoom>();
+    for (const r of [...chatRooms, ...tableRooms, ...kvRooms]) {
+      if (!r || !r.id) continue;
+      if (isProductionMode() && LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) continue;
+      const prev = mergedRooms.get(r.id);
+      if (!prev || new Date(r.updatedAt || 0).getTime() >= new Date(prev.updatedAt || 0).getTime()) {
+        mergedRooms.set(r.id, r);
+      }
+    }
+    chatRooms = Array.from(mergedRooms.values()).sort(
+      (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+    );
+
+    const mergedMsgs = new Map<string, ChatMessage>();
+    for (const m of [...chatMessages, ...tableMsgs, ...kvMsgs]) {
+      if (!m || !m.id) continue;
+      if (isProductionMode() && LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) continue;
+      const prev = mergedMsgs.get(m.id);
+      if (!prev) {
+        mergedMsgs.set(m.id, m);
+      } else {
+        mergedMsgs.set(m.id, {
+          ...prev,
+          ...m,
+          reactions: Array.isArray(m.reactions) ? m.reactions : prev.reactions,
+        });
+      }
+    }
+    chatMessages = Array.from(mergedMsgs.values()).sort(
+      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+    );
+  } catch (err) {
+    console.warn('[Supabase Chat Sync Warning]', err);
+  }
+};
+
+const persistChatToCloud = async (specificRoom?: ChatRoom, specificMsg?: ChatMessage) => {
+  if (isProductionMode()) {
+    chatRooms = chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id));
+    chatMessages = chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id));
+  }
   saveDatabase();
   if (supabase) {
     try {
+      // 1. Upsert into dedicated public.chat_rooms & public.chat_messages tables in Supabase
+      if (specificRoom) {
+        await supabase.from('chat_rooms').upsert([specificRoom]);
+      } else if (chatRooms.length > 0) {
+        await supabase.from('chat_rooms').upsert(chatRooms);
+      }
+      if (specificMsg) {
+        await supabase.from('chat_messages').upsert([specificMsg]);
+      } else if (chatMessages.length > 0) {
+        await supabase.from('chat_messages').upsert(chatMessages);
+      }
+    } catch {
+      // Fallback to KV below if dedicated chat tables haven't been created in SQL Editor yet
+    }
+
+    try {
+      // 2. Always persist complete chat history in Supabase user_passwords KV so 0 messages are ever lost
       await supabase.from('user_passwords').upsert([
         {
           email: '__sys_chat_rooms__@ndtaxlaw.internal',
-          password: JSON.stringify(chatRooms.slice(0, 150)),
+          password: JSON.stringify(chatRooms),
         },
         {
           email: '__sys_chat_messages__@ndtaxlaw.internal',
-          password: JSON.stringify(chatMessages.slice(-400)),
+          password: JSON.stringify(chatMessages),
         },
       ]);
     } catch {
@@ -7585,18 +7762,29 @@ const extractServerLinkMetadata = async (rawUrl: string): Promise<ChatLinkPrevie
 };
 
 // GET Chat State (Filtered by visibility: Admin sees all rooms for monitoring; Mitra & Staf see only rooms where they are members)
-app.get('/api/chat/state', (req: Request, res: Response) => {
+app.get('/api/chat/state', async (req: Request, res: Response) => {
   const userId = String(req.query.userId || '').trim();
   const role = String(req.query.role || 'mitra').trim().toLowerCase();
   const isAdmin = role === 'admin';
 
+  if (supabase && (isProductionMode() || chatRooms.length === 0)) {
+    await syncChatFromSupabase();
+  }
+
+  const activeRooms = isProductionMode()
+    ? chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
+    : chatRooms;
+  const activeMessages = isProductionMode()
+    ? chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id))
+    : chatMessages;
+
   const participants = buildChatParticipantsList();
-  const visibleRooms = chatRooms
+  const visibleRooms = activeRooms
     .filter((r) => isAdmin || r.participantIds.includes(userId))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   const visibleRoomIds = new Set(visibleRooms.map((r) => r.id));
-  const visibleMessages = chatMessages.filter((m) => visibleRoomIds.has(m.roomId));
+  const visibleMessages = activeMessages.filter((m) => visibleRoomIds.has(m.roomId));
 
   res.json({
     chatEnabled: appSettings.chatEnabled !== false,
@@ -7632,7 +7820,8 @@ app.post('/api/chat/rooms/direct', async (req: Request, res: Response) => {
       r.type === 'direct' &&
       r.participantIds.length === 2 &&
       r.participantIds.includes(sorted[0]) &&
-      r.participantIds.includes(sorted[1])
+      r.participantIds.includes(sorted[1]) &&
+      (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
   );
 
   if (existing) {
@@ -7655,7 +7844,7 @@ app.post('/api/chat/rooms/direct', async (req: Request, res: Response) => {
   };
 
   chatRooms.unshift(newRoom);
-  await persistChatToCloud();
+  await persistChatToCloud(newRoom, undefined);
   broadcastChatEvent({ type: 'chat:room_updated', room: newRoom });
   res.status(201).json(newRoom);
 });
@@ -7686,7 +7875,7 @@ app.post('/api/chat/rooms/group', async (req: Request, res: Response) => {
   };
 
   chatRooms.unshift(newRoom);
-  await persistChatToCloud();
+  await persistChatToCloud(newRoom, undefined);
   broadcastChatEvent({ type: 'chat:room_updated', room: newRoom });
 
   res.status(201).json(newRoom);
@@ -7708,7 +7897,7 @@ app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
   }
   room.updatedAt = new Date().toISOString();
 
-  await persistChatToCloud();
+  await persistChatToCloud(room, undefined);
   broadcastChatEvent({ type: 'chat:room_updated', room });
   res.json(room);
 });
@@ -7753,6 +7942,18 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     return res.status(400).json({ message: 'Isi pesan atau gambar tidak boleh kosong.' });
   }
 
+  let finalImageUrl: string | undefined = imageUrl ? String(imageUrl) : undefined;
+  if (finalImageUrl && finalImageUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(
+      finalImageUrl,
+      imageName || `chat-img-${Date.now()}`,
+      'jpg'
+    );
+    if (saved) {
+      finalImageUrl = saved.hostedUrl;
+    }
+  }
+
   let resolvedLinkPreview: ChatLinkPreview | undefined = linkPreview;
   if (!resolvedLinkPreview && cleanText) {
     const urlMatch = cleanText.match(/https?:\/\/[^\s<>"]+/i);
@@ -7771,28 +7972,26 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     senderRole: senderRole === 'staff' ? 'staff' : 'mitra',
     senderAvatar: String(senderAvatar || MALE_AVATAR_URL),
     text: cleanText,
-    imageUrl: imageUrl ? String(imageUrl) : undefined,
+    imageUrl: finalImageUrl,
     imageName: imageName ? String(imageName) : undefined,
     imageOriginalSize: imageOriginalSize ? Number(imageOriginalSize) : undefined,
     imageCompressedSize: imageCompressedSize ? Number(imageCompressedSize) : undefined,
     linkPreview: resolvedLinkPreview,
     replyTo: replyTo || undefined,
     forwardedFrom: forwardedFrom ? String(forwardedFrom) : undefined,
+    reactions: [],
     createdAt: nowIso,
   };
 
   chatMessages.push(newMsg);
-  if (chatMessages.length > 600) {
-    chatMessages = chatMessages.slice(-600);
-  }
 
   room.updatedAt = nowIso;
   room.lastMessageAt = nowIso;
   room.lastMessageSenderName = newMsg.senderName;
   room.lastMessageText =
-    cleanText || (imageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan baru');
+    cleanText || (finalImageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan baru');
 
-  await persistChatToCloud();
+  await persistChatToCloud(room, newMsg);
   broadcastChatEvent({
     type: 'chat:message_created',
     message: newMsg,
@@ -7800,6 +7999,63 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
   });
 
   res.status(201).json(newMsg);
+});
+
+// POST Toggle Reaction on a Message (Works in both Group Chat & Personal 1-on-1 Chat)
+app.post('/api/chat/messages/:id/reactions', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { userId, userName, userRole, emoji } = req.body;
+
+  if (!userId || !emoji) {
+    return res.status(400).json({ message: 'User dan emoji reaksi wajib diisi.' });
+  }
+
+  const msg = chatMessages.find((m) => m.id === id);
+  if (!msg) {
+    return res.status(404).json({ message: 'Pesan tidak ditemukan.' });
+  }
+  if (msg.isDeleted) {
+    return res.status(400).json({ message: 'Tidak dapat memberi reaksi pada pesan yang telah ditarik.' });
+  }
+
+  const room = chatRooms.find((r) => r.id === msg.roomId);
+  if (room && userRole !== 'admin' && !room.participantIds.includes(String(userId))) {
+    return res.status(403).json({ message: 'Anda bukan anggota dari ruang percakapan ini.' });
+  }
+
+  const currentReactions = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
+  const existingIdx = currentReactions.findIndex((r) => r.userId === String(userId));
+  const cleanEmoji = String(emoji).trim();
+
+  if (existingIdx !== -1) {
+    if (currentReactions[existingIdx].emoji === cleanEmoji) {
+      // Clicking the same emoji removes the user's reaction
+      currentReactions.splice(existingIdx, 1);
+    } else {
+      // Clicking a different emoji switches the user's reaction
+      currentReactions[existingIdx] = {
+        emoji: cleanEmoji,
+        userId: String(userId),
+        userName: String(userName || 'Peserta'),
+        userRole: userRole === 'staff' ? 'staff' : userRole === 'admin' ? 'admin' : 'mitra',
+        createdAt: new Date().toISOString(),
+      };
+    }
+  } else {
+    currentReactions.push({
+      emoji: cleanEmoji,
+      userId: String(userId),
+      userName: String(userName || 'Peserta'),
+      userRole: userRole === 'staff' ? 'staff' : userRole === 'admin' ? 'admin' : 'mitra',
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  msg.reactions = currentReactions;
+
+  await persistChatToCloud(undefined, msg);
+  broadcastChatEvent({ type: 'chat:message_updated', message: msg });
+  res.json(msg);
 });
 
 // PUT Edit Message (Allowed only within 5 minutes of createdAt, in both 1-on-1 & Group chat)
@@ -7838,7 +8094,7 @@ app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
     room.lastMessageText = `${cleanText} (diedit)`;
   }
 
-  await persistChatToCloud();
+  await persistChatToCloud(room, msg);
   broadcastChatEvent({ type: 'chat:message_updated', message: msg });
   res.json(msg);
 });
@@ -7868,13 +8124,14 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   msg.text = '';
   msg.imageUrl = undefined;
   msg.linkPreview = undefined;
+  msg.reactions = [];
 
   const room = chatRooms.find((r) => r.id === msg.roomId);
   if (room) {
     room.lastMessageText = '🚫 Pesan telah ditarik';
   }
 
-  await persistChatToCloud();
+  await persistChatToCloud(room, msg);
   broadcastChatEvent({ type: 'chat:message_updated', message: msg });
   res.json(msg);
 });
