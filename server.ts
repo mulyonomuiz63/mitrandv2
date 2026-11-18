@@ -693,6 +693,7 @@ export interface ActivityLogItem {
     | 'service_update'
     | 'service_delete'
     | 'tool_create'
+    | 'tool_update'
     | 'tool_delete'
     | 'settings_update'
     | 'bonus_grant'
