@@ -1020,6 +1020,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         className="py-16 sm:py-20 bg-gradient-to-b from-[#D4973B] via-[#C98A2C] to-[#B8791E] border-b border-amber-300/30"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-[#0B2559] uppercase">
+              Reward &amp; Bonus Apresiasi Mitra
+            </h2>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
             {/* Reward 1: Jalan-Jalan LN */}
             <div className="bg-[#0B2559] rounded-2xl p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
