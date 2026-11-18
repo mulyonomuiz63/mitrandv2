@@ -51,6 +51,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [uploadedFileDataUrl, setUploadedFileDataUrl] = useState<string>('');
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
   const [uploadedThumbnailUrl, setUploadedThumbnailUrl] = useState<string>('');
+  const [originalFileSizeLabel, setOriginalFileSizeLabel] = useState<string>('');
+  const [isCompressingFile, setIsCompressingFile] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -69,25 +71,25 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         return {
           accept: '.pdf,application/pdf',
           label: 'Upload File Dokumen PDF *',
-          helper: 'Format .PDF (Brosur, Proposal Penawaran, Company Profile, Panduan). Maks 25 MB.',
+          helper: 'Format .PDF (Brosur, Proposal Penawaran, Company Profile, Panduan). Otomatis dikompresi & disimpan di server hosting.',
         };
       case 'png':
         return {
           accept: '.png,image/png',
           label: 'Upload File Gambar PNG *',
-          helper: 'Format .PNG beresolusi tinggi untuk Banner Promosi. Maks 15 MB.',
+          helper: 'Format .PNG untuk Banner Promosi. File besar otomatis dikompresi ke ukuran kecil & disimpan di server hosting.',
         };
       case 'jpg':
         return {
           accept: '.jpg,.jpeg,image/jpeg',
           label: 'Upload File Gambar JPG / JPEG *',
-          helper: 'Format .JPG / .JPEG untuk Foto atau Poster Promosi. Maks 15 MB.',
+          helper: 'Format .JPG / .JPEG untuk Poster Promosi. File besar otomatis dikompresi ke ukuran kecil & disimpan di server hosting.',
         };
       case 'mp4':
         return {
           accept: '.mp4,video/mp4',
           label: 'Upload File Video MP4 *',
-          helper: 'Format .MP4 untuk Video Presentasi / Pelatihan. Maks 35 MB.',
+          helper: 'Format .MP4 untuk Video Presentasi / Pelatihan. Disimpan langsung di server hosting.',
         };
     }
   };
@@ -98,6 +100,47 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     if (kb < 1024) return `${kb.toFixed(1)} KB`;
     const mb = kb / 1024;
     return `${mb.toFixed(2)} MB`;
+  };
+
+  const compressImageDataUrl = (rawDataUrl: string, targetType: 'png' | 'jpg', rawByteSize: number): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1600;
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(rawDataUrl);
+          return;
+        }
+        if (targetType === 'jpg' || rawByteSize > 450 * 1024) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.78);
+          resolve(compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
+        } else {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/png', 0.85);
+          resolve(compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
+        }
+      };
+      img.onerror = () => resolve(rawDataUrl);
+      img.src = rawDataUrl;
+    });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,18 +159,65 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       return;
     }
 
+    const origSizeFormatted = formatBytes(file.size);
     setUploadedFileName(file.name);
-    setNewFileSize(formatBytes(file.size));
+    setOriginalFileSizeLabel(origSizeFormatted);
+    setNewFileSize(origSizeFormatted);
+    setIsCompressingFile(true);
 
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      setUploadedFileDataUrl(result);
-      if (newFileType === 'png' || newFileType === 'jpg') {
-        setUploadedThumbnailUrl(result);
+    reader.onload = async () => {
+      try {
+        let dataUrl = typeof reader.result === 'string' ? reader.result : '';
+        if (!dataUrl) {
+          setUploadError('Gagal membaca file. Silakan coba pilih ulang file Anda.');
+          setIsCompressingFile(false);
+          return;
+        }
+
+        // Compress large images on client before sending to hosting server
+        if (newFileType === 'png' || newFileType === 'jpg') {
+          dataUrl = await compressImageDataUrl(dataUrl, newFileType, file.size);
+        }
+
+        // Upload compressed payload to hosting server so it is stored as a static file in /uploads/marketing-tools/
+        const res = await fetch('/api/marketing-tools/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dataUrl,
+            fileName: file.name,
+            fileType: newFileType,
+            originalByteSize: file.size,
+          }),
+        });
+        const json = await res.json();
+        if (res.ok && json?.success && json?.data?.hostedUrl) {
+          setUploadedFileDataUrl(json.data.hostedUrl);
+          setNewFileSize(json.data.formattedSize || origSizeFormatted);
+          if (newFileType === 'png' || newFileType === 'jpg') {
+            setUploadedThumbnailUrl(json.data.hostedUrl);
+          }
+        } else {
+          // Fallback to dataUrl if server upload endpoint didn't respond
+          setUploadedFileDataUrl(dataUrl);
+          if (newFileType === 'png' || newFileType === 'jpg') {
+            setUploadedThumbnailUrl(dataUrl);
+          }
+        }
+      } catch (err) {
+        console.error('File compression/upload error:', err);
+        const fallback = typeof reader.result === 'string' ? reader.result : '';
+        setUploadedFileDataUrl(fallback);
+        if (newFileType === 'png' || newFileType === 'jpg') {
+          setUploadedThumbnailUrl(fallback);
+        }
+      } finally {
+        setIsCompressingFile(false);
       }
     };
     reader.onerror = () => {
+      setIsCompressingFile(false);
       setUploadError('Gagal membaca file. Silakan coba pilih ulang file Anda.');
     };
     reader.readAsDataURL(file);
@@ -167,6 +257,10 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     e.preventDefault();
     setUploadError(null);
     if (!newTitle.trim()) return;
+    if (isCompressingFile) {
+      setUploadError('Mohon tunggu proses kompresi & penyimpanan file ke server selesai.');
+      return;
+    }
     if (!uploadedFileDataUrl) {
       setUploadError(`Silakan pilih / upload file ${newFileType.toUpperCase()} terlebih dahulu.`);
       return;
@@ -208,10 +302,11 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       setNewDescription('');
       setNewTargetProduct('');
       setNewFileSize('');
+      setOriginalFileSizeLabel('');
       setUploadedFileDataUrl('');
       setUploadedFileName('');
       setUploadedThumbnailUrl('');
-      showToast('Tools Marketing berhasil diunggah & notifikasi disiarkan ke semua mitra!');
+      showToast('Tools Marketing berhasil dikompresi, disimpan di server & dipublikasikan ke mitra!');
     } catch (err) {
       console.error(err);
     } finally {
@@ -464,7 +559,9 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             {/* Media Canvas Area */}
             <div className="my-4 bg-slate-950 rounded-xl overflow-hidden aspect-video flex items-center justify-center relative">
               {selectedPreviewTool.fileType === 'mp4' ? (
-                selectedPreviewTool.downloadUrl?.startsWith('data:video') ? (
+                selectedPreviewTool.downloadUrl?.startsWith('data:video') ||
+                selectedPreviewTool.downloadUrl?.startsWith('/uploads/') ||
+                selectedPreviewTool.downloadUrl?.startsWith('http') ? (
                   <video
                     src={selectedPreviewTool.downloadUrl}
                     controls
@@ -489,7 +586,9 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </div>
                 )
               ) : selectedPreviewTool.fileType === 'pdf' ? (
-                selectedPreviewTool.downloadUrl?.startsWith('data:application/pdf') ? (
+                selectedPreviewTool.downloadUrl?.startsWith('data:application/pdf') ||
+                selectedPreviewTool.downloadUrl?.startsWith('/uploads/') ||
+                selectedPreviewTool.downloadUrl?.startsWith('http') ? (
                   <iframe
                     src={selectedPreviewTool.downloadUrl}
                     title={selectedPreviewTool.title}
@@ -512,7 +611,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               ) : (
                 <img
                   src={
-                    selectedPreviewTool.downloadUrl?.startsWith('data:image')
+                    selectedPreviewTool.downloadUrl?.startsWith('data:image') ||
+                    selectedPreviewTool.downloadUrl?.startsWith('/uploads/')
                       ? selectedPreviewTool.downloadUrl
                       : selectedPreviewTool.thumbnailUrl
                   }
@@ -663,7 +763,12 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   id="marketing-tool-file-input"
                 />
 
-                {!uploadedFileDataUrl ? (
+                {isCompressingFile ? (
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center gap-2.5 text-xs font-semibold text-blue-800">
+                    <div className="w-4 h-4 border-2 border-blue-700 border-t-transparent rounded-full animate-spin shrink-0" />
+                    <span>Mengompresi ukuran file &amp; menyimpan ke server hosting...</span>
+                  </div>
+                ) : !uploadedFileDataUrl ? (
                   <label
                     htmlFor="marketing-tool-file-input"
                     className="flex flex-col items-center justify-center gap-1.5 p-5 border-2 border-dashed border-blue-300 hover:border-blue-600 rounded-xl bg-white hover:bg-blue-50/40 cursor-pointer transition-all text-center"
@@ -689,8 +794,16 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                           {uploadedFileName}
                         </p>
                         <p className="text-[11px] font-mono text-emerald-700">
-                          Tipe: {newFileType.toUpperCase()} &bull; Ukuran: {newFileSize}
+                          Tipe: {newFileType.toUpperCase()} &bull; Ukuran Akhir: {newFileSize}
+                          {originalFileSizeLabel && originalFileSizeLabel !== newFileSize
+                            ? ` (Dikompresi dari ${originalFileSizeLabel})`
+                            : ''}
                         </p>
+                        {uploadedFileDataUrl.startsWith('/uploads/') && (
+                          <p className="text-[10px] font-mono text-emerald-800 truncate mt-0.5">
+                            Tersimpan di Server: {uploadedFileDataUrl}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -707,6 +820,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                           setUploadedFileName('');
                           setUploadedThumbnailUrl('');
                           setNewFileSize('');
+                          setOriginalFileSizeLabel('');
                           if (fileInputRef.current) fileInputRef.current.value = '';
                         }}
                         className="p-1 text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"

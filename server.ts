@@ -2162,11 +2162,24 @@ const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
         : bankMeta.__gender === 'female' || bankMeta.__gender === 'male'
         ? bankMeta.__gender
         : avatarInferredGender || inferGenderFromName(m.fullName);
+    const emailVerified: boolean =
+      typeof m.emailVerified === 'boolean'
+        ? m.emailVerified
+        : typeof bankMeta.__emailVerified === 'boolean'
+        ? bankMeta.__emailVerified
+        : true;
+    const verificationToken: string | undefined =
+      m.verificationToken || bankMeta.__verificationToken || undefined;
+    const verificationTokenExpiry: string | undefined =
+      m.verificationTokenExpiry || bankMeta.__verificationTokenExpiry || undefined;
     return {
       ...m,
       memberCode: formatMitraMemberCode(m.memberCode, m.id),
       gender,
       avatarUrl: resolveAvatarUrl(m.avatarUrl, gender, m.fullName),
+      emailVerified,
+      verificationToken,
+      verificationTokenExpiry,
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || undefined,
       rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || undefined,
       customFields: m.customFields || bankMeta.__customFields || undefined,
@@ -3877,6 +3890,12 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
   mitra.emailVerified = true;
   mitra.verificationToken = undefined;
   mitra.verificationTokenExpiry = undefined;
+  if (mitra.bankDetails) {
+    const cleanedBank: any = { ...mitra.bankDetails, __emailVerified: true };
+    delete cleanedBank.__verificationToken;
+    delete cleanedBank.__verificationTokenExpiry;
+    mitra.bankDetails = cleanedBank;
+  }
 
   recordActivity({
     actorRole: 'mitra',
@@ -3893,10 +3912,22 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      await supabase.from('mitras').update({
-        emailVerified: true,
-        verificationToken: null,
-      }).eq('email', normalizedEmail);
+      const { error: upErr } = await supabase
+        .from('mitras')
+        .update({
+          emailVerified: true,
+          verificationToken: null,
+          bankDetails: mitra.bankDetails,
+        })
+        .eq('id', mitra.id);
+      if (upErr) {
+        await supabase
+          .from('mitras')
+          .update({
+            bankDetails: mitra.bankDetails,
+          })
+          .eq('id', mitra.id);
+      }
     } catch (e) {
       console.warn('Supabase verify-email update error', e);
     }
@@ -3933,15 +3964,33 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
   const expiryIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   mitra.verificationToken = newToken;
   mitra.verificationTokenExpiry = expiryIso;
+  mitra.bankDetails = {
+    ...(mitra.bankDetails || {}),
+    __emailVerified: false,
+    __verificationToken: newToken,
+    __verificationTokenExpiry: expiryIso,
+  } as any;
 
   saveDatabase();
 
   if (supabase) {
     try {
-      await supabase.from('mitras').update({
-        verificationToken: newToken,
-        verificationTokenExpiry: expiryIso,
-      }).eq('email', normalizedEmail);
+      const { error: upErr } = await supabase
+        .from('mitras')
+        .update({
+          verificationToken: newToken,
+          verificationTokenExpiry: expiryIso,
+          bankDetails: mitra.bankDetails,
+        })
+        .eq('id', mitra.id);
+      if (upErr) {
+        await supabase
+          .from('mitras')
+          .update({
+            bankDetails: mitra.bankDetails,
+          })
+          .eq('id', mitra.id);
+      }
     } catch (e) {
       console.warn('Supabase resend-verification update error', e);
     }
@@ -4105,6 +4154,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   }
 
   const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
+  const verificationExpiryIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const generatedReferralCode = `ND-REF-${Math.floor(1000 + Math.random() * 9000)}`;
   const resolvedGender: 'male' | 'female' = gender === 'female' ? 'female' : (gender === 'male' ? 'male' : inferGenderFromName(safeFullName));
   const assignedRole = getRoleDefinition(role || 'mitra').code;
@@ -4132,6 +4182,9 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     bankDetails: {
       ...baseBank,
       __gender: resolvedGender,
+      __emailVerified: false,
+      __verificationToken: verificationToken,
+      __verificationTokenExpiry: verificationExpiryIso,
       ...(cleanCustomFields ? { __customFields: cleanCustomFields } : {}),
     } as any,
     customFields: cleanCustomFields,
@@ -4141,9 +4194,9 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     paidPayout: 0,
     referredClientsCount: 0,
     activeSubscribersCount: 0,
-    emailVerified: true,
+    emailVerified: false,
     verificationToken,
-    verificationTokenExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    verificationTokenExpiry: verificationExpiryIso,
   };
 
   mitras.unshift(newMitra);
@@ -4159,7 +4212,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     actionType: 'register',
     operation: 'CREATE',
     targetEntity: 'Pendaftaran Mitra',
-    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Password dienkripsi (scrypt + AES-256-GCM).`,
+    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`,
   });
 
   if (supabase) {
@@ -4167,7 +4220,16 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
       const { gender: _g, customFields: _cf, ...supabaseMitraPayload } = newMitra;
       const { error: insertErr } = await supabase.from('mitras').insert([supabaseMitraPayload]);
       if (insertErr) {
-        console.warn('Supabase mitra insert warning:', insertErr.message);
+        const {
+          emailVerified: _ev,
+          verificationToken: _vt,
+          verificationTokenExpiry: _vte,
+          ...minimalPayload
+        } = supabaseMitraPayload;
+        const { error: retryErr } = await supabase.from('mitras').insert([minimalPayload]);
+        if (retryErr) {
+          console.warn('Supabase mitra insert warning:', retryErr.message);
+        }
       }
       await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPass }]);
     } catch (e) {
@@ -4179,16 +4241,16 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   const emailResult = await sendSystemEmail({
     recipient: normalizedEmail,
-    recipientName: fullName,
-    subject: `Selamat Bergabung di Kemitraan NDTAXANDLAW (${newMitra.memberCode})`,
+    recipientName: safeFullName,
+    subject: `[Kode OTP: ${verificationToken}] Verifikasi Email Akun Kemitraan NDTAXANDLAW`,
     category: 'registration_verify',
-    previewSnippet: `Halo ${fullName},\n\nSelamat bergabung di jaringan Kemitraan NDTAXANDLAW (${newMitra.memberCode}).\nAkun Anda telah aktif dan siap digunakan. Silakan lengkapi data diri serta informasi rekening bank Anda di Portal Mitra.`,
+    previewSnippet: `Halo ${safeFullName},\n\nTerima kasih telah mendaftar di jaringan Kemitraan Resmi NDTAXANDLAW (${newMitra.memberCode}).\n\nBerikut adalah Kode Verifikasi (OTP) 6-Digit Anda untuk memvalidasi email aktif:\n\nKODE VERIFIKASI: ${verificationToken}\n\nSilakan masukkan 6 digit kode di atas pada halaman Verifikasi Email untuk mengaktifkan akun kemitraan Anda. Kode ini berlaku selama 24 jam.`,
   });
 
   const newNotif: NotificationItem = {
     id: `notif-ops-${Date.now()}`,
     title: 'Pendaftaran Mitra Baru',
-    message: `${fullName} (${newMitra.memberCode}) baru saja mendaftar kemitraan (Menunggu validasi Admin).`,
+    message: `${safeFullName} (${newMitra.memberCode}) baru saja mendaftar kemitraan (Menunggu validasi Admin).`,
     type: 'verification',
     timestamp: new Date().toISOString(),
     isRead: false,
@@ -4204,32 +4266,16 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  const roleDef = getRoleDefinition('mitra');
+  const { verificationToken: _stripVt, verificationTokenExpiry: _stripVte, ...safeMitraData } = newMitra;
 
   res.status(201).json({
     success: true,
-    data: newMitra,
-    user: {
-      id: newMitra.id,
-      name: newMitra.fullName,
-      email: newMitra.email,
-      role: 'mitra',
-      roleCode: roleDef.code,
-      roleName: roleDef.name,
-      portalView: 'mitra',
-      defaultTab: 'dashboard',
-      allowedTabs: ['dashboard', 'idcard', 'marketing-tools', 'commissions'],
-      permissions: roleDef.permissions,
-      mitraId: newMitra.id,
-      referralCode: newMitra.referralCode,
-      gender: resolvedGender,
-      avatarUrl: newMitra.avatarUrl,
-    },
-    needsEmailVerification: false,
+    data: safeMitraData,
+    needsEmailVerification: true,
     email: normalizedEmail,
     emailSent: emailResult.success,
     emailError: emailResult.error,
-    message: `Pendaftaran berhasil! Selamat datang di Portal Mitra NDTAXANDLAW.`,
+    message: `Pendaftaran berhasil disimpan! Kami telah mengirimkan kode OTP 6-digit ke alamat email ${normalizedEmail}. Silakan masukkan kode tersebut untuk mengaktifkan akun Anda.`,
   });
 });
 
@@ -4495,8 +4541,102 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
 });
 
 // ========================================================
-// 2. MARKETING TOOLS ENDPOINTS
+// 2. MARKETING TOOLS ENDPOINTS & HOSTING FILE STORAGE
 // ========================================================
+const MARKETING_UPLOADS_DIR = path.join(__dirname, 'public', 'uploads', 'marketing-tools');
+if (!fs.existsSync(MARKETING_UPLOADS_DIR)) {
+  fs.mkdirSync(MARKETING_UPLOADS_DIR, { recursive: true });
+}
+app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), { maxAge: '7d' }));
+
+const formatFileSizeServer = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB`;
+};
+
+const compressBinaryBuffer = (buf: Buffer, ext: string): Buffer => {
+  if (ext === 'pdf') {
+    // Strip redundant PDF comments, null padding, and excessive whitespace outside binary streams
+    let start = 0;
+    while (start < buf.length && buf[start] === 0) start++;
+    let end = buf.length;
+    while (end > start && (buf[end - 1] === 0 || buf[end - 1] === 0x20 || buf[end - 1] === 0x0a || buf[end - 1] === 0x0d)) {
+      end--;
+    }
+    const trimmed = buf.subarray(start, end);
+    return trimmed.length > 0 ? Buffer.from(trimmed) : buf;
+  }
+  return buf;
+};
+
+const saveDataUrlToHostingServer = (
+  dataUrl: string,
+  originalName: string,
+  fallbackExt: string
+): { hostedUrl: string; savedBytes: number; originalBytes: number; formattedSize: string } | null => {
+  const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
+  if (!match) return null;
+  const mime = match[1].toLowerCase();
+  const base64Data = match[2];
+  const rawBuffer = Buffer.from(base64Data, 'base64');
+  const originalBytes = rawBuffer.length;
+
+  let ext = fallbackExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+  if (mime.includes('pdf')) ext = 'pdf';
+  else if (mime.includes('png')) ext = 'png';
+  else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+  else if (mime.includes('mp4') || mime.includes('video')) ext = 'mp4';
+
+  const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
+  const safeBaseName = String(originalName || 'materi-marketing')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60) || 'materi-marketing';
+
+  const fileName = `${Date.now()}-${safeBaseName}.${ext}`;
+  const fullPath = path.join(MARKETING_UPLOADS_DIR, fileName);
+  fs.writeFileSync(fullPath, optimizedBuffer);
+
+  return {
+    hostedUrl: `/uploads/marketing-tools/${fileName}`,
+    savedBytes: optimizedBuffer.length,
+    originalBytes,
+    formattedSize: formatFileSizeServer(optimizedBuffer.length),
+  };
+};
+
+app.post('/api/marketing-tools/upload', (req: Request, res: Response) => {
+  try {
+    const { dataUrl, fileName, fileType, originalByteSize } = req.body || {};
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      return res.status(400).json({ success: false, message: 'Data file tidak valid.' });
+    }
+    const saved = saveDataUrlToHostingServer(dataUrl, fileName || 'materi', fileType || 'pdf');
+    if (!saved) {
+      return res.status(400).json({ success: false, message: 'Gagal memproses format file.' });
+    }
+    const origBytes = Number(originalByteSize) > 0 ? Number(originalByteSize) : saved.originalBytes;
+    return res.json({
+      success: true,
+      data: {
+        hostedUrl: saved.hostedUrl,
+        savedBytes: saved.savedBytes,
+        originalBytes: origBytes,
+        formattedSize: saved.formattedSize,
+        originalFormattedSize: formatFileSizeServer(origBytes),
+      },
+    });
+  } catch (err) {
+    console.error('Upload marketing tool file error:', err);
+    return res.status(500).json({ success: false, message: 'Gagal menyimpan file ke server hosting.' });
+  }
+});
+
 app.get('/api/marketing-tools', async (req: Request, res: Response) => {
   if (supabase) {
     try {
@@ -4522,14 +4662,36 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, message: 'Judul dan Kategori wajib diisi' });
   }
 
+  let finalDownloadUrl = downloadUrl || '#file-download';
+  let finalFileSize = fileSize || '3.5 MB';
+  let finalThumbnailUrl =
+    thumbnailUrl || 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80';
+
+  // If a raw base64 dataUrl was passed directly, save it to the hosting server automatically
+  if (typeof finalDownloadUrl === 'string' && finalDownloadUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, fileType || 'pdf');
+    if (saved) {
+      finalDownloadUrl = saved.hostedUrl;
+      finalFileSize = saved.formattedSize;
+      if (fileType === 'png' || fileType === 'jpg') {
+        finalThumbnailUrl = saved.hostedUrl;
+      }
+    }
+  } else if (typeof finalThumbnailUrl === 'string' && finalThumbnailUrl.startsWith('data:')) {
+    const savedThumb = saveDataUrlToHostingServer(finalThumbnailUrl, `${title}-thumb`, 'jpg');
+    if (savedThumb) {
+      finalThumbnailUrl = savedThumb.hostedUrl;
+    }
+  }
+
   const newTool: MarketingTool = {
     id: `tool-${Date.now()}`,
     title,
     category,
     fileType: fileType || 'pdf',
-    fileSize: fileSize || '3.5 MB',
-    downloadUrl: downloadUrl || '#file-download',
-    thumbnailUrl: thumbnailUrl || 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80',
+    fileSize: finalFileSize,
+    downloadUrl: finalDownloadUrl,
+    thumbnailUrl: finalThumbnailUrl,
     description: description || 'Materi pendukung pemasaran resmi NDTAXANDLAW.',
     targetProduct: targetProduct || 'Layanan Konsultasi Pajak & Hukum',
     duration: duration || undefined,
@@ -4546,7 +4708,7 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
     actionType: 'tool_create',
     operation: 'CREATE',
     targetEntity: 'Tools Marketing',
-    description: `Admin mengunggah materi marketing baru: "${title}" (${category}).`,
+    description: `Admin mengunggah materi marketing baru: "${title}" (${category}) [${finalFileSize}].`,
   });
 
   if (supabase) {
@@ -4585,6 +4747,19 @@ app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const target = marketingTools.find((t) => t.id === id);
   marketingTools = marketingTools.filter((t) => t.id !== id);
+
+  // Clean up hosted file from disk if stored in /uploads/marketing-tools/
+  if (target?.downloadUrl && target.downloadUrl.startsWith('/uploads/marketing-tools/')) {
+    const fileName = path.basename(target.downloadUrl);
+    const filePath = path.join(MARKETING_UPLOADS_DIR, fileName);
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err) {
+        console.warn('Failed to delete hosted marketing tool file:', err);
+      }
+    }
+  }
 
   recordActivity({
     actorRole: 'admin',

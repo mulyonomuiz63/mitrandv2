@@ -1127,50 +1127,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* Tabel Resmi Capaian Penjualan & Hadiah/Bonus */}
-          <div className="mt-10 bg-[#0D2149] text-white rounded-2xl border border-amber-300/40 shadow-2xl overflow-hidden max-w-3xl mx-auto">
-            <div className="px-6 py-4 bg-[#091836] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h3 className="text-sm sm:text-base font-extrabold uppercase tracking-wider text-amber-400">
-                TABEL CAPAIAN PENJUALAN &amp; HADIAH / BONUS MITRA
-              </h3>
-              <span className="text-[11px] font-semibold text-blue-200">
-                Target Per Bulan / Per Tahun
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs sm:text-sm border-collapse">
-                <thead>
-                  <tr className="bg-[#12316B] text-amber-300 font-extrabold uppercase tracking-wider border-b border-white/15">
-                    <th className="py-3 px-4 text-center w-16 border-r border-white/10">NO</th>
-                    <th className="py-3 px-5 text-right border-r border-white/10">CAPAIAN PENJUALAN</th>
-                    <th className="py-3 px-5 text-right">HADIAH/BONUS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/10 font-semibold">
-                  {[
-                    { no: 1, sales: '500.000.000', reward: 'Jalan-Jalan LN' },
-                    { no: 2, sales: '1.000.000.000', reward: 'Motor Baru' },
-                    { no: 3, sales: '1.500.000.000', reward: 'Umroh' },
-                    { no: 4, sales: '5.000.000.000', reward: 'Mobil Baru' },
-                    { no: 5, sales: '10.000.000.000', reward: 'Rumah Baru' },
-                  ].map((row) => (
-                    <tr key={row.no} className="hover:bg-white/5 transition-colors">
-                      <td className="py-3 px-4 text-center font-mono font-bold text-amber-300 border-r border-white/10">
-                        {row.no}
-                      </td>
-                      <td className="py-3 px-5 text-right font-mono font-bold text-white border-r border-white/10">
-                        Rp {row.sales}
-                      </td>
-                      <td className="py-3 px-5 text-right font-extrabold text-amber-300">
-                        {row.reward}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           <p className="text-xs font-semibold italic text-[#0D2149] mt-6 text-center">
             *Syarat dan ketentuan berlaku sesuai kebijakan pencapaian target bulanan maupun tahunan Mitra
             Strategis NDTAXANDLAW.
@@ -1314,34 +1270,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               >
                 Mendapatkan Komisi
               </h3>
-            </div>
-          </div>
-
-          {/* Final Call-To-Action Banner */}
-          <div className="mt-14 bg-gradient-to-r from-[#12316B] via-[#0F2756] to-[#12316B] border-2 border-amber-400/60 rounded-3xl p-8 sm:p-10 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl text-white">
-            <div className="space-y-2 text-center lg:text-left max-w-2xl">
-              <span className="text-[11px] sm:text-xs font-extrabold uppercase tracking-widest text-amber-300 block">
-                DIBUKA MITRA STRATEGIS NDTAXANDLAW TIAP DAERAH.
-              </span>
-              <h3 className="text-xl sm:text-2xl lg:text-[26px] font-black text-white uppercase tracking-tight leading-snug">
-                CLOSING BESAR, KOMISI BESAR, BONUS BESAR!
-              </h3>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-3.5 shrink-0">
-              <button
-                onClick={onOpenRegister}
-                className="px-7 py-4 text-xs sm:text-sm font-black text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xl transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer"
-              >
-                <span>Daftar Sekarang</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              <button
-                onClick={onEnterPortal}
-                className="px-6 py-4 text-xs sm:text-sm font-bold text-white bg-white/10 hover:bg-white/15 border border-white/25 rounded-xl transition-all whitespace-nowrap cursor-pointer"
-              >
-                Masuk Portal
-              </button>
             </div>
           </div>
         </div>
