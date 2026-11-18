@@ -824,7 +824,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                   />
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Email Kontak Dukungan
                   </label>
@@ -833,20 +833,6 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     value={settings.supportEmail}
                     onChange={(e) => setSettings({ ...settings, supportEmail: e.target.value })}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tarif Komisi Mitra Default (%)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={settings.defaultCommissionRate}
-                    onChange={(e) => setSettings({ ...settings, defaultCommissionRate: Number(e.target.value) })}
-                    className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"
                   />
                 </div>
 
