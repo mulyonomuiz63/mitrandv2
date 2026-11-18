@@ -8,14 +8,13 @@ import {
   CheckCircle2, 
   Clock, 
   AlertCircle,
-  Sparkles,
   ExternalLink,
   X,
   Check,
   Camera,
   Lock
 } from 'lucide-react';
-import { Mitra } from '../types';
+import { Mitra, isMitraDataIncomplete } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 
 const CARD_BASE_WIDTH = 500;
@@ -86,6 +85,7 @@ const ResponsiveIdCardScaler: React.FC<{
 interface ExclusiveIdCardProps {
   mitra: Mitra;
   onEditProfile: () => void;
+  onRequireCompleteProfile?: () => void;
   onUpdateProfile?: (id: string, data: Partial<Mitra>) => Promise<void>;
   onOpenClientSelfRegister?: (refCode: string) => void;
   onOpenVerifyPreview?: (memberCode: string) => void;
@@ -99,6 +99,7 @@ interface ExclusiveIdCardProps {
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   mitra,
   onEditProfile,
+  onRequireCompleteProfile,
   onUpdateProfile,
   onOpenClientSelfRegister,
   onOpenVerifyPreview,
@@ -145,7 +146,17 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
     };
   }, [mitraVerificationLink]);
 
+  const isDataIncomplete = isMitraDataIncomplete(mitra);
+
   const handleCopyClientLink = () => {
+    if (isDataIncomplete) {
+      if (onRequireCompleteProfile) {
+        onRequireCompleteProfile();
+      } else {
+        onEditProfile();
+      }
+      return;
+    }
     navigator.clipboard.writeText(clientSelfRegisterLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 3000);
@@ -229,7 +240,9 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
               <div className="text-right">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-amber-300/40 text-[10px] font-semibold text-amber-200 shadow-xs">
-                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <CheckCircle2 className="w-3 h-3" />
+                  </span>
                   <span>VERIFIED PARTNER</span>
                 </div>
               </div>
@@ -246,9 +259,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                       alt={mitra.fullName}
                       className="w-full h-full object-cover rounded-[10px]"
                     />
-                  </div>
-                  <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-2 ring-[#092147] shadow-sm">
-                    <CheckCircle2 className="w-4 h-4" />
                   </div>
                 </div>
 
@@ -441,16 +451,34 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   {mitra.referralCode || 'ND-REF-0042'}
                 </span>
                 {allowClientSelfRegister !== false && (
-                  <a
-                    href={`https://wa.me/?text=${encodeURIComponent(
-                      `Halo, saya merekomendasikan layanan jasa keuangan, perpajakan, dan hukum terpercaya dari NDTAXANDLAW.\n\nSilakan daftar langsung untuk konsultasi resmi melalui tautan berikut (Kode Referral: ${mitra.referralCode || 'ND-REF-0042'}):\n${clientSelfRegisterLink}`
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
-                  >
-                    Bagikan via WA
-                  </a>
+                  isDataIncomplete ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onRequireCompleteProfile) {
+                          onRequireCompleteProfile();
+                        } else {
+                          onEditProfile();
+                        }
+                      }}
+                      title="Lengkapi Data Diri terlebih dahulu untuk membagikan tautan registrasi klien"
+                      className="px-3.5 py-1.5 text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 rounded-lg transition-colors shadow-sm inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Bagikan via WA (Lengkapi Data Diri)</span>
+                    </button>
+                  ) : (
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(
+                        `Halo, saya merekomendasikan layanan jasa keuangan, perpajakan, dan hukum terpercaya dari NDTAXANDLAW.\n\nSilakan daftar langsung untuk konsultasi resmi melalui tautan berikut (Kode Referral: ${mitra.referralCode || 'ND-REF-0042'}):\n${clientSelfRegisterLink}`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-sm"
+                    >
+                      Bagikan via WA
+                    </a>
+                  )
                 )}
               </div>
             </div>
@@ -479,24 +507,56 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
           {/* Client Self-Registration Direct Link (Only if enabled by Admin in Settings) */}
           {allowClientSelfRegister !== false ? (
-            <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-              <div className="text-xs min-w-0">
-                <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
-                <span className="font-mono text-slate-300 text-[11px] break-all">
-                  {clientSelfRegisterLink}
-                </span>
-              </div>
+            isDataIncomplete ? (
+              <div className="p-3.5 bg-amber-500/15 border border-amber-400/40 rounded-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="text-xs min-w-0 flex items-start gap-2.5">
+                  <Lock className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-amber-300 block">
+                      Tautan Registrasi Klien Terkunci Sementara (Data Diri Belum Lengkap)
+                    </span>
+                    <span className="text-slate-200 text-[11px] leading-relaxed block mt-0.5">
+                      Silakan lengkapi Data Diri (NIK KTP, No. WhatsApp, dan Rekening Bank) terlebih dahulu agar Anda dapat menyalin dan membagikan tautan registrasi klien maupun menginput klien baru.
+                    </span>
+                  </div>
+                </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleCopyClientLink}
-                  className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all cursor-pointer"
-                >
-                  {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onRequireCompleteProfile) {
+                        onRequireCompleteProfile();
+                      } else {
+                        onEditProfile();
+                      }
+                    }}
+                    className="flex-1 sm:flex-initial px-3.5 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    Lengkapi Data Diri
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-3 bg-white/10 border border-white/15 rounded-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="text-xs min-w-0">
+                  <span className="font-bold text-amber-300 block">Tautan Registrasi Mandiri Calon Klien:</span>
+                  <span className="font-mono text-slate-300 text-[11px] break-all">
+                    {clientSelfRegisterLink}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleCopyClientLink}
+                    className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all cursor-pointer"
+                  >
+                    {copiedLink ? '✓ Tautan Disalin!' : 'Salin Tautan Klien'}
+                  </button>
+                </div>
+              </div>
+            )
           ) : (
             <div className="p-3 bg-white/5 border border-white/15 rounded-xl flex items-center gap-2.5 text-xs text-slate-300">
               <Lock className="w-4 h-4 text-amber-400 shrink-0" />

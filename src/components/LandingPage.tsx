@@ -229,46 +229,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* Navigation Anchors (Desktop) */}
-          <nav
-            className={`hidden lg:flex items-center gap-7 text-xs font-semibold ${
-              isDark ? 'text-slate-300' : 'text-slate-700'
-            }`}
-          >
-            <a
-              href="#skema-komisi"
-              className={`transition-colors ${
-                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
-              }`}
-            >
-              Skema Komisi 20% + 10%
-            </a>
-            <a
-              href="#simulasi-komisi"
-              className={`transition-colors ${
-                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
-              }`}
-            >
-              Kalkulator Komisi Mitra
-            </a>
-            <a
-              href="#bonus-mitra"
-              className={`transition-colors ${
-                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
-              }`}
-            >
-              Reward &amp; Bonus Prestasi
-            </a>
-            <a
-              href="#alur-kemitraan"
-              className={`transition-colors ${
-                isDark ? 'hover:text-amber-400' : 'hover:text-blue-700'
-              }`}
-            >
-              Cara Bergabung
-            </a>
-          </nav>
-
           {/* Primary Actions + Dark/Light Mode Switch */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {/* Dark / Light Mode Toggle Button */}
@@ -490,9 +450,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       </h3>
                     </div>
                   </div>
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-md bg-white/10 text-amber-300 border border-amber-400/30">
-                    Case-by-Case
-                  </span>
                 </div>
 
                 <div className="p-7 space-y-6">
@@ -585,9 +542,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       </h3>
                     </div>
                   </div>
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
-                    +10% Tiap Bulan
-                  </span>
                 </div>
 
                 <div className="p-7 space-y-6">

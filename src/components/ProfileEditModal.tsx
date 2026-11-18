@@ -90,12 +90,21 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       ? bankField.options
       : DEFAULT_BANK_OPTIONS;
 
+  const resolveMitraGender = React.useCallback((m: Mitra): 'male' | 'female' => {
+    if (m.gender === 'female' || m.gender === 'male') return m.gender;
+    const bankMeta = (m.bankDetails || {}) as any;
+    if (bankMeta.__gender === 'female' || bankMeta.__gender === 'male') return bankMeta.__gender;
+    if (m.avatarUrl === FEMALE_AVATAR_URL) return 'female';
+    if (m.avatarUrl === MALE_AVATAR_URL) return 'male';
+    return inferGenderFromName(m.fullName);
+  }, []);
+
   const [fullName, setFullName] = useState(mitra.fullName);
   const [nik, setNik] = useState(
     mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik
   );
   const [phone, setPhone] = useState(mitra.phone === '-' ? '' : mitra.phone);
-  const [gender, setGender] = useState<'male' | 'female'>(mitra.gender || inferGenderFromName(mitra.fullName));
+  const [gender, setGender] = useState<'male' | 'female'>(() => resolveMitraGender(mitra));
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string>(() => {
     if (
       mitra.avatarUrl &&
@@ -147,7 +156,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     setFullName(mitra.fullName);
     setNik(mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik);
     setPhone(mitra.phone === '-' ? '' : mitra.phone);
-    setGender(mitra.gender || inferGenderFromName(mitra.fullName));
+    setGender(resolveMitraGender(mitra));
     if (
       mitra.avatarUrl &&
       mitra.avatarUrl !== MALE_AVATAR_URL &&
@@ -187,7 +196,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         ? mitra.fullName
         : mitra.bankDetails.accountHolder
     );
-  }, [mitra, isOpen, activeMitraBankCustomFields, activeSpecOptions, bankOptions]);
+  }, [mitra, isOpen, activeMitraBankCustomFields, activeSpecOptions, bankOptions, resolveMitraGender]);
 
   if (!isOpen) return null;
 
@@ -309,7 +318,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 font-display">
-                Profil, Foto &amp; Data Rekening Mitra
+                Data Diri
               </h3>
               <p className="text-xs text-slate-500 font-mono">
                 {mitra.memberCode} · Status:{' '}
@@ -551,47 +560,49 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 </div>
               )}
 
-              {/* Gender / Avatar Default Selector */}
+              {/* Gender Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Pilih Jenis Kelamin / Avatar Default (Jika Tidak Upload Foto)
+                  Pilih Jenis Kelamin
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => {
                       setGender('male');
-                      setCustomAvatarUrl('');
                     }}
-                    className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
-                      gender === 'male' && !customAvatarUrl
+                    className={`flex items-center justify-between gap-2.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      gender === 'male'
                         ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
                         : 'border-slate-200 bg-white hover:bg-slate-50'
                     }`}
                   >
-                    <img src={MALE_AVATAR_URL} alt="Avatar Laki-laki" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">Avatar Laki-laki</p>
-                      <p className="text-[10px] text-slate-500">Default Laki-laki</p>
+                    <div className="flex items-center gap-2.5">
+                      <img src={MALE_AVATAR_URL} alt="LAKI-LAKI" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                      <p className="text-xs font-bold text-slate-900">LAKI-LAKI</p>
                     </div>
+                    {gender === 'male' && (
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setGender('female');
-                      setCustomAvatarUrl('');
                     }}
-                    className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${
-                      gender === 'female' && !customAvatarUrl
+                    className={`flex items-center justify-between gap-2.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      gender === 'female'
                         ? 'border-blue-600 bg-blue-50/70 ring-1 ring-blue-600'
                         : 'border-slate-200 bg-white hover:bg-slate-50'
                     }`}
                   >
-                    <img src={FEMALE_AVATAR_URL} alt="Avatar Perempuan" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">Avatar Perempuan</p>
-                      <p className="text-[10px] text-slate-500">Default Perempuan</p>
+                    <div className="flex items-center gap-2.5">
+                      <img src={FEMALE_AVATAR_URL} alt="PEREMPUAN" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                      <p className="text-xs font-bold text-slate-900">PEREMPUAN</p>
                     </div>
+                    {gender === 'female' && (
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                    )}
                   </button>
                 </div>
               </div>

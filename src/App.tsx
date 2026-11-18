@@ -25,7 +25,7 @@ import { StaffManagementPanel } from './components/StaffManagementPanel';
 import { MitraPublicVerificationView } from './components/MitraPublicVerificationView';
 import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
 import { RealtimeChatHub } from './components/RealtimeChatHub';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer } from './types';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer, isMitraDataIncomplete } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
   ShieldCheck, 
@@ -308,11 +308,21 @@ export default function App() {
       const byId = mitras.find(
         (m) => m.id === currentUser.mitraId || m.id === currentUser.id
       );
-      if (byId) return byId;
+      if (byId) {
+        return {
+          ...byId,
+          gender: byId.gender || currentUser.gender || 'male',
+        };
+      }
       const byEmail = mitras.find(
         (m) => m.email.toLowerCase() === currentUser.email.toLowerCase()
       );
-      if (byEmail) return byEmail;
+      if (byEmail) {
+        return {
+          ...byEmail,
+          gender: byEmail.gender || currentUser.gender || 'male',
+        };
+      }
       // Fallback strictly using currentUser's own identity while mitras list is loading
       return {
         id: currentUser.mitraId || currentUser.id,
@@ -401,23 +411,7 @@ export default function App() {
     if (currentRole !== 'mitra' || !activeMitra || activeMitra.id === 'mitra-empty') {
       return false;
     }
-    const missingBank =
-      !activeMitra.bankDetails?.accountNumber ||
-      activeMitra.bankDetails.accountNumber.trim() === '' ||
-      activeMitra.bankDetails.accountNumber.trim() === '-' ||
-      !activeMitra.bankDetails?.bankName ||
-      activeMitra.bankDetails.bankName.trim() === '' ||
-      activeMitra.bankDetails.bankName.trim() === '-';
-    const missingNik =
-      !activeMitra.nik ||
-      activeMitra.nik.trim() === '' ||
-      activeMitra.nik.trim() === '-' ||
-      activeMitra.nik.trim() === '3201000000000000';
-    const missingPhone =
-      !activeMitra.phone ||
-      activeMitra.phone.trim() === '' ||
-      activeMitra.phone.trim() === '-';
-    return missingBank || missingNik || missingPhone;
+    return isMitraDataIncomplete(activeMitra);
   }, [currentRole, activeMitra]);
 
   useEffect(() => {
@@ -442,6 +436,8 @@ export default function App() {
     specialization: string;
     bankDetails: BankDetails;
     password?: string;
+    gender?: 'male' | 'female';
+    avatarUrl?: string;
     customFields?: Record<string, string>;
   }) => {
     const res = await fetch('/api/mitra/register', {
@@ -781,7 +777,13 @@ export default function App() {
           currentUser={currentUser}
           onViewLandingPage={() => setViewMode('landing')}
           onOpenServicesModal={() => setIsServicesModalOpen(true)}
-          onOpenClientInput={() => setIsClientModalOpen(true)}
+          onOpenClientInput={() => {
+            if (currentRole === 'mitra' && isMitraProfileIncomplete) {
+              setIsIncompleteProfileAlertOpen(true);
+              return;
+            }
+            setIsClientModalOpen(true);
+          }}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
           onStartOnboardingTour={() => setIsTourOpen(true)}
           appEnvironment={settings?.appEnvironment || 'development'}
@@ -814,6 +816,30 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* Persistent Incomplete Data Diri Banner for Mitra */}
+        {currentRole === 'mitra' && isMitraProfileIncomplete && (
+          <div className="bg-amber-50 border-b border-amber-300 py-3 px-3 sm:px-6 lg:px-8">
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 text-xs text-amber-950">
+                <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Data Diri Anda Belum Lengkap: </span>
+                  <span>
+                    Silakan lengkapi Data Diri (NIK KTP, No. WhatsApp, dan Rekening Bank) terlebih dahulu. Fitur penambahan klien serta salin &amp; bagikan tautan registrasi klien akan aktif setelah Data Diri dilengkapi.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen(true)}
+                className="px-3.5 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-2xs shrink-0 self-start sm:self-auto cursor-pointer"
+              >
+                Lengkapi Data Diri
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Main Content Viewport */}
         <main className={activeTab === 'chat' ? 'pb-3' : 'pb-16'}>
@@ -848,6 +874,7 @@ export default function App() {
               <ExclusiveIdCard
                 mitra={activeMitra}
                 onEditProfile={() => setIsProfileOpen(true)}
+                onRequireCompleteProfile={() => setIsIncompleteProfileAlertOpen(true)}
                 onUpdateProfile={handleUpdateProfile}
                 allowClientSelfRegister={settings?.allowClientSelfRegister !== false}
                 supportPhone={settings?.supportPhone || '0812-8899-7711'}
@@ -857,6 +884,10 @@ export default function App() {
                 onOpenClientSelfRegister={
                   settings?.allowClientSelfRegister !== false
                     ? (refCode) => {
+                        if (currentRole === 'mitra' && isMitraProfileIncomplete) {
+                          setIsIncompleteProfileAlertOpen(true);
+                          return;
+                        }
                         setClientRefCode(refCode);
                         setViewMode('client_register');
                       }
@@ -889,7 +920,13 @@ export default function App() {
               settings={settings}
               onRequestPayout={handleRequestPayout}
               onEditBankDetails={() => setIsProfileOpen(true)}
-              onOpenClientInput={() => setIsClientModalOpen(true)}
+              onOpenClientInput={() => {
+                if (currentRole === 'mitra' && isMitraProfileIncomplete) {
+                  setIsIncompleteProfileAlertOpen(true);
+                  return;
+                }
+                setIsClientModalOpen(true);
+              }}
               onNavigateToOperations={() => setActiveTab('admin-operations')}
             />
           )}
@@ -1117,6 +1154,10 @@ export default function App() {
         onClose={() => setIsClientModalOpen(false)}
         currentMitra={activeMitra}
         settings={settings}
+        onOpenProfile={() => {
+          setIsClientModalOpen(false);
+          setIsProfileOpen(true);
+        }}
         onDealAdded={() => {
           fetchData();
         }}
@@ -1163,7 +1204,7 @@ export default function App() {
                 Halo <strong>{activeMitra.fullName}</strong>, selamat datang di Portal Mitra NDTAXANDLAW!
               </p>
               <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
-                Data diri atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Silakan lengkapi data diri Anda sekarang agar proses verifikasi akun dan pencairan komisi dapat diproses dengan lancar.
+                Data diri atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Selama data diri belum dilengkapi, Anda belum dapat melakukan <strong>penambahan klien</strong> maupun <strong>menyalin dan membagikan tautan registrasi klien</strong>. Silakan lengkapi Data Diri Anda sekarang untuk mengaktifkan seluruh fitur kemitraan.
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-2">

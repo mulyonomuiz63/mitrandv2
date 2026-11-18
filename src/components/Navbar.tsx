@@ -22,7 +22,7 @@ import {
   Sun,
   Moon,
 } from 'lucide-react';
-import { Mitra, AuthUser, DEFAULT_STAFF_ALLOWED_MENUS, StaffMenuAccessKey } from '../types';
+import { Mitra, AuthUser, DEFAULT_STAFF_ALLOWED_MENUS, StaffMenuAccessKey, isMitraDataIncomplete } from '../types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from '../avatars';
 
 interface NavbarProps {
@@ -163,20 +163,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }}
                   disabled={activeMitra.status !== 'verified'}
                   title={
-                    activeMitra.status === 'verified'
-                      ? 'Input Data Klien Baru'
-                      : 'Akun Anda sedang dalam verifikasi Admin. Input klien baru aktif setelah di-approve Admin.'
+                    activeMitra.status !== 'verified'
+                      ? 'Akun Anda sedang dalam verifikasi Admin. Input klien baru aktif setelah di-approve Admin.'
+                      : isMitraDataIncomplete(activeMitra)
+                      ? 'Lengkapi Data Diri terlebih dahulu untuk menginput klien baru.'
+                      : 'Input Data Klien Baru'
                   }
                   className={`hidden md:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap shadow-xs cursor-pointer ${
-                    activeMitra.status === 'verified'
-                      ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 hover:brightness-110'
-                      : 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed'
+                    activeMitra.status !== 'verified'
+                      ? 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed'
+                      : isMitraDataIncomplete(activeMitra)
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
+                      : 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 hover:brightness-110'
                   }`}
                 >
                   <span>
-                    {activeMitra.status === 'verified'
-                      ? '+ Input Klien'
-                      : '🔒 Input Klien'}
+                    {activeMitra.status !== 'verified'
+                      ? '🔒 Input Klien'
+                      : isMitraDataIncomplete(activeMitra)
+                      ? '🔒 Input Klien (Lengkapi Data)'
+                      : '+ Input Klien'}
                   </span>
                 </button>
               )}
@@ -378,16 +384,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                             }
                           }}
                           className={`w-full px-3 py-2 text-xs font-bold rounded-xl flex items-center gap-2.5 text-left ${
-                            activeMitra.status === 'verified'
-                              ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40'
-                              : 'text-slate-400 bg-slate-50 cursor-not-allowed'
+                            activeMitra.status !== 'verified'
+                              ? 'text-slate-400 bg-slate-50 cursor-not-allowed'
+                              : isMitraDataIncomplete(activeMitra)
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40'
                           }`}
                         >
                           <PlusCircle className="w-4 h-4 shrink-0" />
                           <span>
-                            {activeMitra.status === 'verified'
-                              ? '+ Input Klien Baru'
-                              : '🔒 Input Klien (Menunggu ACC)'}
+                            {activeMitra.status !== 'verified'
+                              ? '🔒 Input Klien (Menunggu ACC)'
+                              : isMitraDataIncomplete(activeMitra)
+                              ? '🔒 Input Klien (Lengkapi Data)'
+                              : '+ Input Klien Baru'}
                           </span>
                         </button>
                       )}

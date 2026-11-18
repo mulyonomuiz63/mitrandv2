@@ -26,6 +26,7 @@ import {
   DEFAULT_BONUS_TARGET_CONFIG,
   getPayoutScheduleLabel,
   calculateClientDealCommission,
+  isMitraDataIncomplete,
 } from '../types';
 import { UserCheck, Sparkles, Plus, Repeat, Award, Target } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
@@ -684,25 +685,31 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             }}
             disabled={mitra.status !== 'verified'}
             title={
-              mitra.status === 'verified'
-                ? 'Input Klien Baru (Referral)'
-                : mitra.status === 'rejected'
+              mitra.status !== 'verified'
+                ? mitra.status === 'rejected'
                   ? `Data verifikasi ditolak: ${mitra.rejectionReason || 'Silakan perbaiki data diri dan ajukan ulang.'}`
                   : 'Akun Anda masih dalam proses verifikasi Admin. Input klien baru dapat dilakukan setelah akun di-approve Admin.'
+                : isMitraDataIncomplete(mitra)
+                ? 'Lengkapi Data Diri terlebih dahulu sebelum menginput klien baru.'
+                : 'Input Klien Baru (Referral)'
             }
             className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 text-xs font-bold rounded-xl shadow-sm transition-all w-full lg:w-auto shrink-0 cursor-pointer ${
-              mitra.status === 'verified'
-                ? 'text-white bg-blue-700 hover:bg-blue-800'
-                : 'text-slate-400 bg-slate-200 cursor-not-allowed'
+              mitra.status !== 'verified'
+                ? 'text-slate-400 bg-slate-200 cursor-not-allowed'
+                : isMitraDataIncomplete(mitra)
+                ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
+                : 'text-white bg-blue-700 hover:bg-blue-800'
             }`}
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">
-              {mitra.status === 'verified'
-                ? 'Input Klien Baru (Referral)'
-                : mitra.status === 'rejected'
+              {mitra.status !== 'verified'
+                ? mitra.status === 'rejected'
                   ? '🔒 Input Klien Baru (Data Ditolak)'
-                  : '🔒 Input Klien Baru (Menunggu Approve)'}
+                  : '🔒 Input Klien Baru (Menunggu Approve)'
+                : isMitraDataIncomplete(mitra)
+                ? '🔒 Input Klien Baru (Lengkapi Data Diri)'
+                : 'Input Klien Baru (Referral)'}
             </span>
           </button>
         )}

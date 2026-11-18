@@ -6,7 +6,6 @@ import {
   BarChart3,
   ArrowUpRight,
   Calendar,
-  ChevronRight,
 } from 'lucide-react';
 import { SalesHistoryMonth, Mitra, ClientDeal, CommissionTransaction } from '../types';
 
@@ -27,7 +26,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   allMitras = [],
   allClientDeals = [],
   commissions = [],
-  onNavigateTab,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('November 2026');
 
@@ -153,52 +151,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     (s) => s.totalSales > 0 || s.totalCommission > 0
   );
 
-  // Dynamic Service Composition from real deals in Supabase
-  const relevantDealsForBreakdown = userRole === 'admin' ? approvedDeals : myApprovedDeals;
-  const totalBreakdownValue = relevantDealsForBreakdown.reduce(
-    (sum, d) => sum + (Number(d.dealValue) || 0),
-    0
-  );
-
-  const serviceBreakdown = React.useMemo(() => {
-    const defaultCategories = [
-      { label: 'Pajak Korporasi & Transfer Pricing', color: 'bg-blue-700', value: 0, count: 0 },
-      { label: 'Pendirian PT PMA & Perizinan OSS', color: 'bg-indigo-600', value: 0, count: 0 },
-      { label: 'Pendampingan Audit & SP2DK Pajak', color: 'bg-emerald-600', value: 0, count: 0 },
-      { label: 'Legal Due Diligence & Retainer', color: 'bg-amber-600', value: 0, count: 0 },
-    ];
-
-    if (relevantDealsForBreakdown.length === 0) {
-      return defaultCategories.map((c) => ({ ...c, percent: 0 }));
-    }
-
-    const grouped = new Map<string, { value: number; count: number }>();
-    for (const deal of relevantDealsForBreakdown) {
-      const name = (deal.serviceName || 'Layanan Konsultasi Pajak & Hukum').trim();
-      const prev = grouped.get(name) || { value: 0, count: 0 };
-      grouped.set(name, {
-        value: prev.value + (Number(deal.dealValue) || 0),
-        count: prev.count + 1,
-      });
-    }
-
-    const colors = ['bg-blue-700', 'bg-indigo-600', 'bg-emerald-600', 'bg-amber-600'];
-    const sorted = Array.from(grouped.entries())
-      .sort((a, b) => b[1].value - a[1].value)
-      .slice(0, 4);
-
-    return sorted.map(([label, stats], idx) => ({
-      label,
-      color: colors[idx % colors.length],
-      value: stats.value,
-      count: stats.count,
-      percent:
-        totalBreakdownValue > 0
-          ? Math.round((stats.value / totalBreakdownValue) * 100)
-          : Math.round((stats.count / relevantDealsForBreakdown.length) * 100),
-    }));
-  }, [relevantDealsForBreakdown, totalBreakdownValue]);
-
   return (
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8 space-y-6">
       {/* Top Header */}
@@ -210,9 +162,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 ? `Dashboard Kinerja Mitra — ${activeMitra.fullName}`
                 : 'Dashboard Analitik & Laporan Kinerja'}
             </h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800 border border-blue-200">
-              Live Analytics
-            </span>
           </div>
         </div>
 
@@ -327,10 +276,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
       </div>
 
-      {/* Main Charts Row: Sales Bar Chart & Mitra Service Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sales Performance Chart (2 Columns) */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+      {/* Main Sales Bar Chart */}
+      <div className="grid grid-cols-1 gap-6">
+        {/* Sales Performance Chart */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-display">
@@ -415,42 +364,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 {item.month.split(' ')[0]}
               </span>
             ))}
-          </div>
-        </div>
-
-        {/* Growth & Services Breakdown (1 Column) */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 font-display">
-              Komposisi Layanan Terlaris
-            </h3>
-
-            <div className="mt-5 space-y-4 text-xs">
-              {serviceBreakdown.map((srv, idx) => (
-                <div key={idx}>
-                  <div className="flex justify-between font-semibold text-slate-800 mb-1 gap-2">
-                    <span className="truncate">{srv.label}</span>
-                    <span className="font-mono shrink-0">{srv.percent}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div
-                      className={`${srv.color} h-full transition-all duration-300`}
-                      style={{ width: `${srv.percent}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-slate-100">
-            <button
-              onClick={() => onNavigateTab('marketing-tools')}
-              className="w-full py-2 px-3 text-xs font-semibold text-[#092147] bg-amber-50/70 hover:bg-amber-100 border border-amber-300/60 rounded-lg transition-colors flex items-center justify-between"
-            >
-              <span>Akses Tools Marketing Layanan Ini</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </div>

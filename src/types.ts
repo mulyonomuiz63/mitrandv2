@@ -260,6 +260,31 @@ export interface Mitra {
   customFields?: Record<string, string>;
 }
 
+export function isMitraDataIncomplete(mitra?: Mitra | null): boolean {
+  if (!mitra || mitra.id === 'mitra-empty') return false;
+  const missingBank =
+    !mitra.bankDetails?.accountNumber ||
+    mitra.bankDetails.accountNumber.trim() === '' ||
+    mitra.bankDetails.accountNumber.trim() === '-' ||
+    !mitra.bankDetails?.bankName ||
+    mitra.bankDetails.bankName.trim() === '' ||
+    mitra.bankDetails.bankName.trim() === '-' ||
+    !mitra.bankDetails?.accountHolder ||
+    mitra.bankDetails.accountHolder.trim() === '' ||
+    mitra.bankDetails.accountHolder.trim() === '-';
+  const missingNik =
+    !mitra.nik ||
+    mitra.nik.trim() === '' ||
+    mitra.nik.trim() === '-' ||
+    mitra.nik.trim() === '3201000000000000';
+  const missingPhone =
+    !mitra.phone ||
+    mitra.phone.trim() === '' ||
+    mitra.phone.trim() === '-';
+  return missingBank || missingNik || missingPhone;
+}
+
+
 export interface ServiceItem {
   id: string;
   name: string;

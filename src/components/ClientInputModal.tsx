@@ -11,6 +11,7 @@ import {
   calculateClientDealCommission,
   OFFICIAL_ND_SERVICES,
   resolveServicePricingType,
+  isMitraDataIncomplete,
 } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
@@ -20,6 +21,7 @@ interface ClientInputModalProps {
   onClose: () => void;
   currentMitra: Mitra;
   onDealAdded?: (newDeal: ClientDeal) => void;
+  onOpenProfile?: () => void;
   settings?: AppSettings | null;
 }
 
@@ -28,6 +30,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
   onClose,
   currentMitra,
   onDealAdded,
+  onOpenProfile,
   settings,
 }) => {
   const confirm = useConfirm();
@@ -295,6 +298,41 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                 >
                   Tutup Jendela
                 </button>
+              </div>
+            </div>
+          ) : isMitraDataIncomplete(currentMitra) ? (
+            <div className="flex-1 overflow-y-auto p-8 text-center space-y-4">
+              <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div className="space-y-2 max-w-md mx-auto">
+                <span className="inline-block px-3 py-1 text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded-full">
+                  Data Diri Belum Lengkap
+                </span>
+                <h3 className="text-lg font-bold text-slate-900">
+                  Lengkapi Data Diri Terlebih Dahulu
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Sebelum dapat melakukan penambahan klien maupun menyalin dan membagikan tautan registrasi klien, silakan lengkapi <strong>Data Diri</strong> (NIK KTP, Nomor WhatsApp, serta Rekening Bank Pencairan Komisi) terlebih dahulu.
+                </p>
+              </div>
+              <div className="pt-2 flex items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Tutup
+                </button>
+                {onOpenProfile && (
+                  <button
+                    type="button"
+                    onClick={onOpenProfile}
+                    className="px-5 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl transition-all cursor-pointer"
+                  >
+                    Lengkapi Data Diri Sekarang
+                  </button>
+                )}
               </div>
             </div>
           ) : submissionSuccess ? (

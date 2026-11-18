@@ -2126,8 +2126,19 @@ export const formatMitraMemberCode = (rawCode?: string, fallbackId?: string): st
 // Normalize mitra avatars and memberCode (ND-TAX-LAW-noregistrasi)
 const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
   return list.map((m) => {
-    const gender = m.gender || inferGenderFromName(m.fullName);
     const bankMeta = (m.bankDetails || {}) as any;
+    const avatarInferredGender: 'male' | 'female' | undefined =
+      m.avatarUrl === FEMALE_AVATAR_URL
+        ? 'female'
+        : m.avatarUrl === MALE_AVATAR_URL
+        ? 'male'
+        : undefined;
+    const gender: 'male' | 'female' =
+      m.gender === 'female' || m.gender === 'male'
+        ? m.gender
+        : bankMeta.__gender === 'female' || bankMeta.__gender === 'male'
+        ? bankMeta.__gender
+        : avatarInferredGender || inferGenderFromName(m.fullName);
     return {
       ...m,
       memberCode: formatMitraMemberCode(m.memberCode, m.id),
@@ -4095,7 +4106,11 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     gender: resolvedGender,
     avatarUrl: req.body.avatarUrl || getDefaultAvatar(resolvedGender, safeFullName),
     joinedDate: new Date().toISOString().split('T')[0],
-    bankDetails: cleanCustomFields ? ({ ...baseBank, __customFields: cleanCustomFields } as any) : baseBank,
+    bankDetails: {
+      ...baseBank,
+      __gender: resolvedGender,
+      ...(cleanCustomFields ? { __customFields: cleanCustomFields } : {}),
+    } as any,
     customFields: cleanCustomFields,
     totalCommission: 0,
     totalBonus: 0,
@@ -4358,8 +4373,14 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   if (customFields && typeof customFields === 'object') {
     mitra.customFields = { ...(mitra.customFields || {}), ...customFields };
   }
-  if (bankDetails || mitra.customFields) {
+  if (gender === 'male' || gender === 'female') {
+    mitra.gender = gender;
+  }
+  if (bankDetails || mitra.customFields || mitra.gender) {
     const mergedBank: any = { ...mitra.bankDetails, ...(bankDetails || {}) };
+    if (mitra.gender === 'male' || mitra.gender === 'female') {
+      mergedBank.__gender = mitra.gender;
+    }
     if (mitra.customFields && Object.keys(mitra.customFields).length > 0) {
       mergedBank.__customFields = mitra.customFields;
     }
@@ -4368,9 +4389,6 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
       delete mergedBank.__rejectedAt;
     }
     mitra.bankDetails = mergedBank;
-  }
-  if (gender === 'male' || gender === 'female') {
-    mitra.gender = gender;
   }
   if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim().length > 0) {
     mitra.avatarUrl = avatarUrl.trim();
