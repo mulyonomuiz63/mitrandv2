@@ -335,9 +335,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     NDTAXANDLAW TIAP DAERAH.
                   </span>
                   <span className={`block mt-2 text-xl sm:text-2xl md:text-3xl lg:text-[32px] xl:text-[36px] leading-[1.2] ${isDark ? 'text-white' : 'text-[#0B1D3A]'}`}>
-                    CLOSING BESAR, KOMISI BESAR,{' '}
-                    <span className={isDark ? 'text-amber-400' : 'text-amber-600'}>
-                      BONUS BESAR.
+                    MENJADI PERWAKILAN TERPERCAYA{' '}
+                    <span className={`block ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                      KANTOR KONSULTAN PAJAK &amp; HUKUM
                     </span>
                   </span>
                 </h1>
