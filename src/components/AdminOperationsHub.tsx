@@ -2044,9 +2044,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <Target className="w-4 h-4 text-amber-600" />
                     <span>2. Standar Target &amp; Bonus Mitra (Per Bulan / Per Tahun)</span>
                   </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Target &amp; bonus dapat diaktifkan/dinonaktifkan secara terpisah untuk Per Bulan maupun Per Tahun.
-                  </p>
                 </div>
 
                 <div className="space-y-3.5 text-xs">
@@ -2382,7 +2379,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <span>
                     {isSavingScheme
                       ? 'Menyimpan Pengaturan...'
-                      : 'Simpan Skema Komisi & Standar Target Bonus'}
+                      : 'Simpan'}
                   </span>
                 </button>
               </div>
@@ -2397,9 +2394,6 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <Gift className="w-4 h-4 text-[#113872]" />
                   <span>3. Evaluasi Pencapaian Target &amp; Proses Pemberian Bonus ke Mitra</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Status evaluasi mendukung Target Bulanan ({bonusTarget.monthlyBonusEnabled !== false ? 'Aktif' : 'Nonaktif'}), Target Tahunan ({bonusTarget.yearlyBonusEnabled !== false ? 'Aktif' : 'Nonaktif'}), dan 5 Tier Hadiah/Bonus Capaian Penjualan.
-                </p>
               </div>
             </div>
 

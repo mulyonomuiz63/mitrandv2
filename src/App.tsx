@@ -106,7 +106,17 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   
   // State from server API with immediate offline fallbacks
-  const [mitras, setMitras] = useState<Mitra[]>([]);
+  const [mitras, setMitras] = useState<Mitra[]>(() => {
+    try {
+      const cached = localStorage.getItem('nd_cached_active_mitra');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.id) return [parsed];
+      }
+    } catch {}
+    return [];
+  });
+  const [isMitrasLoaded, setIsMitrasLoaded] = useState<boolean>(false);
   const [activeMitraId, setActiveMitraId] = useState<string>(() => {
     try {
       const savedUser = localStorage.getItem('nd_auth_user');
@@ -178,6 +188,9 @@ export default function App() {
 
       if (resMitra.status === 'fulfilled' && resMitra.value?.data) {
         setMitras(resMitra.value.data);
+        setIsMitrasLoaded(true);
+      } else {
+        setIsMitrasLoaded(true);
       }
       if (resTools.status === 'fulfilled' && resTools.value?.data) {
         setMarketingTools(resTools.value.data);
@@ -198,6 +211,7 @@ export default function App() {
         setSettings(resSettings.value.data);
       }
     } catch (err) {
+      setIsMitrasLoaded(true);
       console.warn('API fetch warning, using seeded defaults', err);
     }
   };
@@ -348,6 +362,7 @@ export default function App() {
         paidPayout: 0,
         referredClientsCount: 0,
         activeSubscribersCount: 0,
+        isLoadingFallback: true,
       };
     }
 
@@ -377,11 +392,26 @@ export default function App() {
         paidPayout: 0,
         referredClientsCount: 0,
         activeSubscribersCount: 0,
+        isLoadingFallback: true,
       }
     );
   }, [currentUser, mitras, activeMitraId]);
 
   const activeMitra = resolvedLoggedInMitra;
+
+  // Cache real resolved Mitra profile in localStorage so page refreshes have immediate complete data
+  useEffect(() => {
+    if (
+      currentRole === 'mitra' &&
+      activeMitra &&
+      activeMitra.id !== 'mitra-empty' &&
+      !activeMitra.isLoadingFallback
+    ) {
+      try {
+        localStorage.setItem('nd_cached_active_mitra', JSON.stringify(activeMitra));
+      } catch {}
+    }
+  }, [currentRole, activeMitra]);
 
   const effectiveViewerRole: 'admin' | 'staff' | 'mitra' =
     currentRole === 'mitra'
@@ -406,16 +436,23 @@ export default function App() {
 
   const unreadNotifCount = visibleNotifications.filter((n) => !n.isRead).length;
 
-  // Check if logged-in Mitra still has incomplete profile / bank details
+  // Check if logged-in Mitra still has incomplete profile / bank details (only after server data has loaded)
   const isMitraProfileIncomplete = React.useMemo(() => {
-    if (currentRole !== 'mitra' || !activeMitra || activeMitra.id === 'mitra-empty') {
+    if (
+      !isMitrasLoaded ||
+      currentRole !== 'mitra' ||
+      !activeMitra ||
+      activeMitra.id === 'mitra-empty' ||
+      activeMitra.isLoadingFallback
+    ) {
       return false;
     }
-    return isMitraDataIncomplete(activeMitra);
-  }, [currentRole, activeMitra]);
+    return isMitraDataIncomplete(activeMitra, settings);
+  }, [isMitrasLoaded, currentRole, activeMitra, settings]);
 
   useEffect(() => {
     if (
+      isMitrasLoaded &&
       viewMode === 'portal' &&
       currentRole === 'mitra' &&
       isMitraProfileIncomplete &&
@@ -425,7 +462,7 @@ export default function App() {
     } else if (!isMitraProfileIncomplete) {
       setIsIncompleteProfileAlertOpen(false);
     }
-  }, [viewMode, currentRole, isMitraProfileIncomplete, dismissedProfileAlertForId, activeMitra.id]);
+  }, [isMitrasLoaded, viewMode, currentRole, isMitraProfileIncomplete, dismissedProfileAlertForId, activeMitra.id]);
 
   // Handlers
   const handleRegisterMitra = async (formData: {
@@ -483,7 +520,13 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success && data.data) {
-        setMitras((prev) => prev.map((m) => (m.id === id ? data.data : m)));
+        setMitras((prev) => {
+          const exists = prev.some((m) => m.id === id);
+          return exists ? prev.map((m) => (m.id === id ? data.data : m)) : [data.data, ...prev];
+        });
+        try {
+          localStorage.setItem('nd_cached_active_mitra', JSON.stringify(data.data));
+        } catch {}
         if (currentUser && (currentUser.mitraId === id || currentUser.id === id)) {
           const updatedUser: AuthUser = {
             ...currentUser,
@@ -619,6 +662,7 @@ export default function App() {
     try {
       localStorage.removeItem('nd_auth_user');
       localStorage.removeItem('nd_active_tab');
+      localStorage.removeItem('nd_cached_active_mitra');
     } catch {}
   };
 

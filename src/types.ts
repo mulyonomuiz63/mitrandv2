@@ -258,29 +258,45 @@ export interface Mitra {
   rejectionReason?: string;
   rejectedAt?: string;
   customFields?: Record<string, string>;
+  isLoadingFallback?: boolean;
 }
 
-export function isMitraDataIncomplete(mitra?: Mitra | null): boolean {
-  if (!mitra || mitra.id === 'mitra-empty') return false;
-  const missingBank =
-    !mitra.bankDetails?.accountNumber ||
-    mitra.bankDetails.accountNumber.trim() === '' ||
-    mitra.bankDetails.accountNumber.trim() === '-' ||
-    !mitra.bankDetails?.bankName ||
-    mitra.bankDetails.bankName.trim() === '' ||
-    mitra.bankDetails.bankName.trim() === '-' ||
-    !mitra.bankDetails?.accountHolder ||
-    mitra.bankDetails.accountHolder.trim() === '' ||
-    mitra.bankDetails.accountHolder.trim() === '-';
+export function isMitraDataIncomplete(mitra?: Mitra | null, settings?: AppSettings | null): boolean {
+  if (!mitra || mitra.id === 'mitra-empty' || mitra.isLoadingFallback) return false;
+  const fields = resolveMitraFormFields(settings);
+  const isFieldActive = (key: MitraSystemFieldKey) => {
+    const found = fields.find((f) => f.systemKey === key);
+    return found ? found.isActive !== false : true;
+  };
+
+  const missingBankNumber =
+    isFieldActive('accountNumber') &&
+    (!mitra.bankDetails?.accountNumber ||
+      mitra.bankDetails.accountNumber.trim() === '' ||
+      mitra.bankDetails.accountNumber.trim() === '-');
+  const missingBankName =
+    isFieldActive('bankName') &&
+    (!mitra.bankDetails?.bankName ||
+      mitra.bankDetails.bankName.trim() === '' ||
+      mitra.bankDetails.bankName.trim() === '-');
+  const missingBankHolder =
+    isFieldActive('accountHolder') &&
+    (!mitra.bankDetails?.accountHolder ||
+      mitra.bankDetails.accountHolder.trim() === '' ||
+      mitra.bankDetails.accountHolder.trim() === '-');
+  const missingBank = missingBankNumber || missingBankName || missingBankHolder;
+
   const missingNik =
-    !mitra.nik ||
-    mitra.nik.trim() === '' ||
-    mitra.nik.trim() === '-' ||
-    mitra.nik.trim() === '3201000000000000';
+    isFieldActive('nik') &&
+    (!mitra.nik ||
+      mitra.nik.trim() === '' ||
+      mitra.nik.trim() === '-' ||
+      mitra.nik.trim() === '3201000000000000');
   const missingPhone =
-    !mitra.phone ||
-    mitra.phone.trim() === '' ||
-    mitra.phone.trim() === '-';
+    isFieldActive('phone') &&
+    (!mitra.phone ||
+      mitra.phone.trim() === '' ||
+      mitra.phone.trim() === '-');
   return missingBank || missingNik || missingPhone;
 }
 

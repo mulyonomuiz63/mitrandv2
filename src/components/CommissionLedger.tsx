@@ -602,16 +602,6 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                     <Gift className="w-4 h-4 text-[#113872]" />
                     <span>Tabel Capaian Penjualan &amp; Hadiah / Bonus Mitra</span>
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Target Bonus Per Bulan:{' '}
-                    <strong className={mBonusEnabled ? 'text-emerald-700' : 'text-slate-400'}>
-                      {mBonusEnabled ? 'AKTIF' : 'NONAKTIF'}
-                    </strong>{' '}
-                    &bull; Target Bonus Per Tahun:{' '}
-                    <strong className={yBonusEnabled ? 'text-emerald-700' : 'text-slate-400'}>
-                      {yBonusEnabled ? 'AKTIF' : 'NONAKTIF'}
-                    </strong>
-                  </p>
                 </div>
                 {userRole === 'mitra' && (
                   <div className="px-3.5 py-1.5 rounded-xl bg-[#0D2149] text-white text-xs font-bold">
