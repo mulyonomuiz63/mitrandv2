@@ -881,30 +881,36 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
-  // Image selection + automatic client-side compression
+  // File/Image selection + automatic compression
   const handleSelectImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
 
-    if (!file.type.startsWith('image/')) {
-      showAlert({
-        type: 'warning',
-        title: 'Format Gambar Tidak Didukung',
-        message: 'Harap pilih file gambar (JPG, PNG, atau WEBP).',
-      });
-      return;
-    }
-
     setIsCompressingImage(true);
     try {
-      const compressed = await compressImageFile(file, 1024, 0.72);
-      setPendingImage(compressed);
+      if (file.type.startsWith('image/')) {
+        const compressed = await compressImageFile(file, 1024, 0.72);
+        setPendingImage(compressed);
+      } else {
+        const { compressAndUploadFile } = await import('../utils/fileCompressor');
+        const res = await compressAndUploadFile(file, {
+          maxDimension: 1200,
+          quality: 0.75,
+          uploadToServer: true,
+        });
+        setPendingImage({
+          dataUrl: res.hostedUrl || res.dataUrl,
+          name: res.fileName,
+          originalSize: res.originalBytes,
+          compressedSize: res.compressedBytes,
+        });
+      }
     } catch {
       showAlert({
         type: 'error',
-        title: 'Gagal Mengompres Gambar',
-        message: 'Terjadi kesalahan saat mengompres ukuran gambar.',
+        title: 'Gagal Mengompres File',
+        message: 'Terjadi kesalahan saat mengompres ukuran file.',
       });
     } finally {
       setIsCompressingImage(false);

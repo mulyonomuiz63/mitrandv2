@@ -65,6 +65,16 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     { id: 'Materi Pelatihan', label: 'Materi Pelatihan Eksklusif' },
   ];
 
+  const visibleCategories = categories.filter((cat) =>
+    cat.id === 'all' ? tools.length > 0 : tools.some((t) => t.category === cat.id)
+  );
+
+  React.useEffect(() => {
+    if (selectedCategory !== 'all' && !tools.some((t) => t.category === selectedCategory)) {
+      setSelectedCategory('all');
+    }
+  }, [tools, selectedCategory]);
+
   const getFileAcceptConfig = (type: 'pdf' | 'png' | 'jpg' | 'mp4') => {
     switch (type) {
       case 'pdf':
@@ -278,13 +288,6 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     setIsSubmitting(true);
 
     try {
-      const defaultThumb =
-        newFileType === 'mp4'
-          ? 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80'
-          : newFileType === 'pdf'
-          ? 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80'
-          : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80';
-
       await onAddTool({
         title: newTitle.trim(),
         category: newCategory,
@@ -294,7 +297,10 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         description: newDescription || 'Materi resmi pendukung penjualan mitra.',
         duration: newFileType === 'mp4' ? newDuration : undefined,
         downloadUrl: uploadedFileDataUrl,
-        thumbnailUrl: uploadedThumbnailUrl || defaultThumb,
+        thumbnailUrl:
+          newFileType === 'png' || newFileType === 'jpg'
+            ? uploadedThumbnailUrl || uploadedFileDataUrl
+            : '',
       });
 
       setIsAddModalOpen(false);
@@ -340,8 +346,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
-          <CheckCircle className="w-4 h-4 text-emerald-400" />
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-2.5 text-sm font-bold border-2 border-emerald-400 animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle className="w-5 h-5 text-white shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
@@ -386,22 +392,24 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           </div>
         </div>
 
-        {/* Clean Segmented Filter Buttons */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                selectedCategory === cat.id
-                  ? 'bg-blue-800 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
+        {/* Clean Segmented Filter Buttons - Only shown when data is uploaded for that category */}
+        {visibleCategories.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            {visibleCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  selectedCategory === cat.id
+                    ? 'bg-blue-800 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Grid of Marketing Tools */}
@@ -418,6 +426,21 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           {filteredTools.map((tool) => {
             const badge = getFileBadge(tool.fileType);
             const BadgeIcon = badge.icon;
+            const isValidMediaUrl = (url?: string) =>
+              Boolean(
+                url &&
+                  (url.startsWith('/uploads/') ||
+                    url.startsWith('data:') ||
+                    url.startsWith('http'))
+              );
+            const imageSource =
+              isValidMediaUrl(tool.downloadUrl) &&
+              (tool.fileType === 'png' || tool.fileType === 'jpg')
+                ? tool.downloadUrl
+                : tool.thumbnailUrl;
+            const hasVideoSource =
+              (tool.fileType === 'mp4' || tool.fileType === 'stream') &&
+              isValidMediaUrl(tool.downloadUrl);
 
             return (
               <div
@@ -427,16 +450,55 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 <div>
                   {/* Thumbnail Banner with Scrim & Media Indicator */}
                   <div className="relative aspect-video w-full bg-slate-100 overflow-hidden group">
-                    <img
-                      src={tool.thumbnailUrl}
-                      alt={tool.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
+                    {tool.fileType === 'pdf' ? (
+                      <div className="w-full h-full bg-gradient-to-br from-slate-900 via-[#0F2547] to-slate-900 flex flex-col items-center justify-center p-6 text-center">
+                        <div className="w-16 h-16 rounded-2xl bg-red-600 text-white flex flex-col items-center justify-center shadow-lg border-2 border-red-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
+                          <FileText className="w-8 h-8" />
+                          <span className="text-[9px] font-black tracking-widest uppercase mt-0.5">
+                            PDF
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-slate-300">
+                          Dokumen PDF Resmi
+                        </span>
+                      </div>
+                    ) : hasVideoSource ? (
+                      <video
+                        src={`${tool.downloadUrl}#t=0.5`}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="w-full h-full object-cover bg-slate-950 group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : tool.fileType === 'mp4' || tool.fileType === 'stream' ? (
+                      <div className="w-full h-full bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex flex-col items-center justify-center p-6 text-center">
+                        <div className="w-16 h-16 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-emerald-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
+                          <Video className="w-8 h-8" />
+                        </div>
+                        <span className="text-[11px] font-semibold text-slate-300">
+                          Video Presentasi MP4
+                        </span>
+                      </div>
+                    ) : (
+                      <img
+                        src={imageSource}
+                        alt={tool.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent pointer-events-none" />
 
                     {/* Media Type Tag */}
                     <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-xs text-[11px] font-semibold text-slate-900 shadow-xs">
-                      <BadgeIcon className="w-3.5 h-3.5 text-blue-700" />
+                      <BadgeIcon
+                        className={`w-3.5 h-3.5 ${
+                          tool.fileType === 'pdf'
+                            ? 'text-red-600'
+                            : tool.fileType === 'mp4' || tool.fileType === 'stream'
+                            ? 'text-emerald-600'
+                            : 'text-blue-700'
+                        }`}
+                      />
                       <span>{badge.label}</span>
                       {tool.duration && (
                         <>
@@ -447,7 +509,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                     </div>
 
                     {/* Target Product Kicker */}
-                    <div className="absolute bottom-3 left-3 right-3 text-white">
+                    <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
                       <p className="text-[10px] font-semibold text-blue-300 uppercase tracking-wider line-clamp-1">
                         {tool.targetProduct}
                       </p>
@@ -628,22 +690,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 {selectedPreviewTool.description}
               </p>
 
-              <div className="flex items-center justify-between pt-3 border-t border-slate-200">
-                <div className="text-xs text-slate-500">
-                  Target Layanan: <strong>{selectedPreviewTool.targetProduct}</strong>
-                </div>
-
+              <div className="flex items-center justify-end pt-3 border-t border-slate-200">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      showToast(`Tautan salinan materi disalin ke papan klip.`);
-                    }}
-                    className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    <span>Salin Tautan</span>
-                  </button>
-
                   <button
                     onClick={() => {
                       handleDownloadTool(selectedPreviewTool);

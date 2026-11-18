@@ -24,6 +24,7 @@ import {
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, inferGenderFromName } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
+import { compressAndUploadFile } from '../utils/fileCompressor';
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -200,42 +201,25 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 360;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.88);
-          setCustomAvatarUrl(compressed);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 480,
+        quality: 0.82,
+        uploadToServer: true,
+      });
+      setCustomAvatarUrl(compressed.hostedUrl || compressed.dataUrl);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setCustomAvatarUrl(reader.result);
         }
       };
-      if (typeof reader.result === 'string') {
-        img.src = reader.result;
-      }
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -358,15 +342,15 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             )}
 
             {statusMessage && (
-              <div className="p-3 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold flex items-center gap-2 border border-emerald-200">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <div className="p-3.5 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 border-2 border-emerald-400 shadow-md">
+                <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
                 <span>{statusMessage}</span>
               </div>
             )}
 
             {errorMessage && (
-              <div className="p-3 bg-red-50 text-red-800 rounded-lg text-xs font-semibold flex items-center gap-2 border border-red-200">
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <div className="p-3.5 bg-red-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 border-2 border-red-400 shadow-md">
+                <AlertCircle className="w-4 h-4 text-white shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}

@@ -23,6 +23,7 @@ import {
   StaffMenuAccessKey
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, resolveAvatarUrl } from '../avatars';
+import { compressAndUploadFile } from '../utils/fileCompressor';
 
 interface StaffProfileEditModalProps {
   isOpen: boolean;
@@ -119,20 +120,29 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2.5 * 1024 * 1024) {
-      setFeedback({ type: 'error', message: 'Ukuran foto maksimal 2.5 MB.' });
+    if (file.size > 15 * 1024 * 1024) {
+      setFeedback({ type: 'error', message: 'Ukuran foto maksimal 15 MB.' });
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setAvatarUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 600,
+        quality: 0.82,
+        uploadToServer: true,
+      });
+      setAvatarUrl(compressed.hostedUrl || compressed.dataUrl);
+    } catch {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setAvatarUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -285,18 +295,18 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
           <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
             {feedback && (
               <div
-                className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 ${
+                className={`p-3.5 rounded-xl border-2 text-xs flex items-center gap-2.5 shadow-sm ${
                   feedback.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                    : 'bg-red-50 border-red-200 text-red-900'
+                    ? 'bg-emerald-600 border-emerald-400 text-white'
+                    : 'bg-red-600 border-red-400 text-white'
                 }`}
               >
                 {feedback.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
                 ) : (
-                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <AlertTriangle className="w-4 h-4 text-white shrink-0" />
                 )}
-                <span className="font-semibold">{feedback.message}</span>
+                <span className="font-bold">{feedback.message}</span>
               </div>
             )}
 

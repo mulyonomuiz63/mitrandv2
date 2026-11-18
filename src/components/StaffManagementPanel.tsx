@@ -31,6 +31,7 @@ import {
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, resolveAvatarUrl } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
+import { compressAndUploadFile } from '../utils/fileCompressor';
 
 interface StaffManagementPanelProps {
   currentUser: AuthUser;
@@ -130,20 +131,29 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     fetchAdminAndStaff();
   }, []);
 
-  const handleAdminAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAdminAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2.5 * 1024 * 1024) {
-      setFeedback({ type: 'error', message: 'Ukuran foto maksimal 2.5 MB.' });
+    if (file.size > 15 * 1024 * 1024) {
+      setFeedback({ type: 'error', message: 'Ukuran foto maksimal 15 MB.' });
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setAdminData((prev) => ({ ...prev, avatarUrl: reader.result as string }));
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 600,
+        quality: 0.82,
+        uploadToServer: true,
+      });
+      setAdminData((prev) => ({ ...prev, avatarUrl: compressed.hostedUrl || compressed.dataUrl }));
+    } catch {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setAdminData((prev) => ({ ...prev, avatarUrl: reader.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSaveAdminProfile = async (e: React.FormEvent) => {
@@ -515,24 +525,24 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
       {/* Feedback Banner */}
       {feedback && (
         <div
-          className={`p-4 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-3 animate-in fade-in ${
+          className={`p-4 rounded-xl border-2 text-xs sm:text-sm flex items-center justify-between gap-3 shadow-md animate-in fade-in ${
             feedback.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-              : 'bg-red-50 border-red-200 text-red-900'
+              ? 'bg-emerald-600 border-emerald-400 text-white'
+              : 'bg-red-600 border-red-400 text-white'
           }`}
         >
           <div className="flex items-center gap-2.5">
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <CheckCircle2 className="w-5 h-5 text-white shrink-0" />
             ) : (
-              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+              <AlertTriangle className="w-5 h-5 text-white shrink-0" />
             )}
-            <span className="font-semibold">{feedback.message}</span>
+            <span className="font-bold">{feedback.message}</span>
           </div>
           <button
             type="button"
             onClick={() => setFeedback(null)}
-            className="text-slate-400 hover:text-slate-700 p-1"
+            className="text-white/80 hover:text-white p-1"
           >
             <X className="w-4 h-4" />
           </button>

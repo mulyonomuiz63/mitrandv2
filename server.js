@@ -3465,7 +3465,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
   return res.status(404).json({
     success: false,
-    message: "Akun tidak ditemukan di database Supabase. Pastikan email atau nomor keanggotaan sudah terdaftar."
+    message: "Akun tidak ditemukan atau belum terdaftar"
   });
 });
 var persistAdminAndStaffToCloud = async () => {
@@ -4554,11 +4554,11 @@ var formatFileSizeServer = (bytes) => {
   return `${mb.toFixed(2)} MB`;
 };
 var compressBinaryBuffer = (buf, ext) => {
-  if (ext === "pdf") {
+  if (ext === "pdf" || ext === "mp4") {
     let start = 0;
     while (start < buf.length && buf[start] === 0) start++;
     let end = buf.length;
-    while (end > start && (buf[end - 1] === 0 || buf[end - 1] === 32 || buf[end - 1] === 10 || buf[end - 1] === 13)) {
+    while (end > start && (buf[end - 1] === 0 || ext === "pdf" && (buf[end - 1] === 32 || buf[end - 1] === 10 || buf[end - 1] === 13))) {
       end--;
     }
     const trimmed = buf.subarray(start, end);
@@ -4575,6 +4575,8 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
   const originalBytes = rawBuffer.length;
   let ext = fallbackExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
   if (mime.includes("pdf")) ext = "pdf";
+  else if (mime.includes("svg")) ext = "svg";
+  else if (mime.includes("webp")) ext = "webp";
   else if (mime.includes("png")) ext = "png";
   else if (mime.includes("jpeg") || mime.includes("jpg")) ext = "jpg";
   else if (mime.includes("mp4") || mime.includes("video")) ext = "mp4";
@@ -4641,7 +4643,7 @@ app.post("/api/marketing-tools", async (req, res) => {
   }
   let finalDownloadUrl = downloadUrl || "#file-download";
   let finalFileSize = fileSize || "3.5 MB";
-  let finalThumbnailUrl = thumbnailUrl || "https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80";
+  let finalThumbnailUrl = thumbnailUrl || (fileType === "png" || fileType === "jpg" ? finalDownloadUrl : "");
   if (typeof finalDownloadUrl === "string" && finalDownloadUrl.startsWith("data:")) {
     const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, fileType || "pdf");
     if (saved) {

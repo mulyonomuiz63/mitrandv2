@@ -900,16 +900,29 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                               type="file"
                               accept="image/png,image/jpeg,image/svg+xml,image/webp"
                               className="hidden"
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const file = e.target.files?.[0];
                                 if (!file) return;
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                  if (typeof reader.result === 'string') {
-                                    setSettings((prev) => ({ ...prev, logoUrl: reader.result as string }));
-                                  }
-                                };
-                                reader.readAsDataURL(file);
+                                try {
+                                  const { compressAndUploadFile } = await import('../utils/fileCompressor');
+                                  const compressed = await compressAndUploadFile(file, {
+                                    maxDimension: 800,
+                                    quality: 0.85,
+                                    uploadToServer: true,
+                                  });
+                                  setSettings((prev) => ({
+                                    ...prev,
+                                    logoUrl: compressed.hostedUrl || compressed.dataUrl,
+                                  }));
+                                } catch {
+                                  const reader = new FileReader();
+                                  reader.onload = () => {
+                                    if (typeof reader.result === 'string') {
+                                      setSettings((prev) => ({ ...prev, logoUrl: reader.result as string }));
+                                    }
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
                               }}
                             />
                           </label>

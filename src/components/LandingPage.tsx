@@ -1014,6 +1014,96 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
+      {/* SECTION 3: HADIAH & BONUS APRESIASI MITRA (TANPA ANGKA NOMINAL DI LANDING PAGE) */}
+      <section
+        id="hadiah-mitra"
+        className="py-16 sm:py-20 bg-gradient-to-b from-[#D4973B] via-[#C98A2C] to-[#B8791E] border-b border-amber-300/30"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+            {/* Reward 1: Jalan-Jalan LN */}
+            <div className="bg-[#0B2559] rounded-2xl p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
+              <div className="w-full flex flex-col items-center">
+                <span className="inline-block px-4 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-5">
+                  REWARD EKSKLUSIF
+                </span>
+                <div className="w-16 h-16 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-4">
+                  <Plane className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-extrabold text-white">Jalan-Jalan LN</h3>
+                <p className="text-xs text-slate-200 leading-relaxed mt-3">
+                  Apresiasi perjalanan eksklusif ke Luar Negeri bagi mitra berprestasi yang mencapai target penjualan.
+                </p>
+              </div>
+            </div>
+
+            {/* Reward 2: Motor Baru */}
+            <div className="bg-[#0B2559] rounded-2xl p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
+              <div className="w-full flex flex-col items-center">
+                <span className="inline-block px-4 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-5">
+                  REWARD EKSKLUSIF
+                </span>
+                <div className="w-16 h-16 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-4">
+                  <Award className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-extrabold text-white">Motor Baru</h3>
+                <p className="text-xs text-slate-200 leading-relaxed mt-3">
+                  Reward unit kendaraan roda dua baru bagi mitra strategis dengan capaian penjualan unggulan.
+                </p>
+              </div>
+            </div>
+
+            {/* Reward 3: Umroh */}
+            <div className="bg-[#0B2559] rounded-2xl p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
+              <div className="w-full flex flex-col items-center">
+                <span className="inline-block px-4 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-5">
+                  REWARD EKSKLUSIF
+                </span>
+                <div className="w-16 h-16 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-4">
+                  <Landmark className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-extrabold text-white">Umroh</h3>
+                <p className="text-xs text-slate-200 leading-relaxed mt-3">
+                  Hadiah ibadah Umroh / perjalanan spiritual VIP penuh fasilitas bagi mitra strategis berprestasi.
+                </p>
+              </div>
+            </div>
+
+            {/* Reward 4: Mobil Baru */}
+            <div className="bg-[#0B2559] rounded-2xl p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
+              <div className="w-full flex flex-col items-center">
+                <span className="inline-block px-4 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-5">
+                  REWARD EKSKLUSIF
+                </span>
+                <div className="w-16 h-16 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-4">
+                  <Car className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-extrabold text-white">Mobil Baru</h3>
+                <p className="text-xs text-slate-200 leading-relaxed mt-3">
+                  Reward unit Mobil Baru berkelas untuk mitra strategis dengan kontribusi penjualan terbaik.
+                </p>
+              </div>
+            </div>
+
+            {/* Reward 5: Rumah Baru */}
+            <div className="bg-[#0B2559] rounded-2xl p-6 text-center text-white shadow-xl border border-white/10 flex flex-col items-center justify-between">
+              <div className="w-full flex flex-col items-center">
+                <span className="inline-block px-4 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider mb-5">
+                  REWARD EKSKLUSIF
+                </span>
+                <div className="w-16 h-16 rounded-full border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-4">
+                  <Home className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-extrabold text-white">Rumah Baru</h3>
+                <p className="text-xs text-slate-200 leading-relaxed mt-3">
+                  Grand reward properti Rumah Baru sebagai puncak pencapaian kemitraan strategis NDTAXANDLAW.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* SECTION 4: ALUR KEMITRAAN & FASILITAS PORTAL MITRA */}
       <section
         id="alur-kemitraan"

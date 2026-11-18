@@ -3265,7 +3265,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
   return res.status(404).json({
     success: false,
-    message: 'Akun tidak ditemukan di database Supabase. Pastikan email atau nomor keanggotaan sudah terdaftar.',
+    message: 'Akun tidak ditemukan atau belum terdaftar',
   });
 });
 
@@ -4558,12 +4558,16 @@ const formatFileSizeServer = (bytes: number): string => {
 };
 
 const compressBinaryBuffer = (buf: Buffer, ext: string): Buffer => {
-  if (ext === 'pdf') {
-    // Strip redundant PDF comments, null padding, and excessive whitespace outside binary streams
+  if (ext === 'pdf' || ext === 'mp4') {
+    // Strip redundant leading/trailing null padding and excessive trailing whitespace
     let start = 0;
     while (start < buf.length && buf[start] === 0) start++;
     let end = buf.length;
-    while (end > start && (buf[end - 1] === 0 || buf[end - 1] === 0x20 || buf[end - 1] === 0x0a || buf[end - 1] === 0x0d)) {
+    while (
+      end > start &&
+      (buf[end - 1] === 0 ||
+        (ext === 'pdf' && (buf[end - 1] === 0x20 || buf[end - 1] === 0x0a || buf[end - 1] === 0x0d)))
+    ) {
       end--;
     }
     const trimmed = buf.subarray(start, end);
@@ -4586,6 +4590,8 @@ const saveDataUrlToHostingServer = (
 
   let ext = fallbackExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
   if (mime.includes('pdf')) ext = 'pdf';
+  else if (mime.includes('svg')) ext = 'svg';
+  else if (mime.includes('webp')) ext = 'webp';
   else if (mime.includes('png')) ext = 'png';
   else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
   else if (mime.includes('mp4') || mime.includes('video')) ext = 'mp4';
@@ -4665,7 +4671,7 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
   let finalDownloadUrl = downloadUrl || '#file-download';
   let finalFileSize = fileSize || '3.5 MB';
   let finalThumbnailUrl =
-    thumbnailUrl || 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80';
+    thumbnailUrl || (fileType === 'png' || fileType === 'jpg' ? finalDownloadUrl : '');
 
   // If a raw base64 dataUrl was passed directly, save it to the hosting server automatically
   if (typeof finalDownloadUrl === 'string' && finalDownloadUrl.startsWith('data:')) {

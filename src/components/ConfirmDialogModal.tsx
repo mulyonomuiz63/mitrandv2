@@ -126,6 +126,7 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
           urlStr.includes('/api/auth/login') ||
           urlStr.includes('/api/notifications/read-all') ||
           urlStr.includes('/api/supabase/test') ||
+          urlStr.includes('/api/marketing-tools/upload') ||
           urlStr.includes('/api/chat/link-preview') ||
           urlStr.includes('/api/chat/rooms/direct') ||
           urlStr.includes('/api/ai/') ||
@@ -161,7 +162,8 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
                 message: data.message || defaultMessages[opType],
                 operation: opType,
                 entityName,
-                variant: opType === 'DELETE' ? 'warning' : 'success',
+                variant: 'success',
+                type: 'success',
               });
             } else if (!response.ok || (data && data.success === false)) {
               setAlertPopup({
@@ -172,6 +174,7 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
                 operation: 'ERROR',
                 entityName,
                 variant: 'danger',
+                type: 'error',
               });
             }
           } catch {
@@ -258,43 +261,91 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const getAlertConfig = (alertItem: AlertPopupOptions) => {
-    if (alertItem.variant === 'danger' || alertItem.operation === 'ERROR') {
+    const isError =
+      alertItem.variant === 'danger' ||
+      alertItem.type === 'danger' ||
+      alertItem.type === 'error' ||
+      alertItem.operation === 'ERROR';
+
+    const isWarning =
+      alertItem.variant === 'warning' ||
+      alertItem.type === 'warning';
+
+    const isInfo =
+      alertItem.variant === 'info' ||
+      alertItem.type === 'info' ||
+      alertItem.operation === 'INFO';
+
+    if (isError) {
       return {
+        category: 'error' as const,
         icon: ShieldAlert,
-        headerGradient: 'from-rose-900 via-red-900 to-slate-900',
-        iconBg: 'bg-rose-100 text-rose-700 border-rose-200',
-        badgeText: 'PERINGATAN SISTEM • PROSES GAGAL',
-        badgeClass: 'bg-rose-500/20 text-rose-200 border-rose-400/30',
-        btnClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+        cardBorder: 'border-2 border-red-500 ring-4 ring-red-500/20',
+        headerGradient: 'from-red-600 via-rose-700 to-red-800',
+        iconBg: 'bg-red-600 text-white border-red-400 shadow-lg shadow-red-600/30',
+        badgeText: 'PROSES GAGAL • ERROR SISTEM',
+        badgeClass: 'bg-white/20 text-white border-white/40',
+        statusBannerClass: 'bg-red-50 border-red-300 text-red-900',
+        statusBannerText: 'Proses gagal dijalankan. Silakan periksa pesan kesalahan di bawah ini.',
+        btnClass: 'bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-600/25',
+        btnLabel: 'Tutup & Perbaiki',
       };
     }
-    if (alertItem.operation === 'DELETE') {
+
+    if (isWarning) {
       return {
-        icon: Trash2,
-        headerGradient: 'from-slate-900 via-amber-950 to-slate-900',
-        iconBg: 'bg-amber-100 text-amber-700 border-amber-200',
-        badgeText: 'NOTIFIKASI SISTEM • PROSES DELETE BERHASIL',
-        badgeClass: 'bg-amber-500/20 text-amber-200 border-amber-400/30',
-        btnClass: 'bg-slate-900 hover:bg-slate-800 text-white',
+        category: 'warning' as const,
+        icon: AlertTriangle,
+        cardBorder: 'border-2 border-amber-500 ring-4 ring-amber-500/20',
+        headerGradient: 'from-amber-600 via-amber-700 to-orange-800',
+        iconBg: 'bg-amber-500 text-white border-amber-300 shadow-lg shadow-amber-500/30',
+        badgeText: 'PERHATIAN • INFORMASI PENTING',
+        badgeClass: 'bg-white/20 text-white border-white/40',
+        statusBannerClass: 'bg-amber-50 border-amber-300 text-amber-900',
+        statusBannerText: 'Harap perhatikan informasi peringatan berikut sebelum melanjutkan.',
+        btnClass: 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-600/25',
+        btnLabel: 'Mengerti',
       };
     }
-    if (alertItem.operation === 'CREATE') {
+
+    if (isInfo) {
       return {
-        icon: PlusCircle,
-        headerGradient: 'from-emerald-950 via-blue-950 to-slate-900',
-        iconBg: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-        badgeText: 'NOTIFIKASI SISTEM • PROSES CREATE BERHASIL',
-        badgeClass: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30',
-        btnClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+        category: 'info' as const,
+        icon: HelpCircle,
+        cardBorder: 'border-2 border-blue-500 ring-4 ring-blue-500/20',
+        headerGradient: 'from-blue-700 via-indigo-800 to-slate-900',
+        iconBg: 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/30',
+        badgeText: 'INFORMASI SISTEM',
+        badgeClass: 'bg-blue-400/25 text-blue-100 border-blue-300/40',
+        statusBannerClass: 'bg-blue-50 border-blue-200 text-blue-900',
+        statusBannerText: 'Informasi status sistem NDTAXANDLAW.',
+        btnClass: 'bg-blue-700 hover:bg-blue-800 text-white shadow-md shadow-blue-700/25',
+        btnLabel: 'OK, Mengerti',
       };
     }
+
+    // Default & CRUD Success (CREATE, UPDATE, DELETE, or type/variant === 'success') -> IDENTIK HIJAU EMERALD
+    const opBadge =
+      alertItem.operation === 'DELETE'
+        ? 'PROSES SELESAI & BERHASIL • DATA DIHAPUS'
+        : alertItem.operation === 'CREATE'
+        ? 'PROSES SELESAI & BERHASIL • DATA DITAMBAHKAN'
+        : alertItem.operation === 'UPDATE'
+        ? 'PROSES SELESAI & BERHASIL • DATA DIPERBARUI'
+        : 'PROSES SELESAI & BERHASIL • SUCCESS';
+
     return {
-      icon: Edit3,
-      headerGradient: 'from-blue-950 via-indigo-950 to-slate-900',
-      iconBg: 'bg-blue-100 text-blue-700 border-blue-200',
-      badgeText: 'NOTIFIKASI SISTEM • PROSES UPDATE BERHASIL',
-      badgeClass: 'bg-blue-500/20 text-blue-200 border-blue-400/30',
-      btnClass: 'bg-blue-700 hover:bg-blue-800 text-white',
+      category: 'success' as const,
+      icon: CheckCircle2,
+      cardBorder: 'border-2 border-emerald-500 ring-4 ring-emerald-500/25',
+      headerGradient: 'from-emerald-600 via-emerald-700 to-teal-800',
+      iconBg: 'bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-600/30',
+      badgeText: opBadge,
+      badgeClass: 'bg-white/20 text-white border-white/40',
+      statusBannerClass: 'bg-emerald-50 border-emerald-300 text-emerald-900',
+      statusBannerText: 'Proses telah selesai berjalan dengan sukses dan tersimpan di database.',
+      btnClass: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/30',
+      btnLabel: 'Selesai & Lanjutkan',
     };
   };
 
@@ -306,7 +357,7 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
       <AlertPopupContext.Provider value={showAlert}>
         {children}
 
-        {/* PRE-ACTION CONFIRMATION MODAL */}
+        {/* PRE-ACTION CONFIRMATION MODAL (INFORMASI KONFIRMASI SEBELUM PROSES) */}
         {dialog && (
           <div className="fixed inset-0 z-[210] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
             <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
@@ -370,25 +421,31 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
           </div>
         )}
 
-        {/* POST-ACTION EXECUTIVE ALERT POPUP MODAL (FOR ALL CREATE, UPDATE, DELETE PROCESSES) */}
+        {/* POST-ACTION CRUD SUCCESS (HIJAU) / ERROR (MERAH) / INFO (BIRU) MODAL */}
         {alertPopup && !dialog && (() => {
           const alertCfg = getAlertConfig(alertPopup);
           const AlertIcon = alertCfg.icon;
           return (
-            <div className="fixed inset-0 z-[205] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-              <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
-                {/* Executive Header Banner */}
+            <div className="fixed inset-0 z-[205] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+              <div className={`bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 ${alertCfg.cardBorder}`}>
+                {/* Distinct Status Header Banner */}
                 <div className={`px-5 py-4 bg-gradient-to-r ${alertCfg.headerGradient} text-white flex items-center justify-between gap-3`}>
                   <div className="flex items-center gap-2.5">
-                    <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
-                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${alertCfg.badgeClass}`}>
+                    {alertCfg.category === 'success' ? (
+                      <CheckCircle2 className="w-5 h-5 text-white shrink-0" />
+                    ) : alertCfg.category === 'error' ? (
+                      <ShieldAlert className="w-5 h-5 text-white shrink-0" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                    )}
+                    <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-md border ${alertCfg.badgeClass}`}>
                       {alertCfg.badgeText}
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setAlertPopup(null)}
-                    className="p-1 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                    className="p-1 text-white/80 hover:text-white hover:bg-white/15 rounded-lg transition-colors cursor-pointer"
                     aria-label="Tutup Informasi"
                   >
                     <X className="w-4 h-4" />
@@ -397,20 +454,32 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
 
                 {/* Body */}
                 <div className="p-5 sm:p-6">
+                  {/* Status Indicator Strip */}
+                  <div className={`mb-4 px-3.5 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2.5 ${alertCfg.statusBannerClass}`}>
+                    <AlertIcon className="w-4 h-4 shrink-0" />
+                    <span>{alertCfg.statusBannerText}</span>
+                  </div>
+
                   <div className="flex items-start gap-3.5">
-                    <div className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 ${alertCfg.iconBg}`}>
+                    <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 ${alertCfg.iconBg}`}>
                       <AlertIcon className="w-6 h-6" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-base font-bold text-slate-900 font-display leading-snug">
+                      <h3 className="text-base font-extrabold text-slate-900 font-display leading-snug">
                         {alertPopup.title}
                       </h3>
                       {alertPopup.entityName && (
-                        <p className="text-[11px] font-semibold text-blue-700 mt-0.5">
+                        <p className={`text-[11px] font-bold mt-0.5 ${
+                          alertCfg.category === 'success'
+                            ? 'text-emerald-700'
+                            : alertCfg.category === 'error'
+                            ? 'text-red-700'
+                            : 'text-blue-700'
+                        }`}>
                           Modul: {alertPopup.entityName}
                         </p>
                       )}
-                      <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mt-2.5">
+                      <p className="text-xs sm:text-sm text-slate-700 leading-relaxed mt-2">
                         {alertPopup.message}
                       </p>
                     </div>
@@ -425,14 +494,20 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end">
+                <div className={`px-5 py-3.5 border-t flex items-center justify-end ${
+                  alertCfg.category === 'success'
+                    ? 'bg-emerald-50/70 border-emerald-200'
+                    : alertCfg.category === 'error'
+                    ? 'bg-red-50/70 border-red-200'
+                    : 'bg-slate-50 border-slate-200'
+                }`}>
                   <button
                     type="button"
                     onClick={() => setAlertPopup(null)}
-                    className={`px-5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 ${alertCfg.btnClass}`}
+                    className={`px-5 py-2.5 text-xs font-extrabold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${alertCfg.btnClass}`}
                   >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>OK, Mengerti</span>
+                    <AlertIcon className="w-4 h-4" />
+                    <span>{alertCfg.btnLabel}</span>
                   </button>
                 </div>
               </div>

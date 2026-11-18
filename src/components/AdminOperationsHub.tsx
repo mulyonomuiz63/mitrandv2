@@ -54,6 +54,7 @@ import {
 import { Award, Target, Gift } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
 import { useConfirm } from './ConfirmDialogModal';
+import { compressAndUploadFile } from '../utils/fileCompressor';
 
 export type AdminSubTab =
   | 'client_validation'
@@ -209,6 +210,8 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   const [approvalNotes, setApprovalNotes] = useState<string>('');
   const [proofFileUrl, setProofFileUrl] = useState<string>('');
   const [proofFileName, setProofFileName] = useState<string>('');
+  const [proofFileSizeInfo, setProofFileSizeInfo] = useState<string>('');
+  const [isCompressingProof, setIsCompressingProof] = useState<boolean>(false);
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
 
   // Fetch payout requests
@@ -768,6 +771,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     setApprovalNotes(`Pencairan dana komisi ${payout.mitraName} via transfer bank lunas.`);
     setProofFileUrl('');
     setProofFileName('');
+    setProofFileSizeInfo('');
   };
 
   const openDirectDisburseModal = (m: Mitra) => {
@@ -797,16 +801,32 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     setPphNominal(calculated);
   };
 
-  // File Upload Handler (PDF / JPG / PNG via FileReader)
-  const handleProofFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // File Upload Handler (PDF / JPG / PNG with automatic compression & server storage)
+  const handleProofFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setProofFileName(file.name);
+    if (!file) return;
+    setProofFileName(file.name);
+    setIsCompressingProof(true);
+    try {
+      const result = await compressAndUploadFile(file, {
+        maxDimension: 1400,
+        quality: 0.78,
+        uploadToServer: true,
+      });
+      setProofFileUrl(result.hostedUrl || result.dataUrl);
+      if (result.originalFormattedSize !== result.compressedFormattedSize) {
+        setProofFileSizeInfo(`${result.compressedFormattedSize} (Dikompresi dari ${result.originalFormattedSize})`);
+      } else {
+        setProofFileSizeInfo(result.compressedFormattedSize);
+      }
+    } catch {
       const reader = new FileReader();
       reader.onload = () => {
         setProofFileUrl(reader.result as string);
       };
       reader.readAsDataURL(file);
+    } finally {
+      setIsCompressingProof(false);
     }
   };
 
@@ -897,10 +917,17 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   return (
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8 space-y-6">
       
-      {/* Toast Notification */}
+      {/* Toast Notification (Identik Hijau untuk Sukses, Merah untuk Gagal) */}
       {actionSuccessMsg && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 text-sm border border-emerald-500/40 animate-in fade-in">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+        <div
+          className={`fixed bottom-6 right-6 z-[160] px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-bold border-2 animate-in fade-in ${
+            actionSuccessMsg.toLowerCase().includes('gagal') ||
+            actionSuccessMsg.toLowerCase().includes('ditolak')
+              ? 'bg-red-600 text-white border-red-400'
+              : 'bg-emerald-600 text-white border-emerald-400'
+          }`}
+        >
+          <CheckCircle2 className="w-5 h-5 text-white shrink-0" />
           <span>{actionSuccessMsg}</span>
         </div>
       )}
@@ -2992,56 +3019,81 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         </div>
       )}
 
-      {/* MODAL 1: SETUJUI PENCAIRAN KOMISI (DENGAN INPUT POTONGAN PPH21, BIAYA ADMIN & UPLOAD BUKTI) */}
+      {/* MODAL 1: SETUJUI PENCAIRAN KOMISI (FULL LAYAR & DAPAT DI-SCROLL PENUH) */}
       {payoutToApprove && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-hidden">
-          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
-            {/* FIXED TOP HEADER */}
-            <div className="shrink-0 p-5 bg-white border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">
-                  Otorisasi Pengeluaran Kas
+        <div className="fixed inset-0 z-[150] bg-slate-100 w-screen h-screen overflow-y-auto flex flex-col animate-in fade-in duration-150">
+          {/* STICKY TOP HEADER FULL LAYAR */}
+          <div className="sticky top-0 z-20 shrink-0 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white px-4 sm:px-8 py-4 border-b border-amber-400/40 shadow-lg flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 shadow-md">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-300 block">
+                  OTORISASI PENGELUARAN KAS &bull; LAYAR PENUH
                 </span>
-                <h3 className="text-base font-bold text-slate-900 font-display">
+                <h3 className="text-base sm:text-lg font-extrabold text-white font-display truncate">
                   Setujui &amp; Transfer Pencairan Komisi Mitra
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setPayoutToApprove(null)}
-                className="text-slate-400 hover:text-slate-700 font-bold p-1 rounded-lg hover:bg-slate-100 transition-colors"
-                aria-label="Tutup"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setPayoutToApprove(null)}
+              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center gap-1.5 border border-white/20 transition-colors cursor-pointer shrink-0"
+              aria-label="Tutup"
+            >
+              <X className="w-4 h-4" />
+              <span>Tutup</span>
+            </button>
+          </div>
 
-            <form onSubmit={handleSubmitPayoutApproval} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              {/* SCROLLABLE FORM BODY */}
-              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
-                
-                {/* Target Beneficiary Card */}
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800">{payoutToApprove.mitraName}</span>
-                  <span className="font-mono font-bold text-blue-700">{payoutToApprove.memberCode}</span>
+          {/* SCROLLABLE FULL-SCREEN FORM BODY */}
+          <form
+            onSubmit={handleSubmitPayoutApproval}
+            className="flex-1 flex flex-col justify-between max-w-4xl w-full mx-auto px-4 sm:px-8 py-6 space-y-6"
+          >
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7 space-y-5">
+              {/* Target Beneficiary Card */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs sm:text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-extrabold text-slate-900 text-sm sm:text-base">
+                    {payoutToApprove.mitraName}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-md bg-blue-100 font-mono font-bold text-blue-800 text-xs">
+                    {payoutToApprove.memberCode}
+                  </span>
                 </div>
-                <div className="mt-1 flex items-center justify-between text-slate-600">
-                  <span>Bank: <strong className="text-slate-900">{payoutToApprove.bankDetails.bankName}</strong></span>
-                  <span>No. Rekening: <strong className="font-mono text-slate-900">{payoutToApprove.bankDetails.accountNumber}</strong></span>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600">
+                  <span>
+                    Bank Tujuan:{' '}
+                    <strong className="text-slate-900">
+                      {payoutToApprove.bankDetails.bankName}
+                    </strong>
+                  </span>
+                  <span className="sm:text-right">
+                    No. Rekening:{' '}
+                    <strong className="font-mono text-slate-900">
+                      {payoutToApprove.bankDetails.accountNumber}
+                    </strong>
+                  </span>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  Atas Nama: {payoutToApprove.bankDetails.accountHolder}
+                <div className="text-xs text-slate-500 mt-1">
+                  Atas Nama Rekening: <strong className="text-slate-800">{payoutToApprove.bankDetails.accountHolder}</strong>
                 </div>
               </div>
 
               {/* Gross Amount Display */}
-              <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200 flex items-center justify-between">
+              <div className="p-4 bg-blue-50/70 rounded-xl border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <span className="text-xs font-semibold text-blue-900">Hak Komisi Kotor Diajukan:</span>
-                  <p className="text-[11px] text-slate-500">Nilai komisi sebelum potongan operasional / pajak.</p>
+                  <span className="text-xs sm:text-sm font-bold text-blue-950">
+                    Hak Komisi Kotor Diajukan:
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Nilai komisi sebelum potongan operasional / pajak.
+                  </p>
                 </div>
-                <span className="font-mono text-lg font-black text-blue-950">
+                <span className="font-mono text-xl sm:text-2xl font-black text-blue-950">
                   {formatRupiah(payoutToApprove.amount)}
                 </span>
               </div>
@@ -3057,11 +3109,11 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 </div>
 
                 {/* Preset Buttons */}
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => handlePphPresetChange(0)}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       pphRate === 0
                         ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3072,7 +3124,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <button
                     type="button"
                     onClick={() => handlePphPresetChange(2.5)}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       pphRate === 2.5
                         ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3083,7 +3135,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <button
                     type="button"
                     onClick={() => handlePphPresetChange(5)}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       pphRate === 5
                         ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3096,7 +3148,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     onClick={() => {
                       setPphRate('');
                     }}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       pphRate === ''
                         ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3119,7 +3171,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                       setPphRate('');
                     }}
                     placeholder="Masukkan nominal potongan PPh 21 jika ada..."
-                    className="w-full pl-9 pr-3 py-2 text-xs font-mono font-bold text-rose-700 border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                    className="w-full pl-9 pr-3 py-2 text-xs font-mono font-bold text-rose-700 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
                   />
                 </div>
                 <p className="text-[10px] text-slate-500">
@@ -3137,11 +3189,11 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <span className="text-[11px] text-slate-500">Sifat: Opsional</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setAdminFee(0)}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       adminFee === 0
                         ? 'bg-blue-700 text-white border-blue-700 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3152,7 +3204,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <button
                     type="button"
                     onClick={() => setAdminFee(2500)}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       adminFee === 2500
                         ? 'bg-blue-700 text-white border-blue-700 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3163,7 +3215,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <button
                     type="button"
                     onClick={() => setAdminFee(6500)}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                       adminFee === 6500
                         ? 'bg-blue-700 text-white border-blue-700 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -3175,7 +3227,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               </div>
 
               {/* LIVE NET AMOUNT CALCULATION */}
-              <div className="p-4 bg-emerald-50 rounded-xl border-2 border-emerald-400 flex items-center justify-between">
+              <div className="p-4 bg-emerald-50 rounded-xl border-2 border-emerald-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <span className="text-xs font-extrabold uppercase text-emerald-950 tracking-wider">
                     Total Diterima Bersih (Net Transfer)
@@ -3184,13 +3236,13 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     Nilai riil yang wajib ditransfer ke rekening bank mitra.
                   </p>
                 </div>
-                <span className="font-mono text-xl font-black text-emerald-800">
+                <span className="font-mono text-xl sm:text-2xl font-black text-emerald-800">
                   {formatRupiah(Math.max(0, payoutToApprove.amount - pphNominal - adminFee))}
                 </span>
               </div>
 
               {/* Reference Number & Proof File Upload */}
-              <div className="space-y-3 pt-2">
+              <div className="space-y-4 pt-2">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Nomor Referensi Transfer Bank (Auto-generated / Dapat diubah)
@@ -3200,16 +3252,17 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     value={transferRef}
                     onChange={(e) => setTransferRef(e.target.value)}
                     placeholder="TRX-BCA-YYYYMMDD-XXXX"
-                    className="w-full px-3 py-2 text-xs font-mono font-bold text-slate-800 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
+                    className="w-full px-3.5 py-2.5 text-xs font-mono font-bold text-slate-800 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
 
                 {/* Upload Bukti Pencairan (PDF / JPG / PNG) */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Upload Bukti Pencairan / Struk Transfer (PDF, JPG, PNG) <span className="text-slate-500 font-normal">(Disarankan)</span>
+                    Upload Bukti Pencairan / Struk Transfer (PDF, JPG, JPEG, PNG){' '}
+                    <span className="text-slate-500 font-normal">(Otomatis Dikompresi)</span>
                   </label>
-                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors relative">
+                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center hover:bg-slate-50 transition-colors relative">
                     <input
                       type="file"
                       accept=".pdf,.jpg,.jpeg,.png"
@@ -3219,26 +3272,35 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <FileUp className="w-6 h-6 text-blue-600" />
                       <span className="text-xs font-semibold text-slate-700">
-                        {proofFileName ? proofFileName : 'Klik atau seret struk transfer (PDF / Gambar) ke sini'}
+                        {isCompressingProof
+                          ? 'Mengompresi & menyimpan bukti transfer...'
+                          : proofFileName
+                          ? proofFileName
+                          : 'Klik atau seret struk transfer (PDF / Gambar) ke sini'}
                       </span>
                       <span className="text-[10px] text-slate-400">
-                        Format didukung: PDF, JPG, PNG (Maks 10MB)
+                        Format didukung: PDF, JPG, JPEG, PNG (Otomatis dikompresi)
                       </span>
                     </div>
                   </div>
 
-                  {proofFileUrl && (
-                    <div className="mt-2 flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
-                      <span className="text-emerald-800 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> File struk berhasil diunggah: <strong>{proofFileName}</strong>
+                  {proofFileUrl && !isCompressingProof && (
+                    <div className="mt-2 flex items-center justify-between p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
+                      <span className="text-emerald-800 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>
+                          File struk siap disimpan: <strong>{proofFileName}</strong>
+                          {proofFileSizeInfo ? ` (${proofFileSizeInfo})` : ''}
+                        </span>
                       </span>
                       <button
                         type="button"
                         onClick={() => {
                           setProofFileUrl('');
                           setProofFileName('');
+                          setProofFileSizeInfo('');
                         }}
-                        className="text-slate-500 hover:text-rose-600"
+                        className="text-slate-500 hover:text-rose-600 font-semibold cursor-pointer"
                       >
                         Hapus
                       </button>
@@ -3255,31 +3317,32 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     value={approvalNotes}
                     onChange={(e) => setApprovalNotes(e.target.value)}
                     placeholder="Catatan pelengkap pencairan..."
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
+                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
               </div>
             </div>
 
-            {/* FIXED BOTTOM FOOTER BUTTONS */}
-              <div className="shrink-0 p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setPayoutToApprove(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingApproval}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isSubmittingApproval ? 'Menyimpan & Mengotorisasi...' : '✓ Approve Berkas Pembayaran & Selesai'}
-                </button>
-              </div>
-            </form>
-          </div>
+            {/* STICKY BOTTOM FOOTER BUTTONS */}
+            <div className="sticky bottom-0 z-20 bg-white rounded-2xl border border-slate-200 p-4 shadow-lg flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPayoutToApprove(null)}
+                className="px-5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingApproval || isCompressingProof}
+                className="px-6 py-2.5 text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              >
+                {isSubmittingApproval
+                  ? 'Menyimpan & Mengotorisasi...'
+                  : '✓ Approve Berkas Pembayaran & Selesai'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
