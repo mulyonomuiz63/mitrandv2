@@ -232,6 +232,15 @@ export default function App() {
     }
   }, []);
 
+  // Keep Mitras and Clients counts fresh in Portal mode for Admin/Staff badge notifications
+  useEffect(() => {
+    if (viewMode !== 'portal' || !currentUser) return;
+    const interval = window.setInterval(() => {
+      fetchData();
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [viewMode, currentUser]);
+
   // Synchronize role, activeTab, and activeMitraId strictly with logged-in user (supports extensible roles)
   useEffect(() => {
     if (!currentUser) return;
@@ -851,6 +860,8 @@ export default function App() {
           themeMode={themeMode}
           onToggleTheme={handleToggleThemeMode}
           logoUrl={settings?.logoUrl}
+          pendingMitraCount={mitras.filter((m) => m.status === 'pending').length}
+          pendingClientCount={clientDeals.filter((d) => d.status === 'pending_acc').length}
         />
 
         {/* Executive Sub-Header / Persona Context Bar (Matched to Mitra ID Card Royal Navy & Gold Theme) */}

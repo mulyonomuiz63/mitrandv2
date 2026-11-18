@@ -48,6 +48,8 @@ interface NavbarProps {
   themeMode?: 'light' | 'dark';
   onToggleTheme?: () => void;
   logoUrl?: string;
+  pendingMitraCount?: number;
+  pendingClientCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -55,6 +57,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onTabChange,
   activeMitra,
+  allMitras,
   unreadCount,
   onOpenNotifications,
   onOpenProfile,
@@ -69,9 +72,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   themeMode = 'light',
   onToggleTheme,
   logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
+  pendingMitraCount,
+  pendingClientCount = 0,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const resolvedPendingMitraCount =
+    typeof pendingMitraCount === 'number'
+      ? pendingMitraCount
+      : (allMitras || []).filter((m) => m.status === 'pending').length;
+  const resolvedPendingClientCount = pendingClientCount;
 
   const mitraAvatar = resolveAvatarUrl(
     activeMitra.avatarUrl,
@@ -499,9 +510,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Row 2: DESKTOP & TABLET NAVIGATION MENU BAR (Hidden on Mobile < md because Mobile uses Bottom Navigation Bar) */}
           <nav
             aria-label="Navigasi Utama"
-            className="hidden md:flex items-center justify-between gap-2 py-2 border-t border-slate-100 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            className="hidden md:flex items-center justify-between gap-2 pt-2.5 pb-2 border-t border-slate-100 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
-            <div className="flex items-center gap-1.5 min-w-max">
+            <div className="flex items-center gap-2 min-w-max">
               {currentRole === 'mitra' ? (
                 <>
                   <button
@@ -590,7 +601,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-verification"
                       onClick={() => onTabChange('verification')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                         activeTab === 'verification'
                           ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -598,6 +609,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <UserCheck className="w-3.5 h-3.5 shrink-0" />
                       <span>Mitra</span>
+                      {resolvedPendingMitraCount > 0 && (
+                        <span
+                          title={`${resolvedPendingMitraCount} Mitra baru menunggu persetujuan (Approve)`}
+                          className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-extrabold flex items-center justify-center shadow-sm ring-2 ring-white z-10 leading-none"
+                        >
+                          {resolvedPendingMitraCount}
+                        </span>
+                      )}
                     </button>
                   )}
 
@@ -606,7 +625,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-operations"
                       onClick={() => onTabChange('admin-operations')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                         activeTab === 'admin-operations'
                           ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
                           : 'text-slate-700 bg-blue-50/70 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/80'
@@ -614,6 +633,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                       <span>Klien &amp; Payout</span>
+                      {resolvedPendingClientCount > 0 && (
+                        <span
+                          title={`${resolvedPendingClientCount} Klien baru menunggu persetujuan (Approve)`}
+                          className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-extrabold flex items-center justify-center shadow-sm ring-2 ring-white z-10 leading-none"
+                        >
+                          {resolvedPendingClientCount}
+                        </span>
+                      )}
                     </button>
                   )}
 
@@ -812,7 +839,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-tour="tour-nav-verification"
                 onClick={() => onTabChange('verification')}
-                className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                className={`relative flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'verification'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -820,6 +847,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <UserCheck className="w-4 h-4" />
                 <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Mitra</span>
+                {resolvedPendingMitraCount > 0 && (
+                  <span
+                    title={`${resolvedPendingMitraCount} Mitra baru menunggu persetujuan (Approve)`}
+                    className="absolute top-0.5 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-mono font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white z-10 leading-none"
+                  >
+                    {resolvedPendingMitraCount}
+                  </span>
+                )}
               </button>
             )}
 
@@ -828,7 +863,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-tour="tour-nav-operations"
                 onClick={() => onTabChange('admin-operations')}
-                className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                className={`relative flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'admin-operations'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -836,6 +871,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Klien &amp; Payout</span>
+                {resolvedPendingClientCount > 0 && (
+                  <span
+                    title={`${resolvedPendingClientCount} Klien baru menunggu persetujuan (Approve)`}
+                    className="absolute top-0.5 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-mono font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white z-10 leading-none"
+                  >
+                    {resolvedPendingClientCount}
+                  </span>
+                )}
               </button>
             )}
 
