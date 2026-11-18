@@ -841,6 +841,7 @@ export interface MarketingTool {
   description: string;
   duration?: string;
   createdAt: string;
+  updatedAt?: string;
   targetProduct: string;
 }
 

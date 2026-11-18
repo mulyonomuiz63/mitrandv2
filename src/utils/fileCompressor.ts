@@ -73,18 +73,18 @@ function compressImageDataUrlClient(
         return;
       }
 
-      const isPngWithTransparency =
-        mimeType.includes('png') && rawBytes <= 350 * 1024 && maxDimension <= 600;
+      const isPng = mimeType.includes('png');
 
-      if (!isPngWithTransparency) {
+      if (!isPng) {
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
         const jpegOut = canvas.toDataURL('image/jpeg', quality);
         resolve(jpegOut.length < rawDataUrl.length ? jpegOut : rawDataUrl);
       } else {
+        ctx.clearRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        const pngOut = canvas.toDataURL('image/png', quality);
+        const pngOut = canvas.toDataURL('image/png');
         resolve(pngOut.length < rawDataUrl.length ? pngOut : rawDataUrl);
       }
     };
@@ -117,19 +117,25 @@ export async function compressAndUploadFile(
   const lowerName = (file.name || '').toLowerCase();
 
   let compressedDataUrl = rawDataUrl;
-  let detectedType: 'pdf' | 'png' | 'jpg' | 'mp4' = 'pdf';
+  let detectedType: 'pdf' | 'png' | 'jpg' | 'svg' | 'mp4' = 'pdf';
 
-  if (
+  if (lowerMime.includes('svg') || lowerName.endsWith('.svg')) {
+    detectedType = 'svg';
+  } else if (
     lowerMime.startsWith('image/') ||
     lowerName.endsWith('.jpg') ||
     lowerName.endsWith('.jpeg') ||
     lowerName.endsWith('.png') ||
     lowerName.endsWith('.webp')
   ) {
-    detectedType = lowerMime.includes('png') || lowerName.endsWith('.png') ? 'png' : 'jpg';
+    const isPngFile =
+      lowerMime.includes('png') ||
+      lowerName.endsWith('.png') ||
+      rawDataUrl.startsWith('data:image/png');
+    detectedType = isPngFile ? 'png' : 'jpg';
     compressedDataUrl = await compressImageDataUrlClient(
       rawDataUrl,
-      lowerMime || 'image/jpeg',
+      isPngFile ? 'image/png' : lowerMime || 'image/jpeg',
       originalBytes,
       maxDimension,
       quality

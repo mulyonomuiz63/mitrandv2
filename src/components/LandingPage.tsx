@@ -30,6 +30,7 @@ import {
   LogIn,
   Sun,
   Moon,
+  Gift,
 } from 'lucide-react';
 import { AuthUser } from '../types';
 
@@ -95,7 +96,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       const docHeight = document.documentElement.scrollHeight;
       setShowScrollTop(scrollY > 300 || scrollY + windowHeight >= docHeight - 180);
 
-      const sections = ['alur-kemitraan', 'simulasi-komisi', 'skema-komisi'];
+      const sections = ['alur-kemitraan', 'hadiah-mitra', 'simulasi-komisi', 'skema-komisi'];
       let found = 'top';
       for (const id of sections) {
         const el = document.getElementById(id);
@@ -308,7 +309,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       : 'text-white bg-[#12316B] hover:bg-blue-900 shadow-blue-900/20'
                   }`}
                 >
-                  <span>Daftar Mitra</span>
+                  <span>Daftar</span>
                   <ArrowRight className="w-3.5 h-3.5 shrink-0" />
                 </button>
               </>
@@ -1294,7 +1295,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             : 'bg-white/95 border-slate-200'
         }`}
       >
-        <div className="max-w-md mx-auto grid grid-cols-4 items-center gap-1">
+        <div className="max-w-md mx-auto grid grid-cols-5 items-center gap-1">
           <a
             href="#skema-komisi"
             className={`flex flex-col items-center justify-center py-1 rounded-xl transition-colors ${
@@ -1347,6 +1348,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {currentUser ? 'Portal' : 'Daftar'}
             </span>
           </button>
+
+          <a
+            href="#hadiah-mitra"
+            className={`flex flex-col items-center justify-center py-1 rounded-xl transition-colors ${
+              activeNavSection === 'hadiah-mitra'
+                ? isDark
+                  ? 'text-amber-400 font-extrabold'
+                  : 'text-[#12316B] font-extrabold'
+                : isDark
+                ? 'text-slate-300 hover:text-white font-semibold'
+                : 'text-slate-600 hover:text-slate-900 font-semibold'
+            }`}
+          >
+            <Gift className="w-4 h-4 mb-0.5" />
+            <span className="text-[10px] leading-tight">Bonus</span>
+          </a>
 
           <a
             href="#alur-kemitraan"

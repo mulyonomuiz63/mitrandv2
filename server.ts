@@ -740,6 +740,7 @@ export interface MarketingTool {
   description: string;
   duration?: string;
   createdAt: string;
+  updatedAt?: string;
   targetProduct: string;
 }
 
@@ -7058,6 +7059,348 @@ app.post('/api/notifications/delete-batch', async (req: Request, res: Response) 
     saveDatabase();
   }
   res.json({ success: true, data: notifications });
+});
+
+// ========================================================
+// 4.5 SERVER-SIDE DATATABLES & PAGINATION ENGINE
+// ========================================================
+const INDO_MONTH_MAP_SERVER: Record<string, number> = {
+  jan: 0, januari: 0,
+  feb: 1, februari: 1,
+  mar: 2, maret: 2,
+  apr: 3, april: 3,
+  mei: 4, may: 4,
+  jun: 5, juni: 5,
+  jul: 6, juli: 6,
+  agu: 7, agt: 7, agustus: 7, aug: 7,
+  sep: 8, sept: 8, september: 8,
+  okt: 9, oct: 9, oktober: 9,
+  nov: 10, november: 10,
+  des: 11, dec: 11, desember: 11,
+};
+
+const parseServerRecordTimestamp = (dateStr?: string, idStr?: string, fallbackOrder = 0): number => {
+  let idEpoch = 0;
+  if (idStr) {
+    const m = /(\d{12,14})/.exec(String(idStr));
+    if (m) idEpoch = Number(m[1]);
+  }
+  if (!dateStr) return idEpoch || fallbackOrder;
+  const s = String(dateStr).trim();
+  if (s.toLowerCase().includes('baru saja')) {
+    return idEpoch || Date.now() + fallbackOrder;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const parsed = Date.parse(s);
+    if (!Number.isNaN(parsed)) {
+      return parsed + (idEpoch ? idEpoch % 86400000 : fallbackOrder);
+    }
+  }
+  const dmY = /^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})/.exec(s);
+  if (dmY) {
+    const day = Number(dmY[1]);
+    const monthKey = dmY[2].toLowerCase();
+    const year = Number(dmY[3]);
+    const monthIdx = INDO_MONTH_MAP_SERVER[monthKey] ?? INDO_MONTH_MAP_SERVER[monthKey.slice(0, 3)];
+    if (monthIdx !== undefined) {
+      const base = new Date(year, monthIdx, day).getTime();
+      return base + (idEpoch ? idEpoch % 86400000 : fallbackOrder);
+    }
+  }
+  const fallbackParsed = Date.parse(s);
+  if (!Number.isNaN(fallbackParsed)) {
+    return fallbackParsed + (idEpoch ? idEpoch % 86400000 : fallbackOrder);
+  }
+  return idEpoch || fallbackOrder;
+};
+
+app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
+  const { resource } = req.params;
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+  const perPage = Math.min(500, Math.max(1, parseInt(String(req.query.perPage || '10'), 10) || 10));
+  const search = String(req.query.search || '').trim().toLowerCase();
+  const status = String(req.query.status || 'all').trim();
+  const category = String(req.query.category || 'Semua').trim();
+  const fileType = String(req.query.fileType || 'all').trim();
+  const mitraId = String(req.query.mitraId || '').trim();
+  const period = String(req.query.period || 'monthly').trim();
+
+  const bonusCfg = appSettings.bonusTargetConfig || DEFAULT_BONUS_TARGET_CONFIG;
+  const rewardTiers = bonusCfg.rewardTiers && bonusCfg.rewardTiers.length > 0
+    ? bonusCfg.rewardTiers
+    : DEFAULT_BONUS_TARGET_CONFIG.rewardTiers!;
+
+  const hasAchievedRewardTier = (omzet: number) => {
+    const sorted = [...rewardTiers].sort((a, b) => a.salesTarget - b.salesTarget);
+    return sorted.some((t) => omzet >= t.salesTarget);
+  };
+
+  let allItems: any[] = [];
+  let filteredItems: any[] = [];
+
+  if (resource === 'marketing-tools') {
+    allItems = [...marketingTools].map((item, idx) => ({
+      ...item,
+      _ts: parseServerRecordTimestamp(item.updatedAt || item.createdAt, item.id, marketingTools.length - idx),
+    }));
+    allItems.sort((a, b) => b._ts - a._ts);
+
+    filteredItems = allItems.filter((tool) => {
+      const matchCat = category === 'Semua' || category === 'all' || !category || tool.category === category;
+      const matchType = fileType === 'all' || !fileType || tool.fileType === fileType;
+      const matchSearch =
+        !search ||
+        (tool.title || '').toLowerCase().includes(search) ||
+        (tool.description || '').toLowerCase().includes(search) ||
+        (tool.category || '').toLowerCase().includes(search) ||
+        (tool.fileType || '').toLowerCase().includes(search);
+      return matchCat && matchType && matchSearch;
+    });
+  } else if (resource === 'mitras') {
+    const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
+    allItems = safeList.map((m, idx) => ({
+      ...m,
+      _ts: parseServerRecordTimestamp(m.joinedDate, m.id, safeList.length - idx),
+    }));
+    // Newest Mitras at the top
+    allItems.sort((a, b) => b._ts - a._ts);
+
+    filteredItems = allItems.filter((m) => {
+      const matchStatus = status === 'all' || !status || m.status === status;
+      const matchSearch =
+        !search ||
+        (m.fullName || '').toLowerCase().includes(search) ||
+        (m.memberCode || '').toLowerCase().includes(search) ||
+        (m.specialization || '').toLowerCase().includes(search) ||
+        (m.email || '').toLowerCase().includes(search) ||
+        (m.phone || '').toLowerCase().includes(search) ||
+        (m.nik || '').toLowerCase().includes(search);
+      return matchStatus && matchSearch;
+    });
+  } else if (resource === 'clients') {
+    const scopedDeals = mitraId ? clientDeals.filter((d) => d.mitraId === mitraId) : [...clientDeals];
+    allItems = scopedDeals.map((d, idx) => ({
+      ...d,
+      _ts: parseServerRecordTimestamp(d.date || d.subscriptionStartDate, d.id, scopedDeals.length - idx),
+    }));
+    // Newest Clients at the top
+    allItems.sort((a, b) => b._ts - a._ts);
+
+    filteredItems = allItems.filter((deal) => {
+      const matchStatus = status === 'all' || !status || deal.status === status;
+      if (!search) return matchStatus;
+      const customFieldsText = deal.customFields
+        ? Object.entries(deal.customFields)
+            .map(([k, v]) => `${k} ${v}`)
+            .join(' ')
+            .toLowerCase()
+        : '';
+      const matchSearch =
+        (deal.companyName || '').toLowerCase().includes(search) ||
+        (deal.picName || '').toLowerCase().includes(search) ||
+        (deal.picPhone || '').toLowerCase().includes(search) ||
+        (deal.picEmail || '').toLowerCase().includes(search) ||
+        (deal.serviceName || '').toLowerCase().includes(search) ||
+        (deal.referralCode || '').toLowerCase().includes(search) ||
+        (deal.mitraName || '').toLowerCase().includes(search) ||
+        (deal.notes || '').toLowerCase().includes(search) ||
+        customFieldsText.includes(search);
+      return matchStatus && matchSearch;
+    });
+  } else if (resource === 'commissions') {
+    const scopedTrx = mitraId ? commissions.filter((t) => t.mitraId === mitraId) : [...commissions];
+    allItems = scopedTrx.map((t, idx) => ({
+      ...t,
+      _ts: parseServerRecordTimestamp(t.date, t.id, scopedTrx.length - idx),
+    }));
+    // Newest Transactions at the top
+    allItems.sort((a, b) => b._ts - a._ts);
+
+    filteredItems = allItems.filter((trx) => {
+      const matchStatus = status === 'all' || !status || trx.status === status;
+      const matchSearch =
+        !search ||
+        (trx.clientName || '').toLowerCase().includes(search) ||
+        (trx.mitraName || '').toLowerCase().includes(search) ||
+        (trx.serviceName || '').toLowerCase().includes(search) ||
+        (trx.date || '').toLowerCase().includes(search);
+      return matchStatus && matchSearch;
+    });
+  } else if (resource === 'payout-requests') {
+    const scopedPay = mitraId ? payoutRequests.filter((p) => p.mitraId === mitraId) : [...payoutRequests];
+    allItems = scopedPay.map((p, idx) => ({
+      ...p,
+      _ts: parseServerRecordTimestamp(p.processedDate || p.requestDate, p.id, scopedPay.length - idx),
+    }));
+    // Newest Payout Requests at the top
+    allItems.sort((a, b) => b._ts - a._ts);
+
+    filteredItems = allItems.filter((reqItem) => {
+      const matchStatus = status === 'all' || !status || reqItem.status === status;
+      const matchSearch =
+        !search ||
+        (reqItem.mitraName || '').toLowerCase().includes(search) ||
+        (reqItem.memberCode || '').toLowerCase().includes(search) ||
+        (reqItem.bankDetails?.bankName || '').toLowerCase().includes(search) ||
+        (reqItem.bankDetails?.accountNumber || '').toLowerCase().includes(search) ||
+        (reqItem.bankDetails?.accountHolder || '').toLowerCase().includes(search) ||
+        (reqItem.requestDate || '').toLowerCase().includes(search) ||
+        (reqItem.processedDate || '').toLowerCase().includes(search);
+      return matchStatus && matchSearch;
+    });
+  } else if (resource === 'mitra-target-evaluation') {
+    // Evaluasi Pencapaian Target & Proses Pemberian Bonus ke Mitra:
+    // Mitra yang sudah mencapai target ditampilkan paling atas, diikuti nilai capaian tertinggi
+    const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
+    const mRevTarget = Math.max(1, Number(bonusCfg.monthlyTargetDealRevenue ?? 50000000));
+    const mCliTarget = Math.max(1, Number(bonusCfg.monthlyTargetClientCount ?? 3));
+    const yRevTarget = Math.max(1, Number(bonusCfg.yearlyTargetDealRevenue ?? 500000000));
+    const yCliTarget = Math.max(1, Number(bonusCfg.yearlyTargetClientCount ?? 12));
+
+    allItems = safeList.map((m) => {
+      const mDeals = clientDeals.filter(
+        (d) => d.mitraId === m.id && (d.status === 'active_subscription' || d.status === 'deal_closed')
+      );
+      const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+      const totalDealClients = mDeals.length;
+      const mExceeded = totalDealOmzet >= mRevTarget || totalDealClients >= mCliTarget;
+      const yExceeded = totalDealOmzet >= yRevTarget || totalDealClients >= yCliTarget;
+      const tierReached = hasAchievedRewardTier(totalDealOmzet);
+      const achievedTarget = mExceeded || yExceeded || tierReached;
+      return {
+        ...m,
+        _achievedTarget: achievedTarget ? 1 : 0,
+        _omzet: totalDealOmzet,
+        _clients: totalDealClients,
+      };
+    });
+
+    allItems.sort((a, b) => {
+      if (b._achievedTarget !== a._achievedTarget) return b._achievedTarget - a._achievedTarget;
+      if (b._omzet !== a._omzet) return b._omzet - a._omzet;
+      return b._clients - a._clients;
+    });
+
+    filteredItems = allItems.filter((m) => {
+      if (!search) return true;
+      return (
+        (m.fullName || '').toLowerCase().includes(search) ||
+        (m.memberCode || '').toLowerCase().includes(search) ||
+        (m.referralCode || '').toLowerCase().includes(search) ||
+        (m.specialization || '').toLowerCase().includes(search)
+      );
+    });
+  } else if (resource === 'mitra-performance') {
+    // Analisa Kinerja Mitra:
+    // Status pending teratas, habis itu status terverifikasi, dan klien terdaftar terbanyak
+    const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
+    const getStatusRank = (st: string) => {
+      if (st === 'pending') return 0;
+      if (st === 'verified') return 1;
+      return 2;
+    };
+
+    allItems = [...safeList].sort((a, b) => {
+      const rankDiff = getStatusRank(a.status) - getStatusRank(b.status);
+      if (rankDiff !== 0) return rankDiff;
+      const clientsDiff = (Number(b.referredClientsCount) || 0) - (Number(a.referredClientsCount) || 0);
+      if (clientsDiff !== 0) return clientsDiff;
+      return (Number(b.totalCommission) || 0) - (Number(a.totalCommission) || 0);
+    });
+
+    filteredItems = allItems.filter((m) => {
+      const matchStatus = status === 'all' || !status || m.status === status;
+      const matchSearch =
+        !search ||
+        (m.fullName || '').toLowerCase().includes(search) ||
+        (m.memberCode || '').toLowerCase().includes(search) ||
+        (m.referralCode || '').toLowerCase().includes(search) ||
+        (m.specialization || '').toLowerCase().includes(search);
+      return matchStatus && matchSearch;
+    });
+  } else if (resource === 'mitra-payout-balances') {
+    // Pencairan Saldo Komisi Mitra:
+    // Tampilkan paling atas mulai dana komisi terbesar yang untuk dicairkan
+    const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
+    allItems = [...safeList].sort((a, b) => {
+      const balDiff = (Number(b.pendingPayout) || 0) - (Number(a.pendingPayout) || 0);
+      if (balDiff !== 0) return balDiff;
+      return (Number(b.totalCommission) || 0) - (Number(a.totalCommission) || 0);
+    });
+
+    filteredItems = allItems.filter((m) => {
+      if (!search) return true;
+      return (
+        (m.fullName || '').toLowerCase().includes(search) ||
+        (m.memberCode || '').toLowerCase().includes(search) ||
+        (m.bankDetails?.bankName || '').toLowerCase().includes(search) ||
+        (m.bankDetails?.accountNumber || '').toLowerCase().includes(search) ||
+        (m.bankDetails?.accountHolder || '').toLowerCase().includes(search)
+      );
+    });
+  } else if (resource === 'mitra-monitoring-targets') {
+    // Tabel Pemantauan Target & Bonus Per Mitra:
+    // Tampilkan paling atas yang sudah memenuhi target dengan nilai tertinggi
+    const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
+    const targetRev =
+      period === 'yearly'
+        ? Math.max(1, Number(bonusCfg.yearlyTargetDealRevenue ?? 500000000))
+        : Math.max(1, Number(bonusCfg.monthlyTargetDealRevenue ?? 50000000));
+    const targetCli =
+      period === 'yearly'
+        ? Math.max(1, Number(bonusCfg.yearlyTargetClientCount ?? 12))
+        : Math.max(1, Number(bonusCfg.monthlyTargetClientCount ?? 3));
+
+    allItems = safeList.map((m) => {
+      const mDeals = clientDeals.filter(
+        (d) => d.mitraId === m.id && (d.status === 'active_subscription' || d.status === 'deal_closed')
+      );
+      const mOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+      const mClients = mDeals.length;
+      const mAchieved = mOmzet >= targetRev || mClients >= targetCli || hasAchievedRewardTier(mOmzet);
+      return {
+        ...m,
+        _achieved: mAchieved ? 1 : 0,
+        _omzet: mOmzet,
+        _clients: mClients,
+      };
+    });
+
+    allItems.sort((a, b) => {
+      if (b._achieved !== a._achieved) return b._achieved - a._achieved;
+      if (b._omzet !== a._omzet) return b._omzet - a._omzet;
+      return b._clients - a._clients;
+    });
+
+    filteredItems = allItems.filter((m) => {
+      if (!search) return true;
+      return (
+        (m.fullName || '').toLowerCase().includes(search) ||
+        (m.memberCode || '').toLowerCase().includes(search) ||
+        (m.referralCode || '').toLowerCase().includes(search)
+      );
+    });
+  } else {
+    return res.status(404).json({ success: false, message: 'Resource DataTables tidak ditemukan.' });
+  }
+
+  const totalItems = filteredItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * perPage;
+  const paginatedItems = filteredItems.slice(startIndex, startIndex + perPage);
+
+  return res.json({
+    success: true,
+    data: paginatedItems,
+    meta: {
+      page: safePage,
+      perPage,
+      totalItems,
+      totalPages,
+      totalAll: allItems.length,
+    },
+  });
 });
 
 // ========================================================

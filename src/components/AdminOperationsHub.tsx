@@ -55,6 +55,12 @@ import { Award, Target, Gift } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
 import { useConfirm } from './ConfirmDialogModal';
 import { compressAndUploadFile } from '../utils/fileCompressor';
+import {
+  useServerDataTable,
+  ServerDataTableTopBar,
+  ServerDataTableFooter,
+  parseClientRecordTimestamp,
+} from './ServerDataTableControls';
 
 export type AdminSubTab =
   | 'client_validation'
@@ -887,28 +893,143 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
     }
   };
 
-  // Filter clients (searches company, PIC, phone, email, package/service name, referral, mitra, notes & custom fields)
-  const filteredDeals = clientDeals.filter((deal) => {
-    const matchFilter = clientFilter === 'all' || deal.status === clientFilter;
+  // 1. Validasi & ACC Klien — sorted newest first + server-side DataTables
+  const sortedFilteredDeals = React.useMemo(() => {
+    const withTs = clientDeals.map((d, idx) => ({
+      item: d,
+      ts: parseClientRecordTimestamp(d.date || d.subscriptionStartDate, d.id, clientDeals.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
     const q = searchTerm.toLowerCase().trim();
-    if (!q) return matchFilter;
-    const customFieldsText = deal.customFields
-      ? Object.entries(deal.customFields)
-          .map(([k, v]) => `${k} ${v}`)
-          .join(' ')
-          .toLowerCase()
-      : '';
-    const matchSearch =
-      deal.companyName.toLowerCase().includes(q) ||
-      deal.picName.toLowerCase().includes(q) ||
-      (deal.picPhone || '').toLowerCase().includes(q) ||
-      (deal.picEmail || '').toLowerCase().includes(q) ||
-      deal.serviceName.toLowerCase().includes(q) ||
-      deal.referralCode.toLowerCase().includes(q) ||
-      deal.mitraName.toLowerCase().includes(q) ||
-      (deal.notes || '').toLowerCase().includes(q) ||
-      customFieldsText.includes(q);
-    return matchFilter && matchSearch;
+    return withTs
+      .map((x) => x.item)
+      .filter((deal) => {
+        const matchFilter = clientFilter === 'all' || deal.status === clientFilter;
+        if (!q) return matchFilter;
+        const customFieldsText = deal.customFields
+          ? Object.entries(deal.customFields)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(' ')
+              .toLowerCase()
+          : '';
+        const matchSearch =
+          deal.companyName.toLowerCase().includes(q) ||
+          deal.picName.toLowerCase().includes(q) ||
+          (deal.picPhone || '').toLowerCase().includes(q) ||
+          (deal.picEmail || '').toLowerCase().includes(q) ||
+          deal.serviceName.toLowerCase().includes(q) ||
+          deal.referralCode.toLowerCase().includes(q) ||
+          deal.mitraName.toLowerCase().includes(q) ||
+          (deal.notes || '').toLowerCase().includes(q) ||
+          customFieldsText.includes(q);
+        return matchFilter && matchSearch;
+      });
+  }, [clientDeals, clientFilter, searchTerm]);
+
+  const clientsValidationDt = useServerDataTable<ClientDeal>({
+    resource: 'clients',
+    fallbackItems: sortedFilteredDeals,
+    defaultPerPage: 10,
+    externalSearch: searchTerm,
+    extraParams: { status: clientFilter },
+    dependencyKey: `${clientDeals.length}-${clientDeals.map((d) => `${d.id}:${d.status}`).join(',')}`,
+  });
+
+  const filteredDeals = clientsValidationDt.rows;
+
+  // 2. Analisa Kinerja Mitra — status pending teratas, kemudian status terverifikasi, dan klien terdaftar terbanyak
+  const sortedPerformanceMitras = React.useMemo(() => {
+    const getRank = (st: string) => (st === 'pending' ? 0 : st === 'verified' ? 1 : 2);
+    return [...mitras].sort((a, b) => {
+      const rankDiff = getRank(a.status) - getRank(b.status);
+      if (rankDiff !== 0) return rankDiff;
+      const cliDiff = (Number(b.referredClientsCount) || 0) - (Number(a.referredClientsCount) || 0);
+      if (cliDiff !== 0) return cliDiff;
+      return (Number(b.totalCommission) || 0) - (Number(a.totalCommission) || 0);
+    });
+  }, [mitras]);
+
+  const mitraAnalysisDt = useServerDataTable<Mitra>({
+    resource: 'mitra-performance',
+    fallbackItems: sortedPerformanceMitras,
+    defaultPerPage: 10,
+    dependencyKey: `${mitras.length}-${mitras.map((m) => `${m.id}:${m.status}:${m.referredClientsCount}`).join(',')}`,
+  });
+
+  // 3. Pencairan Saldo Komisi Mitra — dana komisi terbesar yang siap dicairkan paling atas
+  const sortedPayoutBalanceMitras = React.useMemo(() => {
+    return [...mitras].sort((a, b) => {
+      const balDiff = (Number(b.pendingPayout) || 0) - (Number(a.pendingPayout) || 0);
+      if (balDiff !== 0) return balDiff;
+      return (Number(b.totalCommission) || 0) - (Number(a.totalCommission) || 0);
+    });
+  }, [mitras]);
+
+  const payoutBalanceDt = useServerDataTable<Mitra>({
+    resource: 'mitra-payout-balances',
+    fallbackItems: sortedPayoutBalanceMitras,
+    defaultPerPage: 10,
+    dependencyKey: `${mitras.length}-${mitras.map((m) => `${m.id}:${m.pendingPayout}`).join(',')}`,
+  });
+
+  // 4. Riwayat Pencairan Dana Komisi & Slip Transfer — terbaru paling atas
+  const sortedPayoutHistory = React.useMemo(() => {
+    const withTs = payoutRequests.map((p, idx) => ({
+      item: p,
+      ts: parseClientRecordTimestamp(p.processedDate || p.requestDate, p.id, payoutRequests.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
+    return withTs.map((x) => x.item);
+  }, [payoutRequests]);
+
+  const payoutHistoryDt = useServerDataTable<PayoutRequest>({
+    resource: 'payout-requests',
+    fallbackItems: sortedPayoutHistory,
+    defaultPerPage: 10,
+    dependencyKey: `${payoutRequests.length}-${payoutRequests.map((p) => `${p.id}:${p.status}`).join(',')}`,
+  });
+
+  // 5. Evaluasi Pencapaian Target & Proses Pemberian Bonus ke Mitra — mitra yang sudah mencapai target paling atas
+  const sortedTargetEvalMitras = React.useMemo(() => {
+    const mRevTarget = Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000));
+    const mCliTarget = Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3));
+    const yRevTarget = Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000));
+    const yCliTarget = Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12));
+
+    const enriched = mitras.map((m) => {
+      const mDeals = clientDeals.filter(
+        (d) =>
+          d.mitraId === m.id &&
+          (d.status === 'active_subscription' || d.status === 'deal_closed')
+      );
+      const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+      const totalDealClients = mDeals.length;
+      const mExceeded = totalDealOmzet >= mRevTarget || totalDealClients >= mCliTarget;
+      const yExceeded = totalDealOmzet >= yRevTarget || totalDealClients >= yCliTarget;
+      const { achievedTier } = resolveQualifiedRewardTier(totalDealOmzet, bonusTarget);
+      const achieved = mExceeded || yExceeded || Boolean(achievedTier);
+      return {
+        item: m,
+        achieved: achieved ? 1 : 0,
+        omzet: totalDealOmzet,
+        clients: totalDealClients,
+      };
+    });
+
+    enriched.sort((a, b) => {
+      if (b.achieved !== a.achieved) return b.achieved - a.achieved;
+      if (b.omzet !== a.omzet) return b.omzet - a.omzet;
+      return b.clients - a.clients;
+    });
+
+    return enriched.map((x) => x.item);
+  }, [mitras, clientDeals, bonusTarget]);
+
+  const targetEvalDt = useServerDataTable<Mitra>({
+    resource: 'mitra-target-evaluation',
+    fallbackItems: sortedTargetEvalMitras,
+    defaultPerPage: 10,
+    dependencyKey: `${mitras.length}-${clientDeals.length}-${mitras.map((m) => m.totalBonus).join(',')}`,
   });
 
   const pendingAccCount = clientDeals.filter((d) => d.status === 'pending_acc').length;
@@ -1087,6 +1208,15 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <ServerDataTableTopBar
+              perPage={clientsValidationDt.perPage}
+              onPerPageChange={clientsValidationDt.setPerPage}
+              perPageOptions={[10, 25, 50, 100]}
+              hideSearch
+              isLoading={clientsValidationDt.isLoading}
+              onRefresh={clientsValidationDt.refresh}
+              unitLabel="klien"
+            />
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -1515,6 +1645,14 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 </tbody>
               </table>
             </div>
+            <ServerDataTableFooter
+              page={clientsValidationDt.meta.page}
+              perPage={clientsValidationDt.perPage}
+              totalItems={clientsValidationDt.meta.totalItems}
+              totalPages={clientsValidationDt.meta.totalPages}
+              onPageChange={clientsValidationDt.setPage}
+              unitLabel="klien"
+            />
           </div>
         </div>
       )}
@@ -1522,12 +1660,26 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
       {/* VIEW 2: ANALISA KINERJA MITRA */}
       {activeSubTab === 'mitra_analysis' && (
         <div className="space-y-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 font-display">
-              Matriks Kinerja &amp; Produktivitas Mitra Lapangan
-            </h3>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-900 font-display">
+                Matriks Kinerja &amp; Produktivitas Mitra Lapangan
+              </h3>
+            </div>
 
-            <div className="mt-4 overflow-x-auto border border-slate-200 rounded-xl">
+            <ServerDataTableTopBar
+              perPage={mitraAnalysisDt.perPage}
+              onPerPageChange={mitraAnalysisDt.setPerPage}
+              perPageOptions={[10, 25, 50, 100]}
+              search={mitraAnalysisDt.search}
+              onSearchChange={mitraAnalysisDt.setSearch}
+              searchPlaceholder="Cari nama mitra, kode anggota, referral, atau spesialisasi..."
+              isLoading={mitraAnalysisDt.isLoading}
+              onRefresh={mitraAnalysisDt.refresh}
+              unitLabel="mitra"
+            />
+
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
@@ -1542,50 +1694,77 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {mitras.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-3 font-semibold text-slate-900 flex items-center gap-2.5">
-                        <img
-                          src={m.avatarUrl}
-                          alt={m.fullName}
-                          className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-300"
-                        />
-                        <div>
-                          <div>{m.fullName}</div>
-                          <div className="text-[10px] text-slate-500 font-normal">{m.specialization}</div>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <div className="font-mono text-slate-700">{m.memberCode}</div>
-                        <div className="font-mono font-bold text-blue-700 text-[11px]">{m.referralCode}</div>
-                      </td>
-                      <td className="p-3 text-center font-mono font-bold text-slate-900">
-                        {m.referredClientsCount || 0}
-                      </td>
-                      <td className="p-3 text-center font-mono font-bold text-emerald-600">
-                        {m.activeSubscribersCount || 0}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-slate-900">
-                        {formatRupiah(m.totalCommission)}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-amber-600">
-                        {formatRupiah(m.pendingPayout)}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-slate-600">
-                        {formatRupiah(m.paidPayout)}
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          m.status === 'verified' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                        }`}>
-                          {m.status === 'verified' ? 'Terverifikasi' : 'Pending'}
-                        </span>
+                  {mitraAnalysisDt.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                        Tidak ada data mitra yang sesuai dengan kata kunci pencarian.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    mitraAnalysisDt.rows.map((m) => (
+                      <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3 font-semibold text-slate-900 flex items-center gap-2.5">
+                          <img
+                            src={m.avatarUrl}
+                            alt={m.fullName}
+                            className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-300"
+                          />
+                          <div>
+                            <div>{m.fullName}</div>
+                            <div className="text-[10px] text-slate-500 font-normal">{m.specialization}</div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="font-mono text-slate-700">{m.memberCode}</div>
+                          <div className="font-mono font-bold text-blue-700 text-[11px]">{m.referralCode}</div>
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-slate-900">
+                          {m.referredClientsCount || 0}
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-emerald-600">
+                          {m.activeSubscribersCount || 0}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-slate-900">
+                          {formatRupiah(m.totalCommission)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-amber-600">
+                          {formatRupiah(m.pendingPayout)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-slate-600">
+                          {formatRupiah(m.paidPayout)}
+                        </td>
+                        <td className="p-3 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              m.status === 'verified'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : m.status === 'rejected'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {m.status === 'verified'
+                              ? 'Terverifikasi'
+                              : m.status === 'rejected'
+                              ? 'Ditolak'
+                              : 'Pending'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
+
+            <ServerDataTableFooter
+              page={mitraAnalysisDt.meta.page}
+              perPage={mitraAnalysisDt.perPage}
+              totalItems={mitraAnalysisDt.meta.totalItems}
+              totalPages={mitraAnalysisDt.meta.totalPages}
+              onPageChange={mitraAnalysisDt.setPage}
+              unitLabel="mitra"
+            />
           </div>
         </div>
       )}
@@ -1633,8 +1812,8 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
           </div>
 
           {/* Tabel Pencairan Komisi Langsung oleh Admin (Tanpa Menunggu Pengajuan Mitra) */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-display">
                   Pencairan Saldo Komisi Mitra oleh Admin ({getPayoutScheduleLabel(payoutSchedule)})
@@ -1645,7 +1824,19 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               </div>
             </div>
 
-            <div className="mt-4 overflow-x-auto border border-slate-200 rounded-xl">
+            <ServerDataTableTopBar
+              perPage={payoutBalanceDt.perPage}
+              onPerPageChange={payoutBalanceDt.setPerPage}
+              perPageOptions={[10, 25, 50, 100]}
+              search={payoutBalanceDt.search}
+              onSearchChange={payoutBalanceDt.setSearch}
+              searchPlaceholder="Cari nama mitra, ID anggota, bank, atau nomor rekening..."
+              isLoading={payoutBalanceDt.isLoading}
+              onRefresh={payoutBalanceDt.refresh}
+              unitLabel="mitra"
+            />
+
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
@@ -1658,63 +1849,80 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {mitras.map((m) => {
-                    const readyBalance = Number(m.pendingPayout) || 0;
-                    const hasBank =
-                      Boolean(m.bankDetails?.bankName && m.bankDetails.bankName !== '-') &&
-                      Boolean(m.bankDetails?.accountNumber && m.bankDetails.accountNumber !== '-');
-                    return (
-                      <tr key={m.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-3 font-semibold text-slate-900">
-                          <div>{m.fullName}</div>
-                          <div className="font-mono text-[10px] text-slate-500">{m.memberCode}</div>
-                        </td>
-                        <td className="p-3 text-slate-700">
-                          {hasBank ? (
-                            <>
-                              <div className="font-bold text-blue-900">{m.bankDetails.bankName}</div>
-                              <div className="font-mono text-slate-800">{m.bankDetails.accountNumber}</div>
-                              <div className="text-[10px] text-slate-500">a.n. {m.bankDetails.accountHolder}</div>
-                            </>
-                          ) : (
-                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                              Belum Melengkapi Rekening
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">
-                          {formatRupiah(m.totalCommission || 0)}
-                        </td>
-                        <td className="p-3 text-right font-mono font-semibold text-slate-600 whitespace-nowrap">
-                          {formatRupiah(m.paidPayout || 0)}
-                        </td>
-                        <td className="p-3 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap">
-                          {formatRupiah(readyBalance)}
-                        </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            disabled={readyBalance <= 0}
-                            onClick={() => openDirectDisburseModal(m)}
-                            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all ${
-                              readyBalance > 0
-                                ? 'text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 cursor-pointer'
-                                : 'bg-slate-200 text-slate-600 border border-slate-300 cursor-not-allowed'
-                            }`}
-                          >
-                            {readyBalance > 0 ? 'Proses Pencairan Komisi' : 'Belum Ada Komisi'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {payoutBalanceDt.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-500">
+                        Tidak ada data mitra yang sesuai dengan pencarian.
+                      </td>
+                    </tr>
+                  ) : (
+                    payoutBalanceDt.rows.map((m) => {
+                      const readyBalance = Number(m.pendingPayout) || 0;
+                      const hasBank =
+                        Boolean(m.bankDetails?.bankName && m.bankDetails.bankName !== '-') &&
+                        Boolean(m.bankDetails?.accountNumber && m.bankDetails.accountNumber !== '-');
+                      return (
+                        <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-3 font-semibold text-slate-900">
+                            <div>{m.fullName}</div>
+                            <div className="font-mono text-[10px] text-slate-500">{m.memberCode}</div>
+                          </td>
+                          <td className="p-3 text-slate-700">
+                            {hasBank ? (
+                              <>
+                                <div className="font-bold text-blue-900">{m.bankDetails.bankName}</div>
+                                <div className="font-mono text-slate-800">{m.bankDetails.accountNumber}</div>
+                                <div className="text-[10px] text-slate-500">a.n. {m.bankDetails.accountHolder}</div>
+                              </>
+                            ) : (
+                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                Belum Melengkapi Rekening
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">
+                            {formatRupiah(m.totalCommission || 0)}
+                          </td>
+                          <td className="p-3 text-right font-mono font-semibold text-slate-600 whitespace-nowrap">
+                            {formatRupiah(m.paidPayout || 0)}
+                          </td>
+                          <td className="p-3 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap">
+                            {formatRupiah(readyBalance)}
+                          </td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              disabled={readyBalance <= 0}
+                              onClick={() => openDirectDisburseModal(m)}
+                              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all ${
+                                readyBalance > 0
+                                  ? 'text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 cursor-pointer'
+                                  : 'bg-slate-200 text-slate-600 border border-slate-300 cursor-not-allowed'
+                              }`}
+                            >
+                              {readyBalance > 0 ? 'Proses Pencairan Komisi' : 'Belum Ada Komisi'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
+
+            <ServerDataTableFooter
+              page={payoutBalanceDt.meta.page}
+              perPage={payoutBalanceDt.perPage}
+              totalItems={payoutBalanceDt.meta.totalItems}
+              totalPages={payoutBalanceDt.meta.totalPages}
+              onPageChange={payoutBalanceDt.setPage}
+              unitLabel="mitra"
+            />
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-display">
                   Riwayat Pencairan Dana Komisi &amp; Slip Transfer
@@ -1726,7 +1934,19 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               </div>
             </div>
 
-            <div className="mt-4 overflow-x-auto border border-slate-200 rounded-xl">
+            <ServerDataTableTopBar
+              perPage={payoutHistoryDt.perPage}
+              onPerPageChange={payoutHistoryDt.setPerPage}
+              perPageOptions={[10, 25, 50, 100]}
+              search={payoutHistoryDt.search}
+              onSearchChange={payoutHistoryDt.setSearch}
+              searchPlaceholder="Cari nama mitra, ID anggota, bank, rekening, atau tanggal..."
+              isLoading={payoutHistoryDt.isLoading}
+              onRefresh={payoutHistoryDt.refresh}
+              unitLabel="pencairan"
+            />
+
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
@@ -1741,92 +1961,109 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {payoutRequests.map((req) => {
-                    const gross = req.amount || 0;
-                    const pph = req.pph21Deduction || 0;
-                    const admin = req.adminFeeDeduction || 0;
-                    const totalDeduction = pph + admin;
-                    const net =
-                      req.status === 'approved' && req.netAmountTransferred && req.netAmountTransferred > 0
-                        ? req.netAmountTransferred
-                        : Math.max(0, gross - totalDeduction);
+                  {payoutHistoryDt.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                        Belum ada riwayat pencairan dana komisi yang sesuai dengan pencarian.
+                      </td>
+                    </tr>
+                  ) : (
+                    payoutHistoryDt.rows.map((req) => {
+                      const gross = req.amount || 0;
+                      const pph = req.pph21Deduction || 0;
+                      const admin = req.adminFeeDeduction || 0;
+                      const totalDeduction = pph + admin;
+                      const net =
+                        req.status === 'approved' && req.netAmountTransferred && req.netAmountTransferred > 0
+                          ? req.netAmountTransferred
+                          : Math.max(0, gross - totalDeduction);
 
-                    return (
-                      <tr key={req.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-3 font-mono text-slate-600 whitespace-nowrap">
-                          {req.processedDate || req.requestDate}
-                        </td>
-                        <td className="p-3 font-semibold text-slate-900">
-                          <div>{req.mitraName}</div>
-                          <div className="font-mono text-[10px] text-slate-500">{req.memberCode}</div>
-                        </td>
-                        <td className="p-3 text-slate-700">
-                          <div className="font-bold text-blue-900">{req.bankDetails.bankName}</div>
-                          <div className="font-mono text-slate-800">{req.bankDetails.accountNumber}</div>
-                          <div className="text-[10px] text-slate-500">a.n. {req.bankDetails.accountHolder}</div>
-                        </td>
-                        <td className="p-3 text-right font-mono font-bold text-slate-800 whitespace-nowrap">
-                          {formatRupiah(gross)}
-                        </td>
-                        <td className="p-3 text-right font-mono whitespace-nowrap">
-                          {totalDeduction > 0 ? (
-                            <div>
-                              <span className="font-bold text-rose-700">- {formatRupiah(totalDeduction)}</span>
-                              <div className="text-[9px] text-slate-400">
-                                {pph > 0 ? `PPh21: ${formatRupiah(pph)}` : ''} {admin > 0 ? `Adm: ${formatRupiah(admin)}` : ''}
+                      return (
+                        <tr key={req.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-3 font-mono text-slate-600 whitespace-nowrap">
+                            {req.processedDate || req.requestDate}
+                          </td>
+                          <td className="p-3 font-semibold text-slate-900">
+                            <div>{req.mitraName}</div>
+                            <div className="font-mono text-[10px] text-slate-500">{req.memberCode}</div>
+                          </td>
+                          <td className="p-3 text-slate-700">
+                            <div className="font-bold text-blue-900">{req.bankDetails.bankName}</div>
+                            <div className="font-mono text-slate-800">{req.bankDetails.accountNumber}</div>
+                            <div className="text-[10px] text-slate-500">a.n. {req.bankDetails.accountHolder}</div>
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-slate-800 whitespace-nowrap">
+                            {formatRupiah(gross)}
+                          </td>
+                          <td className="p-3 text-right font-mono whitespace-nowrap">
+                            {totalDeduction > 0 ? (
+                              <div>
+                                <span className="font-bold text-rose-700">- {formatRupiah(totalDeduction)}</span>
+                                <div className="text-[9px] text-slate-400">
+                                  {pph > 0 ? `PPh21: ${formatRupiah(pph)}` : ''} {admin > 0 ? `Adm: ${formatRupiah(admin)}` : ''}
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 font-normal">Rp 0</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap text-sm">
-                          {formatRupiah(net)}
-                        </td>
-                        <td className="p-3 text-center whitespace-nowrap">
-                          {req.status === 'pending' ? (
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                              ⏳ Menunggu Cek &amp; Transfer
-                            </span>
-                          ) : (
-                            <div className="flex flex-col items-center gap-1">
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                ✓ Selesai (Lunas Ditransfer)
+                            ) : (
+                              <span className="text-slate-400 font-normal">Rp 0</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap text-sm">
+                            {formatRupiah(net)}
+                          </td>
+                          <td className="p-3 text-center whitespace-nowrap">
+                            {req.status === 'pending' ? (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                ⏳ Menunggu Cek &amp; Transfer
                               </span>
-                              {req.proofFileName && (
-                                <span className="text-[9px] font-mono text-slate-500">
-                                  {req.proofFileName.length > 20 ? req.proofFileName.slice(0, 18) + '...' : req.proofFileName}
+                            ) : (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  ✓ Selesai (Lunas Ditransfer)
                                 </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          {req.status === 'pending' ? (
-                            <button
-                              type="button"
-                              onClick={() => openApproveModal(req)}
-                              className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-xs transition-all"
-                            >
-                              Cek &amp; Approve Berkas Pembayaran
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedReceipt(req)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              <span>Lihat Slip &amp; Bukti</span>
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                                {req.proofFileName && (
+                                  <span className="text-[9px] font-mono text-slate-500">
+                                    {req.proofFileName.length > 20 ? req.proofFileName.slice(0, 18) + '...' : req.proofFileName}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            {req.status === 'pending' ? (
+                              <button
+                                type="button"
+                                onClick={() => openApproveModal(req)}
+                                className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-xs transition-all"
+                              >
+                                Cek &amp; Approve Berkas Pembayaran
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReceipt(req)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                                <span>Lihat Slip &amp; Bukti</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
+
+            <ServerDataTableFooter
+              page={payoutHistoryDt.meta.page}
+              perPage={payoutHistoryDt.perPage}
+              totalItems={payoutHistoryDt.meta.totalItems}
+              totalPages={payoutHistoryDt.meta.totalPages}
+              onPageChange={payoutHistoryDt.setPage}
+              unitLabel="pencairan"
+            />
           </div>
         </div>
       )}
@@ -2424,6 +2661,18 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               </div>
             </div>
 
+            <ServerDataTableTopBar
+              perPage={targetEvalDt.perPage}
+              onPerPageChange={targetEvalDt.setPerPage}
+              perPageOptions={[10, 25, 50, 100]}
+              search={targetEvalDt.search}
+              onSearchChange={targetEvalDt.setSearch}
+              searchPlaceholder="Cari nama mitra, ID anggota, atau kode referral..."
+              isLoading={targetEvalDt.isLoading}
+              onRefresh={targetEvalDt.refresh}
+              unitLabel="mitra"
+            />
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -2438,129 +2687,146 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {mitras.map((m) => {
-                    const mDeals = clientDeals.filter(
-                      (d) =>
-                        d.mitraId === m.id &&
-                        (d.status === 'active_subscription' || d.status === 'deal_closed')
-                    );
-                    const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
-                    const totalDealClients = mDeals.length;
+                  {targetEvalDt.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-500">
+                        Tidak ada data mitra yang sesuai dengan kata kunci pencarian.
+                      </td>
+                    </tr>
+                  ) : (
+                    targetEvalDt.rows.map((m) => {
+                      const mDeals = clientDeals.filter(
+                        (d) =>
+                          d.mitraId === m.id &&
+                          (d.status === 'active_subscription' || d.status === 'deal_closed')
+                      );
+                      const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+                      const totalDealClients = mDeals.length;
 
-                    const mEnabled = bonusTarget.monthlyBonusEnabled !== false;
-                    const yEnabled = bonusTarget.yearlyBonusEnabled !== false;
-                    const mRevTarget = Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000));
-                    const mCliTarget = Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3));
-                    const yRevTarget = Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000));
-                    const yCliTarget = Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12));
+                      const mEnabled = bonusTarget.monthlyBonusEnabled !== false;
+                      const yEnabled = bonusTarget.yearlyBonusEnabled !== false;
+                      const mRevTarget = Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000));
+                      const mCliTarget = Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3));
+                      const yRevTarget = Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000));
+                      const yCliTarget = Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12));
 
-                    const mPct = Math.min(
-                      100,
-                      Math.max(
-                        Math.round((totalDealOmzet / mRevTarget) * 100),
-                        Math.round((totalDealClients / mCliTarget) * 100)
-                      )
-                    );
-                    const yPct = Math.min(
-                      100,
-                      Math.max(
-                        Math.round((totalDealOmzet / yRevTarget) * 100),
-                        Math.round((totalDealClients / yCliTarget) * 100)
-                      )
-                    );
-                    const mExceeded = totalDealOmzet >= mRevTarget || totalDealClients >= mCliTarget;
-                    const yExceeded = totalDealOmzet >= yRevTarget || totalDealClients >= yCliTarget;
-                    const { achievedTier, nextTier } = resolveQualifiedRewardTier(totalDealOmzet, bonusTarget);
+                      const mPct = Math.min(
+                        100,
+                        Math.max(
+                          Math.round((totalDealOmzet / mRevTarget) * 100),
+                          Math.round((totalDealClients / mCliTarget) * 100)
+                        )
+                      );
+                      const yPct = Math.min(
+                        100,
+                        Math.max(
+                          Math.round((totalDealOmzet / yRevTarget) * 100),
+                          Math.round((totalDealClients / yCliTarget) * 100)
+                        )
+                      );
+                      const mExceeded = totalDealOmzet >= mRevTarget || totalDealClients >= mCliTarget;
+                      const yExceeded = totalDealOmzet >= yRevTarget || totalDealClients >= yCliTarget;
+                      const { achievedTier, nextTier } = resolveQualifiedRewardTier(totalDealOmzet, bonusTarget);
 
-                    return (
-                      <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900">{m.fullName}</div>
-                          <div className="text-[10px] font-mono text-slate-500">
-                            {m.memberCode} &bull; Ref: <strong className="text-[#113872]">{m.referralCode}</strong>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
-                          {totalDealClients} Klien
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
-                          {formatRupiah(totalDealOmzet)}
-                        </td>
-                        <td className="py-3.5 px-4 space-y-1.5 min-w-[200px]">
-                          {mEnabled ? (
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span className="font-semibold text-slate-600">Bulanan:</span>
-                              {mExceeded ? (
-                                <span className="px-2 py-0.5 rounded-full font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  Tercapai ({mPct}%)
+                      return (
+                        <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900">{m.fullName}</div>
+                            <div className="text-[10px] font-mono text-slate-500">
+                              {m.memberCode} &bull; Ref: <strong className="text-[#113872]">{m.referralCode}</strong>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
+                            {totalDealClients} Klien
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
+                            {formatRupiah(totalDealOmzet)}
+                          </td>
+                          <td className="py-3.5 px-4 space-y-1.5 min-w-[200px]">
+                            {mEnabled ? (
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="font-semibold text-slate-600">Bulanan:</span>
+                                {mExceeded ? (
+                                  <span className="px-2 py-0.5 rounded-full font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    Tercapai ({mPct}%)
+                                  </span>
+                                ) : (
+                                  <span className="font-mono font-bold text-amber-700">{mPct}%</span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-400 italic">Target Bulanan Nonaktif</div>
+                            )}
+
+                            {yEnabled ? (
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="font-semibold text-slate-600">Tahunan:</span>
+                                {yExceeded ? (
+                                  <span className="px-2 py-0.5 rounded-full font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    Tercapai ({yPct}%)
+                                  </span>
+                                ) : (
+                                  <span className="font-mono font-bold text-[#113872]">{yPct}%</span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-400 italic">Target Tahunan Nonaktif</div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {achievedTier ? (
+                              <div>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-950 border border-amber-300">
+                                  🏆 Tier {achievedTier.no}: {achievedTier.rewardName}
                                 </span>
-                              ) : (
-                                <span className="font-mono font-bold text-amber-700">{mPct}%</span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-slate-400 italic">Target Bulanan Nonaktif</div>
-                          )}
-
-                          {yEnabled ? (
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span className="font-semibold text-slate-600">Tahunan:</span>
-                              {yExceeded ? (
-                                <span className="px-2 py-0.5 rounded-full font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  Tercapai ({yPct}%)
+                                {nextTier && (
+                                  <div className="text-[10px] text-slate-500 mt-0.5">
+                                    Next: {nextTier.rewardName} ({formatRupiah(nextTier.salesTarget)})
+                                  </div>
+                                )}
+                              </div>
+                            ) : nextTier ? (
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-700 block">
+                                  Menuju Tier {nextTier.no}: {nextTier.rewardName}
                                 </span>
-                              ) : (
-                                <span className="font-mono font-bold text-[#113872]">{yPct}%</span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-slate-400 italic">Target Tahunan Nonaktif</div>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          {achievedTier ? (
-                            <div>
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-950 border border-amber-300">
-                                🏆 Tier {achievedTier.no}: {achievedTier.rewardName}
-                              </span>
-                              {nextTier && (
-                                <div className="text-[10px] text-slate-500 mt-0.5">
-                                  Next: {nextTier.rewardName} ({formatRupiah(nextTier.salesTarget)})
-                                </div>
-                              )}
-                            </div>
-                          ) : nextTier ? (
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-700 block">
-                                Menuju Tier {nextTier.no}: {nextTier.rewardName}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                Target {formatRupiah(nextTier.salesTarget)}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">-</span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-extrabold text-amber-700">
-                          {formatRupiah(m.totalBonus || 0)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenGrantBonusModal(m)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-xs transition-all cursor-pointer"
-                          >
-                            <Gift className="w-3.5 h-3.5 text-amber-400" />
-                            <span>Berikan Bonus</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Target {formatRupiah(nextTier.salesTarget)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-extrabold text-amber-700">
+                            {formatRupiah(m.totalBonus || 0)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenGrantBonusModal(m)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-xs transition-all cursor-pointer"
+                            >
+                              <Gift className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Berikan Bonus</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
+
+            <ServerDataTableFooter
+              page={targetEvalDt.meta.page}
+              perPage={targetEvalDt.perPage}
+              totalItems={targetEvalDt.meta.totalItems}
+              totalPages={targetEvalDt.meta.totalPages}
+              onPageChange={targetEvalDt.setPage}
+              unitLabel="mitra"
+            />
           </div>
         </div>
       )}

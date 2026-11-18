@@ -515,7 +515,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       : 'border-transparent text-slate-400 hover:text-slate-600'
                   }`}
                 >
-                  Daftar Mitra Baru
+                  Daftar Mitra
                 </button>
               </div>
 

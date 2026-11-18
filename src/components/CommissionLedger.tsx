@@ -32,6 +32,12 @@ import {
 } from '../types';
 import { UserCheck, Sparkles, Plus, Repeat, Award, Target, Gift } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
+import {
+  useServerDataTable,
+  ServerDataTableTopBar,
+  ServerDataTableFooter,
+  parseClientRecordTimestamp,
+} from './ServerDataTableControls';
 
 interface CommissionLedgerProps {
   mitra: Mitra;
@@ -123,15 +129,115 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
     fetchPayoutHistory();
   }, [mitra.id, userRole]);
 
-  // Filter transactions
-  const displayTransactions = userRole === 'admin' 
-    ? transactions 
-    : transactions.filter((t) => t.mitraId === mitra.id);
+  // Filter transactions (sorted newest first)
+  const displayTransactions = React.useMemo(() => {
+    const raw =
+      userRole === 'admin'
+        ? [...transactions]
+        : transactions.filter((t) => t.mitraId === mitra.id);
+    const withTs = raw.map((t, idx) => ({
+      item: t,
+      ts: parseClientRecordTimestamp(t.date, t.id, raw.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
+    return withTs.map((x) => x.item);
+  }, [transactions, userRole, mitra.id]);
 
-  // Filter client deals
-  const displayClientDeals = userRole === 'admin'
-    ? clientDeals
-    : clientDeals.filter((d) => d.mitraId === mitra.id);
+  // Filter client deals (sorted newest first)
+  const displayClientDeals = React.useMemo(() => {
+    const raw =
+      userRole === 'admin'
+        ? [...clientDeals]
+        : clientDeals.filter((d) => d.mitraId === mitra.id);
+    const withTs = raw.map((d, idx) => ({
+      item: d,
+      ts: parseClientRecordTimestamp(d.date || d.subscriptionStartDate, d.id, raw.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
+    return withTs.map((x) => x.item);
+  }, [clientDeals, userRole, mitra.id]);
+
+  // Sorted payout history (sorted newest first)
+  const displayPayouts = React.useMemo(() => {
+    const withTs = payouts.map((p, idx) => ({
+      item: p,
+      ts: parseClientRecordTimestamp(p.processedDate || p.requestDate, p.id, payouts.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
+    return withTs.map((x) => x.item);
+  }, [payouts]);
+
+  // Sorted Mitras for Tabel Pemantauan Target & Bonus Per Mitra (Achieved target with highest sales at the top)
+  const sortedMonitoringMitras = React.useMemo(() => {
+    const sourceMitras = allMitras.length > 0 ? [...allMitras] : [mitra];
+    const tRev =
+      selectedBonusPeriod === 'yearly'
+        ? Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000))
+        : Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000));
+    const tCli =
+      selectedBonusPeriod === 'yearly'
+        ? Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12))
+        : Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3));
+
+    const enriched = sourceMitras.map((m) => {
+      const mDeals = clientDeals.filter(
+        (d) =>
+          d.mitraId === m.id &&
+          (d.status === 'active_subscription' || d.status === 'deal_closed')
+      );
+      const mOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+      const mClients = mDeals.length;
+      const tierInfo = resolveQualifiedRewardTier(mOmzet, bonusTarget);
+      const mAchieved =
+        mOmzet >= tRev || mClients >= tCli || Boolean(tierInfo.achievedTier);
+      return {
+        item: m,
+        achieved: mAchieved ? 1 : 0,
+        omzet: mOmzet,
+        clients: mClients,
+      };
+    });
+
+    enriched.sort((a, b) => {
+      if (b.achieved !== a.achieved) return b.achieved - a.achieved;
+      if (b.omzet !== a.omzet) return b.omzet - a.omzet;
+      return b.clients - a.clients;
+    });
+
+    return enriched.map((x) => x.item);
+  }, [allMitras, mitra, clientDeals, selectedBonusPeriod, bonusTarget]);
+
+  const monitoringTargetsDt = useServerDataTable<Mitra>({
+    resource: 'mitra-monitoring-targets',
+    fallbackItems: sortedMonitoringMitras,
+    defaultPerPage: 10,
+    extraParams: { period: selectedBonusPeriod },
+    dependencyKey: `${allMitras.length}-${clientDeals.length}-${selectedBonusPeriod}`,
+  });
+
+  const referralsDt = useServerDataTable<ClientDeal>({
+    resource: 'clients',
+    fallbackItems: displayClientDeals,
+    defaultPerPage: 10,
+    extraParams: { mitraId: userRole === 'mitra' ? mitra.id : undefined },
+    dependencyKey: `${displayClientDeals.length}-${userRole}-${mitra.id}`,
+  });
+
+  const transactionsDt = useServerDataTable<CommissionTransaction>({
+    resource: 'commissions',
+    fallbackItems: displayTransactions,
+    defaultPerPage: 10,
+    extraParams: { mitraId: userRole === 'mitra' ? mitra.id : undefined },
+    dependencyKey: `${displayTransactions.length}-${userRole}-${mitra.id}`,
+  });
+
+  const payoutsDt = useServerDataTable<PayoutRequest>({
+    resource: 'payout-requests',
+    fallbackItems: displayPayouts,
+    defaultPerPage: 10,
+    extraParams: { mitraId: userRole === 'mitra' ? mitra.id : undefined },
+    dependencyKey: `${displayPayouts.length}-${userRole}-${mitra.id}`,
+  });
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -735,6 +841,18 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 )}
               </div>
 
+              <ServerDataTableTopBar
+                perPage={monitoringTargetsDt.perPage}
+                onPerPageChange={monitoringTargetsDt.setPerPage}
+                perPageOptions={[10, 25, 50, 100]}
+                search={monitoringTargetsDt.search}
+                onSearchChange={monitoringTargetsDt.setSearch}
+                searchPlaceholder="Cari nama mitra, ID anggota, atau kode referral..."
+                isLoading={monitoringTargetsDt.isLoading}
+                onRefresh={monitoringTargetsDt.refresh}
+                unitLabel="mitra"
+              />
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -749,7 +867,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {(allMitras.length > 0 ? allMitras : [mitra]).map((m) => {
+                    {monitoringTargetsDt.rows.map((m) => {
                       const mDeals = clientDeals.filter(
                         (d) =>
                           d.mitraId === m.id &&
@@ -818,6 +936,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   </tbody>
                 </table>
               </div>
+              <ServerDataTableFooter
+                page={monitoringTargetsDt.meta.page}
+                perPage={monitoringTargetsDt.perPage}
+                totalItems={monitoringTargetsDt.meta.totalItems}
+                totalPages={monitoringTargetsDt.meta.totalPages}
+                onPageChange={monitoringTargetsDt.setPage}
+                unitLabel="mitra"
+              />
             </div>
           )}
         </>
@@ -925,6 +1051,18 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             </div>
           </div>
 
+          <ServerDataTableTopBar
+            perPage={referralsDt.perPage}
+            onPerPageChange={referralsDt.setPerPage}
+            perPageOptions={[10, 25, 50, 100]}
+            search={referralsDt.search}
+            onSearchChange={referralsDt.setSearch}
+            searchPlaceholder="Cari perusahaan klien, PIC, layanan, atau kode referral..."
+            isLoading={referralsDt.isLoading}
+            onRefresh={referralsDt.refresh}
+            unitLabel="klien"
+          />
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -940,14 +1078,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {displayClientDeals.length === 0 ? (
+                {referralsDt.rows.length === 0 ? (
                   <tr>
                     <td colSpan={userRole === 'admin' ? 8 : 7} className="py-8 text-center text-slate-500">
                       Belum ada klien yang terdaftar. Klik <strong>"Input Klien Baru"</strong> untuk mereferensikan klien pertama Anda.
                     </td>
                   </tr>
                 ) : (
-                  displayClientDeals.map((deal) => (
+                  referralsDt.rows.map((deal) => (
                     <tr key={deal.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3.5 px-6 font-semibold text-slate-900">
                         <div>{deal.companyName}</div>
@@ -1123,6 +1261,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               </tbody>
             </table>
           </div>
+          <ServerDataTableFooter
+            page={referralsDt.meta.page}
+            perPage={referralsDt.perPage}
+            totalItems={referralsDt.meta.totalItems}
+            totalPages={referralsDt.meta.totalPages}
+            onPageChange={referralsDt.setPage}
+            unitLabel="klien"
+          />
         </div>
       )}
 
@@ -1143,6 +1289,18 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
           </div>
         </div>
 
+        <ServerDataTableTopBar
+          perPage={transactionsDt.perPage}
+          onPerPageChange={transactionsDt.setPerPage}
+          perPageOptions={[10, 25, 50, 100]}
+          search={transactionsDt.search}
+          onSearchChange={transactionsDt.setSearch}
+          searchPlaceholder="Cari klien, mitra, layanan, atau tanggal..."
+          isLoading={transactionsDt.isLoading}
+          onRefresh={transactionsDt.refresh}
+          unitLabel="transaksi"
+        />
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -1158,14 +1316,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {displayTransactions.length === 0 ? (
+              {transactionsDt.rows.length === 0 ? (
                 <tr>
                   <td colSpan={userRole === 'admin' ? 8 : 7} className="py-8 text-center text-slate-500">
                     Belum ada riwayat komisi masuk. Komisi akan otomatis tampil di sini setelah pengajuan klien atau pembayaran langganan klien di-approve oleh Admin.
                   </td>
                 </tr>
               ) : (
-                displayTransactions.map((trx) => {
+                transactionsDt.rows.map((trx) => {
                   const matchedDeal = clientDeals.find(
                     (d) =>
                       d.mitraId === trx.mitraId &&
@@ -1225,6 +1383,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             </tbody>
           </table>
         </div>
+        <ServerDataTableFooter
+          page={transactionsDt.meta.page}
+          perPage={transactionsDt.perPage}
+          totalItems={transactionsDt.meta.totalItems}
+          totalPages={transactionsDt.meta.totalPages}
+          onPageChange={transactionsDt.setPage}
+          unitLabel="transaksi"
+        />
       </div>
       )}
 
@@ -1244,6 +1410,18 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             </div>
           </div>
 
+          <ServerDataTableTopBar
+            perPage={payoutsDt.perPage}
+            onPerPageChange={payoutsDt.setPerPage}
+            perPageOptions={[10, 25, 50, 100]}
+            search={payoutsDt.search}
+            onSearchChange={payoutsDt.setSearch}
+            searchPlaceholder="Cari bank, nomor rekening, atas nama, atau tanggal..."
+            isLoading={payoutsDt.isLoading}
+            onRefresh={payoutsDt.refresh}
+            unitLabel="pencairan"
+          />
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -1258,14 +1436,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {payouts.length === 0 ? (
+                {payoutsDt.rows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-500">
                       Belum ada riwayat penarikan dana. Klik <strong>"Tarik Komisi ke Rekening"</strong> untuk mengajukan penarikan pertama Anda.
                     </td>
                   </tr>
                 ) : (
-                  payouts.map((pay) => {
+                  payoutsDt.rows.map((pay) => {
                     const gross = pay.amount || 0;
                     const pph = pay.pph21Deduction || 0;
                     const admin = pay.adminFeeDeduction || 0;
@@ -1358,6 +1536,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               </tbody>
             </table>
           </div>
+          <ServerDataTableFooter
+            page={payoutsDt.meta.page}
+            perPage={payoutsDt.perPage}
+            totalItems={payoutsDt.meta.totalItems}
+            totalPages={payoutsDt.meta.totalPages}
+            onPageChange={payoutsDt.setPage}
+            unitLabel="pencairan"
+          />
         </div>
       )}
 

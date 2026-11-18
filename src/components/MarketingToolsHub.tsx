@@ -19,10 +19,18 @@ import {
   Clock,
   AlertCircle,
   Camera,
-  Lock
+  Lock,
+  LayoutGrid,
+  Table as TableIcon,
 } from 'lucide-react';
 import { MarketingTool, Mitra } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
+import {
+  useServerDataTable,
+  ServerDataTableTopBar,
+  ServerDataTableFooter,
+  parseClientRecordTimestamp,
+} from './ServerDataTableControls';
 
 interface MarketingToolsHubProps {
   tools: MarketingTool[];
@@ -51,6 +59,13 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [editingToolId, setEditingToolId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [displayLayout, setDisplayLayout] = useState<'table' | 'grid'>(
+    userRole === 'admin' ? 'table' : 'grid'
+  );
+
+  React.useEffect(() => {
+    setDisplayLayout(userRole === 'admin' ? 'table' : 'grid');
+  }, [userRole]);
 
   // Form states for Admin Upload
   const [newTitle, setNewTitle] = useState('');
@@ -148,15 +163,16 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           resolve(rawDataUrl);
           return;
         }
-        if (targetType === 'jpg' || rawByteSize > 450 * 1024) {
+        if (targetType === 'jpg') {
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
           const compressed = canvas.toDataURL('image/jpeg', 0.78);
           resolve(compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
         } else {
+          ctx.clearRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/png', 0.85);
+          const compressed = canvas.toDataURL('image/png');
           resolve(compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
         }
       };
@@ -266,14 +282,38 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     showToast(`Materi "${tool.title}" berhasil diunduh ke perangkat Anda.`);
   };
 
-  const filteredTools = tools.filter((tool) => {
-    const matchesCategory = selectedCategory === 'all' || tool.category === selectedCategory;
-    const matchesSearch = 
-      tool.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tool.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tool.targetProduct.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+  const sortedFilteredTools = React.useMemo(() => {
+    const withTs = tools.map((tool, idx) => ({
+      item: tool,
+      ts: parseClientRecordTimestamp(tool.updatedAt || tool.createdAt, tool.id, tools.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
+    const q = searchQuery.toLowerCase().trim();
+    return withTs
+      .map((x) => x.item)
+      .filter((tool) => {
+        const matchesCategory = selectedCategory === 'all' || tool.category === selectedCategory;
+        const matchesSearch =
+          !q ||
+          tool.title.toLowerCase().includes(q) ||
+          tool.description.toLowerCase().includes(q) ||
+          (tool.targetProduct || '').toLowerCase().includes(q) ||
+          tool.category.toLowerCase().includes(q) ||
+          tool.fileType.toLowerCase().includes(q);
+        return matchesCategory && matchesSearch;
+      });
+  }, [tools, selectedCategory, searchQuery]);
+
+  const toolsDt = useServerDataTable<MarketingTool>({
+    resource: 'marketing-tools',
+    fallbackItems: sortedFilteredTools,
+    defaultPerPage: userRole === 'admin' ? 10 : 9,
+    externalSearch: searchQuery,
+    extraParams: { category: selectedCategory === 'all' ? 'Semua' : selectedCategory },
+    dependencyKey: `${tools.length}-${tools.map((t) => `${t.id}:${t.title}`).join(',')}`,
   });
+
+  const filteredTools = toolsDt.rows;
 
   const resetToolForm = () => {
     setEditingToolId(null);
@@ -604,45 +644,83 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         )}
       </div>
 
-      {/* Search & Category Filter */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs mb-6 space-y-4">
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <div className="relative w-full sm:flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Cari brosur, proposal penawaran, company profile, video pitching, atau panduan closing..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-transparent"
-            />
+      {/* Search, Category Filter & Server-Side DataTables Controls */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs mb-6 overflow-hidden">
+        <div className="p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative w-full sm:flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Cari brosur, proposal penawaran, company profile, video pitching, atau panduan closing..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+              <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDisplayLayout('table')}
+                  className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                    displayLayout === 'table'
+                      ? 'bg-white text-blue-900 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <TableIcon className="w-3.5 h-3.5" />
+                  <span>Tabel Data</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisplayLayout('grid')}
+                  className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                    displayLayout === 'grid'
+                      ? 'bg-white text-blue-900 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Katalog Kartu</span>
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-slate-500 whitespace-nowrap self-end sm:self-center">
-            Menampilkan <strong>{filteredTools.length}</strong> materi
-          </div>
+
+          {/* Clean Segmented Filter Buttons - Only shown when data is uploaded for that category */}
+          {visibleCategories.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              {visibleCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    selectedCategory === cat.id
+                      ? 'bg-blue-800 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Clean Segmented Filter Buttons - Only shown when data is uploaded for that category */}
-        {visibleCategories.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-            {visibleCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  selectedCategory === cat.id
-                    ? 'bg-blue-800 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <ServerDataTableTopBar
+          perPage={toolsDt.perPage}
+          onPerPageChange={toolsDt.setPerPage}
+          perPageOptions={displayLayout === 'grid' ? [6, 9, 12, 24, 48, 96] : [10, 25, 50, 100]}
+          hideSearch
+          isLoading={toolsDt.isLoading}
+          onRefresh={toolsDt.refresh}
+          unitLabel="materi"
+        />
       </div>
 
-      {/* Grid of Marketing Tools */}
+      {/* Marketing Tools Content (DataTables Table View or Paginated Card Grid View) */}
       {filteredTools.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-slate-200 p-6">
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -651,189 +729,315 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             Tidak ada dokumen atau video yang sesuai dengan kata kunci pencarian Anda. Coba ubah filter kategori.
           </p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTools.map((tool) => {
-            const badge = getFileBadge(tool.fileType);
-            const BadgeIcon = badge.icon;
-            const isValidMediaUrl = (url?: string) =>
-              Boolean(
-                url &&
-                  (url.startsWith('/uploads/') ||
-                    url.startsWith('data:') ||
-                    url.startsWith('http'))
-              );
-            const imageSource =
-              isValidMediaUrl(tool.downloadUrl) &&
-              (tool.fileType === 'png' || tool.fileType === 'jpg')
-                ? tool.downloadUrl
-                : tool.thumbnailUrl;
-            const hasVideoSource =
-              (tool.fileType === 'mp4' || tool.fileType === 'stream') &&
-              isValidMediaUrl(tool.downloadUrl);
+      ) : displayLayout === 'table' ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                  <th className="py-3 px-5">Materi &amp; Deskripsi</th>
+                  <th className="py-3 px-4">Kategori</th>
+                  <th className="py-3 px-4">Target Layanan</th>
+                  <th className="py-3 px-4 text-center">Format &amp; Ukuran</th>
+                  <th className="py-3 px-4">Diperbarui</th>
+                  <th className="py-3 px-5 text-right">Tindakan</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredTools.map((tool) => {
+                  const badge = getFileBadge(tool.fileType);
+                  const BadgeIcon = badge.icon;
+                  return (
+                    <tr key={tool.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-5 max-w-md">
+                        <div className="font-bold text-slate-900 font-display">{tool.title}</div>
+                        <div className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">
+                          {tool.description}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                          {tool.category}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-700 font-medium">
+                        {tool.targetProduct || 'Layanan Konsultasi NDTAXANDLAW'}
+                      </td>
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold bg-slate-50 text-slate-800 border-slate-200">
+                          <BadgeIcon className="w-3 h-3 text-blue-700" />
+                          <span>{badge.label}</span>
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                          {tool.fileSize}
+                          {tool.duration ? ` · ${tool.duration}` : ''}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                        {tool.updatedAt || tool.createdAt}
+                      </td>
+                      <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setSelectedPreviewTool(tool)}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Buka</span>
+                          </button>
 
-            return (
-              <div
-                key={tool.id}
-                className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
-              >
-                <div>
-                  {/* Thumbnail Banner with Scrim & Media Indicator */}
-                  <div className="relative aspect-video w-full bg-slate-100 overflow-hidden group">
-                    {tool.fileType === 'pdf' ? (
-                      <div className="w-full h-full bg-gradient-to-br from-slate-900 via-[#0F2547] to-slate-900 flex flex-col items-center justify-center p-6 text-center">
-                        <div className="w-16 h-16 rounded-2xl bg-red-600 text-white flex flex-col items-center justify-center shadow-lg border-2 border-red-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
-                          <FileText className="w-8 h-8" />
-                          <span className="text-[9px] font-black tracking-widest uppercase mt-0.5">
-                            PDF
+                          <button
+                            onClick={() => handleDownloadTool(tool)}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Unduh</span>
+                          </button>
+
+                          {userRole === 'admin' && (
+                            <>
+                              <button
+                                onClick={() => handleOpenEditModal(tool)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Edit Materi"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const ok = await confirm({
+                                    title: 'Hapus Materi Promosi & Pelatihan',
+                                    message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
+                                    detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
+                                    confirmText: 'Ya, Hapus Materi',
+                                    cancelText: 'Batalkan',
+                                    variant: 'danger',
+                                  });
+                                  if (ok) {
+                                    onDeleteTool(tool.id);
+                                  }
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus Materi"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <ServerDataTableFooter
+            page={toolsDt.meta.page}
+            perPage={toolsDt.perPage}
+            totalItems={toolsDt.meta.totalItems}
+            totalPages={toolsDt.meta.totalPages}
+            onPageChange={toolsDt.setPage}
+            unitLabel="materi"
+          />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredTools.map((tool) => {
+              const badge = getFileBadge(tool.fileType);
+              const BadgeIcon = badge.icon;
+              const isValidMediaUrl = (url?: string) =>
+                Boolean(
+                  url &&
+                    (url.startsWith('/uploads/') ||
+                      url.startsWith('data:') ||
+                      url.startsWith('http'))
+                );
+              const imageSource =
+                isValidMediaUrl(tool.downloadUrl) &&
+                (tool.fileType === 'png' || tool.fileType === 'jpg')
+                  ? tool.downloadUrl
+                  : tool.thumbnailUrl;
+              const hasVideoSource =
+                (tool.fileType === 'mp4' || tool.fileType === 'stream') &&
+                isValidMediaUrl(tool.downloadUrl);
+
+              return (
+                <div
+                  key={tool.id}
+                  className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                >
+                  <div>
+                    {/* Thumbnail Banner with Scrim & Media Indicator */}
+                    <div className="relative aspect-video w-full bg-slate-100 overflow-hidden group">
+                      {tool.fileType === 'pdf' ? (
+                        <div className="w-full h-full bg-gradient-to-br from-slate-900 via-[#0F2547] to-slate-900 flex flex-col items-center justify-center p-6 text-center">
+                          <div className="w-16 h-16 rounded-2xl bg-red-600 text-white flex flex-col items-center justify-center shadow-lg border-2 border-red-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
+                            <FileText className="w-8 h-8" />
+                            <span className="text-[9px] font-black tracking-widest uppercase mt-0.5">
+                              PDF
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-300">
+                            Dokumen PDF Resmi
                           </span>
                         </div>
-                        <span className="text-[11px] font-semibold text-slate-300">
-                          Dokumen PDF Resmi
-                        </span>
-                      </div>
-                    ) : hasVideoSource ? (
-                      <video
-                        src={`${tool.downloadUrl}#t=0.5`}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        className="w-full h-full object-cover bg-slate-950 group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : tool.fileType === 'mp4' || tool.fileType === 'stream' ? (
-                      <div className="w-full h-full bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex flex-col items-center justify-center p-6 text-center">
-                        <div className="w-16 h-16 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-emerald-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
-                          <Video className="w-8 h-8" />
+                      ) : hasVideoSource ? (
+                        <video
+                          src={`${tool.downloadUrl}#t=0.5`}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="w-full h-full object-cover bg-slate-950 group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : tool.fileType === 'mp4' || tool.fileType === 'stream' ? (
+                        <div className="w-full h-full bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex flex-col items-center justify-center p-6 text-center">
+                          <div className="w-16 h-16 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-emerald-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
+                            <Video className="w-8 h-8" />
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-300">
+                            Video Presentasi MP4
+                          </span>
                         </div>
-                        <span className="text-[11px] font-semibold text-slate-300">
-                          Video Presentasi MP4
-                        </span>
-                      </div>
-                    ) : (
-                      <img
-                        src={imageSource}
-                        alt={tool.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent pointer-events-none" />
-
-                    {/* Media Type Tag */}
-                    <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-xs text-[11px] font-semibold text-slate-900 shadow-xs">
-                      <BadgeIcon
-                        className={`w-3.5 h-3.5 ${
-                          tool.fileType === 'pdf'
-                            ? 'text-red-600'
-                            : tool.fileType === 'mp4' || tool.fileType === 'stream'
-                            ? 'text-emerald-600'
-                            : 'text-blue-700'
-                        }`}
-                      />
-                      <span>{badge.label}</span>
-                      {tool.duration && (
-                        <>
-                          <span className="text-slate-400">·</span>
-                          <span className="font-mono text-[10px] text-slate-600">{tool.duration}</span>
-                        </>
+                      ) : (
+                        <img
+                          src={imageSource}
+                          alt={tool.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
                       )}
-                    </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent pointer-events-none" />
 
-                    {/* Target Product Kicker */}
-                    <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
-                      <p className="text-[10px] font-semibold text-blue-300 uppercase tracking-wider line-clamp-1">
-                        {tool.targetProduct}
-                      </p>
-                      <p className="text-xs text-slate-200 font-mono mt-0.5">
-                        Ukuran: {tool.fileSize}
-                      </p>
-                    </div>
-
-                    {/* Quick Preview Hover Trigger */}
-                    <button
-                      onClick={() => setSelectedPreviewTool(tool)}
-                      className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-xs text-white cursor-pointer"
-                      title="Pratinjau Materi"
-                    >
-                      <div className="px-3.5 py-2 bg-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg">
-                        <Eye className="w-4 h-4" />
-                        <span>Lihat Pratinjau</span>
+                      {/* Media Type Tag */}
+                      <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-xs text-[11px] font-semibold text-slate-900 shadow-xs">
+                        <BadgeIcon
+                          className={`w-3.5 h-3.5 ${
+                            tool.fileType === 'pdf'
+                              ? 'text-red-600'
+                              : tool.fileType === 'mp4' || tool.fileType === 'stream'
+                              ? 'text-emerald-600'
+                              : 'text-blue-700'
+                          }`}
+                        />
+                        <span>{badge.label}</span>
+                        {tool.duration && (
+                          <>
+                            <span className="text-slate-400">·</span>
+                            <span className="font-mono text-[10px] text-slate-600">{tool.duration}</span>
+                          </>
+                        )}
                       </div>
-                    </button>
-                  </div>
 
-                  {/* Body Content */}
-                  <div className="p-4">
-                    <div className="text-xs text-slate-500 mb-1 flex items-center gap-2">
-                      <span>{tool.category}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Diperbarui {tool.createdAt}</span>
+                      {/* Target Product Kicker */}
+                      <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
+                        <p className="text-[10px] font-semibold text-blue-300 uppercase tracking-wider line-clamp-1">
+                          {tool.targetProduct}
+                        </p>
+                        <p className="text-xs text-slate-200 font-mono mt-0.5">
+                          Ukuran: {tool.fileSize}
+                        </p>
+                      </div>
+
+                      {/* Quick Preview Hover Trigger */}
+                      <button
+                        onClick={() => setSelectedPreviewTool(tool)}
+                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-xs text-white cursor-pointer"
+                        title="Pratinjau Materi"
+                      >
+                        <div className="px-3.5 py-2 bg-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg">
+                          <Eye className="w-4 h-4" />
+                          <span>Lihat Pratinjau</span>
+                        </div>
+                      </button>
                     </div>
 
-                    <h3 className="text-sm font-bold text-slate-900 font-display line-clamp-2 leading-snug">
-                      {tool.title}
-                    </h3>
+                    {/* Body Content */}
+                    <div className="p-4">
+                      <div className="text-xs text-slate-500 mb-1 flex items-center gap-2">
+                        <span>{tool.category}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Diperbarui {tool.updatedAt || tool.createdAt}</span>
+                      </div>
 
-                    <p className="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
-                      {tool.description}
-                    </p>
-                  </div>
-                </div>
+                      <h3 className="text-sm font-bold text-slate-900 font-display line-clamp-2 leading-snug">
+                        {tool.title}
+                      </h3>
 
-                {/* Card Action Footer */}
-                <div className="p-4 pt-0 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setSelectedPreviewTool(tool)}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Buka</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleDownloadTool(tool)}
-                      className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Unduh</span>
-                    </button>
+                      <p className="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+                        {tool.description}
+                      </p>
+                    </div>
                   </div>
 
-                  {userRole === 'admin' && (
+                  {/* Card Action Footer */}
+                  <div className="p-4 pt-0 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => handleOpenEditModal(tool)}
-                        className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                        title="Edit Materi"
+                        onClick={() => setSelectedPreviewTool(tool)}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
-                        <span>Edit</span>
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Buka</span>
                       </button>
+
                       <button
-                        onClick={async () => {
-                          const ok = await confirm({
-                            title: 'Hapus Materi Promosi & Pelatihan',
-                            message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
-                            detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
-                            confirmText: 'Ya, Hapus Materi',
-                            cancelText: 'Batalkan',
-                            variant: 'danger',
-                          });
-                          if (ok) {
-                            onDeleteTool(tool.id);
-                          }
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
-                        title="Hapus Materi"
+                        onClick={() => handleDownloadTool(tool)}
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh</span>
                       </button>
                     </div>
-                  )}
+
+                    {userRole === 'admin' && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleOpenEditModal(tool)}
+                          className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Edit Materi"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: 'Hapus Materi Promosi & Pelatihan',
+                              message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
+                              detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
+                              confirmText: 'Ya, Hapus Materi',
+                              cancelText: 'Batalkan',
+                              variant: 'danger',
+                            });
+                            if (ok) {
+                              onDeleteTool(tool.id);
+                            }
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus Materi"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <ServerDataTableFooter
+              page={toolsDt.meta.page}
+              perPage={toolsDt.perPage}
+              totalItems={toolsDt.meta.totalItems}
+              totalPages={toolsDt.meta.totalPages}
+              onPageChange={toolsDt.setPage}
+              unitLabel="materi"
+            />
+          </div>
         </div>
       )}
 

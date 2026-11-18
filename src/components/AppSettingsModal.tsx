@@ -845,11 +845,8 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Logo Resmi Aplikasi &amp; Informasi Hak Cipta
+                        Logo
                       </h4>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Upload file logo baru (PNG/JPG/SVG) atau atur informasi versi aplikasi dan teks hak cipta untuk ditampilkan di seluruh halaman.
-                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button

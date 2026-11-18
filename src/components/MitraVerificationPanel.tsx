@@ -11,6 +11,12 @@ import {
 } from 'lucide-react';
 import { Mitra } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
+import {
+  useServerDataTable,
+  ServerDataTableTopBar,
+  ServerDataTableFooter,
+  parseClientRecordTimestamp,
+} from './ServerDataTableControls';
 
 interface MitraVerificationPanelProps {
   mitras: Mitra[];
@@ -42,15 +48,39 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
     'Data rekening bank / NIK KTP belum sesuai dengan identitas pendaftaran. Silakan perbaiki data diri Anda dan ajukan ulang verifikasi.'
   );
 
-  const filteredMitras = mitras.filter((m) => {
-    const matchesFilter = statusFilter === 'all' || m.status === statusFilter;
-    const matchesSearch = 
-      m.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.memberCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.specialization.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.email.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch;
+  const sortedFilteredMitras = React.useMemo(() => {
+    const withTs = mitras.map((m, idx) => ({
+      item: m,
+      ts: parseClientRecordTimestamp(m.joinedDate, m.id, mitras.length - idx),
+    }));
+    withTs.sort((a, b) => b.ts - a.ts);
+    const q = searchQuery.toLowerCase().trim();
+    return withTs
+      .map((x) => x.item)
+      .filter((m) => {
+        const matchesFilter = statusFilter === 'all' || m.status === statusFilter;
+        const matchesSearch =
+          !q ||
+          m.fullName.toLowerCase().includes(q) ||
+          m.memberCode.toLowerCase().includes(q) ||
+          m.specialization.toLowerCase().includes(q) ||
+          m.email.toLowerCase().includes(q) ||
+          (m.phone || '').toLowerCase().includes(q) ||
+          (m.nik || '').toLowerCase().includes(q);
+        return matchesFilter && matchesSearch;
+      });
+  }, [mitras, statusFilter, searchQuery]);
+
+  const mitraDt = useServerDataTable<Mitra>({
+    resource: 'mitras',
+    fallbackItems: sortedFilteredMitras,
+    defaultPerPage: 10,
+    externalSearch: searchQuery,
+    extraParams: { status: statusFilter },
+    dependencyKey: `${mitras.length}-${mitras.map((m) => m.status).join(',')}`,
   });
+
+  const filteredMitras = mitraDt.rows;
 
   const handleApproveAction = async (id: string) => {
     const targetMitra = mitras.find((m) => m.id === id);
@@ -192,6 +222,15 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
 
       {/* Mitras Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <ServerDataTableTopBar
+          perPage={mitraDt.perPage}
+          onPerPageChange={mitraDt.setPerPage}
+          perPageOptions={[10, 25, 50, 100]}
+          hideSearch
+          isLoading={mitraDt.isLoading}
+          onRefresh={mitraDt.refresh}
+          unitLabel="mitra"
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -346,6 +385,14 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             </tbody>
           </table>
         </div>
+        <ServerDataTableFooter
+          page={mitraDt.meta.page}
+          perPage={mitraDt.perPage}
+          totalItems={mitraDt.meta.totalItems}
+          totalPages={mitraDt.meta.totalPages}
+          onPageChange={mitraDt.setPage}
+          unitLabel="mitra"
+        />
       </div>
 
       {/* Inspect Detail Modal */}
