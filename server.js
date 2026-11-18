@@ -4889,6 +4889,84 @@ app.post("/api/marketing-tools", async (req, res) => {
   saveDatabase();
   res.status(201).json({ success: true, data: newTool });
 });
+app.put("/api/marketing-tools/:id", async (req, res) => {
+  const { id } = req.params;
+  const idx = marketingTools.findIndex((t) => t.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: "Materi marketing tidak ditemukan." });
+  }
+  const existing = marketingTools[idx];
+  const {
+    title,
+    category,
+    fileType,
+    fileSize,
+    downloadUrl,
+    thumbnailUrl,
+    description,
+    targetProduct,
+    duration
+  } = req.body;
+  if (!title || !category) {
+    return res.status(400).json({ success: false, message: "Judul dan Kategori wajib diisi." });
+  }
+  const nextFileType = fileType || existing.fileType || "pdf";
+  let finalDownloadUrl = downloadUrl || existing.downloadUrl || "#file-download";
+  let finalFileSize = fileSize || existing.fileSize || "3.5 MB";
+  let finalThumbnailUrl = thumbnailUrl !== void 0 ? thumbnailUrl : nextFileType === "png" || nextFileType === "jpg" ? finalDownloadUrl : existing.thumbnailUrl || "";
+  if (typeof finalDownloadUrl === "string" && finalDownloadUrl.startsWith("data:")) {
+    const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, nextFileType);
+    if (saved) {
+      finalDownloadUrl = saved.hostedUrl;
+      finalFileSize = saved.formattedSize;
+      if (nextFileType === "png" || nextFileType === "jpg") {
+        finalThumbnailUrl = saved.hostedUrl;
+      }
+    }
+  } else if (typeof finalThumbnailUrl === "string" && finalThumbnailUrl.startsWith("data:")) {
+    const savedThumb = saveDataUrlToHostingServer(finalThumbnailUrl, `${title}-thumb`, "jpg");
+    if (savedThumb) {
+      finalThumbnailUrl = savedThumb.hostedUrl;
+    }
+  }
+  const updatedTool = {
+    ...existing,
+    title: String(title).trim(),
+    category,
+    fileType: nextFileType,
+    fileSize: finalFileSize,
+    downloadUrl: finalDownloadUrl,
+    thumbnailUrl: nextFileType === "png" || nextFileType === "jpg" ? finalThumbnailUrl || finalDownloadUrl : "",
+    description: description !== void 0 ? String(description).trim() || "Materi pendukung pemasaran resmi NDTAXANDLAW." : existing.description,
+    targetProduct: targetProduct !== void 0 ? String(targetProduct).trim() || "Layanan Konsultasi NDTAXANDLAW" : existing.targetProduct,
+    duration: nextFileType === "mp4" ? duration || existing.duration || "03:30 min" : void 0,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+  };
+  marketingTools[idx] = updatedTool;
+  recordActivity({
+    actorRole: "admin",
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: "tool_update",
+    operation: "UPDATE",
+    targetEntity: "Tools Marketing",
+    description: `Admin memperbarui materi marketing: "${updatedTool.title}" (${updatedTool.category}) [${updatedTool.fileSize}].`
+  });
+  if (supabase) {
+    try {
+      const { error: upErr } = await supabase.from("marketing_tools").upsert([updatedTool]);
+      if (upErr) {
+        console.warn("Supabase marketing_tools table update warning (using KV backup):", upErr.message);
+      }
+    } catch (e) {
+      console.warn("Supabase update tool error", e);
+    }
+    await persistMarketingToolsToCloud();
+  }
+  saveDatabase();
+  res.json({ success: true, data: updatedTool });
+});
 app.delete("/api/marketing-tools/:id", async (req, res) => {
   const { id } = req.params;
   const target = marketingTools.find((t) => t.id === id);

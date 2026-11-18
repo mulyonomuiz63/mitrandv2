@@ -344,16 +344,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <div className="bg-[#081A3E] rounded-xl p-4 border border-white/15 flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-white shadow-md">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider">
+                  <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider">
                     PROGRAM REWARD &amp; BONUS MITRA
                   </span>
-                  <span className="text-[11px] font-semibold text-amber-300">
-                    Target Per Bulan / Per Tahun
-                  </span>
                 </div>
-                <h2 className="text-base sm:text-lg font-extrabold text-white mt-1">
-                  Capaian Penjualan &amp; Hadiah Eksklusif Mitra Strategis
-                </h2>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:min-w-[360px]">

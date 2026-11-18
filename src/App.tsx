@@ -562,6 +562,23 @@ export default function App() {
     }
   };
 
+  const handleUpdateMarketingTool = async (id: string, updates: Partial<MarketingTool>) => {
+    try {
+      const res = await fetch(`/api/marketing-tools/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setMarketingTools((prev) => prev.map((t) => (t.id === id ? data.data : t)));
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleDeleteMarketingTool = async (id: string) => {
     try {
       await fetch(`/api/marketing-tools/${id}`, { method: 'DELETE' });
@@ -950,6 +967,7 @@ export default function App() {
               tools={marketingTools}
               userRole={currentRole}
               onAddTool={handleAddMarketingTool}
+              onUpdateTool={handleUpdateMarketingTool}
               onDeleteTool={handleDeleteMarketingTool}
             />
           )}

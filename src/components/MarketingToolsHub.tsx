@@ -14,7 +14,8 @@ import {
   Share2,
   Upload,
   X,
-  FileUp
+  FileUp,
+  Pencil
 } from 'lucide-react';
 import { MarketingTool } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
@@ -23,6 +24,7 @@ interface MarketingToolsHubProps {
   tools: MarketingTool[];
   userRole: 'admin' | 'mitra';
   onAddTool: (tool: Partial<MarketingTool>) => Promise<void>;
+  onUpdateTool?: (id: string, updates: Partial<MarketingTool>) => Promise<void>;
   onDeleteTool: (id: string) => Promise<void>;
 }
 
@@ -30,6 +32,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   tools,
   userRole,
   onAddTool,
+  onUpdateTool,
   onDeleteTool,
 }) => {
   const confirm = useConfirm();
@@ -37,6 +40,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedPreviewTool, setSelectedPreviewTool] = useState<MarketingTool | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [editingToolId, setEditingToolId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -263,6 +267,45 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     return matchesCategory && matchesSearch;
   });
 
+  const resetToolForm = () => {
+    setEditingToolId(null);
+    setNewTitle('');
+    setNewCategory('Brosur Digital');
+    setNewFileType('pdf');
+    setNewDescription('');
+    setNewTargetProduct('');
+    setNewFileSize('');
+    setNewDuration('03:30 min');
+    setOriginalFileSizeLabel('');
+    setUploadedFileDataUrl('');
+    setUploadedFileName('');
+    setUploadedThumbnailUrl('');
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleOpenEditModal = (tool: MarketingTool) => {
+    setEditingToolId(tool.id);
+    setNewTitle(tool.title);
+    setNewCategory(tool.category);
+    const normalizedType = tool.fileType === 'stream' ? 'mp4' : tool.fileType;
+    setNewFileType(normalizedType);
+    setNewTargetProduct(tool.targetProduct || 'Layanan Konsultasi NDTAXANDLAW');
+    setNewDescription(tool.description || '');
+    setNewFileSize(tool.fileSize || '');
+    setNewDuration(tool.duration || '03:30 min');
+    setOriginalFileSizeLabel('');
+    setUploadedFileDataUrl(tool.downloadUrl || '');
+    const extractedFileName = tool.downloadUrl?.startsWith('/uploads/')
+      ? tool.downloadUrl.split('/').pop() || `${tool.title}.${normalizedType}`
+      : `${tool.title}.${normalizedType}`;
+    setUploadedFileName(extractedFileName);
+    setUploadedThumbnailUrl(tool.thumbnailUrl || '');
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setIsAddModalOpen(true);
+  };
+
   const handleCreateTool = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError(null);
@@ -276,11 +319,14 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       return;
     }
 
+    const isEditMode = Boolean(editingToolId);
     const ok = await confirm({
-      title: 'Konfirmasi Unggah Materi Promosi Baru',
-      message: `Apakah Anda yakin ingin mengunggah materi "${newTitle.trim()}" dan menyiarkan notifikasinya ke seluruh Mitra?`,
-      detail: `Judul Materi: ${newTitle.trim()}\nKategori: ${newCategory}\nFile Diunggah: ${uploadedFileName || newFileType.toUpperCase()} (${newFileSize || '-'})`,
-      confirmText: 'Ya, Unggah Materi',
+      title: isEditMode ? 'Konfirmasi Simpan Perubahan Materi' : 'Konfirmasi Unggah Materi Promosi Baru',
+      message: isEditMode
+        ? `Apakah Anda yakin ingin menyimpan perubahan pada materi "${newTitle.trim()}"?`
+        : `Apakah Anda yakin ingin mengunggah materi "${newTitle.trim()}" dan menyiarkan notifikasinya ke seluruh Mitra?`,
+      detail: `Judul Materi: ${newTitle.trim()}\nKategori: ${newCategory}\nFile: ${uploadedFileName || newFileType.toUpperCase()} (${newFileSize || '-'})`,
+      confirmText: isEditMode ? 'Ya, Simpan Perubahan' : 'Ya, Unggah Materi',
       cancelText: 'Batalkan',
       variant: 'primary',
     });
@@ -288,7 +334,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     setIsSubmitting(true);
 
     try {
-      await onAddTool({
+      const payload: Partial<MarketingTool> = {
         title: newTitle.trim(),
         category: newCategory,
         fileType: newFileType,
@@ -301,18 +347,19 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           newFileType === 'png' || newFileType === 'jpg'
             ? uploadedThumbnailUrl || uploadedFileDataUrl
             : '',
-      });
+      };
 
-      setIsAddModalOpen(false);
-      setNewTitle('');
-      setNewDescription('');
-      setNewTargetProduct('');
-      setNewFileSize('');
-      setOriginalFileSizeLabel('');
-      setUploadedFileDataUrl('');
-      setUploadedFileName('');
-      setUploadedThumbnailUrl('');
-      showToast('Tools Marketing berhasil dikompresi, disimpan di server & dipublikasikan ke mitra!');
+      if (isEditMode && editingToolId && onUpdateTool) {
+        await onUpdateTool(editingToolId, payload);
+        setIsAddModalOpen(false);
+        resetToolForm();
+        showToast('Perubahan Tools Marketing berhasil disimpan!');
+      } else {
+        await onAddTool(payload);
+        setIsAddModalOpen(false);
+        resetToolForm();
+        showToast('Tools Marketing berhasil dikompresi, disimpan di server & dipublikasikan ke mitra!');
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -363,7 +410,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         {userRole === 'admin' && (
           <button
             onClick={() => {
-              setUploadError(null);
+              resetToolForm();
               setIsAddModalOpen(true);
             }}
             className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start md:self-auto cursor-pointer"
@@ -570,25 +617,35 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </div>
 
                   {userRole === 'admin' && (
-                    <button
-                      onClick={async () => {
-                        const ok = await confirm({
-                          title: 'Hapus Materi Promosi & Pelatihan',
-                          message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
-                          detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
-                          confirmText: 'Ya, Hapus Materi',
-                          cancelText: 'Batalkan',
-                          variant: 'danger',
-                        });
-                        if (ok) {
-                          onDeleteTool(tool.id);
-                        }
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
-                      title="Hapus Materi"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleOpenEditModal(tool)}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Edit Materi"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Hapus Materi Promosi & Pelatihan',
+                            message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
+                            detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
+                            confirmText: 'Ya, Hapus Materi',
+                            cancelText: 'Batalkan',
+                            variant: 'danger',
+                          });
+                          if (ok) {
+                            onDeleteTool(tool.id);
+                          }
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                        title="Hapus Materi"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -709,17 +766,20 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         </div>
       )}
 
-      {/* Admin Add Tool Modal */}
+      {/* Admin Add / Edit Tool Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <h3 className="text-base font-bold text-slate-900 font-display">
-                Unggah Tools Marketing Baru
+                {editingToolId ? 'Edit Tools Marketing' : 'Unggah Tools Marketing Baru'}
               </h3>
               <button
                 type="button"
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  resetToolForm();
+                }}
                 className="text-slate-400 hover:text-slate-700 font-bold cursor-pointer"
               >
                 &times;
@@ -954,7 +1014,10 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    resetToolForm();
+                  }}
                   className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
                 >
                   Batal
@@ -964,7 +1027,13 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   disabled={isSubmitting}
                   className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
                 >
-                  {isSubmitting ? 'Mengunggah...' : 'Publikasikan ke Mitra'}
+                  {isSubmitting
+                    ? editingToolId
+                      ? 'Menyimpan...'
+                      : 'Mengunggah...'
+                    : editingToolId
+                    ? 'Simpan Perubahan'
+                    : 'Publikasikan ke Mitra'}
                 </button>
               </div>
             </form>
