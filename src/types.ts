@@ -479,8 +479,26 @@ export interface CommissionSchemeConfig {
   updatedAt?: string;
 }
 
+export interface BonusRewardTier {
+  id: string;
+  no: number;
+  salesTarget: number; // Capaian Penjualan (Rp)
+  rewardName: string;  // Hadiah / Bonus
+  isActive: boolean;
+}
+
+export const DEFAULT_BONUS_REWARD_TIERS: BonusRewardTier[] = [
+  { id: 'tier-1', no: 1, salesTarget: 500000000, rewardName: 'Jalan-Jalan LN', isActive: true },
+  { id: 'tier-2', no: 2, salesTarget: 1000000000, rewardName: 'Motor Baru', isActive: true },
+  { id: 'tier-3', no: 3, salesTarget: 1500000000, rewardName: 'Umroh', isActive: true },
+  { id: 'tier-4', no: 4, salesTarget: 5000000000, rewardName: 'Mobil Baru', isActive: true },
+  { id: 'tier-5', no: 5, salesTarget: 10000000000, rewardName: 'Rumah Baru', isActive: true },
+];
+
 export interface BonusTargetConfig {
   periodType: 'monthly' | 'yearly';
+  monthlyBonusEnabled?: boolean;
+  yearlyBonusEnabled?: boolean;
   targetDealRevenue: number;   // e.g. Rp 50.000.000 (monthly) or Rp 500.000.000 (yearly)
   targetClientCount: number;   // e.g. 3 klien (monthly) or 24 klien (yearly)
   standardBonusAmount: number; // e.g. Rp 5.000.000
@@ -490,8 +508,39 @@ export interface BonusTargetConfig {
   yearlyTargetDealRevenue?: number;
   yearlyTargetClientCount?: number;
   yearlyStandardBonusAmount?: number;
-  rewardDescription: string;   // e.g. 'Bonus Tunai, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah'
+  rewardTiers?: BonusRewardTier[];
+  rewardDescription: string;   // e.g. 'Jalan-Jalan LN, Motor Baru, Umroh, Mobil Baru & Rumah Baru'
   updatedAt?: string;
+}
+
+export function resolveBonusRewardTiers(config?: Partial<BonusTargetConfig> | null): BonusRewardTier[] {
+  if (config?.rewardTiers && Array.isArray(config.rewardTiers) && config.rewardTiers.length > 0) {
+    return config.rewardTiers;
+  }
+  return DEFAULT_BONUS_REWARD_TIERS;
+}
+
+export function resolveQualifiedRewardTier(
+  achievedSales: number,
+  config?: Partial<BonusTargetConfig> | null
+): {
+  achievedTier: BonusRewardTier | null;
+  nextTier: BonusRewardTier | null;
+  activeTiers: BonusRewardTier[];
+} {
+  const activeTiers = resolveBonusRewardTiers(config)
+    .filter((t) => t.isActive !== false)
+    .sort((a, b) => a.salesTarget - b.salesTarget);
+  let achievedTier: BonusRewardTier | null = null;
+  let nextTier: BonusRewardTier | null = null;
+  for (const tier of activeTiers) {
+    if (achievedSales >= tier.salesTarget) {
+      achievedTier = tier;
+    } else if (!nextTier) {
+      nextTier = tier;
+    }
+  }
+  return { achievedTier, nextTier, activeTiers };
 }
 
 export const DEFAULT_COMMISSION_SCHEME: CommissionSchemeConfig = {
@@ -509,17 +558,20 @@ export const DEFAULT_COMMISSION_SCHEME: CommissionSchemeConfig = {
 };
 
 export const DEFAULT_BONUS_TARGET_CONFIG: BonusTargetConfig = {
-  periodType: 'monthly',
-  targetDealRevenue: 50000000,
-  targetClientCount: 3,
-  standardBonusAmount: 5000000,
+  periodType: 'yearly',
+  monthlyBonusEnabled: true,
+  yearlyBonusEnabled: true,
+  targetDealRevenue: 500000000,
+  targetClientCount: 12,
+  standardBonusAmount: 25000000,
   monthlyTargetDealRevenue: 50000000,
   monthlyTargetClientCount: 3,
   monthlyStandardBonusAmount: 5000000,
   yearlyTargetDealRevenue: 500000000,
-  yearlyTargetClientCount: 24,
-  yearlyStandardBonusAmount: 50000000,
-  rewardDescription: 'Bonus Tunai Prestasi, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah',
+  yearlyTargetClientCount: 12,
+  yearlyStandardBonusAmount: 25000000,
+  rewardTiers: DEFAULT_BONUS_REWARD_TIERS,
+  rewardDescription: 'Jalan-Jalan LN, Motor Baru, Umroh, Mobil Baru & Rumah Baru',
 };
 
 export function calculateClientDealCommission(

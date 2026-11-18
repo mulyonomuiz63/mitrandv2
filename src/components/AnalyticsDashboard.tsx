@@ -184,6 +184,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
       {/* KPI Overview Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Akumulasi Deal Klien Anda */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -202,27 +203,31 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
         </div>
 
+        {/* Card 2: Saldo Komisi Aktif */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Mitra Aktif Berlisensi' : 'Nomor Registrasi Mitra'}
+              {userRole === 'admin' ? 'Total Akumulasi Komisi Mitra' : 'Saldo Komisi Aktif'}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
-              <Users className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
+              <BarChart3 className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
-            {userRole === 'admin' ? `${verifiedMitrasCount} Mitra` : activeMitra.memberCode}
+          <p className="text-2xl font-bold text-emerald-700 mt-2 font-mono tabular-nums">
+            {formatRupiah(userRole === 'admin' ? totalAdminCommissions : activeMitra.pendingPayout)}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
             <span>
               {userRole === 'admin'
-                ? `${pendingMitrasCount} pendaftaran menunggu review (Total ${allMitras.length})`
-                : 'Terverifikasi resmi di sistem'}
+                ? 'Sinkron langsung dengan database'
+                : `Sudah Ditarik: ${formatRupiah(activeMitra.paidPayout || 0)} | Total: ${formatRupiah(
+                    activeMitra.totalCommission
+                  )}`}
             </span>
           </div>
         </div>
 
+        {/* Card 3: Kontrak Klien Anda */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -252,25 +257,24 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
         </div>
 
+        {/* Card 4: Nomor Registrasi Mitra */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {userRole === 'admin' ? 'Total Akumulasi Komisi Mitra' : 'Saldo Komisi Aktif Anda'}
+              {userRole === 'admin' ? 'Mitra Aktif Berlisensi' : 'Nomor Registrasi Mitra'}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
-              <BarChart3 className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <Users className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-emerald-700 mt-2 font-mono tabular-nums">
-            {formatRupiah(userRole === 'admin' ? totalAdminCommissions : activeMitra.pendingPayout)}
+          <p className="text-2xl font-bold text-slate-900 mt-2 font-mono tabular-nums">
+            {userRole === 'admin' ? `${verifiedMitrasCount} Mitra` : activeMitra.memberCode}
           </p>
           <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
             <span>
               {userRole === 'admin'
-                ? 'Sinkron langsung dengan database'
-                : `Sudah Ditarik: ${formatRupiah(activeMitra.paidPayout || 0)} | Total: ${formatRupiah(
-                    activeMitra.totalCommission
-                  )}`}
+                ? `${pendingMitrasCount} pendaftaran menunggu review (Total ${allMitras.length})`
+                : 'Terverifikasi resmi di sistem'}
             </span>
           </div>
         </div>

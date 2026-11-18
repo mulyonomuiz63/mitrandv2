@@ -112,10 +112,12 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [mobileMenuOpen]);
 
-  const displayName =
+  const rawDisplayName =
     currentRole === 'mitra'
       ? activeMitra.fullName.split(',')[0]
       : currentUser?.name || (isStaff ? 'Staf Operasional' : 'Admin Operasional');
+  const displayName =
+    rawDisplayName.length > 14 ? `${rawDisplayName.slice(0, 14).trim()}...` : rawDisplayName;
 
   const displaySubtext =
     currentRole === 'mitra'

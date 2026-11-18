@@ -24,11 +24,13 @@ import {
   AppSettings,
   DEFAULT_COMMISSION_SCHEME,
   DEFAULT_BONUS_TARGET_CONFIG,
+  resolveBonusRewardTiers,
+  resolveQualifiedRewardTier,
   getPayoutScheduleLabel,
   calculateClientDealCommission,
   isMitraDataIncomplete,
 } from '../types';
-import { UserCheck, Sparkles, Plus, Repeat, Award, Target } from 'lucide-react';
+import { UserCheck, Sparkles, Plus, Repeat, Award, Target, Gift } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
 
 interface CommissionLedgerProps {
@@ -79,6 +81,18 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
     ...DEFAULT_BONUS_TARGET_CONFIG,
     ...(localSettings?.bonusTargetConfig || {}),
   };
+  const mBonusEnabled = bonusTarget.monthlyBonusEnabled !== false;
+  const yBonusEnabled = bonusTarget.yearlyBonusEnabled !== false;
+  const [selectedBonusPeriod, setSelectedBonusPeriod] = useState<'monthly' | 'yearly'>(() =>
+    bonusTarget.periodType === 'monthly' && mBonusEnabled ? 'monthly' : 'yearly'
+  );
+  useEffect(() => {
+    if (selectedBonusPeriod === 'monthly' && !mBonusEnabled && yBonusEnabled) {
+      setSelectedBonusPeriod('yearly');
+    } else if (selectedBonusPeriod === 'yearly' && !yBonusEnabled && mBonusEnabled) {
+      setSelectedBonusPeriod('monthly');
+    }
+  }, [mBonusEnabled, yBonusEnabled, selectedBonusPeriod]);
   const scheduleLabel = getPayoutScheduleLabel(localSettings?.payoutSchedule);
   const [successToast] = useState<string | null>(null);
 
@@ -313,11 +327,35 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         );
         const achievedRevenue = mitraApprovedDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
         const achievedClients = mitraApprovedDeals.length;
-        const targetRev = Math.max(1, Number(bonusTarget.targetDealRevenue) || 50000000);
-        const targetCli = Math.max(1, Number(bonusTarget.targetClientCount) || 3);
+
+        const isCurrentPeriodEnabled =
+          selectedBonusPeriod === 'yearly' ? yBonusEnabled : mBonusEnabled;
+        const anyBonusEnabled = mBonusEnabled || yBonusEnabled;
+
+        const targetRev = Math.max(
+          1,
+          selectedBonusPeriod === 'yearly'
+            ? Number(bonusTarget.yearlyTargetDealRevenue ?? bonusTarget.targetDealRevenue ?? 500000000)
+            : Number(bonusTarget.monthlyTargetDealRevenue ?? bonusTarget.targetDealRevenue ?? 50000000)
+        );
+        const targetCli = Math.max(
+          1,
+          selectedBonusPeriod === 'yearly'
+            ? Number(bonusTarget.yearlyTargetClientCount ?? bonusTarget.targetClientCount ?? 12)
+            : Number(bonusTarget.monthlyTargetClientCount ?? bonusTarget.targetClientCount ?? 3)
+        );
+        const currentStandardBonus =
+          selectedBonusPeriod === 'yearly'
+            ? Number(bonusTarget.yearlyStandardBonusAmount ?? bonusTarget.standardBonusAmount ?? 25000000)
+            : Number(bonusTarget.monthlyStandardBonusAmount ?? bonusTarget.standardBonusAmount ?? 5000000);
+
         const revPct = Math.min(100, Math.round((achievedRevenue / targetRev) * 100));
         const cliPct = Math.min(100, Math.round((achievedClients / targetCli) * 100));
         const isTargetExceeded = achievedRevenue >= targetRev || achievedClients >= targetCli;
+        const { achievedTier, nextTier, activeTiers } = resolveQualifiedRewardTier(
+          achievedRevenue,
+          bonusTarget
+        );
 
         return (
           <>
@@ -394,19 +432,62 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               </div>
             </div>
 
-            {/* Right 5 Cols: Target & Bonus Mitra Progress (Personal for Mitra, Summary of All Mitras for Admin) */}
+            {/* Right 5 Cols: Target & Bonus Mitra Progress (Supports Per Bulan & Per Tahun + Active/Disabled Status) */}
             <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/40 border border-amber-400/40 flex flex-col justify-between space-y-3">
-              {userRole === 'mitra' ? (
-                <>
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                        <Target className="w-4 h-4 text-amber-400" />
-                        Target &amp; Bonus Mitra ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/15">
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <Target className="w-4 h-4 text-amber-400" />
+                    Target &amp; Bonus Mitra
+                  </span>
+
+                  {/* Switch Per Bulan / Per Tahun */}
+                  <div className="inline-flex rounded-lg bg-white/10 p-0.5 border border-white/15 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBonusPeriod('monthly')}
+                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                        selectedBonusPeriod === 'monthly'
+                          ? 'bg-amber-400 text-slate-950 font-extrabold'
+                          : 'text-blue-100 hover:text-white'
+                      }`}
+                    >
+                      Per Bulan {!mBonusEnabled ? '(Off)' : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBonusPeriod('yearly')}
+                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                        selectedBonusPeriod === 'yearly'
+                          ? 'bg-amber-400 text-slate-950 font-extrabold'
+                          : 'text-blue-100 hover:text-white'
+                      }`}
+                    >
+                      Per Tahun {!yBonusEnabled ? '(Off)' : ''}
+                    </button>
+                  </div>
+                </div>
+
+                {!anyBonusEnabled || !isCurrentPeriodEnabled ? (
+                  <div className="mt-3 p-3.5 rounded-xl bg-white/5 border border-white/15 text-xs text-blue-100 space-y-1">
+                    <p className="font-bold text-amber-300">
+                      Program Target &amp; Bonus {selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'} Sedang Dinonaktifkan
+                    </p>
+                    <p className="text-[11px] text-blue-200">
+                      {anyBonusEnabled
+                        ? `Silakan pilih tab ${selectedBonusPeriod === 'yearly' ? 'Per Bulan' : 'Per Tahun'} yang sedang aktif.`
+                        : 'Saat ini program target bonus bulanan maupun tahunan sedang dinonaktifkan oleh Admin.'}
+                    </p>
+                  </div>
+                ) : userRole === 'mitra' ? (
+                  <div className="mt-3 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-blue-200 font-semibold">
+                        Evaluasi Target {selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}:
                       </span>
                       {isTargetExceeded ? (
                         <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full">
-                          🏆 Melampaui Target!
+                          🏆 Target Tercapai!
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full">
@@ -415,110 +496,227 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                       )}
                     </div>
 
-                    <div className="mt-3 space-y-2.5 text-xs">
-                      <div>
-                        <div className="flex justify-between text-[11px] text-blue-100 mb-1">
-                          <span>Realisasi Nilai Deal Klien Anda:</span>
-                          <span className="font-mono font-bold text-white">
-                            {formatRupiah(achievedRevenue)} / {formatRupiah(targetRev)}
-                          </span>
-                        </div>
-                        <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all"
-                            style={{ width: `${revPct}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-blue-100 pt-1">
-                        <span>Realisasi Jumlah Klien Deal Anda:</span>
-                        <span className="font-mono font-bold text-amber-300">
-                          {achievedClients} / {targetCli} Klien ({cliPct}%)
+                    <div>
+                      <div className="flex justify-between text-[11px] text-blue-100 mb-1">
+                        <span>Capaian Penjualan Anda:</span>
+                        <span className="font-mono font-bold text-white">
+                          {formatRupiah(achievedRevenue)} / {formatRupiah(targetRev)}
                         </span>
                       </div>
+                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all"
+                          style={{ width: `${revPct}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-[10px] text-blue-200 block">Standar Bonus Target:</span>
-                      <span className="font-mono font-extrabold text-amber-300">
-                        {formatRupiah(bonusTarget.standardBonusAmount)}
+                    <div className="flex items-center justify-between text-[11px] text-blue-100">
+                      <span>Realisasi Klien Deal:</span>
+                      <span className="font-mono font-bold text-amber-300">
+                        {achievedClients} / {targetCli} Klien ({cliPct}%)
                       </span>
                     </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-blue-200 block">Total Bonus Diterima:</span>
-                      <span className="font-mono font-extrabold text-emerald-300">
-                        {formatRupiah(mitra.totalBonus || 0)}
-                      </span>
+
+                    <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[11px]">
+                      <span className="text-blue-200">Tier Hadiah / Bonus:</span>
+                      {achievedTier ? (
+                        <span className="font-extrabold text-emerald-300">
+                          🏆 Tier {achievedTier.no}: {achievedTier.rewardName}
+                        </span>
+                      ) : nextTier ? (
+                        <span className="font-bold text-amber-300">
+                          Menuju Tier {nextTier.no}: {nextTier.rewardName}
+                        </span>
+                      ) : (
+                        <span className="text-blue-200">-</span>
+                      )}
                     </div>
                   </div>
-                </>
-              ) : (
-                (() => {
-                  const mitraList = allMitras.length > 0 ? allMitras : [mitra];
-                  const achievedMitraCount = mitraList.filter((m) => {
-                    const mDeals = clientDeals.filter(
-                      (d) =>
-                        d.mitraId === m.id &&
-                        (d.status === 'active_subscription' || d.status === 'deal_closed')
+                ) : (
+                  (() => {
+                    const mitraList = allMitras.length > 0 ? allMitras : [mitra];
+                    const achievedMitraCount = mitraList.filter((m) => {
+                      const mDeals = clientDeals.filter(
+                        (d) =>
+                          d.mitraId === m.id &&
+                          (d.status === 'active_subscription' || d.status === 'deal_closed')
+                      );
+                      const mRev = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+                      return mRev >= targetRev || mDeals.length >= targetCli;
+                    }).length;
+
+                    return (
+                      <div className="mt-3 space-y-2 text-xs text-blue-100">
+                        <div className="flex justify-between">
+                          <span>Target Penjualan ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'}):</span>
+                          <strong className="font-mono text-white">{formatRupiah(targetRev)}</strong>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Target Klien ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'}):</span>
+                          <strong className="font-mono text-amber-300">{targetCli} Klien Deal</strong>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Mitra Capai Target:</span>
+                          <strong className="font-mono text-emerald-300">
+                            {achievedMitraCount} / {mitraList.length} Mitra
+                          </strong>
+                        </div>
+                      </div>
                     );
-                    const mRev = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
-                    return mRev >= targetRev || mDeals.length >= targetCli;
-                  }).length;
+                  })()
+                )}
+              </div>
 
-                  return (
-                    <>
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                            <Target className="w-4 h-4 text-amber-400" />
-                            Pemantauan Target &amp; Bonus Seluruh Mitra ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
-                          </span>
-                          <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full">
-                            {achievedMitraCount} / {mitraList.length} Mitra Capai Target
-                          </span>
-                        </div>
-
-                        <div className="mt-3 space-y-2 text-xs text-blue-100">
-                          <div className="flex justify-between">
-                            <span>Standar Target Omzet per Mitra:</span>
-                            <strong className="font-mono text-white">{formatRupiah(targetRev)}</strong>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Standar Target Klien per Mitra:</span>
-                            <strong className="font-mono text-amber-300">{targetCli} Klien Deal</strong>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Mitra Melampaui Target:</span>
-                            <strong className="font-mono text-emerald-300">
-                              {achievedMitraCount} Mitra ({mitraList.length - achievedMitraCount} Sedang Mengejar)
-                            </strong>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
-                        <div>
-                          <span className="text-[10px] text-blue-200 block">Standar Bonus Target:</span>
-                          <span className="font-mono font-extrabold text-amber-300">
-                            {formatRupiah(bonusTarget.standardBonusAmount)}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[10px] text-blue-200 block">Total Bonus Disalurkan:</span>
-                          <span className="font-mono font-extrabold text-emerald-300">
-                            {formatRupiah(transactions.reduce((s, t) => s + (Number(t.bonusAmount) || 0), 0))}
-                          </span>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()
-              )}
+              <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-[10px] text-blue-200 block">
+                    Standar Bonus ({selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}):
+                  </span>
+                  <span className="font-mono font-extrabold text-amber-300">
+                    {isCurrentPeriodEnabled ? formatRupiah(currentStandardBonus) : 'Nonaktif'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-blue-200 block">
+                    {userRole === 'admin' ? 'Total Bonus Disalurkan:' : 'Total Bonus Diterima:'}
+                  </span>
+                  <span className="font-mono font-extrabold text-emerald-300">
+                    {formatRupiah(
+                      userRole === 'admin'
+                        ? transactions.reduce((s, t) => s + (Number(t.bonusAmount) || 0), 0)
+                        : mitra.totalBonus || 0
+                    )}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Tabel Capaian Penjualan & Hadiah/Bonus (5 Tier Resmi) */}
+          {activeTiers.length > 0 && (
+            <div className="mb-7 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/80">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
+                    <Gift className="w-4 h-4 text-[#113872]" />
+                    <span>Tabel Capaian Penjualan &amp; Hadiah / Bonus Mitra</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Target Bonus Per Bulan:{' '}
+                    <strong className={mBonusEnabled ? 'text-emerald-700' : 'text-slate-400'}>
+                      {mBonusEnabled ? 'AKTIF' : 'NONAKTIF'}
+                    </strong>{' '}
+                    &bull; Target Bonus Per Tahun:{' '}
+                    <strong className={yBonusEnabled ? 'text-emerald-700' : 'text-slate-400'}>
+                      {yBonusEnabled ? 'AKTIF' : 'NONAKTIF'}
+                    </strong>
+                  </p>
+                </div>
+                {userRole === 'mitra' && (
+                  <div className="px-3.5 py-1.5 rounded-xl bg-[#0D2149] text-white text-xs font-bold">
+                    Capaian Penjualan Anda:{' '}
+                    <span className="font-mono text-amber-300">{formatRupiah(achievedRevenue)}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                      <th className="py-3 px-4 text-center w-14">NO</th>
+                      <th className="py-3 px-5 text-right">CAPAIAN PENJUALAN</th>
+                      <th className="py-3 px-5">HADIAH / BONUS</th>
+                      <th className="py-3 px-5">
+                        {userRole === 'mitra' ? 'PROGRES CAPAIAN ANDA' : 'MITRA MENCAPAI TIER'}
+                      </th>
+                      <th className="py-3 px-5 text-center">STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {activeTiers.map((tier) => {
+                      const pct = Math.min(
+                        100,
+                        Math.round((achievedRevenue / Math.max(1, tier.salesTarget)) * 100)
+                      );
+                      const isReached = achievedRevenue >= tier.salesTarget;
+                      const mitraReachedCount =
+                        userRole === 'admin'
+                          ? (allMitras.length > 0 ? allMitras : [mitra]).filter((m) => {
+                              const mRev = clientDeals
+                                .filter(
+                                  (d) =>
+                                    d.mitraId === m.id &&
+                                    (d.status === 'active_subscription' || d.status === 'deal_closed')
+                                )
+                                .reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+                              return mRev >= tier.salesTarget;
+                            }).length
+                          : 0;
+
+                      return (
+                        <tr key={tier.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4 text-center font-mono font-extrabold text-slate-800">
+                            {tier.no}
+                          </td>
+                          <td className="py-3 px-5 text-right font-mono font-bold text-slate-900">
+                            {formatRupiah(tier.salesTarget)}
+                          </td>
+                          <td className="py-3 px-5 font-extrabold text-[#113872]">
+                            {tier.rewardName}
+                          </td>
+                          <td className="py-3 px-5 min-w-[180px]">
+                            {userRole === 'mitra' ? (
+                              <div>
+                                <div className="flex justify-between text-[10px] font-semibold text-slate-600 mb-1">
+                                  <span>{formatRupiah(achievedRevenue)}</span>
+                                  <span className="font-mono font-bold text-slate-900">{pct}%</span>
+                                </div>
+                                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      isReached ? 'bg-emerald-500' : 'bg-[#113872]'
+                                    }`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="font-mono font-bold text-slate-800">
+                                {mitraReachedCount} dari {(allMitras.length > 0 ? allMitras : [mitra]).length} Mitra
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-5 text-center whitespace-nowrap">
+                            {userRole === 'mitra' ? (
+                              isReached ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  🏆 Tercapai
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                                  Progres {pct}%
+                                </span>
+                              )
+                            ) : mitraReachedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                {mitraReachedCount} Mitra Capai
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                Belum Ada
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Tabel Pemantauan Target & Bonus Per Masing-Masing Mitra (Khusus Admin / Staf) */}
           {userRole === 'admin' && (
@@ -528,11 +726,11 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                     <Target className="w-4 h-4 text-[#113872]" />
                     <span>
-                      Tabel Pemantauan Target &amp; Bonus Per Mitra ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
+                      Tabel Pemantauan Target &amp; Bonus Per Mitra ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Standar Target: Omzet Deal <strong>{formatRupiah(targetRev)}</strong> atau <strong>{targetCli} Klien Deal</strong> per masing-masing Mitra.
+                    Standar Target ({selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}): Capaian Penjualan <strong>{formatRupiah(targetRev)}</strong> atau <strong>{targetCli} Klien Deal</strong> per masing-masing Mitra.
                   </p>
                 </div>
 
@@ -553,8 +751,8 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                     <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
                       <th className="py-3 px-5">Nama Mitra &amp; ID</th>
                       <th className="py-3 px-4 text-center">Klien Deal vs Target</th>
-                      <th className="py-3 px-4 text-right">Realisasi Omzet vs Target</th>
-                      <th className="py-3 px-4">Progres Capaian Target</th>
+                      <th className="py-3 px-4 text-right">Capaian Penjualan vs Target</th>
+                      <th className="py-3 px-4">Tier Hadiah / Bonus</th>
                       <th className="py-3 px-4 text-center">Status Target</th>
                       <th className="py-3 px-4 text-right">Total Bonus Diterima</th>
                       <th className="py-3 px-5 text-right">Saldo Komisi Siap Cair</th>
@@ -573,6 +771,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                       const mCliPct = Math.min(100, Math.round((mClients / targetCli) * 100));
                       const bestPct = Math.max(mRevPct, mCliPct);
                       const mAchieved = mOmzet >= targetRev || mClients >= targetCli;
+                      const mTierInfo = resolveQualifiedRewardTier(mOmzet, bonusTarget);
 
                       return (
                         <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
@@ -589,22 +788,25 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                             <div className="font-bold text-slate-900">{formatRupiah(mOmzet)}</div>
                             <div className="text-[10px] text-slate-400">dari {formatRupiah(targetRev)}</div>
                           </td>
-                          <td className="py-3 px-4 min-w-[150px]">
-                            <div className="flex justify-between text-[10px] font-semibold text-slate-600 mb-1">
-                              <span>Omzet {mRevPct}% · Klien {mCliPct}%</span>
-                              <span className="font-mono font-bold text-slate-900">{bestPct}%</span>
-                            </div>
-                            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${
-                                  mAchieved ? 'bg-emerald-500' : 'bg-amber-500'
-                                }`}
-                                style={{ width: `${bestPct}%` }}
-                              />
-                            </div>
+                          <td className="py-3 px-4">
+                            {mTierInfo.achievedTier ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-950 border border-amber-300">
+                                🏆 Tier {mTierInfo.achievedTier.no}: {mTierInfo.achievedTier.rewardName}
+                              </span>
+                            ) : mTierInfo.nextTier ? (
+                              <span className="text-[10px] font-semibold text-slate-600">
+                                Menuju {mTierInfo.nextTier.rewardName} ({mRevPct}%)
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">-</span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap">
-                            {mAchieved ? (
+                            {!isCurrentPeriodEnabled ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                                Nonaktif
+                              </span>
+                            ) : mAchieved ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
                                 🏆 Melampaui Target
                               </span>

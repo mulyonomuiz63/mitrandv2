@@ -44,6 +44,9 @@ import {
   BonusTargetConfig,
   DEFAULT_COMMISSION_SCHEME,
   DEFAULT_BONUS_TARGET_CONFIG,
+  DEFAULT_BONUS_REWARD_TIERS,
+  resolveBonusRewardTiers,
+  resolveQualifiedRewardTier,
   PayoutScheduleType,
   getPayoutScheduleLabel,
   calculateClientDealCommission,
@@ -306,17 +309,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
         }
         if (data.data.bonusTargetConfig) {
           const raw = data.data.bonusTargetConfig;
-          const pType: 'monthly' | 'yearly' = raw.periodType === 'yearly' ? 'yearly' : 'monthly';
+          const mEnabled = raw.monthlyBonusEnabled !== false;
+          const yEnabled = raw.yearlyBonusEnabled !== false;
+          let pType: 'monthly' | 'yearly' = raw.periodType === 'yearly' ? 'yearly' : 'monthly';
+          if (pType === 'monthly' && !mEnabled && yEnabled) pType = 'yearly';
+          if (pType === 'yearly' && !yEnabled && mEnabled) pType = 'monthly';
           const mRev = raw.monthlyTargetDealRevenue ?? (pType === 'monthly' ? raw.targetDealRevenue : DEFAULT_BONUS_TARGET_CONFIG.monthlyTargetDealRevenue) ?? 50000000;
           const mCount = raw.monthlyTargetClientCount ?? (pType === 'monthly' ? raw.targetClientCount : DEFAULT_BONUS_TARGET_CONFIG.monthlyTargetClientCount) ?? 3;
           const mBonus = raw.monthlyStandardBonusAmount ?? (pType === 'monthly' ? raw.standardBonusAmount : DEFAULT_BONUS_TARGET_CONFIG.monthlyStandardBonusAmount) ?? 5000000;
           const yRev = raw.yearlyTargetDealRevenue ?? (pType === 'yearly' ? raw.targetDealRevenue : DEFAULT_BONUS_TARGET_CONFIG.yearlyTargetDealRevenue) ?? 500000000;
-          const yCount = raw.yearlyTargetClientCount ?? (pType === 'yearly' ? raw.targetClientCount : DEFAULT_BONUS_TARGET_CONFIG.yearlyTargetClientCount) ?? 24;
-          const yBonus = raw.yearlyStandardBonusAmount ?? (pType === 'yearly' ? raw.standardBonusAmount : DEFAULT_BONUS_TARGET_CONFIG.yearlyStandardBonusAmount) ?? 50000000;
+          const yCount = raw.yearlyTargetClientCount ?? (pType === 'yearly' ? raw.targetClientCount : DEFAULT_BONUS_TARGET_CONFIG.yearlyTargetClientCount) ?? 12;
+          const yBonus = raw.yearlyStandardBonusAmount ?? (pType === 'yearly' ? raw.standardBonusAmount : DEFAULT_BONUS_TARGET_CONFIG.yearlyStandardBonusAmount) ?? 25000000;
           setBonusTarget({
             ...DEFAULT_BONUS_TARGET_CONFIG,
             ...raw,
             periodType: pType,
+            monthlyBonusEnabled: mEnabled,
+            yearlyBonusEnabled: yEnabled,
             monthlyTargetDealRevenue: mRev,
             monthlyTargetClientCount: mCount,
             monthlyStandardBonusAmount: mBonus,
@@ -326,6 +335,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             targetDealRevenue: pType === 'yearly' ? yRev : mRev,
             targetClientCount: pType === 'yearly' ? yCount : mCount,
             standardBonusAmount: pType === 'yearly' ? yBonus : mBonus,
+            rewardTiers: resolveBonusRewardTiers(raw),
           });
         }
         if (data.data.payoutSchedule) {
@@ -370,11 +380,13 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
   const handleSaveCommissionScheme = async (e: React.FormEvent) => {
     e.preventDefault();
+    const mEnabled = bonusTarget.monthlyBonusEnabled !== false;
+    const yEnabled = bonusTarget.yearlyBonusEnabled !== false;
     const ok = await confirm({
       title: 'Simpan Pengaturan Skema Komisi & Target Bonus',
       message:
-        'Apakah Anda yakin ingin memperbarui persentase skema komisi per klien dan standar target bonus mitra? Catatan: Klien yang sudah berstatus langganan aktif tetap menggunakan persentase komisi yang dikunci saat waktu deal.',
-      detail: `Langganan: <Rp ${(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subLowRate}%, Rp ${(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}–${(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subMidRate}%, ≥Rp ${(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subHighRate}% (Bulan Berikutnya: ${commScheme.subRecurringRate}%)\nCase-by-Case: <Rp ${(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseLowRate}%, Rp ${(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}–${(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseMidRate}%, ≥Rp ${(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseHighRate}%\nTarget Bonus (${bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'}): Rp ${Number(bonusTarget.targetDealRevenue).toLocaleString('id-ID')} / ${bonusTarget.targetClientCount} Klien`,
+        'Apakah Anda yakin ingin memperbarui persentase skema komisi per klien, status aktif bonus bulanan/tahunan, dan tabel hadiah capaian penjualan mitra?',
+      detail: `Langganan: <Rp ${(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subLowRate}%, Rp ${(commScheme.subMidThreshold / 1000000).toLocaleString('id-ID')}–${(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subMidRate}%, ≥Rp ${(commScheme.subHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.subHighRate}% (Bulan Berikutnya: ${commScheme.subRecurringRate}%)\nCase-by-Case: <Rp ${(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseLowRate}%, Rp ${(commScheme.caseMidThreshold / 1000000).toLocaleString('id-ID')}–${(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseMidRate}%, ≥Rp ${(commScheme.caseHighThreshold / 1000000).toLocaleString('id-ID')}Jt = ${commScheme.caseHighRate}%\nBonus Per Bulan: ${mEnabled ? `AKTIF (Target Rp ${Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000).toLocaleString('id-ID')})` : 'NONAKTIF'}\nBonus Per Tahun: ${yEnabled ? `AKTIF (Target Rp ${Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000).toLocaleString('id-ID')})` : 'NONAKTIF'}`,
       confirmText: 'Ya, Simpan Skema & Target',
       cancelText: 'Batalkan',
       variant: 'primary',
@@ -408,11 +420,41 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   };
 
   const handleOpenGrantBonusModal = (m: Mitra) => {
+    const mDeals = clientDeals.filter(
+      (d) =>
+        d.mitraId === m.id &&
+        (d.status === 'active_subscription' || d.status === 'deal_closed')
+    );
+    const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+    const { achievedTier } = resolveQualifiedRewardTier(totalDealOmzet, bonusTarget);
+    const mEnabled = bonusTarget.monthlyBonusEnabled !== false;
+    const yEnabled = bonusTarget.yearlyBonusEnabled !== false;
+    const defaultPeriod =
+      bonusTarget.periodType === 'yearly' && yEnabled
+        ? 'Target Tahunan'
+        : mEnabled
+        ? 'Target Bulanan'
+        : yEnabled
+        ? 'Target Tahunan'
+        : 'Bonus Khusus Prestasi';
+
     setMitraForBonus(m);
-    setBonusAmountInput(bonusTarget.standardBonusAmount || 5000000);
-    setBonusTitleInput('Bonus Melampaui Target Standar Mitra');
-    setBonusPeriodInput(bonusTarget.periodType === 'yearly' ? 'Target Tahunan' : 'Target Bulanan');
-    setBonusNotesInput(bonusTarget.rewardDescription || 'Apresiasi pencapaian melampaui target standar performa deal klien');
+    setBonusAmountInput(
+      defaultPeriod === 'Target Tahunan'
+        ? bonusTarget.yearlyStandardBonusAmount || bonusTarget.standardBonusAmount || 25000000
+        : bonusTarget.monthlyStandardBonusAmount || bonusTarget.standardBonusAmount || 5000000
+    );
+    setBonusTitleInput(
+      achievedTier
+        ? `Hadiah / Bonus Tier ${achievedTier.no}: ${achievedTier.rewardName}`
+        : `Bonus Pencapaian ${defaultPeriod} Mitra`
+    );
+    setBonusPeriodInput(defaultPeriod);
+    setBonusNotesInput(
+      achievedTier
+        ? `Melampaui Capaian Penjualan Rp ${achievedTier.salesTarget.toLocaleString('id-ID')} — Hadiah/Bonus: ${achievedTier.rewardName}`
+        : bonusTarget.rewardDescription || 'Apresiasi pencapaian target performa deal klien'
+    );
   };
 
   const handleGrantBonusSubmit = async (e: React.FormEvent) => {
@@ -1994,20 +2036,101 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               </div>
             </div>
 
-            {/* Right 5 Cols: Pengaturan Standar Target Bulanan / Tahunan & Simpan */}
+            {/* Right 5 Cols: Pengaturan Standar Target Bulanan / Tahunan & Tabel Hadiah/Bonus */}
             <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between space-y-5">
               <div className="space-y-4">
                 <div className="border-b border-slate-200 pb-3">
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <Target className="w-4 h-4 text-amber-600" />
-                    <span>2. Standar Target &amp; Bonus Mitra (Bulanan / Tahunan)</span>
+                    <span>2. Standar Target &amp; Bonus Mitra (Per Bulan / Per Tahun)</span>
                   </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Target &amp; bonus dapat diaktifkan/dinonaktifkan secara terpisah untuk Per Bulan maupun Per Tahun.
+                  </p>
                 </div>
 
                 <div className="space-y-3.5 text-xs">
+                  {/* Status Aktif / Nonaktif Target & Bonus Per Bulan dan Per Tahun */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                    <span className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+                      Status Aktif Bonus Per Bulan &amp; Per Tahun
+                    </span>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {/* Toggle Bonus Per Bulan */}
+                      <div
+                        className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                          bonusTarget.monthlyBonusEnabled !== false
+                            ? 'bg-emerald-50/70 border-emerald-300'
+                            : 'bg-white border-slate-200 opacity-75'
+                        }`}
+                      >
+                        <div>
+                          <div className="font-bold text-slate-900">Bonus Per Bulan</div>
+                          <div className="text-[10px] font-semibold text-slate-500">
+                            {bonusTarget.monthlyBonusEnabled !== false ? 'Status: Aktif' : 'Status: Nonaktif'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextVal = !(bonusTarget.monthlyBonusEnabled !== false);
+                            setBonusTarget({
+                              ...bonusTarget,
+                              monthlyBonusEnabled: nextVal,
+                              periodType: !nextVal && bonusTarget.yearlyBonusEnabled !== false ? 'yearly' : bonusTarget.periodType,
+                            });
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider border transition-all cursor-pointer ${
+                            bonusTarget.monthlyBonusEnabled !== false
+                              ? 'bg-emerald-600 text-white border-emerald-700'
+                              : 'bg-slate-200 text-slate-700 border-slate-300'
+                          }`}
+                        >
+                          {bonusTarget.monthlyBonusEnabled !== false ? 'AKTIF' : 'NONAKTIF'}
+                        </button>
+                      </div>
+
+                      {/* Toggle Bonus Per Tahun */}
+                      <div
+                        className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                          bonusTarget.yearlyBonusEnabled !== false
+                            ? 'bg-emerald-50/70 border-emerald-300'
+                            : 'bg-white border-slate-200 opacity-75'
+                        }`}
+                      >
+                        <div>
+                          <div className="font-bold text-slate-900">Bonus Per Tahun</div>
+                          <div className="text-[10px] font-semibold text-slate-500">
+                            {bonusTarget.yearlyBonusEnabled !== false ? 'Status: Aktif' : 'Status: Nonaktif'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextVal = !(bonusTarget.yearlyBonusEnabled !== false);
+                            setBonusTarget({
+                              ...bonusTarget,
+                              yearlyBonusEnabled: nextVal,
+                              periodType: !nextVal && bonusTarget.monthlyBonusEnabled !== false ? 'monthly' : bonusTarget.periodType,
+                            });
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider border transition-all cursor-pointer ${
+                            bonusTarget.yearlyBonusEnabled !== false
+                              ? 'bg-emerald-600 text-white border-emerald-700'
+                              : 'bg-slate-200 text-slate-700 border-slate-300'
+                          }`}
+                        >
+                          {bonusTarget.yearlyBonusEnabled !== false ? 'AKTIF' : 'NONAKTIF'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tab Pilihan Konfigurasi Periode (Per Bulan / Per Tahun) */}
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1.5">
-                      Periode Evaluasi Target Standar Mitra
+                      Pilih Periode Target untuk Dikonfigurasi / Ditampilkan Utama
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -2027,20 +2150,20 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                             standardBonusAmount: mBonus,
                           });
                         }}
-                        className={`py-2 px-3 rounded-xl font-bold border text-center transition-all ${
+                        className={`py-2 px-3 rounded-xl font-bold border text-center transition-all cursor-pointer ${
                           bonusTarget.periodType === 'monthly'
                             ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border-amber-400/40 shadow-xs'
                             : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
                       >
-                        📅 Target Per Bulan
+                        📅 Target Per Bulan {bonusTarget.monthlyBonusEnabled === false ? '(Nonaktif)' : ''}
                       </button>
                       <button
                         type="button"
                         onClick={() => {
                           const yRev = bonusTarget.yearlyTargetDealRevenue ?? 500000000;
-                          const yCount = bonusTarget.yearlyTargetClientCount ?? 24;
-                          const yBonus = bonusTarget.yearlyStandardBonusAmount ?? 50000000;
+                          const yCount = bonusTarget.yearlyTargetClientCount ?? 12;
+                          const yBonus = bonusTarget.yearlyStandardBonusAmount ?? 25000000;
                           setBonusTarget({
                             ...bonusTarget,
                             periodType: 'yearly',
@@ -2052,20 +2175,20 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                             standardBonusAmount: yBonus,
                           });
                         }}
-                        className={`py-2 px-3 rounded-xl font-bold border text-center transition-all ${
+                        className={`py-2 px-3 rounded-xl font-bold border text-center transition-all cursor-pointer ${
                           bonusTarget.periodType === 'yearly'
                             ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border-amber-400/40 shadow-xs'
                             : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
                       >
-                        🏆 Target Per Tahun
+                        🏆 Target Per Tahun {bonusTarget.yearlyBonusEnabled === false ? '(Nonaktif)' : ''}
                       </button>
                     </div>
                   </div>
 
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      Standar Target Nilai Kontrak Deal ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'}) (Rp)
+                      Standar Target Capaian Penjualan ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'}) (Rp)
                     </label>
                     <input
                       type="number"
@@ -2095,83 +2218,153 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      Standar Target Jumlah Klien Deal ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={
-                        bonusTarget.periodType === 'yearly'
-                          ? bonusTarget.yearlyTargetClientCount ?? bonusTarget.targetClientCount
-                          : bonusTarget.monthlyTargetClientCount ?? bonusTarget.targetClientCount
-                      }
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (bonusTarget.periodType === 'yearly') {
-                          setBonusTarget({
-                            ...bonusTarget,
-                            yearlyTargetClientCount: val,
-                            targetClientCount: val,
-                          });
-                        } else {
-                          setBonusTarget({
-                            ...bonusTarget,
-                            monthlyTargetClientCount: val,
-                            targetClientCount: val,
-                          });
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        Target Jumlah Klien ({bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'})
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={
+                          bonusTarget.periodType === 'yearly'
+                            ? bonusTarget.yearlyTargetClientCount ?? bonusTarget.targetClientCount
+                            : bonusTarget.monthlyTargetClientCount ?? bonusTarget.targetClientCount
                         }
-                      }}
-                      className="w-full px-3 py-2 font-mono font-bold border border-slate-300 rounded-lg"
-                    />
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          if (bonusTarget.periodType === 'yearly') {
+                            setBonusTarget({
+                              ...bonusTarget,
+                              yearlyTargetClientCount: val,
+                              targetClientCount: val,
+                            });
+                          } else {
+                            setBonusTarget({
+                              ...bonusTarget,
+                              monthlyTargetClientCount: val,
+                              targetClientCount: val,
+                            });
+                          }
+                        }}
+                        className="w-full px-3 py-2 font-mono font-bold border border-slate-300 rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        Bonus Tunai Standar ({bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'}) (Rp)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={
+                          bonusTarget.periodType === 'yearly'
+                            ? bonusTarget.yearlyStandardBonusAmount ?? bonusTarget.standardBonusAmount
+                            : bonusTarget.monthlyStandardBonusAmount ?? bonusTarget.standardBonusAmount
+                        }
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          if (bonusTarget.periodType === 'yearly') {
+                            setBonusTarget({
+                              ...bonusTarget,
+                              yearlyStandardBonusAmount: val,
+                              standardBonusAmount: val,
+                            });
+                          } else {
+                            setBonusTarget({
+                              ...bonusTarget,
+                              monthlyStandardBonusAmount: val,
+                              standardBonusAmount: val,
+                            });
+                          }
+                        }}
+                        className="w-full px-3 py-2 font-mono font-extrabold text-emerald-700 border border-emerald-300 rounded-lg bg-emerald-50/40"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      Nominal Bonus Standar Mitra Berprestasi ({bonusTarget.periodType === 'yearly' ? 'Per Tahun' : 'Per Bulan'}) (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={
-                        bonusTarget.periodType === 'yearly'
-                          ? bonusTarget.yearlyStandardBonusAmount ?? bonusTarget.standardBonusAmount
-                          : bonusTarget.monthlyStandardBonusAmount ?? bonusTarget.standardBonusAmount
-                      }
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (bonusTarget.periodType === 'yearly') {
+                  {/* Tabel 5 Tier Capaian Penjualan & Hadiah/Bonus */}
+                  <div className="pt-2 border-t border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block font-extrabold text-slate-800 uppercase tracking-wider text-[11px]">
+                        Tabel Capaian Penjualan &amp; Hadiah/Bonus
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
                           setBonusTarget({
                             ...bonusTarget,
-                            yearlyStandardBonusAmount: val,
-                            standardBonusAmount: val,
-                          });
-                        } else {
-                          setBonusTarget({
-                            ...bonusTarget,
-                            monthlyStandardBonusAmount: val,
-                            standardBonusAmount: val,
-                          });
+                            rewardTiers: DEFAULT_BONUS_REWARD_TIERS.map((t) => ({ ...t })),
+                          })
                         }
-                      }}
-                      className="w-full px-3 py-2 font-mono font-extrabold text-emerald-700 border border-emerald-300 rounded-lg bg-emerald-50/40"
-                    />
-                  </div>
+                        className="text-[10px] font-bold text-[#113872] hover:underline cursor-pointer"
+                      >
+                        Reset Default
+                      </button>
+                    </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      Keterangan Program Hadiah / Bonus Tambahan
-                    </label>
-                    <input
-                      type="text"
-                      value={bonusTarget.rewardDescription}
-                      onChange={(e) =>
-                        setBonusTarget({ ...bonusTarget, rewardDescription: e.target.value })
-                      }
-                      placeholder="Contoh: Bonus Tunai, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                    />
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left text-[11px] border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase border-b border-slate-200">
+                            <th className="py-2 px-2.5 text-center w-10">NO</th>
+                            <th className="py-2 px-2.5">CAPAIAN PENJUALAN (Rp)</th>
+                            <th className="py-2 px-2.5">HADIAH/BONUS</th>
+                            <th className="py-2 px-2.5 text-center">AKTIF</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 bg-white">
+                          {resolveBonusRewardTiers(bonusTarget).map((tier, idx) => (
+                            <tr key={tier.id} className={tier.isActive === false ? 'opacity-50 bg-slate-50' : ''}>
+                              <td className="py-2 px-2.5 text-center font-mono font-bold text-slate-700">
+                                {tier.no}
+                              </td>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={tier.salesTarget}
+                                  onChange={(e) => {
+                                    const updated = resolveBonusRewardTiers(bonusTarget).map((item, i) =>
+                                      i === idx ? { ...item, salesTarget: Number(e.target.value) } : item
+                                    );
+                                    setBonusTarget({ ...bonusTarget, rewardTiers: updated });
+                                  }}
+                                  className="w-full px-2 py-1 font-mono font-bold text-slate-900 border border-slate-300 rounded-md"
+                                />
+                              </td>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="text"
+                                  value={tier.rewardName}
+                                  onChange={(e) => {
+                                    const updated = resolveBonusRewardTiers(bonusTarget).map((item, i) =>
+                                      i === idx ? { ...item, rewardName: e.target.value } : item
+                                    );
+                                    setBonusTarget({ ...bonusTarget, rewardTiers: updated });
+                                  }}
+                                  className="w-full px-2 py-1 font-bold text-[#113872] border border-slate-300 rounded-md"
+                                />
+                              </td>
+                              <td className="py-1.5 px-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={tier.isActive !== false}
+                                  onChange={(e) => {
+                                    const updated = resolveBonusRewardTiers(bonusTarget).map((item, i) =>
+                                      i === idx ? { ...item, isActive: e.target.checked } : item
+                                    );
+                                    setBonusTarget({ ...bonusTarget, rewardTiers: updated });
+                                  }}
+                                  className="w-4 h-4 accent-[#113872] cursor-pointer"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2183,7 +2376,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 <button
                   type="submit"
                   disabled={isSavingScheme}
-                  className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="w-full py-2.5 px-4 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   <Check className="w-4 h-4 text-amber-400" />
                   <span>
@@ -2204,6 +2397,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   <Gift className="w-4 h-4 text-[#113872]" />
                   <span>3. Evaluasi Pencapaian Target &amp; Proses Pemberian Bonus ke Mitra</span>
                 </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Status evaluasi mendukung Target Bulanan ({bonusTarget.monthlyBonusEnabled !== false ? 'Aktif' : 'Nonaktif'}), Target Tahunan ({bonusTarget.yearlyBonusEnabled !== false ? 'Aktif' : 'Nonaktif'}), dan 5 Tier Hadiah/Bonus Capaian Penjualan.
+                </p>
               </div>
             </div>
 
@@ -2212,10 +2408,10 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
                     <th className="py-3 px-4">Nama Mitra &amp; ID</th>
-                    <th className="py-3 px-4 text-center">Klien Deal / Aktif</th>
-                    <th className="py-3 px-4 text-right">Realisasi Omzet Deal</th>
-                    <th className="py-3 px-4">Status Target ({bonusTarget.periodType === 'yearly' ? 'Tahunan' : 'Bulanan'})</th>
-                    <th className="py-3 px-4 text-right">Total Komisi Deal</th>
+                    <th className="py-3 px-4 text-center">Klien Deal</th>
+                    <th className="py-3 px-4 text-right">Capaian Penjualan</th>
+                    <th className="py-3 px-4">Status Target Bulanan &amp; Tahunan</th>
+                    <th className="py-3 px-4">Tier Hadiah / Bonus</th>
                     <th className="py-3 px-4 text-right">Total Bonus Diterima</th>
                     <th className="py-3 px-4 text-right">Proses Pemberian Bonus</th>
                   </tr>
@@ -2229,11 +2425,31 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     );
                     const totalDealOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
                     const totalDealClients = mDeals.length;
-                    const targetRev = Math.max(1, Number(bonusTarget.targetDealRevenue) || 50000000);
-                    const targetCli = Math.max(1, Number(bonusTarget.targetClientCount) || 3);
-                    const revPct = Math.min(100, Math.round((totalDealOmzet / targetRev) * 100));
-                    const cliPct = Math.min(100, Math.round((totalDealClients / targetCli) * 100));
-                    const isExceeded = totalDealOmzet >= targetRev || totalDealClients >= targetCli;
+
+                    const mEnabled = bonusTarget.monthlyBonusEnabled !== false;
+                    const yEnabled = bonusTarget.yearlyBonusEnabled !== false;
+                    const mRevTarget = Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000));
+                    const mCliTarget = Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3));
+                    const yRevTarget = Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000));
+                    const yCliTarget = Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12));
+
+                    const mPct = Math.min(
+                      100,
+                      Math.max(
+                        Math.round((totalDealOmzet / mRevTarget) * 100),
+                        Math.round((totalDealClients / mCliTarget) * 100)
+                      )
+                    );
+                    const yPct = Math.min(
+                      100,
+                      Math.max(
+                        Math.round((totalDealOmzet / yRevTarget) * 100),
+                        Math.round((totalDealClients / yCliTarget) * 100)
+                      )
+                    );
+                    const mExceeded = totalDealOmzet >= mRevTarget || totalDealClients >= mCliTarget;
+                    const yExceeded = totalDealOmzet >= yRevTarget || totalDealClients >= yCliTarget;
+                    const { achievedTier, nextTier } = resolveQualifiedRewardTier(totalDealOmzet, bonusTarget);
 
                     return (
                       <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
@@ -2244,35 +2460,66 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                           </div>
                         </td>
                         <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
-                          {totalDealClients} / {targetCli} Klien
+                          {totalDealClients} Klien
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
                           {formatRupiah(totalDealOmzet)}
-                          <div className="text-[10px] font-normal text-slate-400">
-                            Target: {formatRupiah(targetRev)}
-                          </div>
                         </td>
-                        <td className="py-3.5 px-4">
-                          {isExceeded ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                              🏆 Melampaui Target Standar ({Math.max(revPct, cliPct)}%)
-                            </span>
-                          ) : (
-                            <div className="space-y-1 max-w-[180px]">
-                              <span className="inline-block text-[10px] font-semibold text-amber-800">
-                                Progres Target: {Math.max(revPct, cliPct)}%
-                              </span>
-                              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-[#113872] rounded-full"
-                                  style={{ width: `${Math.max(revPct, cliPct)}%` }}
-                                />
-                              </div>
+                        <td className="py-3.5 px-4 space-y-1.5 min-w-[200px]">
+                          {mEnabled ? (
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="font-semibold text-slate-600">Bulanan:</span>
+                              {mExceeded ? (
+                                <span className="px-2 py-0.5 rounded-full font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  Tercapai ({mPct}%)
+                                </span>
+                              ) : (
+                                <span className="font-mono font-bold text-amber-700">{mPct}%</span>
+                              )}
                             </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 italic">Target Bulanan Nonaktif</div>
+                          )}
+
+                          {yEnabled ? (
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="font-semibold text-slate-600">Tahunan:</span>
+                              {yExceeded ? (
+                                <span className="px-2 py-0.5 rounded-full font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  Tercapai ({yPct}%)
+                                </span>
+                              ) : (
+                                <span className="font-mono font-bold text-[#113872]">{yPct}%</span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 italic">Target Tahunan Nonaktif</div>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
-                          {formatRupiah(m.totalCommission || 0)}
+                        <td className="py-3.5 px-4">
+                          {achievedTier ? (
+                            <div>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-950 border border-amber-300">
+                                🏆 Tier {achievedTier.no}: {achievedTier.rewardName}
+                              </span>
+                              {nextTier && (
+                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                  Next: {nextTier.rewardName} ({formatRupiah(nextTier.salesTarget)})
+                                </div>
+                              )}
+                            </div>
+                          ) : nextTier ? (
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-700 block">
+                                Menuju Tier {nextTier.no}: {nextTier.rewardName}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Target {formatRupiah(nextTier.salesTarget)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">-</span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono font-extrabold text-amber-700">
                           {formatRupiah(m.totalBonus || 0)}
@@ -2281,7 +2528,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                           <button
                             type="button"
                             onClick={() => handleOpenGrantBonusModal(m)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-xs transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-xs transition-all cursor-pointer"
                           >
                             <Gift className="w-3.5 h-3.5 text-amber-400" />
                             <span>Berikan Bonus</span>
@@ -3315,6 +3562,37 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 </div>
               </div>
 
+              {/* Quick Preset Tier Hadiah/Bonus */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  Pilih Cepat Tier Hadiah / Bonus Capaian Penjualan
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {resolveBonusRewardTiers(bonusTarget)
+                    .filter((t) => t.isActive !== false)
+                    .map((tier) => (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        onClick={() => {
+                          setBonusTitleInput(`Hadiah / Bonus Tier ${tier.no}: ${tier.rewardName}`);
+                          setBonusNotesInput(
+                            `Pencapaian Penjualan Rp ${tier.salesTarget.toLocaleString('id-ID')} — Hadiah/Bonus: ${tier.rewardName}`
+                          );
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-amber-400 bg-slate-50 hover:bg-amber-50/60 text-left transition-all cursor-pointer"
+                      >
+                        <div className="text-[10px] font-extrabold text-[#113872] truncate">
+                          {tier.no}. {tier.rewardName}
+                        </div>
+                        <div className="text-[9px] font-mono text-slate-500">
+                          Rp {(tier.salesTarget / 1000000).toLocaleString('id-ID')} Jt
+                        </div>
+                      </button>
+                    ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
                   Judul / Kategori Bonus *
@@ -3324,7 +3602,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   required
                   value={bonusTitleInput}
                   onChange={(e) => setBonusTitleInput(e.target.value)}
-                  placeholder="Contoh: Bonus Melampaui Target Standar Bulanan"
+                  placeholder="Contoh: Hadiah / Bonus Tier 1: Jalan-Jalan LN"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                 />
               </div>
@@ -3336,11 +3614,23 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </label>
                   <select
                     value={bonusPeriodInput}
-                    onChange={(e) => setBonusPeriodInput(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setBonusPeriodInput(val);
+                      if (val === 'Target Bulanan') {
+                        setBonusAmountInput(bonusTarget.monthlyStandardBonusAmount || 5000000);
+                      } else if (val === 'Target Tahunan') {
+                        setBonusAmountInput(bonusTarget.yearlyStandardBonusAmount || 25000000);
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-semibold"
                   >
-                    <option value="Target Bulanan">Target Bulanan</option>
-                    <option value="Target Tahunan">Target Tahunan</option>
+                    {bonusTarget.monthlyBonusEnabled !== false && (
+                      <option value="Target Bulanan">Target Bulanan</option>
+                    )}
+                    {bonusTarget.yearlyBonusEnabled !== false && (
+                      <option value="Target Tahunan">Target Tahunan</option>
+                    )}
                     <option value="Bonus Khusus Prestasi">Bonus Khusus Prestasi</option>
                   </select>
                 </div>

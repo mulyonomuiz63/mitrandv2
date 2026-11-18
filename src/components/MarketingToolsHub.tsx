@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   FileText, 
   Image as ImageIcon, 
@@ -9,12 +9,12 @@ import {
   Trash2, 
   Eye, 
   Sparkles, 
-  Clock, 
-  Filter, 
   CheckCircle, 
-  ExternalLink,
   BookOpen,
-  Share2
+  Share2,
+  Upload,
+  X,
+  FileUp
 } from 'lucide-react';
 import { MarketingTool } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
@@ -46,17 +46,113 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [newFileType, setNewFileType] = useState<'pdf' | 'png' | 'jpg' | 'mp4'>('pdf');
   const [newTargetProduct, setNewTargetProduct] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [newFileSize, setNewFileSize] = useState('4.2 MB');
+  const [newFileSize, setNewFileSize] = useState('');
   const [newDuration, setNewDuration] = useState('03:30 min');
+  const [uploadedFileDataUrl, setUploadedFileDataUrl] = useState<string>('');
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');
+  const [uploadedThumbnailUrl, setUploadedThumbnailUrl] = useState<string>('');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const categories = [
     { id: 'all', label: 'Semua Materi' },
     { id: 'Brosur Digital', label: 'Brosur Digital (PDF)' },
     { id: 'Banner Promosi', label: 'Banner Promosi (JPG/PNG)' },
     { id: 'Video Presentasi', label: 'Video Presentasi (MP4)' },
-    { id: 'Panduan Penjualan', label: 'Panduan Penjualan' },
+    { id: 'Panduan Penjualan', label: 'Panduan Penjualan (Proposal & Compro)' },
     { id: 'Materi Pelatihan', label: 'Materi Pelatihan Eksklusif' },
   ];
+
+  const getFileAcceptConfig = (type: 'pdf' | 'png' | 'jpg' | 'mp4') => {
+    switch (type) {
+      case 'pdf':
+        return {
+          accept: '.pdf,application/pdf',
+          label: 'Upload File Dokumen PDF *',
+          helper: 'Format .PDF (Brosur, Proposal Penawaran, Company Profile, Panduan). Maks 25 MB.',
+        };
+      case 'png':
+        return {
+          accept: '.png,image/png',
+          label: 'Upload File Gambar PNG *',
+          helper: 'Format .PNG beresolusi tinggi untuk Banner Promosi. Maks 15 MB.',
+        };
+      case 'jpg':
+        return {
+          accept: '.jpg,.jpeg,image/jpeg',
+          label: 'Upload File Gambar JPG / JPEG *',
+          helper: 'Format .JPG / .JPEG untuk Foto atau Poster Promosi. Maks 15 MB.',
+        };
+      case 'mp4':
+        return {
+          accept: '.mp4,video/mp4',
+          label: 'Upload File Video MP4 *',
+          helper: 'Format .MP4 untuk Video Presentasi / Pelatihan. Maks 35 MB.',
+        };
+    }
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(2)} MB`;
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUploadError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const maxBytes = newFileType === 'mp4' ? 35 * 1024 * 1024 : 25 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setUploadError(
+        `Ukuran file terlalu besar (${formatBytes(file.size)}). Maksimal ${
+          newFileType === 'mp4' ? '35 MB' : '25 MB'
+        }.`
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setUploadedFileName(file.name);
+    setNewFileSize(formatBytes(file.size));
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setUploadedFileDataUrl(result);
+      if (newFileType === 'png' || newFileType === 'jpg') {
+        setUploadedThumbnailUrl(result);
+      }
+    };
+    reader.onerror = () => {
+      setUploadError('Gagal membaca file. Silakan coba pilih ulang file Anda.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDownloadTool = (tool: MarketingTool) => {
+    if (
+      tool.downloadUrl &&
+      (tool.downloadUrl.startsWith('data:') ||
+        tool.downloadUrl.startsWith('http') ||
+        tool.downloadUrl.startsWith('/'))
+    ) {
+      const link = document.createElement('a');
+      link.href = tool.downloadUrl;
+      const safeName = tool.title
+        .replace(/[^a-zA-Z0-9-_ ]/g, '')
+        .trim()
+        .replace(/\s+/g, '-');
+      link.download = `${safeName || 'Materi-NDTAXANDLAW'}.${tool.fileType === 'stream' ? 'mp4' : tool.fileType}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    showToast(`Materi "${tool.title}" berhasil diunduh ke perangkat Anda.`);
+  };
 
   const filteredTools = tools.filter((tool) => {
     const matchesCategory = selectedCategory === 'all' || tool.category === selectedCategory;
@@ -69,11 +165,17 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
 
   const handleCreateTool = async (e: React.FormEvent) => {
     e.preventDefault();
+    setUploadError(null);
     if (!newTitle.trim()) return;
+    if (!uploadedFileDataUrl) {
+      setUploadError(`Silakan pilih / upload file ${newFileType.toUpperCase()} terlebih dahulu.`);
+      return;
+    }
+
     const ok = await confirm({
       title: 'Konfirmasi Unggah Materi Promosi Baru',
       message: `Apakah Anda yakin ingin mengunggah materi "${newTitle.trim()}" dan menyiarkan notifikasinya ke seluruh Mitra?`,
-      detail: `Judul Materi: ${newTitle.trim()}\nKategori: ${newCategory}\nFormat File: ${newFileType.toUpperCase()}`,
+      detail: `Judul Materi: ${newTitle.trim()}\nKategori: ${newCategory}\nFile Diunggah: ${uploadedFileName || newFileType.toUpperCase()} (${newFileSize || '-'})`,
       confirmText: 'Ya, Unggah Materi',
       cancelText: 'Batalkan',
       variant: 'primary',
@@ -82,26 +184,33 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     setIsSubmitting(true);
 
     try {
-      await onAddTool({
-        title: newTitle,
-        category: newCategory,
-        fileType: newFileType,
-        fileSize: newFileSize,
-        targetProduct: newTargetProduct || 'Layanan Konsultasi NDTAXANDLAW',
-        description: newDescription || 'Materi resmi pendukung penjualan mitra.',
-        duration: newFileType === 'mp4' ? newDuration : undefined,
-        downloadUrl: `#download-${Date.now()}`,
-        thumbnailUrl: newFileType === 'mp4'
+      const defaultThumb =
+        newFileType === 'mp4'
           ? 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80'
           : newFileType === 'pdf'
           ? 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80'
-          : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80',
+          : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80';
+
+      await onAddTool({
+        title: newTitle.trim(),
+        category: newCategory,
+        fileType: newFileType,
+        fileSize: newFileSize || '2.5 MB',
+        targetProduct: newTargetProduct || 'Layanan Konsultasi NDTAXANDLAW',
+        description: newDescription || 'Materi resmi pendukung penjualan mitra.',
+        duration: newFileType === 'mp4' ? newDuration : undefined,
+        downloadUrl: uploadedFileDataUrl,
+        thumbnailUrl: uploadedThumbnailUrl || defaultThumb,
       });
 
       setIsAddModalOpen(false);
       setNewTitle('');
       setNewDescription('');
       setNewTargetProduct('');
+      setNewFileSize('');
+      setUploadedFileDataUrl('');
+      setUploadedFileName('');
+      setUploadedThumbnailUrl('');
       showToast('Tools Marketing berhasil diunggah & notifikasi disiarkan ke semua mitra!');
     } catch (err) {
       console.error(err);
@@ -130,6 +239,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     }
   };
 
+  const currentFileAccept = getFileAcceptConfig(newFileType);
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8">
       {/* Toast Notification */}
@@ -150,8 +261,11 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
 
         {userRole === 'admin' && (
           <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start md:self-auto"
+            onClick={() => {
+              setUploadError(null);
+              setIsAddModalOpen(true);
+            }}
+            className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start md:self-auto cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Tambah Tools / Video Baru</span>
@@ -166,7 +280,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Cari brosur, video pitching, materi SPT, atau panduan closing..."
+              placeholder="Cari brosur, proposal penawaran, company profile, video pitching, atau panduan closing..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-transparent"
@@ -177,13 +291,13 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           </div>
         </div>
 
-        {/* Clean Segmented Filter Buttons (Standard button elements with active states) */}
+        {/* Clean Segmented Filter Buttons */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
           {categories.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 selectedCategory === cat.id
                   ? 'bg-blue-800 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
@@ -225,7 +339,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
 
-                    {/* Media Type Tag (Unboxed clean tag) */}
+                    {/* Media Type Tag */}
                     <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-xs text-[11px] font-semibold text-slate-900 shadow-xs">
                       <BadgeIcon className="w-3.5 h-3.5 text-blue-700" />
                       <span>{badge.label}</span>
@@ -250,7 +364,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                     {/* Quick Preview Hover Trigger */}
                     <button
                       onClick={() => setSelectedPreviewTool(tool)}
-                      className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-xs text-white"
+                      className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-xs text-white cursor-pointer"
                       title="Pratinjau Materi"
                     >
                       <div className="px-3.5 py-2 bg-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg">
@@ -283,15 +397,15 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setSelectedPreviewTool(tool)}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                     >
                       <Eye className="w-3.5 h-3.5" />
                       <span>Buka</span>
                     </button>
 
                     <button
-                      onClick={() => showToast(`Materi "${tool.title}" berhasil diunduh ke perangkat Anda.`)}
-                      className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs"
+                      onClick={() => handleDownloadTool(tool)}
+                      className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Unduh</span>
@@ -313,7 +427,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                           onDeleteTool(tool.id);
                         }
                       }}
-                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
+                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
                       title="Hapus Materi"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -341,7 +455,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               </div>
               <button
                 onClick={() => setSelectedPreviewTool(null)}
-                className="text-slate-400 hover:text-slate-700 text-lg font-bold p-1"
+                className="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 cursor-pointer"
               >
                 &times;
               </button>
@@ -350,38 +464,58 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             {/* Media Canvas Area */}
             <div className="my-4 bg-slate-950 rounded-xl overflow-hidden aspect-video flex items-center justify-center relative">
               {selectedPreviewTool.fileType === 'mp4' ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center">
-                  <div className="w-14 h-14 rounded-full bg-blue-600 flex items-center justify-center text-white mb-3 shadow-lg ring-4 ring-blue-500/30">
-                    <Video className="w-7 h-7" />
+                selectedPreviewTool.downloadUrl?.startsWith('data:video') ? (
+                  <video
+                    src={selectedPreviewTool.downloadUrl}
+                    controls
+                    className="w-full h-full object-contain bg-black"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center">
+                    <div className="w-14 h-14 rounded-full bg-blue-600 flex items-center justify-center text-white mb-3 shadow-lg ring-4 ring-blue-500/30">
+                      <Video className="w-7 h-7" />
+                    </div>
+                    <h4 className="font-semibold text-sm">{selectedPreviewTool.title}</h4>
+                    <p className="text-xs text-slate-300 mt-1 max-w-md">
+                      Memutar streaming materi video presentasi beresolusi HD untuk presentasi calon klien korporat.
+                    </p>
+                    <div className="w-full max-w-md bg-white/20 h-1.5 rounded-full mt-4 overflow-hidden">
+                      <div className="bg-blue-500 h-full w-2/3" />
+                    </div>
+                    <div className="flex items-center justify-between w-full max-w-md text-[10px] text-slate-300 font-mono mt-1">
+                      <span>02:45</span>
+                      <span>{selectedPreviewTool.duration || '04:15'}</span>
+                    </div>
                   </div>
-                  <h4 className="font-semibold text-sm">{selectedPreviewTool.title}</h4>
-                  <p className="text-xs text-slate-300 mt-1 max-w-md">
-                    Memutar streaming materi video presentasi beresolusi HD untuk presentasi calon klien korporat.
-                  </p>
-                  <div className="w-full max-w-md bg-white/20 h-1.5 rounded-full mt-4 overflow-hidden">
-                    <div className="bg-blue-500 h-full w-2/3" />
-                  </div>
-                  <div className="flex items-center justify-between w-full max-w-md text-[10px] text-slate-300 font-mono mt-1">
-                    <span>02:45</span>
-                    <span>{selectedPreviewTool.duration || '04:15'}</span>
-                  </div>
-                </div>
+                )
               ) : selectedPreviewTool.fileType === 'pdf' ? (
-                <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white p-6 text-center">
-                  <div className="w-14 h-14 rounded-xl bg-red-600/90 flex items-center justify-center text-white mb-3 shadow-lg">
-                    <FileText className="w-7 h-7" />
+                selectedPreviewTool.downloadUrl?.startsWith('data:application/pdf') ? (
+                  <iframe
+                    src={selectedPreviewTool.downloadUrl}
+                    title={selectedPreviewTool.title}
+                    className="w-full h-full border-0 bg-white"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white p-6 text-center">
+                    <div className="w-14 h-14 rounded-xl bg-red-600/90 flex items-center justify-center text-white mb-3 shadow-lg">
+                      <FileText className="w-7 h-7" />
+                    </div>
+                    <h4 className="font-semibold text-sm">{selectedPreviewTool.title}</h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Format Dokumen Resmi PDF (Ukuran: {selectedPreviewTool.fileSize})
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-2 max-w-md">
+                      Dokumen siap cetak dan dilengkapi stempel otentikasi NDTAXANDLAW. Anda dapat mendistribusikannya via email atau WhatsApp kepada calon klien.
+                    </p>
                   </div>
-                  <h4 className="font-semibold text-sm">{selectedPreviewTool.title}</h4>
-                  <p className="text-xs text-slate-300 mt-1">
-                    Format Dokumen Resmi PDF (Ukuran: {selectedPreviewTool.fileSize})
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-2 max-w-md">
-                    Dokumen siap cetak dan dilengkapi stempel otentikasi NDTAXANDLAW. Anda dapat mendistribusikannya via email atau WhatsApp kepada calon klien.
-                  </p>
-                </div>
+                )
               ) : (
                 <img
-                  src={selectedPreviewTool.thumbnailUrl}
+                  src={
+                    selectedPreviewTool.downloadUrl?.startsWith('data:image')
+                      ? selectedPreviewTool.downloadUrl
+                      : selectedPreviewTool.thumbnailUrl
+                  }
                   alt={selectedPreviewTool.title}
                   className="w-full h-full object-contain"
                 />
@@ -404,7 +538,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                     onClick={() => {
                       showToast(`Tautan salinan materi disalin ke papan klip.`);
                     }}
-                    className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1"
+                    className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <Share2 className="w-3.5 h-3.5" />
                     <span>Salin Tautan</span>
@@ -412,10 +546,10 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
 
                   <button
                     onClick={() => {
-                      showToast(`Materi "${selectedPreviewTool.title}" berhasil diunduh.`);
+                      handleDownloadTool(selectedPreviewTool);
                       setSelectedPreviewTool(null);
                     }}
-                    className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                    className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Unduh File Lengkap</span>
@@ -433,11 +567,12 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <h3 className="text-base font-bold text-slate-900 font-display">
-                Unggah Tools Marketing Baru (Admin)
+                Unggah Tools Marketing Baru
               </h3>
               <button
+                type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 font-bold"
+                className="text-slate-400 hover:text-slate-700 font-bold cursor-pointer"
               >
                 &times;
               </button>
@@ -451,27 +586,29 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Brosur Pajak Korporasi &amp; SP2DK 2026"
+                  placeholder="Contoh: Proposal Penawaran & Company Profile NDTAXANDLAW 2026"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Kategori Materi *
                   </label>
                   <select
                     value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                    onChange={(e) => setNewCategory(e.target.value as MarketingTool['category'])}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white"
                   >
                     <option value="Brosur Digital">Brosur Digital</option>
                     <option value="Banner Promosi">Banner Promosi</option>
                     <option value="Video Presentasi">Video Presentasi</option>
-                    <option value="Panduan Penjualan">Panduan Penjualan</option>
+                    <option value="Panduan Penjualan">
+                      Panduan Penjualan (Proposal Penawaran &amp; Company Profile)
+                    </option>
                     <option value="Materi Pelatihan">Materi Pelatihan</option>
                   </select>
                 </div>
@@ -482,10 +619,19 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </label>
                   <select
                     value={newFileType}
-                    onChange={(e) => setNewFileType(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                    onChange={(e) => {
+                      const nextType = e.target.value as 'pdf' | 'png' | 'jpg' | 'mp4';
+                      setNewFileType(nextType);
+                      setUploadedFileDataUrl('');
+                      setUploadedFileName('');
+                      setUploadedThumbnailUrl('');
+                      setNewFileSize('');
+                      setUploadError(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white"
                   >
-                    <option value="pdf">PDF (Dokumen / Brosur)</option>
+                    <option value="pdf">PDF (Dokumen / Brosur / Proposal / Compro)</option>
                     <option value="png">PNG (Banner Grafis)</option>
                     <option value="jpg">JPG (Foto Promosi)</option>
                     <option value="mp4">MP4 (Video Presentasi)</option>
@@ -493,16 +639,101 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </div>
               </div>
 
+              <p className="text-[11px] text-slate-500 -mt-2">
+                💡 <em>Proposal Penawaran</em> dan <em>Company Profile</em> masuk ke dalam kategori <strong>Panduan Penjualan</strong>.
+              </p>
+
+              {/* Tempat Upload File sesuai Tipe File yang dipilih */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    {currentFileAccept.label}
+                  </label>
+                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-mono text-[10px] font-bold uppercase">
+                    .{newFileType}
+                  </span>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={currentFileAccept.accept}
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="marketing-tool-file-input"
+                />
+
+                {!uploadedFileDataUrl ? (
+                  <label
+                    htmlFor="marketing-tool-file-input"
+                    className="flex flex-col items-center justify-center gap-1.5 p-5 border-2 border-dashed border-blue-300 hover:border-blue-600 rounded-xl bg-white hover:bg-blue-50/40 cursor-pointer transition-all text-center"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-bold text-blue-800">
+                      Klik untuk Memilih File {newFileType.toUpperCase()} dari Perangkat
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      {currentFileAccept.helper}
+                    </span>
+                  </label>
+                ) : (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <FileUp className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-emerald-950 truncate">
+                          {uploadedFileName}
+                        </p>
+                        <p className="text-[11px] font-mono text-emerald-700">
+                          Tipe: {newFileType.toUpperCase()} &bull; Ukuran: {newFileSize}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <label
+                        htmlFor="marketing-tool-file-input"
+                        className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg cursor-pointer"
+                      >
+                        Ganti File
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadedFileDataUrl('');
+                          setUploadedFileName('');
+                          setUploadedThumbnailUrl('');
+                          setNewFileSize('');
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }}
+                        className="p-1 text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"
+                        title="Hapus file terpilih"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <p className="text-xs font-semibold text-red-600">{uploadError}</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Estimasi Ukuran File
+                    Ukuran File (Otomatis / Edit)
                   </label>
                   <input
                     type="text"
+                    placeholder="Contoh: 4.2 MB"
                     value={newFileSize}
                     onChange={(e) => setNewFileSize(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-slate-50 font-mono"
                   />
                 </div>
 
@@ -512,7 +743,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: Pajak Penghasilan Badan"
+                    placeholder="Contoh: Jasa Perpajakan & Hukum"
                     value={newTargetProduct}
                     onChange={(e) => setNewTargetProduct(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
@@ -562,14 +793,14 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
+                  className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors disabled:opacity-50 shadow-xs"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
                 >
                   {isSubmitting ? 'Mengunggah...' : 'Publikasikan ke Mitra'}
                 </button>
@@ -581,3 +812,4 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     </div>
   );
 };
+

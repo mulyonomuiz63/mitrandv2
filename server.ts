@@ -37,7 +37,8 @@ app.use((req: Request, res: Response, next) => {
   next();
 });
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 3. Deep Input Sanitizer (Protects against XSS, Prototype Pollution, Null-Byte & SQL/PostgREST Injection)
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -427,8 +428,26 @@ export interface CommissionSchemeConfig {
   updatedAt?: string;
 }
 
+export interface BonusRewardTier {
+  id: string;
+  no: number;
+  salesTarget: number;
+  rewardName: string;
+  isActive: boolean;
+}
+
+export const DEFAULT_BONUS_REWARD_TIERS: BonusRewardTier[] = [
+  { id: 'tier-1', no: 1, salesTarget: 500000000, rewardName: 'Jalan-Jalan LN', isActive: true },
+  { id: 'tier-2', no: 2, salesTarget: 1000000000, rewardName: 'Motor Baru', isActive: true },
+  { id: 'tier-3', no: 3, salesTarget: 1500000000, rewardName: 'Umroh', isActive: true },
+  { id: 'tier-4', no: 4, salesTarget: 5000000000, rewardName: 'Mobil Baru', isActive: true },
+  { id: 'tier-5', no: 5, salesTarget: 10000000000, rewardName: 'Rumah Baru', isActive: true },
+];
+
 export interface BonusTargetConfig {
   periodType: 'monthly' | 'yearly';
+  monthlyBonusEnabled?: boolean;
+  yearlyBonusEnabled?: boolean;
   targetDealRevenue: number;
   targetClientCount: number;
   standardBonusAmount: number;
@@ -438,6 +457,7 @@ export interface BonusTargetConfig {
   yearlyTargetDealRevenue?: number;
   yearlyTargetClientCount?: number;
   yearlyStandardBonusAmount?: number;
+  rewardTiers?: BonusRewardTier[];
   rewardDescription: string;
   updatedAt?: string;
 }
@@ -457,17 +477,20 @@ export const DEFAULT_COMMISSION_SCHEME: CommissionSchemeConfig = {
 };
 
 export const DEFAULT_BONUS_TARGET_CONFIG: BonusTargetConfig = {
-  periodType: 'monthly',
-  targetDealRevenue: 50000000,
-  targetClientCount: 3,
-  standardBonusAmount: 5000000,
+  periodType: 'yearly',
+  monthlyBonusEnabled: true,
+  yearlyBonusEnabled: true,
+  targetDealRevenue: 500000000,
+  targetClientCount: 12,
+  standardBonusAmount: 25000000,
   monthlyTargetDealRevenue: 50000000,
   monthlyTargetClientCount: 3,
   monthlyStandardBonusAmount: 5000000,
   yearlyTargetDealRevenue: 500000000,
-  yearlyTargetClientCount: 24,
-  yearlyStandardBonusAmount: 50000000,
-  rewardDescription: 'Bonus Tunai Prestasi, Jalan-Jalan ke Luar Negeri, Umroh, Mobil & Rumah',
+  yearlyTargetClientCount: 12,
+  yearlyStandardBonusAmount: 25000000,
+  rewardTiers: DEFAULT_BONUS_REWARD_TIERS,
+  rewardDescription: 'Jalan-Jalan LN, Motor Baru, Umroh, Mobil Baru & Rumah Baru',
 };
 
 export const calculateClientDealCommission = (
