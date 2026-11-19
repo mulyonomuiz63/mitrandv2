@@ -83,6 +83,14 @@ const ResponsiveIdCardScaler: React.FC<{
   );
 };
 
+const getCardNameStyle = (name?: string) => {
+  const len = (name || '').trim().length;
+  if (len > 45) return 'text-[11px] leading-tight';
+  if (len > 32) return 'text-xs leading-snug';
+  if (len > 22) return 'text-sm leading-snug';
+  return 'text-lg leading-snug';
+};
+
 interface ExclusiveIdCardProps {
   mitra: Mitra;
   onEditProfile: () => void;
@@ -299,14 +307,14 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 </div>
 
                 {/* Name, Specialization & Single-Line Member ID */}
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-lg font-bold text-white tracking-tight leading-snug truncate font-display">
+                <div className="min-w-0 flex-1 flex flex-col justify-center">
+                  <h2 className={`${getCardNameStyle(mitra.fullName)} font-bold text-white tracking-tight font-display break-words`}>
                     {mitra.fullName}
                   </h2>
                   <p className="text-xs text-amber-300/95 font-medium mt-0.5 truncate">
                     {mitra.specialization}
                   </p>
-                  <div className="mt-2.5 flex items-center gap-2 whitespace-nowrap">
+                  <div className="mt-2 flex items-center gap-2 whitespace-nowrap">
                     <span className="text-[10px] uppercase font-semibold text-slate-300/90 tracking-wider shrink-0">
                       ID MITRA:
                     </span>
@@ -364,13 +372,22 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               )}
             </div>
 
-            {/* Card Footer: Office Address from Admin Settings */}
-            <div className="flex items-end justify-between pt-2 border-t border-white/10">
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-medium text-slate-200 leading-snug line-clamp-2">
-                  {officeAddress || 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950'}
-                </p>
-              </div>
+            {/* Card Footer: Office Address from Admin Settings & WhatsApp Mitra */}
+            <div className="pt-1.5 border-t border-white/10 flex flex-col justify-end">
+              <p className="text-[9.5px] font-medium text-slate-200 leading-tight line-clamp-2">
+                {officeAddress || 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950'}
+              </p>
+              {mitra.phone && (
+                <div className="flex items-center gap-1.5 mt-1 text-slate-200">
+                  <svg className="w-2.5 h-2.5 text-[#25D366] shrink-0" viewBox="0 0 32 32" fill="currentColor">
+                    <path d="M16.004 3.2c-7.068 0-12.8 5.732-12.8 12.8 0 2.257.59 4.46 1.71 6.404L3.09 28.8l6.565-1.722a12.742 12.742 0 0 0 6.349 1.682h.005c7.068 0 12.8-5.732 12.8-12.8 0-3.42-1.332-6.635-3.75-9.054A12.716 12.716 0 0 0 16.004 3.2zm0 23.398h-.004a10.61 10.61 0 0 1-5.409-1.482l-.388-.23-4.022 1.055 1.073-3.92-.252-.402a10.583 10.583 0 0 1-1.628-5.659c0-5.862 4.77-10.631 10.634-10.631 2.84 0 5.509 1.106 7.516 3.115a10.562 10.562 0 0 1 3.112 7.517c0 5.863-4.77 10.637-10.632 10.637zm5.832-7.965c-.32-.16-1.892-.934-2.186-1.04-.293-.107-.506-.16-.72.16-.213.32-.826 1.04-1.013 1.253-.186.214-.373.24-.693.08-.32-.16-1.351-.498-2.573-1.588-.951-.848-1.593-1.896-1.78-2.216-.186-.32-.02-.493.14-.653.144-.143.32-.373.48-.56.16-.186.213-.32.32-.533.107-.213.053-.4-.027-.56-.08-.16-.72-1.734-.986-2.374-.26-.624-.524-.54-.72-.55l-.613-.01c-.213 0-.56.08-.853.4-.293.32-1.12 1.093-1.12 2.667 0 1.573 1.146 3.093 1.306 3.307.16.213 2.256 3.445 5.465 4.83.764.33 1.36.527 1.824.675.766.243 1.464.209 2.015.127.615-.092 1.892-.773 2.159-1.52.266-.747.266-1.387.186-1.52-.08-.133-.293-.213-.613-.373z" />
+                  </svg>
+                  <span className="text-[9px] font-semibold text-slate-300">WhatsApp:</span>
+                  <span className="font-mono text-[9.5px] font-bold text-white tracking-wide">
+                    {mitra.phone}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -382,7 +399,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               </p>
               <div className="space-y-2.5 text-xs text-slate-200 leading-relaxed">
                 <p>
-                  1. Kartu ini merupakan identitas resmi kemitraan profesional NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
+                  1. Kartu ini merupakan identitas resmi kemitraan NDTAXANDLAW. Segala penyalahgunaan wewenang akan ditindak sesuai kode etik dan hukum yang berlaku.
                 </p>
                 <p>
                   2. Pindai QR Code untuk memvalidasi keabsahan surat tugas atau mandat pendampingan klien.
