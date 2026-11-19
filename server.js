@@ -3732,6 +3732,265 @@ app.post("/api/auth/login", async (req, res) => {
     message: "Akun tidak ditemukan atau belum terdaftar"
   });
 });
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    const { credential, idToken, accessToken, email: directEmail, name: directName, picture: directPicture } = req.body;
+    let googleEmail = directEmail || "";
+    let googleName = directName || "";
+    let googlePicture = directPicture || "";
+    const rawToken = credential || idToken;
+    if (rawToken && typeof rawToken === "string") {
+      try {
+        const parts = rawToken.split(".");
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf-8"));
+          if (payload.email) googleEmail = payload.email;
+          if (payload.name) googleName = payload.name;
+          if (payload.picture) googlePicture = payload.picture;
+        }
+      } catch (jwtErr) {
+        console.warn("[Google Auth JWT Decode Warning]", jwtErr);
+      }
+    }
+    if (!googleEmail && accessToken && typeof accessToken === "string") {
+      try {
+        const gRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          if (gData.email) googleEmail = gData.email;
+          if (gData.name) googleName = gData.name;
+          if (gData.picture) googlePicture = gData.picture;
+        }
+      } catch (gErr) {
+        console.warn("[Google UserInfo Fetch Warning]", gErr);
+      }
+    }
+    const normalizedEmail = (googleEmail || "").trim().toLowerCase();
+    if (!normalizedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Kredensial akun Google tidak valid atau email tidak terdeteksi."
+      });
+    }
+    const isAdminMatch = normalizedEmail === adminAccount.email.toLowerCase() || normalizedEmail === "admin@ndtaxandlaw.com" || normalizedEmail === "admin@ndtaxlaw.com";
+    if (isAdminMatch) {
+      const roleDef2 = getRoleDefinition("admin");
+      recordActivity({
+        actorRole: "admin",
+        actorId: adminAccount.id,
+        actorName: adminAccount.name,
+        actorEmail: adminAccount.email,
+        actionType: "login",
+        operation: "LOGIN",
+        targetEntity: "Autentikasi Google Admin",
+        description: `Admin Operasional (${adminAccount.email}) berhasil login melalui Google OAuth.`
+      });
+      saveDatabase();
+      return res.json({
+        success: true,
+        user: {
+          id: adminAccount.id,
+          name: adminAccount.name,
+          email: adminAccount.email,
+          phone: adminAccount.phone || "0812-8899-7711",
+          position: adminAccount.position || "Super Administrator Operasional",
+          role: "admin",
+          roleCode: "admin",
+          roleName: roleDef2.name,
+          portalView: "admin",
+          defaultTab: "dashboard",
+          allowedTabs: [
+            "dashboard",
+            "admin-operations",
+            "verification",
+            "activity-logs",
+            "marketing-tools",
+            "commissions",
+            "staff-management",
+            "ai-reports",
+            "idcard",
+            "chat"
+          ],
+          permissions: roleDef2.permissions,
+          gender: adminAccount.gender || "male",
+          avatarUrl: googlePicture || resolveAvatarUrl(adminAccount.avatarUrl, adminAccount.gender || "male", adminAccount.name)
+        },
+        environment: appSettings.appEnvironment
+      });
+    }
+    const altStaffEmail = normalizedEmail.endsWith("@ndtaxandlaw.com") ? normalizedEmail.replace("@ndtaxandlaw.com", "@ndtaxlaw.com") : normalizedEmail.endsWith("@ndtaxlaw.com") ? normalizedEmail.replace("@ndtaxlaw.com", "@ndtaxandlaw.com") : normalizedEmail;
+    const staffMember = staffAccounts.find(
+      (s) => s.email.toLowerCase() === normalizedEmail || s.email.toLowerCase() === altStaffEmail
+    );
+    if (staffMember) {
+      if (!staffMember.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Akun Staf Anda sedang dinonaktifkan oleh Admin. Silakan hubungi Administrator."
+        });
+      }
+      const allowedMenus = Array.isArray(staffMember.allowedMenus) && staffMember.allowedMenus.length > 0 ? staffMember.allowedMenus : [...DEFAULT_STAFF_ALLOWED_MENUS];
+      const staffNavTabs = ["dashboard", "admin-operations", "verification", "marketing-tools", "commissions"].filter(
+        (t) => allowedMenus.includes(t)
+      );
+      const effectiveAllowedTabs = [
+        ...staffNavTabs.length > 0 ? staffNavTabs : ["dashboard"],
+        "idcard",
+        "ai-reports"
+      ];
+      const defaultStaffTab = staffNavTabs[0] || "dashboard";
+      const resolvedStaffGender = staffMember.gender || inferGenderFromName(staffMember.name);
+      const resolvedStaffAvatar = googlePicture || resolveAvatarUrl(staffMember.avatarUrl, resolvedStaffGender, staffMember.name);
+      recordActivity({
+        actorRole: "staff",
+        actorId: staffMember.id,
+        actorName: staffMember.name,
+        actorEmail: staffMember.email,
+        actionType: "login",
+        operation: "LOGIN",
+        targetEntity: "Autentikasi Google Staf",
+        description: `Staf Operasional "${staffMember.name}" (${staffMember.email}) berhasil login melalui Google OAuth.`
+      });
+      saveDatabase();
+      return res.json({
+        success: true,
+        user: {
+          id: staffMember.id,
+          staffId: staffMember.id,
+          name: staffMember.name,
+          email: staffMember.email,
+          phone: staffMember.phone,
+          position: staffMember.position,
+          role: "admin",
+          roleCode: "staff",
+          roleName: staffMember.position || "Staf Operasional",
+          portalView: "admin",
+          defaultTab: defaultStaffTab,
+          allowedTabs: effectiveAllowedTabs,
+          allowedMenus,
+          permissions: ["staff_access", ...allowedMenus],
+          gender: resolvedStaffGender,
+          avatarUrl: resolvedStaffAvatar
+        },
+        environment: appSettings.appEnvironment
+      });
+    }
+    if (supabase) {
+      try {
+        const { data: dbMitras, error: errM } = await supabase.from("mitras").select("*");
+        if (!errM && Array.isArray(dbMitras)) {
+          mitras = normalizeMitraAvatars(dbMitras);
+        }
+      } catch {
+      }
+    }
+    let mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+    if (!mitra) {
+      const newMitraId = `mitra-${Date.now()}`;
+      const memberCode = formatMitraMemberCode("", newMitraId);
+      const referralCode = `ND-REF-${Math.floor(1e3 + Math.random() * 9e3)}`;
+      const resolvedGender2 = inferGenderFromName(googleName || "Mitra");
+      const resolvedAvatar2 = googlePicture || resolveAvatarUrl(void 0, resolvedGender2, googleName);
+      mitra = {
+        id: newMitraId,
+        memberCode,
+        referralCode,
+        fullName: googleName || "Mitra Google",
+        email: normalizedEmail,
+        phone: "",
+        nik: "",
+        specialization: "Business Partner",
+        status: "pending",
+        avatarUrl: resolvedAvatar2,
+        joinedDate: (/* @__PURE__ */ new Date()).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }),
+        bankDetails: {
+          bankName: "Bank Central Asia (BCA)",
+          accountNumber: "",
+          accountHolder: googleName || "Mitra"
+        },
+        totalCommission: 0,
+        totalBonus: 0,
+        pendingPayout: 0,
+        paidPayout: 0,
+        referredClientsCount: 0,
+        activeSubscribersCount: 0,
+        gender: resolvedGender2,
+        emailVerified: true
+      };
+      mitras.unshift(mitra);
+      if (supabase) {
+        try {
+          await supabase.from("mitras").insert([mitra]);
+        } catch (supaErr) {
+          console.warn("[Supabase Mitra Google Register Warning]", supaErr);
+        }
+      }
+      saveDatabase();
+      recordActivity({
+        actorRole: "mitra",
+        actorId: mitra.id,
+        actorName: mitra.fullName,
+        actorEmail: mitra.email,
+        actionType: "register",
+        operation: "CREATE",
+        targetEntity: "Pendaftaran Mitra Baru via Google OAuth",
+        description: `Mitra baru "${mitra.fullName}" (${mitra.memberCode}) berhasil terdaftar via Google OAuth.`
+      });
+    }
+    if (mitra.emailVerified === false) {
+      mitra.emailVerified = true;
+      if (supabase) {
+        try {
+          await supabase.from("mitras").update({ emailVerified: true }).eq("id", mitra.id);
+        } catch {
+        }
+      }
+      saveDatabase();
+    }
+    const roleDef = getRoleDefinition("mitra");
+    const resolvedGender = mitra.gender || inferGenderFromName(mitra.fullName);
+    const resolvedAvatar = googlePicture || resolveAvatarUrl(mitra.avatarUrl, resolvedGender, mitra.fullName);
+    recordActivity({
+      actorRole: "mitra",
+      actorId: mitra.id,
+      actorName: mitra.fullName,
+      actorEmail: mitra.email,
+      actionType: "login",
+      operation: "LOGIN",
+      targetEntity: "Autentikasi Google Mitra",
+      description: `Mitra ${mitra.fullName} (${mitra.memberCode}) berhasil login melalui Google OAuth.`
+    });
+    saveDatabase();
+    return res.json({
+      success: true,
+      user: {
+        id: mitra.id,
+        name: mitra.fullName,
+        email: mitra.email,
+        role: roleDef.portalView,
+        roleCode: roleDef.code,
+        roleName: roleDef.name,
+        portalView: roleDef.portalView,
+        defaultTab: roleDef.defaultTab,
+        allowedTabs: roleDef.allowedTabs,
+        permissions: roleDef.permissions,
+        mitraId: mitra.id,
+        referralCode: mitra.referralCode,
+        gender: resolvedGender,
+        avatarUrl: resolvedAvatar
+      },
+      environment: appSettings.appEnvironment
+    });
+  } catch (err) {
+    console.error("[Google OAuth Error]", err);
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Terjadi kesalahan saat memproses login Google."
+    });
+  }
+});
 var persistAdminAndStaffToCloud = async () => {
   saveDatabase();
   if (supabase) {
