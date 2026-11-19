@@ -424,14 +424,15 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
 
       {/* Inspect Detail Modal */}
       {selectedMitraDetail && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
-            <div className="flex items-start justify-between pb-4 border-b border-slate-200">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden">
+            {/* Modal Header (Fixed, Always Visible) */}
+            <div className="flex items-start justify-between p-5 sm:p-6 border-b border-slate-200 shrink-0 bg-white">
               <div className="flex items-center gap-3">
                 <img
                   src={selectedMitraDetail.avatarUrl}
                   alt={selectedMitraDetail.fullName}
-                  className="w-12 h-12 rounded-xl object-cover ring-2 ring-blue-600/20"
+                  className="w-12 h-12 rounded-xl object-cover ring-2 ring-blue-600/20 shrink-0"
                 />
                 <div>
                   <h3 className="text-base font-bold text-slate-900 font-display">
@@ -456,14 +457,17 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedMitraDetail(null)}
-                className="text-slate-400 hover:text-slate-700 text-lg font-bold"
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                title="Tutup"
               >
-                &times;
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="my-4 space-y-3 text-xs">
+            {/* Modal Body (Scrollable) */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-3.5 text-xs">
               {selectedMitraDetail.status === 'rejected' && selectedMitraDetail.rejectionReason && (
                 <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900">
                   <p className="font-bold text-red-800 flex items-center gap-1.5">
@@ -704,11 +708,12 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+            {/* Modal Footer (Fixed, Always Visible) */}
+            <div className="flex items-center justify-end gap-2 p-4 sm:px-6 border-t border-slate-200 shrink-0 bg-slate-50 rounded-b-2xl">
               <button
                 type="button"
                 onClick={() => setSelectedMitraDetail(null)}
-                className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
               >
                 Tutup
               </button>
@@ -722,14 +727,14 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                       setSelectedMitraDetail(null);
                       openRejectModal(target);
                     }}
-                    className="px-3 py-2 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200"
+                    className="px-3.5 py-2 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 cursor-pointer transition-colors"
                   >
                     Tolak Data &amp; Beri Keterangan
                   </button>
                   <button
                     type="button"
                     onClick={() => handleApproveAction(selectedMitraDetail.id)}
-                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs flex items-center gap-1.5"
+                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Approve (Lulus Verifikasi)</span>
@@ -743,9 +748,9 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
 
       {/* Modal Input Alasan Penolakan Data Mitra */}
       {mitraToReject && (
-        <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-start justify-between pb-4 border-b border-slate-200">
+        <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200 shrink-0 bg-white">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-red-100 border border-red-200 text-red-700 flex items-center justify-center shrink-0">
                   <XCircle className="w-5 h-5" />
@@ -768,62 +773,64 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleConfirmRejectSubmit} className="mt-4 space-y-4">
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
-                <div><span className="text-slate-500">Nama Mitra:</span> <strong className="text-slate-900">{mitraToReject.fullName}</strong></div>
-                <div><span className="text-slate-500">NIK KTP:</span> <strong className="font-mono text-slate-800">{mitraToReject.nik}</strong></div>
-                <div><span className="text-slate-500">Rekening Bank:</span> <strong className="text-slate-800">{mitraToReject.bankDetails.bankName} - {mitraToReject.bankDetails.accountNumber} (a.n. {mitraToReject.bankDetails.accountHolder})</strong></div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  Pilih Cepat Alasan Penolakan (Atau Ketik Manual di Bawah):
-                </label>
-                <div className="flex flex-wrap gap-1.5 mb-2.5">
-                  {REJECTION_REASON_PRESETS.map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setRejectionReasonInput(preset)}
-                      className={`text-left text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
-                        rejectionReasonInput === preset
-                          ? 'bg-red-600 text-white border-red-600 font-semibold'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {preset}
-                    </button>
-                  ))}
+            <form onSubmit={handleConfirmRejectSubmit} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                  <div><span className="text-slate-500">Nama Mitra:</span> <strong className="text-slate-900">{mitraToReject.fullName}</strong></div>
+                  <div><span className="text-slate-500">NIK KTP:</span> <strong className="font-mono text-slate-800">{mitraToReject.nik}</strong></div>
+                  <div><span className="text-slate-500">Rekening Bank:</span> <strong className="text-slate-800">{mitraToReject.bankDetails.bankName} - {mitraToReject.bankDetails.accountNumber} (a.n. {mitraToReject.bankDetails.accountHolder})</strong></div>
                 </div>
 
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Keterangan Alasan Ditolak (Tampil di Portal Mitra) *
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={rejectionReasonInput}
-                  onChange={(e) => setRejectionReasonInput(e.target.value)}
-                  placeholder="Tuliskan alasan mengapa data mitra ditolak dan bagian mana yang harus diperbaiki..."
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
-                />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Keterangan ini akan langsung tampil di halaman Mitra agar Mitra dapat memperbaiki datanya dan mengajukan verifikasi ulang.
-                </p>
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    Pilih Cepat Alasan Penolakan (Atau Ketik Manual di Bawah):
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 mb-2.5">
+                    {REJECTION_REASON_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setRejectionReasonInput(preset)}
+                        className={`text-left text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
+                          rejectionReasonInput === preset
+                            ? 'bg-red-600 text-white border-red-600 font-semibold'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Keterangan Alasan Ditolak (Tampil di Portal Mitra) *
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={rejectionReasonInput}
+                    onChange={(e) => setRejectionReasonInput(e.target.value)}
+                    placeholder="Tuliskan alasan mengapa data mitra ditolak dan bagian mana yang harus diperbaiki..."
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Keterangan ini akan langsung tampil di halaman Mitra agar Mitra dapat memperbaiki datanya dan mengajukan verifikasi ulang.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              <div className="flex items-center justify-end gap-2 p-4 sm:px-6 border-t border-slate-200 shrink-0 bg-slate-50 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => setMitraToReject(null)}
-                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100"
+                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
                 >
                   Batalkan
                 </button>
                 <button
                   type="submit"
                   disabled={actionLoadingId === mitraToReject.id}
-                  className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm transition-colors"
+                  className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm transition-colors cursor-pointer"
                 >
                   Tolak Data &amp; Kirim Keterangan
                 </button>

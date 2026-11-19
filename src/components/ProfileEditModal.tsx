@@ -609,9 +609,6 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-600 mt-0.5">
-                        Format didukung: <strong>JPG, JPEG, PNG, atau PDF</strong> (otomatis dikompres &amp; disimpan permanen).
-                      </p>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
