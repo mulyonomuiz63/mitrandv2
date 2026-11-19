@@ -344,7 +344,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     section: 'bank',
     label: 'Nomor Rekening Bank',
-    type: 'text',
+    type: 'number',
     placeholder: 'Contoh: 8830192837',
     required: true,
     isActive: true,
@@ -5038,6 +5038,14 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     if (mitra.customFields && Object.keys(mitra.customFields).length > 0) {
       mergedBank.__customFields = mitra.customFields;
     }
+    if (bankDetails && typeof bankDetails.accountNumber === 'string') {
+      const rawAcc = bankDetails.accountNumber.trim();
+      if (rawAcc === '-') {
+        mergedBank.accountNumber = '';
+      } else {
+        mergedBank.accountNumber = rawAcc.replace(/\D/g, '');
+      }
+    }
     if (wasRejected || resubmitVerification) {
       delete mergedBank.__rejectionReason;
       delete mergedBank.__rejectedAt;
@@ -7249,6 +7257,11 @@ app.get('/api/settings', async (req: Request, res: Response) => {
       appSettings.mitraCustomFields = nextFields;
       settingsMigrated = true;
     }
+  }
+  const accDefField = currentMitraFields.find((f) => f.systemKey === 'accountNumber');
+  if (accDefField && accDefField.type === 'text') {
+    accDefField.type = 'number';
+    settingsMigrated = true;
   }
   if (!appSettings.clientFieldsInitialized) {
     const existingClient = Array.isArray(appSettings.clientCustomFields) ? appSettings.clientCustomFields : [];

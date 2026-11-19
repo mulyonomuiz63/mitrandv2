@@ -1637,7 +1637,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                   </label>
                                   <select
                                     value={editMitraType}
-                                    disabled={isDefaultField}
+                                    disabled={isDefaultField && field.systemKey !== 'accountNumber'}
                                     onChange={(e: any) => setEditMitraType(e.target.value)}
                                     className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white disabled:bg-slate-100"
                                   >
@@ -1696,7 +1696,10 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                           ? {
                                               ...f,
                                               label: trimmed,
-                                              type: isDefaultField ? f.type : editMitraType,
+                                              type:
+                                                isDefaultField && field.systemKey !== 'accountNumber'
+                                                  ? f.type
+                                                  : editMitraType,
                                               placeholder: editMitraPlaceholder.trim(),
                                               required: editMitraRequired,
                                               options:
@@ -2221,7 +2224,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                   </label>
                                   <select
                                     value={editMitraType}
-                                    disabled={isDefaultField}
+                                    disabled={isDefaultField && field.systemKey !== 'accountNumber'}
                                     onChange={(e: any) => setEditMitraType(e.target.value)}
                                     className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white disabled:bg-slate-100"
                                   >
@@ -2280,7 +2283,10 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                           ? {
                                               ...f,
                                               label: trimmed,
-                                              type: isDefaultField ? f.type : editMitraType,
+                                              type:
+                                                isDefaultField && field.systemKey !== 'accountNumber'
+                                                  ? f.type
+                                                  : editMitraType,
                                               placeholder: editMitraPlaceholder.trim(),
                                               required: editMitraRequired,
                                               options:

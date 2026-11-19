@@ -143,9 +143,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       : mitra.bankDetails.bankName
   );
   const [accountNumber, setAccountNumber] = useState(
-    !mitra.bankDetails?.accountNumber || mitra.bankDetails.accountNumber === '-'
+    !mitra.bankDetails?.accountNumber ||
+    mitra.bankDetails.accountNumber.trim() === '-' ||
+    !/^\d+$/.test(mitra.bankDetails.accountNumber.trim())
       ? ''
-      : mitra.bankDetails.accountNumber
+      : mitra.bankDetails.accountNumber.trim()
   );
   const [accountHolder, setAccountHolder] = useState(
     !mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder === '-'
@@ -201,9 +203,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         : mitra.bankDetails.bankName
     );
     setAccountNumber(
-      !mitra.bankDetails?.accountNumber || mitra.bankDetails.accountNumber === '-'
+      !mitra.bankDetails?.accountNumber ||
+      mitra.bankDetails.accountNumber.trim() === '-' ||
+      !/^\d+$/.test(mitra.bankDetails.accountNumber.trim())
         ? ''
-        : mitra.bankDetails.accountNumber
+        : mitra.bankDetails.accountNumber.trim()
     );
     setAccountHolder(
       !mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder === '-'
@@ -313,6 +317,16 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setErrorMessage(
         'Dokumen File KTP / NPWP wajib diunggah (Format JPG, JPEG, PNG, atau PDF) untuk kelengkapan verifikasi.'
       );
+      return;
+    }
+    if (isSysActive('accountNumber') && getSysField('accountNumber')?.required !== false) {
+      const cleanAcc = (accountNumber || '').trim();
+      if (!cleanAcc || cleanAcc === '-' || !/^\d+$/.test(cleanAcc)) {
+        setErrorMessage('Nomor Rekening Bank wajib diisi dengan angka yang valid (hanya angka).');
+        return;
+      }
+    } else if (accountNumber && (!/^\d+$/.test(accountNumber.trim()) || accountNumber.trim() === '-')) {
+      setErrorMessage('Nomor Rekening Bank harus berupa angka (hanya angka).');
       return;
     }
     for (const f of activeMitraCustomFields) {
@@ -900,11 +914,17 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                         </label>
                         <input
                           type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder={getSysField('accountNumber')?.placeholder || 'Contoh: 8830192837'}
                           required={getSysField('accountNumber')?.required !== false}
                           value={accountNumber}
-                          onChange={(e) => setAccountNumber(e.target.value)}
-                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                          onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                         />
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          * Wajib diisi angka saja tanpa tanda hubung (-), spasi, atau huruf
+                        </p>
                       </div>
                     )}
                     {isSysActive('accountHolder') && (

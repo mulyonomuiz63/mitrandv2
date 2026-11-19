@@ -171,7 +171,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     section: 'bank',
     isDefault: true,
     label: 'Nomor Rekening Bank',
-    type: 'text',
+    type: 'number',
     placeholder: 'Contoh: 8830192837',
     required: true,
     isActive: true,
@@ -327,7 +327,8 @@ export function isMitraDataIncomplete(mitra?: Mitra | null, settings?: AppSettin
     isFieldActive('accountNumber') &&
     (!mitra.bankDetails?.accountNumber ||
       mitra.bankDetails.accountNumber.trim() === '' ||
-      mitra.bankDetails.accountNumber.trim() === '-');
+      mitra.bankDetails.accountNumber.trim() === '-' ||
+      !/^\d+$/.test(mitra.bankDetails.accountNumber.trim()));
   const missingBankName =
     isFieldActive('bankName') &&
     (!mitra.bankDetails?.bankName ||
@@ -1243,6 +1244,13 @@ export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFo
         section: inferredSection,
         label: f.label || specLabel,
         isActive: settings?.specializationEnabled !== undefined ? specEnabled : f.isActive,
+      };
+    }
+    if (f.systemKey === 'accountNumber') {
+      return {
+        ...f,
+        type: f.type === 'text' ? 'number' : (f.type || 'number'),
+        section: inferredSection,
       };
     }
     return {
