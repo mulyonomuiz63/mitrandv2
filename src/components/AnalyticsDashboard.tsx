@@ -18,7 +18,6 @@ import {
   ClientDeal,
   CommissionTransaction,
   AppSettings,
-  DEFAULT_BONUS_TARGET_CONFIG,
 } from '../types';
 
 interface AnalyticsDashboardProps {
@@ -42,14 +41,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   settings,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('November 2026');
-
-  const bonusTarget = {
-    ...DEFAULT_BONUS_TARGET_CONFIG,
-    ...(settings?.bonusTargetConfig || {}),
-  };
-  const mBonusEnabled = bonusTarget.monthlyBonusEnabled !== false;
-  const yBonusEnabled = bonusTarget.yearlyBonusEnabled !== false;
-  const anyBonusEnabled = mBonusEnabled || yBonusEnabled;
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -394,8 +385,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
       </div>
 
-      {/* UPGRADED & IMMEDIATELY VISIBLE REWARD SHOWCASE FOR MITRA (POSITIONED BELOW CHART, HIDDEN WHEN BOTH MONTHLY & YEARLY BONUS TARGETS ARE OFF) */}
-      {userRole === 'mitra' && anyBonusEnabled && (() => {
+      {/* UPGRADED & IMMEDIATELY VISIBLE REWARD SHOWCASE FOR MITRA (POSITIONED BELOW CHART, ALWAYS VISIBLE FOR MITRA) */}
+      {userRole === 'mitra' && (() => {
         const rewardTiers = [
           {
             tier: 'TIER 1',

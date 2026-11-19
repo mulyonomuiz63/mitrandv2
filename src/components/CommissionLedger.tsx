@@ -696,8 +696,8 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
             )}
           </div>
 
-          {/* Tabel Capaian Penjualan & Hadiah/Bonus (5 Tier Resmi) */}
-          {anyBonusEnabled && activeTiers.length > 0 && (
+          {/* Tabel Capaian Penjualan & Hadiah/Bonus (5 Tier Resmi - Tetap Berjalan) */}
+          {activeTiers.length > 0 && (
             <div className="mb-7 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/80">
                 <div>
