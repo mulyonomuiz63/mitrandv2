@@ -31,7 +31,7 @@ import {
   ServerDataTableFooter,
   parseClientRecordTimestamp,
 } from './ServerDataTableControls';
-import { TableSkeletonRows, CardGridSkeleton } from './SkeletonLoader';
+import { TableSkeletonRows, CardGridSkeleton, ImageWithSkeleton } from './SkeletonLoader';
 
 interface MarketingToolsHubProps {
   tools: MarketingTool[];
@@ -908,10 +908,12 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                           </span>
                         </div>
                       ) : (
-                        <img
+                        <ImageWithSkeleton
                           src={imageSource}
                           alt={tool.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          containerClassName="w-full h-full"
+                          rounded="rounded-none"
                         />
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent pointer-events-none" />

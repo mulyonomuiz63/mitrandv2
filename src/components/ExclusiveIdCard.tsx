@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Mitra, isMitraDataIncomplete } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
-import { Skeleton } from './SkeletonLoader';
+import { Skeleton, ImageWithSkeleton } from './SkeletonLoader';
 
 const CARD_BASE_WIDTH = 500;
 const CARD_BASE_HEIGHT = 315;
@@ -288,10 +288,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 {/* Avatar Frame with Gold Rim */}
                 <div className="relative shrink-0">
                   <div className="w-20 h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
-                    <img
+                    <ImageWithSkeleton
                       src={mitra.avatarUrl}
                       alt={mitra.fullName}
                       className="w-full h-full object-cover rounded-[10px]"
+                      containerClassName="w-full h-full"
+                      rounded="rounded-[10px]"
                     />
                   </div>
                 </div>
@@ -324,10 +326,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   title="Scan QR Code ini langsung dengan kamera HP atau klik untuk memperbesar"
                 >
                   {qrDataUrl ? (
-                    <img
+                    <ImageWithSkeleton
                       src={qrDataUrl}
                       alt={`QR Code Verifikasi ${mitra.fullName}`}
                       className="w-20 h-20 object-contain"
+                      containerClassName="w-20 h-20"
+                      rounded="rounded-none"
                     />
                   ) : (
                     <div className="w-20 h-20 flex items-center justify-center">
@@ -341,10 +345,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               ) : (
                 <div className="qr-light-box shrink-0 bg-white p-1.5 rounded-xl shadow-lg border-2 border-amber-300/80 flex flex-col items-center">
                   {qrDataUrl ? (
-                    <img
+                    <ImageWithSkeleton
                       src={qrDataUrl}
                       alt={`QR Code Verifikasi ${mitra.fullName}`}
                       className="w-20 h-20 object-contain"
+                      containerClassName="w-20 h-20"
+                      rounded="rounded-none"
                     />
                   ) : (
                     <div className="w-20 h-20 flex items-center justify-center">

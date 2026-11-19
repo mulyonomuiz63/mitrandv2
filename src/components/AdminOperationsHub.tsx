@@ -62,6 +62,7 @@ import {
   parseClientRecordTimestamp,
   TableSkeletonRows,
 } from './ServerDataTableControls';
+import { ImageWithSkeleton } from './SkeletonLoader';
 
 export type AdminSubTab =
   | 'client_validation'
@@ -1709,10 +1710,12 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     mitraAnalysisDt.rows.map((m) => (
                       <tr key={m.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-3 font-semibold text-slate-900 flex items-center gap-2.5">
-                          <img
+                          <ImageWithSkeleton
                             src={m.avatarUrl}
                             alt={m.fullName}
                             className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-300"
+                            containerClassName="w-8 h-8 shrink-0"
+                            rounded="rounded-full"
                           />
                           <div>
                             <div>{m.fullName}</div>

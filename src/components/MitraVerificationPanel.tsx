@@ -22,6 +22,7 @@ import {
   parseClientRecordTimestamp,
   TableSkeletonRows,
 } from './ServerDataTableControls';
+import { ImageWithSkeleton } from './SkeletonLoader';
 
 interface MitraVerificationPanelProps {
   mitras: Mitra[];
@@ -267,10 +268,12 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                   <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
-                        <img
+                        <ImageWithSkeleton
                           src={m.avatarUrl}
                           alt={m.fullName}
                           className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200"
+                          containerClassName="w-9 h-9 shrink-0"
+                          rounded="rounded-full"
                         />
                         <div>
                           <p className="font-bold text-slate-900 leading-snug font-display">
@@ -432,10 +435,12 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             {/* Modal Header (Fixed, Always Visible) */}
             <div className="flex items-start justify-between p-5 sm:p-6 border-b border-slate-200 shrink-0 bg-white">
               <div className="flex items-center gap-3">
-                <img
+                <ImageWithSkeleton
                   src={selectedMitraDetail.avatarUrl}
                   alt={selectedMitraDetail.fullName}
-                  className="w-12 h-12 rounded-xl object-cover ring-2 ring-blue-600/20 shrink-0"
+                  className="w-12 h-12 rounded-xl object-cover ring-2 ring-blue-600/20"
+                  containerClassName="w-12 h-12 shrink-0"
+                  rounded="rounded-xl"
                 />
                 <div>
                   <h3 className="text-base font-bold text-slate-900 font-display">
@@ -624,10 +629,11 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                     {ktpUrl && !isPdf && (
                       <div className="pt-1">
                         <a href={ktpUrl} target="_blank" rel="noopener noreferrer" className="block">
-                          <img
+                          <ImageWithSkeleton
                             src={ktpUrl}
                             alt="Berkas KTP/NPWP Mitra"
                             className="max-h-36 rounded-lg border border-slate-200 object-contain bg-white p-1"
+                            rounded="rounded-lg"
                           />
                         </a>
                       </div>

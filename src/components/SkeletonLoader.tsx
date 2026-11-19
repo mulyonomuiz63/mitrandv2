@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 /**
  * Base shimmering Skeleton block
@@ -28,6 +28,62 @@ export const Skeleton: React.FC<SkeletonProps> = ({
       }}
       {...props}
     />
+  );
+};
+
+/**
+ * Image wrapper with automatic Skeleton Screen while the image is loading
+ */
+export interface ImageWithSkeletonProps extends React.ImgHTMLAttributes<HTMLImageElement> {
+  skeletonClassName?: string;
+  containerClassName?: string;
+  rounded?: string;
+}
+
+export const ImageWithSkeleton: React.FC<ImageWithSkeletonProps> = ({
+  src,
+  alt = '',
+  className = '',
+  skeletonClassName = '',
+  containerClassName = '',
+  rounded = 'rounded-md',
+  onLoad,
+  onError,
+  ...props
+}) => {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setIsLoaded(false);
+    setHasError(false);
+  }, [src]);
+
+  return (
+    <div className={`relative overflow-hidden ${rounded} ${containerClassName}`}>
+      {!isLoaded && !hasError && (
+        <Skeleton
+          className={`absolute inset-0 w-full h-full z-10 ${skeletonClassName}`}
+          rounded={rounded}
+        />
+      )}
+      <img
+        src={src}
+        alt={alt}
+        onLoad={(e) => {
+          setIsLoaded(true);
+          onLoad?.(e);
+        }}
+        onError={(e) => {
+          setHasError(true);
+          onError?.(e);
+        }}
+        className={`${rounded} transition-opacity duration-300 ${
+          isLoaded ? 'opacity-100' : 'opacity-0'
+        } ${className}`}
+        {...props}
+      />
+    </div>
   );
 };
 
@@ -309,24 +365,6 @@ export const PageLoadingSkeleton: React.FC<{
 
       {/* Main Content Skeleton Area */}
       <main className="flex-1 max-w-7xl mx-auto w-full py-8 px-4 sm:px-6 lg:px-8 space-y-6">
-        {/* Subtle Brand Loading Status Indicator */}
-        <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-[#092147]/5 via-[#113872]/10 to-[#061835]/5 border border-blue-200">
-          <div className="flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-blue-700 border-t-transparent rounded-full animate-spin" />
-            <div>
-              <p className="text-xs font-bold text-slate-800">
-                Menghubungkan ke Server Database...
-              </p>
-              <p className="text-[11px] text-slate-500">
-                Memuat data profil, transaksi komisi, dan parameter sistem.
-              </p>
-            </div>
-          </div>
-          <span className="text-[11px] font-mono font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
-            SINKRONISASI REALTIME
-          </span>
-        </div>
-
         {/* Dashboard Skeleton Layout */}
         <DashboardSkeleton />
       </main>

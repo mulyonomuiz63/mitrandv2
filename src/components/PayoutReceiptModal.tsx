@@ -14,6 +14,7 @@ import {
   Receipt
 } from 'lucide-react';
 import { PayoutRequest } from '../types';
+import { ImageWithSkeleton } from './SkeletonLoader';
 
 interface PayoutReceiptModalProps {
   isOpen: boolean;
@@ -239,10 +240,12 @@ export const PayoutReceiptModal: React.FC<PayoutReceiptModalProps> = ({
 
               {payout.proofFileUrl && payout.proofFileUrl.startsWith('data:image') ? (
                 <div className="mt-2 text-center">
-                  <img
+                  <ImageWithSkeleton
                     src={payout.proofFileUrl}
                     alt="Bukti Transfer Bank"
                     className="max-h-60 mx-auto rounded-lg border border-slate-300 shadow-xs object-contain"
+                    containerClassName="max-h-60 mx-auto"
+                    rounded="rounded-lg"
                   />
                   <div className="mt-2">
                     <a
