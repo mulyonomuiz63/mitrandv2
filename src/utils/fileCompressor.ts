@@ -39,6 +39,23 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+export function isAllowedVerificationDocumentFile(file: File): boolean {
+  if (!file) return false;
+  const mime = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  const validExt =
+    name.endsWith('.jpg') ||
+    name.endsWith('.jpeg') ||
+    name.endsWith('.png') ||
+    name.endsWith('.pdf');
+  const validMime =
+    mime === 'image/jpeg' ||
+    mime === 'image/jpg' ||
+    mime === 'image/png' ||
+    mime === 'application/pdf';
+  return validExt || validMime;
+}
+
 function compressImageDataUrlClient(
   rawDataUrl: string,
   mimeType: string,
@@ -85,6 +102,29 @@ function compressImageDataUrlClient(
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
         const pngOut = canvas.toDataURL('image/png');
+        // If PNG is a large photo/scan (> 200 KB) without transparent background, test JPEG compression
+        if (rawBytes > 200 * 1024 && pngOut.length >= rawDataUrl.length * 0.85) {
+          let hasTransparency = false;
+          try {
+            const sampleData = ctx.getImageData(0, 0, Math.min(width, 64), Math.min(height, 64)).data;
+            for (let i = 3; i < sampleData.length; i += 16) {
+              if (sampleData[i] < 250) {
+                hasTransparency = true;
+                break;
+              }
+            }
+          } catch {}
+          if (!hasTransparency) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            const jpegOut = canvas.toDataURL('image/jpeg', quality);
+            if (jpegOut.length < pngOut.length) {
+              resolve(jpegOut);
+              return;
+            }
+          }
+        }
         resolve(pngOut.length < rawDataUrl.length ? pngOut : rawDataUrl);
       }
     };

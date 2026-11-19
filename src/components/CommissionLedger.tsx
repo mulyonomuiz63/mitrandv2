@@ -89,9 +89,11 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
   };
   const mBonusEnabled = bonusTarget.monthlyBonusEnabled !== false;
   const yBonusEnabled = bonusTarget.yearlyBonusEnabled !== false;
-  const [selectedBonusPeriod, setSelectedBonusPeriod] = useState<'monthly' | 'yearly'>(() =>
-    bonusTarget.periodType === 'monthly' && mBonusEnabled ? 'monthly' : 'yearly'
-  );
+  const [selectedBonusPeriod, setSelectedBonusPeriod] = useState<'monthly' | 'yearly'>(() => {
+    if (mBonusEnabled && !yBonusEnabled) return 'monthly';
+    if (!mBonusEnabled && yBonusEnabled) return 'yearly';
+    return bonusTarget.periodType === 'monthly' && mBonusEnabled ? 'monthly' : 'yearly';
+  });
   useEffect(() => {
     if (selectedBonusPeriod === 'monthly' && !mBonusEnabled && yBonusEnabled) {
       setSelectedBonusPeriod('yearly');
@@ -466,8 +468,8 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         return (
           <>
           <div className="mb-7 rounded-2xl bg-gradient-to-br from-[#092147] via-[#113872] to-[#061835] text-white border border-amber-400/40 shadow-lg p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Left 7 Cols: Per-Client Commission Tiers */}
-            <div className="lg:col-span-7 space-y-3">
+            {/* Left Cols: Per-Client Commission Tiers (Full 12 cols when both Monthly & Yearly bonus targets are Off) */}
+            <div className={`${anyBonusEnabled ? 'lg:col-span-7' : 'lg:col-span-12'} space-y-3`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-md">
@@ -538,169 +540,164 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               </div>
             </div>
 
-            {/* Right 5 Cols: Target & Bonus Mitra Progress (Supports Per Bulan & Per Tahun + Active/Disabled Status) */}
-            <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/40 border border-amber-400/40 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/15">
-                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                    <Target className="w-4 h-4 text-amber-400" />
-                    Target &amp; Bonus Mitra
-                  </span>
-
-                  {/* Switch Per Bulan / Per Tahun */}
-                  <div className="inline-flex rounded-lg bg-white/10 p-0.5 border border-white/15 text-[10px] font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBonusPeriod('monthly')}
-                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                        selectedBonusPeriod === 'monthly'
-                          ? 'bg-amber-400 text-slate-950 font-extrabold'
-                          : 'text-blue-100 hover:text-white'
-                      }`}
-                    >
-                      Per Bulan {!mBonusEnabled ? '(Off)' : ''}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBonusPeriod('yearly')}
-                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                        selectedBonusPeriod === 'yearly'
-                          ? 'bg-amber-400 text-slate-950 font-extrabold'
-                          : 'text-blue-100 hover:text-white'
-                      }`}
-                    >
-                      Per Tahun {!yBonusEnabled ? '(Off)' : ''}
-                    </button>
-                  </div>
-                </div>
-
-                {!anyBonusEnabled || !isCurrentPeriodEnabled ? (
-                  <div className="mt-3 p-3.5 rounded-xl bg-white/5 border border-white/15 text-xs text-blue-100 space-y-1">
-                    <p className="font-bold text-amber-300">
-                      Program Target &amp; Bonus {selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'} Sedang Dinonaktifkan
-                    </p>
-                    <p className="text-[11px] text-blue-200">
-                      {anyBonusEnabled
-                        ? `Silakan pilih tab ${selectedBonusPeriod === 'yearly' ? 'Per Bulan' : 'Per Tahun'} yang sedang aktif.`
-                        : 'Saat ini program target bonus bulanan maupun tahunan sedang dinonaktifkan oleh Admin.'}
-                    </p>
-                  </div>
-                ) : userRole === 'mitra' ? (
-                  <div className="mt-3 space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-blue-200 font-semibold">
-                        Evaluasi Target {selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}:
-                      </span>
-                      {isTargetExceeded ? (
-                        <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full">
-                          🏆 Target Tercapai!
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full">
-                          Progres {Math.max(revPct, cliPct)}%
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-[11px] text-blue-100 mb-1">
-                        <span>Capaian Penjualan Anda:</span>
-                        <span className="font-mono font-bold text-white">
-                          {formatRupiah(achievedRevenue)} / {formatRupiah(targetRev)}
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all"
-                          style={{ width: `${revPct}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-blue-100">
-                      <span>Realisasi Klien Deal:</span>
-                      <span className="font-mono font-bold text-amber-300">
-                        {achievedClients} / {targetCli} Klien ({cliPct}%)
-                      </span>
-                    </div>
-
-                    <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[11px]">
-                      <span className="text-blue-200">Tier Hadiah / Bonus:</span>
-                      {achievedTier ? (
-                        <span className="font-extrabold text-emerald-300">
-                          🏆 Tier {achievedTier.no}: {achievedTier.rewardName}
-                        </span>
-                      ) : nextTier ? (
-                        <span className="font-bold text-amber-300">
-                          Menuju Tier {nextTier.no}: {nextTier.rewardName}
-                        </span>
-                      ) : (
-                        <span className="text-blue-200">-</span>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  (() => {
-                    const mitraList = allMitras.length > 0 ? allMitras : [mitra];
-                    const achievedMitraCount = mitraList.filter((m) => {
-                      const mDeals = clientDeals.filter(
-                        (d) =>
-                          d.mitraId === m.id &&
-                          (d.status === 'active_subscription' || d.status === 'deal_closed')
-                      );
-                      const mRev = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
-                      return mRev >= targetRev || mDeals.length >= targetCli;
-                    }).length;
-
-                    return (
-                      <div className="mt-3 space-y-2 text-xs text-blue-100">
-                        <div className="flex justify-between">
-                          <span>Target Penjualan ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'}):</span>
-                          <strong className="font-mono text-white">{formatRupiah(targetRev)}</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Target Klien ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'}):</span>
-                          <strong className="font-mono text-amber-300">{targetCli} Klien Deal</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Mitra Capai Target:</span>
-                          <strong className="font-mono text-emerald-300">
-                            {achievedMitraCount} / {mitraList.length} Mitra
-                          </strong>
-                        </div>
-                      </div>
-                    );
-                  })()
-                )}
-              </div>
-
-              <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
+            {/* Right 5 Cols: Target & Bonus Mitra Progress (Hidden completely if both Per Bulan & Per Tahun are Off) */}
+            {anyBonusEnabled && (
+              <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/40 border border-amber-400/40 flex flex-col justify-between space-y-3">
                 <div>
-                  <span className="text-[10px] text-blue-200 block">
-                    Standar Bonus ({selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}):
-                  </span>
-                  <span className="font-mono font-extrabold text-amber-300">
-                    {isCurrentPeriodEnabled ? formatRupiah(currentStandardBonus) : 'Nonaktif'}
-                  </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/15">
+                    <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <Target className="w-4 h-4 text-amber-400" />
+                      Target &amp; Bonus Mitra
+                    </span>
+
+                    {/* Switch Per Bulan / Per Tahun (Only show buttons that are enabled) */}
+                    <div className="inline-flex rounded-lg bg-white/10 p-0.5 border border-white/15 text-[10px] font-bold">
+                      {mBonusEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBonusPeriod('monthly')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            selectedBonusPeriod === 'monthly'
+                              ? 'bg-amber-400 text-slate-950 font-extrabold'
+                              : 'text-blue-100 hover:text-white'
+                          }`}
+                        >
+                          Per Bulan
+                        </button>
+                      )}
+                      {yBonusEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBonusPeriod('yearly')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            selectedBonusPeriod === 'yearly'
+                              ? 'bg-amber-400 text-slate-950 font-extrabold'
+                              : 'text-blue-100 hover:text-white'
+                          }`}
+                        >
+                          Per Tahun
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {userRole === 'mitra' ? (
+                    <div className="mt-3 space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-blue-200 font-semibold">
+                          Evaluasi Target {selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}:
+                        </span>
+                        {isTargetExceeded ? (
+                          <span className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full">
+                            🏆 Target Tercapai!
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full">
+                            Progres {Math.max(revPct, cliPct)}%
+                          </span>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[11px] text-blue-100 mb-1">
+                          <span>Capaian Penjualan Anda:</span>
+                          <span className="font-mono font-bold text-white">
+                            {formatRupiah(achievedRevenue)} / {formatRupiah(targetRev)}
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all"
+                            style={{ width: `${revPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-blue-100">
+                        <span>Realisasi Klien Deal:</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          {achievedClients} / {targetCli} Klien ({cliPct}%)
+                        </span>
+                      </div>
+
+                      <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[11px]">
+                        <span className="text-blue-200">Tier Hadiah / Bonus:</span>
+                        {achievedTier ? (
+                          <span className="font-extrabold text-emerald-300">
+                            🏆 Tier {achievedTier.no}: {achievedTier.rewardName}
+                          </span>
+                        ) : nextTier ? (
+                          <span className="font-bold text-amber-300">
+                            Menuju Tier {nextTier.no}: {nextTier.rewardName}
+                          </span>
+                        ) : (
+                          <span className="text-blue-200">-</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    (() => {
+                      const mitraList = allMitras.length > 0 ? allMitras : [mitra];
+                      const achievedMitraCount = mitraList.filter((m) => {
+                        const mDeals = clientDeals.filter(
+                          (d) =>
+                            d.mitraId === m.id &&
+                            (d.status === 'active_subscription' || d.status === 'deal_closed')
+                        );
+                        const mRev = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
+                        return mRev >= targetRev || mDeals.length >= targetCli;
+                      }).length;
+
+                      return (
+                        <div className="mt-3 space-y-2 text-xs text-blue-100">
+                          <div className="flex justify-between">
+                            <span>Target Penjualan ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'}):</span>
+                            <strong className="font-mono text-white">{formatRupiah(targetRev)}</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Target Klien ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'}):</span>
+                            <strong className="font-mono text-amber-300">{targetCli} Klien Deal</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Mitra Capai Target:</span>
+                            <strong className="font-mono text-emerald-300">
+                              {achievedMitraCount} / {mitraList.length} Mitra
+                            </strong>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-blue-200 block">
-                    {userRole === 'admin' ? 'Total Bonus Disalurkan:' : 'Total Bonus Diterima:'}
-                  </span>
-                  <span className="font-mono font-extrabold text-emerald-300">
-                    {formatRupiah(
-                      userRole === 'admin'
-                        ? transactions.reduce((s, t) => s + (Number(t.bonusAmount) || 0), 0)
-                        : mitra.totalBonus || 0
-                    )}
-                  </span>
+
+                <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] text-blue-200 block">
+                      Standar Bonus ({selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}):
+                    </span>
+                    <span className="font-mono font-extrabold text-amber-300">
+                      {isCurrentPeriodEnabled ? formatRupiah(currentStandardBonus) : 'Nonaktif'}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-blue-200 block">
+                      {userRole === 'admin' ? 'Total Bonus Disalurkan:' : 'Total Bonus Diterima:'}
+                    </span>
+                    <span className="font-mono font-extrabold text-emerald-300">
+                      {formatRupiah(
+                        userRole === 'admin'
+                          ? transactions.reduce((s, t) => s + (Number(t.bonusAmount) || 0), 0)
+                          : mitra.totalBonus || 0
+                      )}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Tabel Capaian Penjualan & Hadiah/Bonus (5 Tier Resmi) */}
-          {activeTiers.length > 0 && (
+          {anyBonusEnabled && activeTiers.length > 0 && (
             <div className="mb-7 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/80">
                 <div>

@@ -1242,6 +1242,17 @@ var DEFAULT_MITRA_FORM_FIELDS = [
     isActive: true
   },
   {
+    id: "mitra-def-ktpFile",
+    systemKey: "ktpFile",
+    isDefault: true,
+    section: "profile",
+    label: "Upload File KTP / NPWP",
+    type: "file",
+    placeholder: "Unggah dokumen KTP atau NPWP (Format: JPG, JPEG, PNG, atau PDF)",
+    required: true,
+    isActive: true
+  },
+  {
     id: "mitra-def-specialization",
     systemKey: "specialization",
     isDefault: true,
@@ -1867,9 +1878,21 @@ var payoutRequests = [
     notes: "Pencairan komisi PT Nusantara Megah Resources - Sukses."
   }
 ];
+var DEFAULT_FIRM_TAGLINE = "Kantor Konsultan Pajak & Hukum";
+var LEGACY_TAGLINES = /* @__PURE__ */ new Set([
+  "Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi",
+  "Tax & Legal Advisory Portal"
+]);
+var normalizeFirmTagline = (tagline) => {
+  const trimmed = (tagline || "").trim();
+  if (!trimmed || LEGACY_TAGLINES.has(trimmed)) {
+    return DEFAULT_FIRM_TAGLINE;
+  }
+  return trimmed;
+};
 var appSettings = {
   firmName: "NDTAXANDLAW",
-  tagline: "Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi",
+  tagline: DEFAULT_FIRM_TAGLINE,
   supportPhone: "0812-8899-7711",
   supportEmail: "advisory@ndtaxandlaw.com",
   officeAddress: "Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950",
@@ -2101,7 +2124,7 @@ var recordActivity = (params) => {
 };
 var buildEmailHtml = (subject, recipientName, snippet) => {
   const safeFirmName = escapeHtml(appSettings.firmName || "NDTAXANDLAW");
-  const safeTagline = escapeHtml(appSettings.tagline || "Tax & Legal Advisory Portal");
+  const safeTagline = escapeHtml(normalizeFirmTagline(appSettings.tagline));
   const safeRecipient = escapeHtml(recipientName || "Mitra NDTAXANDLAW");
   const safeSubject = escapeHtml(subject);
   const safeSnippetHtml = escapeHtml(snippet).replace(/\n/g, "<br/>");
@@ -2657,6 +2680,19 @@ var normalizeMitraAvatars = (list) => {
     const emailVerified = typeof m.emailVerified === "boolean" ? m.emailVerified : typeof bankMeta.__emailVerified === "boolean" ? bankMeta.__emailVerified : true;
     const verificationToken = m.verificationToken || bankMeta.__verificationToken || void 0;
     const verificationTokenExpiry = m.verificationTokenExpiry || bankMeta.__verificationTokenExpiry || void 0;
+    const resolvedCustomFields = m.customFields || bankMeta.__customFields || void 0;
+    let resolvedKtpUrl = m.ktpFileUrl || bankMeta.__ktpFileUrl || void 0;
+    if (!resolvedKtpUrl && resolvedCustomFields) {
+      for (const [k, v] of Object.entries(resolvedCustomFields)) {
+        if (!v || typeof v !== "string") continue;
+        const kl = k.toLowerCase();
+        if ((k === "mitra-def-ktpFile" || kl.includes("ktp") || kl.includes("npwp")) && v.trim() !== "" && v.trim() !== "-") {
+          resolvedKtpUrl = v.trim();
+          break;
+        }
+      }
+    }
+    const resolvedKtpName = m.ktpFileName || bankMeta.__ktpFileName || resolvedCustomFields?.["__ktpFileName"] || void 0;
     return {
       ...m,
       memberCode: formatMitraMemberCode(m.memberCode, m.id),
@@ -2667,7 +2703,9 @@ var normalizeMitraAvatars = (list) => {
       verificationTokenExpiry,
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || void 0,
       rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || void 0,
-      customFields: m.customFields || bankMeta.__customFields || void 0
+      customFields: resolvedCustomFields,
+      ktpFileUrl: resolvedKtpUrl,
+      ktpFileName: resolvedKtpName
     };
   });
 };
@@ -3066,6 +3104,7 @@ var syncFromSupabase = async () => {
                 delete parsedSettings.smtpPassword;
               }
               appSettings = { ...appSettings, ...parsedSettings };
+              appSettings.tagline = normalizeFirmTagline(appSettings.tagline);
             }
           } catch {
           }
@@ -3176,13 +3215,21 @@ var syncFromSupabase = async () => {
               const safeName = path.basename(parsedFile.fileName);
               const buf = Buffer.from(parsedFile.base64, "base64");
               const pubDir = path.join(__dirname, "public", "uploads", "marketing-tools");
+              const dataDir = path.join(DATA_DIR, "uploads", "marketing-tools");
               const homeDir = path.join(os.homedir(), ".ndtaxandlaw_storage", "uploads", "marketing-tools");
-              if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
-              if (!fs.existsSync(homeDir)) fs.mkdirSync(homeDir, { recursive: true });
-              const pubTarget = path.join(pubDir, safeName);
-              const homeTarget = path.join(homeDir, safeName);
-              if (!fs.existsSync(pubTarget)) fs.writeFileSync(pubTarget, buf);
-              if (!fs.existsSync(homeTarget)) fs.writeFileSync(homeTarget, buf);
+              const distBase = path.join(__dirname, "dist");
+              const restoreDirs = [pubDir, dataDir, homeDir];
+              if (fs.existsSync(distBase)) {
+                restoreDirs.push(path.join(distBase, "uploads", "marketing-tools"));
+              }
+              for (const dir of restoreDirs) {
+                try {
+                  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                  const target = path.join(dir, safeName);
+                  if (!fs.existsSync(target)) fs.writeFileSync(target, buf);
+                } catch {
+                }
+              }
             }
           } catch {
           }
@@ -4381,7 +4428,20 @@ app.get("/api/mitra/public-verify/:code", async (req, res) => {
   });
 });
 app.post("/api/mitra/register", async (req, res) => {
-  const { fullName, email, phone, nik, specialization, bankDetails, password, gender, role, customFields } = req.body;
+  const {
+    fullName,
+    email,
+    phone,
+    nik,
+    ktpFileUrl,
+    ktpFileName,
+    specialization,
+    bankDetails,
+    password,
+    gender,
+    role,
+    customFields
+  } = req.body;
   if (!email) {
     return res.status(400).json({ success: false, message: "Email wajib diisi untuk kredensial akun." });
   }
@@ -4409,7 +4469,25 @@ app.post("/api/mitra/register", async (req, res) => {
   const generatedReferralCode = `ND-REF-${Math.floor(1e3 + Math.random() * 9e3)}`;
   const resolvedGender = gender === "female" ? "female" : gender === "male" ? "male" : inferGenderFromName(safeFullName);
   const assignedRole = getRoleDefinition(role || "mitra").code;
-  const cleanCustomFields = customFields && typeof customFields === "object" && Object.keys(customFields).length > 0 ? customFields : void 0;
+  const cleanCustomFields = customFields && typeof customFields === "object" && Object.keys(customFields).length > 0 ? { ...customFields } : void 0;
+  let resolvedKtpUrl = typeof ktpFileUrl === "string" && ktpFileUrl.trim() ? ktpFileUrl.trim() : void 0;
+  let resolvedKtpName = typeof ktpFileName === "string" && ktpFileName.trim() ? ktpFileName.trim() : void 0;
+  if (resolvedKtpUrl && resolvedKtpUrl.startsWith("data:")) {
+    const saved = saveDataUrlToHostingServer(resolvedKtpUrl, resolvedKtpName || `ktp-${safeFullName}`, "jpg");
+    if (saved) resolvedKtpUrl = saved.hostedUrl;
+  }
+  if (cleanCustomFields) {
+    for (const [k, v] of Object.entries(cleanCustomFields)) {
+      if (typeof v === "string" && v.startsWith("data:")) {
+        const saved = saveDataUrlToHostingServer(v, `${k}-${safeFullName}`, "jpg");
+        if (saved) cleanCustomFields[k] = saved.hostedUrl;
+      }
+      const kl = k.toLowerCase();
+      if (!resolvedKtpUrl && (k === "mitra-def-ktpFile" || kl.includes("ktp") || kl.includes("npwp")) && cleanCustomFields[k]) {
+        resolvedKtpUrl = cleanCustomFields[k];
+      }
+    }
+  }
   const baseBank = bankDetails || {
     bankName: "Bank Central Asia (BCA)",
     accountNumber: "-",
@@ -4423,6 +4501,8 @@ app.post("/api/mitra/register", async (req, res) => {
     email: normalizedEmail,
     phone: safePhone,
     nik: (nik || "").trim() || "-",
+    ktpFileUrl: resolvedKtpUrl,
+    ktpFileName: resolvedKtpName,
     specialization: specialization || "Business Partner",
     status: "pending",
     gender: resolvedGender,
@@ -4434,6 +4514,8 @@ app.post("/api/mitra/register", async (req, res) => {
       __emailVerified: false,
       __verificationToken: verificationToken,
       __verificationTokenExpiry: verificationExpiryIso,
+      ...resolvedKtpUrl ? { __ktpFileUrl: resolvedKtpUrl } : {},
+      ...resolvedKtpName ? { __ktpFileName: resolvedKtpName } : {},
       ...cleanCustomFields ? { __customFields: cleanCustomFields } : {}
     },
     customFields: cleanCustomFields,
@@ -4462,7 +4544,13 @@ app.post("/api/mitra/register", async (req, res) => {
   });
   if (supabase) {
     try {
-      const { gender: _g, customFields: _cf, ...supabaseMitraPayload } = newMitra;
+      const {
+        gender: _g,
+        customFields: _cf,
+        ktpFileUrl: _kfu,
+        ktpFileName: _kfn,
+        ...supabaseMitraPayload
+      } = newMitra;
       const { error: insertErr } = await supabase.from("mitras").insert([supabaseMitraPayload]);
       if (insertErr) {
         const {
@@ -4650,7 +4738,20 @@ Silakan masuk ke Portal Mitra, perbaiki data diri / rekening bank Anda, lalu kli
 });
 app.put("/api/mitra/:id/profile", async (req, res) => {
   const { id } = req.params;
-  const { fullName, phone, nik, specialization, bankDetails, gender, avatarUrl, newPassword, resubmitVerification, customFields } = req.body;
+  const {
+    fullName,
+    phone,
+    nik,
+    ktpFileUrl,
+    ktpFileName,
+    specialization,
+    bankDetails,
+    gender,
+    avatarUrl,
+    newPassword,
+    resubmitVerification,
+    customFields
+  } = req.body;
   if (supabase) {
     try {
       const { data: dbMitras } = await supabase.from("mitras").select("*");
@@ -4667,16 +4768,50 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
   if (phone) mitra.phone = phone;
   if (nik) mitra.nik = nik;
   if (specialization) mitra.specialization = specialization;
+  if (typeof ktpFileUrl === "string" && ktpFileUrl.trim()) {
+    let cleanKtpUrl = ktpFileUrl.trim();
+    if (cleanKtpUrl.startsWith("data:")) {
+      const saved = saveDataUrlToHostingServer(
+        cleanKtpUrl,
+        typeof ktpFileName === "string" && ktpFileName.trim() ? ktpFileName.trim() : `ktp-${mitra.fullName}`,
+        "jpg"
+      );
+      if (saved) cleanKtpUrl = saved.hostedUrl;
+    }
+    mitra.ktpFileUrl = cleanKtpUrl;
+  }
+  if (typeof ktpFileName === "string" && ktpFileName.trim()) {
+    mitra.ktpFileName = ktpFileName.trim();
+  }
   if (customFields && typeof customFields === "object") {
-    mitra.customFields = { ...mitra.customFields || {}, ...customFields };
+    const mergedCf = { ...mitra.customFields || {} };
+    for (const [k, v] of Object.entries(customFields)) {
+      if (typeof v === "string" && v.startsWith("data:")) {
+        const saved = saveDataUrlToHostingServer(v, `${k}-${mitra.fullName}`, "jpg");
+        mergedCf[k] = saved ? saved.hostedUrl : v;
+      } else if (typeof v === "string") {
+        mergedCf[k] = v;
+      }
+      const kl = k.toLowerCase();
+      if (!mitra.ktpFileUrl && (k === "mitra-def-ktpFile" || kl.includes("ktp") || kl.includes("npwp")) && mergedCf[k]) {
+        mitra.ktpFileUrl = mergedCf[k];
+      }
+    }
+    mitra.customFields = mergedCf;
   }
   if (gender === "male" || gender === "female") {
     mitra.gender = gender;
   }
-  if (bankDetails || mitra.customFields || mitra.gender) {
+  if (bankDetails || mitra.customFields || mitra.gender || mitra.ktpFileUrl || mitra.ktpFileName) {
     const mergedBank = { ...mitra.bankDetails, ...bankDetails || {} };
     if (mitra.gender === "male" || mitra.gender === "female") {
       mergedBank.__gender = mitra.gender;
+    }
+    if (mitra.ktpFileUrl) {
+      mergedBank.__ktpFileUrl = mitra.ktpFileUrl;
+    }
+    if (mitra.ktpFileName) {
+      mergedBank.__ktpFileName = mitra.ktpFileName;
     }
     if (mitra.customFields && Object.keys(mitra.customFields).length > 0) {
       mergedBank.__customFields = mitra.customFields;
@@ -4775,13 +4910,30 @@ for (const dir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLO
   }
 }
 try {
-  for (const backupDir of [PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR]) {
-    if (fs.existsSync(backupDir)) {
-      for (const file of fs.readdirSync(backupDir)) {
-        const srcPath = path.join(backupDir, file);
-        const destPath = path.join(MARKETING_UPLOADS_DIR, file);
-        if (!fs.existsSync(destPath) && fs.statSync(srcPath).isFile()) {
-          fs.copyFileSync(srcPath, destPath);
+  const distBaseDir = path.join(__dirname, "dist");
+  const syncDirs = [PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR, MARKETING_UPLOADS_DIR];
+  if (fs.existsSync(distBaseDir)) {
+    const distUploadsDir = path.join(distBaseDir, "uploads", "marketing-tools");
+    try {
+      if (!fs.existsSync(distUploadsDir)) fs.mkdirSync(distUploadsDir, { recursive: true });
+      syncDirs.push(distUploadsDir);
+    } catch {
+    }
+  }
+  for (const srcDir of syncDirs) {
+    if (fs.existsSync(srcDir)) {
+      for (const file of fs.readdirSync(srcDir)) {
+        const srcPath = path.join(srcDir, file);
+        if (!fs.statSync(srcPath).isFile()) continue;
+        for (const destDir of syncDirs) {
+          if (destDir === srcDir) continue;
+          const destPath = path.join(destDir, file);
+          if (!fs.existsSync(destPath)) {
+            try {
+              fs.copyFileSync(srcPath, destPath);
+            } catch {
+            }
+          }
         }
       }
     }
@@ -4903,7 +5055,12 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
   const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
   const safeBaseName = String(originalName || "materi-marketing").replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9-_]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "materi-marketing";
   const fileName = `${Date.now()}-${safeBaseName}.${ext}`;
-  for (const targetDir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR]) {
+  const targetDirs = [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR];
+  const distBase = path.join(__dirname, "dist");
+  if (fs.existsSync(distBase)) {
+    targetDirs.push(path.join(distBase, "uploads", "marketing-tools"));
+  }
+  for (const targetDir of targetDirs) {
     try {
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
@@ -4912,6 +5069,7 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
     } catch {
     }
   }
+  let cloudSyncPromise;
   if (supabase && optimizedBuffer.length <= 18 * 1024 * 1024) {
     const cloudKey = `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`;
     const cloudPayload = JSON.stringify({
@@ -4920,18 +5078,20 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
       base64: optimizedBuffer.toString("base64"),
       savedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
-    supabase.from("user_passwords").upsert([{ email: cloudKey, password: cloudPayload }]).then(() => {
-    }, () => {
+    cloudSyncPromise = Promise.resolve(
+      supabase.from("user_passwords").upsert([{ email: cloudKey, password: cloudPayload }])
+    ).catch(() => {
     });
   }
   return {
     hostedUrl: `/uploads/marketing-tools/${fileName}`,
     savedBytes: optimizedBuffer.length,
     originalBytes,
-    formattedSize: formatFileSizeServer(optimizedBuffer.length)
+    formattedSize: formatFileSizeServer(optimizedBuffer.length),
+    cloudSyncPromise
   };
 };
-app.post("/api/marketing-tools/upload", (req, res) => {
+app.post("/api/marketing-tools/upload", async (req, res) => {
   try {
     const { dataUrl, fileName, fileType, originalByteSize } = req.body || {};
     if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
@@ -4940,6 +5100,9 @@ app.post("/api/marketing-tools/upload", (req, res) => {
     const saved = saveDataUrlToHostingServer(dataUrl, fileName || "materi", fileType || "pdf");
     if (!saved) {
       return res.status(400).json({ success: false, message: "Gagal memproses format file." });
+    }
+    if (saved.cloudSyncPromise) {
+      await saved.cloudSyncPromise;
     }
     const origBytes = Number(originalByteSize) > 0 ? Number(originalByteSize) : saved.originalBytes;
     return res.json({
@@ -6458,6 +6621,12 @@ app.get("/api/settings", async (req, res) => {
       console.warn("Supabase settings query error", e);
     }
   }
+  let settingsMigrated = false;
+  const normalizedTagline = normalizeFirmTagline(appSettings.tagline);
+  if (appSettings.tagline !== normalizedTagline) {
+    appSettings.tagline = normalizedTagline;
+    settingsMigrated = true;
+  }
   if (!appSettings.mitraFieldsInitialized) {
     const existingMitra = Array.isArray(appSettings.mitraCustomFields) ? appSettings.mitraCustomFields : [];
     const hasDef = existingMitra.some((f) => Boolean(f.systemKey || f.isDefault));
@@ -6465,6 +6634,22 @@ app.get("/api/settings", async (req, res) => {
       appSettings.mitraCustomFields = [...DEFAULT_MITRA_FORM_FIELDS, ...existingMitra];
     }
     appSettings.mitraFieldsInitialized = true;
+    settingsMigrated = true;
+  }
+  const currentMitraFields = Array.isArray(appSettings.mitraCustomFields) ? appSettings.mitraCustomFields : [...DEFAULT_MITRA_FORM_FIELDS];
+  if (!currentMitraFields.some((f) => f.systemKey === "ktpFile" || f.id === "mitra-def-ktpFile")) {
+    const ktpDef = DEFAULT_MITRA_FORM_FIELDS.find((f) => f.systemKey === "ktpFile");
+    if (ktpDef) {
+      const nikIdx = currentMitraFields.findIndex((f) => f.systemKey === "nik" || f.id === "mitra-def-nik");
+      const nextFields = [...currentMitraFields];
+      if (nikIdx >= 0) {
+        nextFields.splice(nikIdx + 1, 0, { ...ktpDef });
+      } else {
+        nextFields.unshift({ ...ktpDef });
+      }
+      appSettings.mitraCustomFields = nextFields;
+      settingsMigrated = true;
+    }
   }
   if (!appSettings.clientFieldsInitialized) {
     const existingClient = Array.isArray(appSettings.clientCustomFields) ? appSettings.clientCustomFields : [];
@@ -6473,9 +6658,10 @@ app.get("/api/settings", async (req, res) => {
       appSettings.clientCustomFields = [...DEFAULT_CLIENT_FORM_FIELDS, ...existingClient];
     }
     appSettings.clientFieldsInitialized = true;
+    settingsMigrated = true;
   }
   appSettings.specializationOptions = normalizeSpecializationOptions(appSettings.specializationOptions);
-  let logoMigrated = false;
+  let logoMigrated = settingsMigrated;
   if (appSettings.logoUrl && appSettings.logoUrl.startsWith("data:")) {
     const saved = saveDataUrlToHostingServer(appSettings.logoUrl, "logo-resmi-nd", "png");
     if (saved?.hostedUrl) {
@@ -8041,6 +8227,7 @@ export {
   DEFAULT_BONUS_TARGET_CONFIG,
   DEFAULT_CLIENT_FORM_FIELDS,
   DEFAULT_COMMISSION_SCHEME,
+  DEFAULT_FIRM_TAGLINE,
   DEFAULT_MITRA_FORM_FIELDS,
   DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
@@ -8061,6 +8248,7 @@ export {
   isEncryptedPassword,
   isProductionMode,
   loadDatabase,
+  normalizeFirmTagline,
   normalizeServicesCatalog,
   normalizeSpecializationOptions,
   persistActivityLogsToSupabase,

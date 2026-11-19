@@ -897,9 +897,9 @@ export default function App() {
               <div className="flex items-start gap-2.5 text-xs text-amber-950">
                 <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold">Data Diri Anda Belum Lengkap: </span>
+                  <span className="font-bold">Data Diri &amp; Berkas Verifikasi Anda Belum Lengkap: </span>
                   <span>
-                    Silakan lengkapi Data Diri (NIK KTP, No. WhatsApp, dan Rekening Bank) terlebih dahulu. Fitur penambahan klien serta salin &amp; bagikan tautan registrasi klien akan aktif setelah Data Diri dilengkapi.
+                    Silakan lengkapi Data Diri (NIK KTP, Upload File KTP/NPWP, No. WhatsApp, dan Rekening Bank) terlebih dahulu. Fitur penambahan klien serta salin &amp; bagikan tautan registrasi klien akan aktif setelah Data Diri dan Upload File KTP/NPWP dilengkapi.
                   </span>
                 </div>
               </div>
@@ -908,7 +908,7 @@ export default function App() {
                 onClick={() => setIsProfileOpen(true)}
                 className="px-3.5 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-2xs shrink-0 self-start sm:self-auto cursor-pointer"
               >
-                Lengkapi Data Diri
+                Lengkapi Data Diri &amp; Upload KTP/NPWP
               </button>
             </div>
           </div>
@@ -924,6 +924,7 @@ export default function App() {
               allMitras={mitras}
               allClientDeals={clientDeals}
               commissions={commissions}
+              settings={settings}
               onNavigateTab={setActiveTab}
             />
           )}
@@ -1016,6 +1017,7 @@ export default function App() {
               allMitras={mitras}
               allClientDeals={clientDeals}
               commissions={commissions}
+              settings={settings}
               onNavigateTab={setActiveTab}
             />
           )}
@@ -1054,6 +1056,7 @@ export default function App() {
             <MitraVerificationPanel
               mitras={mitras}
               onVerifyMitra={handleVerifyMitra}
+              onUpdateMitraProfile={handleUpdateProfile}
               onSelectMitraPreview={(m) => {
                 setActiveMitraId(m.id);
                 setActiveTab('idcard');
@@ -1281,7 +1284,7 @@ export default function App() {
                 Halo <strong>{activeMitra.fullName}</strong>, selamat datang di Portal Mitra NDTAXANDLAW!
               </p>
               <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
-                Data diri atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Selama data diri belum dilengkapi, Anda belum dapat melakukan <strong>penambahan klien</strong> maupun <strong>menyalin dan membagikan tautan registrasi klien</strong>. Silakan lengkapi Data Diri Anda sekarang untuk mengaktifkan seluruh fitur kemitraan.
+                Data diri, berkas verifikasi <strong>File KTP / NPWP (JPG, PNG, JPEG, atau PDF)</strong>, atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Selama data diri dan unggahan berkas KTP/NPWP belum dilengkapi, Anda belum dapat melakukan <strong>penambahan klien</strong> maupun <strong>menyalin dan membagikan tautan registrasi klien</strong>. Silakan lengkapi Data Diri &amp; unggah file KTP/NPWP Anda sekarang untuk mengaktifkan seluruh fitur kemitraan.
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-2">

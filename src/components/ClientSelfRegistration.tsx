@@ -12,8 +12,10 @@ import {
   Check,
   ChevronLeft,
   Calendar,
-  Lock
+  Lock,
+  Upload
 } from 'lucide-react';
+import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 import {
   ServiceItem,
   Mitra,
@@ -503,11 +505,55 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
                 {/* Dynamic Custom Fields for Client (Managed by Admin) */}
                 {activeClientCustomFields.map((field) => (
-                  <div key={field.id} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
+                  <div
+                    key={field.id}
+                    className={
+                      field.type === 'textarea' || field.type === 'file' ? 'sm:col-span-2' : ''
+                    }
+                  >
                     <label className="block text-xs font-semibold text-amber-200 mb-1">
                       {field.label} {field.required && <span className="text-rose-400">*</span>}
                     </label>
-                    {field.type === 'select' ? (
+                    {field.type === 'file' ? (
+                      <div className="p-3 rounded-xl bg-[#061835] border border-amber-400/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="text-xs text-blue-100 truncate">
+                          {customFields[field.label] ? (
+                            <span className="font-bold text-emerald-300">
+                              ✓ File sudah diunggah
+                            </span>
+                          ) : (
+                            <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                          )}
+                        </div>
+                        <label className="px-3 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {customFields[field.label] ? 'Ganti File' : 'Upload File'}
+                          </span>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              if (!f) return;
+                              if (!isAllowedVerificationDocumentFile(f)) return;
+                              try {
+                                const compressed = await compressAndUploadFile(f, {
+                                  maxDimension: 1400,
+                                  quality: 0.78,
+                                  uploadToServer: true,
+                                });
+                                setCustomFields((prev) => ({
+                                  ...prev,
+                                  [field.label]: compressed.hostedUrl || compressed.dataUrl,
+                                }));
+                              } catch {}
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    ) : field.type === 'select' ? (
                       <select
                         required={field.required}
                         value={customFields[field.label] || ''}

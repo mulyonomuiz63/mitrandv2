@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Sparkles, Upload } from 'lucide-react';
+import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 import {
   Mitra,
   ServiceItem,
@@ -313,7 +314,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                   Lengkapi Data Diri Terlebih Dahulu
                 </h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Sebelum dapat melakukan penambahan klien maupun menyalin dan membagikan tautan registrasi klien, silakan lengkapi <strong>Data Diri</strong> (NIK KTP, Nomor WhatsApp, serta Rekening Bank Pencairan Komisi) terlebih dahulu.
+                  Sebelum dapat melakukan penambahan klien maupun menyalin dan membagikan tautan registrasi klien, silakan lengkapi <strong>Data Diri</strong> (NIK KTP, Upload File KTP/NPWP, Nomor WhatsApp, serta Rekening Bank Pencairan Komisi) terlebih dahulu.
                 </p>
               </div>
               <div className="pt-2 flex items-center justify-center gap-2.5">
@@ -547,11 +548,55 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
 
                 {/* Dynamic Custom Fields for Client (Managed by Admin) */}
                 {activeClientCustomFields.map((field) => (
-                  <div key={field.id} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                  <div
+                    key={field.id}
+                    className={
+                      field.type === 'textarea' || field.type === 'file' ? 'md:col-span-2' : ''
+                    }
+                  >
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       {field.label} {field.required && <span className="text-rose-500">*</span>}
                     </label>
-                    {field.type === 'select' ? (
+                    {field.type === 'file' ? (
+                      <div className="p-2.5 rounded-lg border border-slate-300 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="text-xs text-slate-600 truncate">
+                          {customFields[field.label] ? (
+                            <span className="font-bold text-emerald-700">
+                              ✓ File sudah diunggah
+                            </span>
+                          ) : (
+                            <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                          )}
+                        </div>
+                        <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {customFields[field.label] ? 'Ganti File' : 'Upload File'}
+                          </span>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              if (!f) return;
+                              if (!isAllowedVerificationDocumentFile(f)) return;
+                              try {
+                                const compressed = await compressAndUploadFile(f, {
+                                  maxDimension: 1400,
+                                  quality: 0.78,
+                                  uploadToServer: true,
+                                });
+                                setCustomFields((prev) => ({
+                                  ...prev,
+                                  [field.label]: compressed.hostedUrl || compressed.dataUrl,
+                                }));
+                              } catch {}
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    ) : field.type === 'select' ? (
                       <select
                         required={field.required}
                         value={customFields[field.label] || ''}

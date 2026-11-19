@@ -8,7 +8,9 @@ import {
   Building2, 
   AlertCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  Upload,
+  FileText
 } from 'lucide-react';
 import {
   BankDetails,
@@ -21,6 +23,7 @@ import {
   resolveMitraFormFields,
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar } from '../avatars';
+import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 
 interface RegistrationModalProps {
   isOpen: boolean;
@@ -31,6 +34,8 @@ interface RegistrationModalProps {
     email: string;
     phone: string;
     nik: string;
+    ktpFileUrl?: string;
+    ktpFileName?: string;
     specialization: string;
     bankDetails: BankDetails;
     password?: string;
@@ -99,6 +104,11 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [nik, setNik] = useState('');
+  const [ktpFileUrl, setKtpFileUrl] = useState('');
+  const [ktpFileName, setKtpFileName] = useState('');
+  const [ktpCompressionInfo, setKtpCompressionInfo] = useState<string | null>(null);
+  const [isUploadingKtp, setIsUploadingKtp] = useState(false);
+  const [uploadingCustomKey, setUploadingCustomKey] = useState<string | null>(null);
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [specialization, setSpecialization] = useState(
     activeSpecOptions[0]?.label || 'Business Partner'
@@ -131,20 +141,81 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleKtpFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorMessage(null);
+    if (!isAllowedVerificationDocumentFile(file)) {
+      setErrorMessage('Format file KTP/NPWP tidak valid. Harap unggah file JPG, JPEG, PNG, atau PDF.');
+      e.target.value = '';
+      return;
+    }
+    setIsUploadingKtp(true);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 1400,
+        quality: 0.78,
+        uploadToServer: true,
+      });
+      setKtpFileUrl(compressed.hostedUrl || compressed.dataUrl);
+      setKtpFileName(compressed.fileName || file.name);
+      setKtpCompressionInfo(
+        `Terkompres: ${compressed.originalFormattedSize} → ${compressed.compressedFormattedSize}`
+      );
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Gagal mengompres file KTP/NPWP.');
+    } finally {
+      setIsUploadingKtp(false);
+    }
+  };
+
+  const handleDynamicFileUpload = async (file: File, fieldLabel: string) => {
+    setErrorMessage(null);
+    if (!isAllowedVerificationDocumentFile(file)) {
+      setErrorMessage(`Format file "${fieldLabel}" harus berupa JPG, JPEG, PNG, atau PDF.`);
+      return;
+    }
+    setUploadingCustomKey(fieldLabel);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 1400,
+        quality: 0.78,
+        uploadToServer: true,
+      });
+      setCustomFieldValues((prev) => ({
+        ...prev,
+        [fieldLabel]: compressed.hostedUrl || compressed.dataUrl,
+      }));
+    } catch (err: any) {
+      setErrorMessage(err?.message || `Gagal mengunggah file "${fieldLabel}".`);
+    } finally {
+      setUploadingCustomKey(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !ktpFileUrl) {
+      setErrorMessage('Silakan unggah dokumen File KTP / NPWP (Format JPG, JPEG, PNG, atau PDF).');
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const mergedCustomFields = {
+      const ktpLabel = getSysField('ktpFile')?.label || 'Upload File KTP / NPWP';
+      const mergedCustomFields: Record<string, string> = {
         ...customFieldValues,
         ...bankCustomFieldValues,
+        ...(ktpFileUrl ? { [ktpLabel]: ktpFileUrl, 'mitra-def-ktpFile': ktpFileUrl } : {}),
+        ...(ktpFileName ? { __ktpFileName: ktpFileName } : {}),
       };
       await onRegister({
         fullName: fullName || (email ? email.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email,
         phone: isSysActive('phone') ? phone : '-',
         nik: isSysActive('nik') && nik ? nik : '-',
+        ktpFileUrl: ktpFileUrl || undefined,
+        ktpFileName: ktpFileName || undefined,
         specialization: specEnabled ? specialization : 'Business Partner',
         gender,
         avatarUrl: getDefaultAvatar(gender),
@@ -154,7 +225,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
           accountHolder: fullName || 'Mitra NDTAXANDLAW',
         },
         password: password || 'mitraND2026!',
-        customFields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
+        customFields: Object.keys(mergedCustomFields).length > 0 ? mergedCustomFields : undefined,
       });
       setIsDone(true);
     } catch (err: any) {
@@ -282,6 +353,54 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     </div>
                   )}
 
+                  {/* Upload File KTP / NPWP */}
+                  {isSysActive('ktpFile') && (
+                    <div
+                      className={`p-3 rounded-xl border space-y-2 ${
+                        ktpFileUrl
+                          ? 'bg-emerald-50/70 border-emerald-300'
+                          : 'bg-amber-50/80 border-amber-300'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                            <FileText className="w-3.5 h-3.5 text-blue-700" />
+                            <span>{getSysField('ktpFile')?.label || 'Upload File KTP / NPWP'}</span>
+                            {getSysField('ktpFile')?.required !== false && (
+                              <span className="text-rose-600">*</span>
+                            )}
+                          </label>
+                          <p className="text-[11px] text-slate-600 mt-0.5">
+                            Format: <strong>JPG, JPEG, PNG, atau PDF</strong> (otomatis dikompres).
+                          </p>
+                          {ktpFileName && (
+                            <p className="text-[11px] font-bold text-emerald-700 mt-1">
+                              ✓ {ktpFileName} {ktpCompressionInfo ? `(${ktpCompressionInfo})` : ''}
+                            </p>
+                          )}
+                        </div>
+                        <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {isUploadingKtp
+                              ? 'Mengompres...'
+                              : ktpFileUrl
+                              ? 'Ganti File'
+                              : 'Pilih File KTP/NPWP'}
+                          </span>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                            onChange={handleKtpFileChange}
+                            disabled={isUploadingKtp}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Gender Selector */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -372,12 +491,47 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                       {activeMitraCustomFields.map((field) => (
                         <div
                           key={field.id}
-                          className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                          className={
+                            field.type === 'textarea' || field.type === 'file'
+                              ? 'sm:col-span-2'
+                              : ''
+                          }
                         >
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
                             {field.label} {field.required && <span className="text-rose-500">*</span>}
                           </label>
-                          {field.type === 'select' ? (
+                          {field.type === 'file' ? (
+                            <div className="p-2.5 rounded-lg border border-slate-300 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="text-[11px] text-slate-600 truncate">
+                                {customFieldValues[field.label] ? (
+                                  <span className="font-bold text-emerald-700">
+                                    ✓ File sudah diunggah
+                                  </span>
+                                ) : (
+                                  <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                                )}
+                              </div>
+                              <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>
+                                  {uploadingCustomKey === field.label
+                                    ? 'Mengompres...'
+                                    : customFieldValues[field.label]
+                                    ? 'Ganti File'
+                                    : 'Upload File'}
+                                </span>
+                                <input
+                                  type="file"
+                                  accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handleDynamicFileUpload(f, field.label);
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                          ) : field.type === 'select' ? (
                             <select
                               required={field.required}
                               value={customFieldValues[field.label] || ''}

@@ -12,7 +12,14 @@ import {
   Car,
   Home,
 } from 'lucide-react';
-import { SalesHistoryMonth, Mitra, ClientDeal, CommissionTransaction } from '../types';
+import {
+  SalesHistoryMonth,
+  Mitra,
+  ClientDeal,
+  CommissionTransaction,
+  AppSettings,
+  DEFAULT_BONUS_TARGET_CONFIG,
+} from '../types';
 
 interface AnalyticsDashboardProps {
   salesHistory: SalesHistoryMonth[];
@@ -21,6 +28,7 @@ interface AnalyticsDashboardProps {
   allMitras?: Mitra[];
   allClientDeals?: ClientDeal[];
   commissions?: CommissionTransaction[];
+  settings?: AppSettings | null;
   onNavigateTab: (tab: string) => void;
 }
 
@@ -31,8 +39,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   allMitras = [],
   allClientDeals = [],
   commissions = [],
+  settings,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('November 2026');
+
+  const bonusTarget = {
+    ...DEFAULT_BONUS_TARGET_CONFIG,
+    ...(settings?.bonusTargetConfig || {}),
+  };
+  const mBonusEnabled = bonusTarget.monthlyBonusEnabled !== false;
+  const yBonusEnabled = bonusTarget.yearlyBonusEnabled !== false;
+  const anyBonusEnabled = mBonusEnabled || yBonusEnabled;
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -285,8 +302,100 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
       </div>
 
-      {/* UPGRADED & IMMEDIATELY VISIBLE REWARD SHOWCASE FOR MITRA (CARDS ONLY, NO DUPLICATE TABLE) */}
-      {userRole === 'mitra' && (() => {
+      {/* Main Sales Bar Chart */}
+      <div className="grid grid-cols-1 gap-6">
+        {/* Sales Performance Chart */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 font-display">
+                {userRole === 'mitra'
+                  ? 'Grafik Penjualan & Komisi Akun Anda (6 Bulan)'
+                  : 'Grafik Penjualan & Tren Pertumbuhan Omset (6 Bulan)'}
+              </h3>
+            </div>
+            <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-xs bg-[#092147] inline-block" />
+                <span>{userRole === 'mitra' ? 'Penjualan Klien Anda' : 'Total Penjualan'}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-xs bg-amber-500 inline-block" />
+                <span>{userRole === 'mitra' ? 'Komisi Anda' : 'Komisi Mitra'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Clean Interactive SVG Bar Chart with Tabular Numerals */}
+          <div className="h-64 w-full flex items-end gap-3 sm:gap-6 pt-6 pb-2 px-2 border-b border-slate-200 relative">
+            {!hasAnySalesInHistory && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500">
+                  Belum ada transaksi penjualan / deal disetujui (Rp 0)
+                </span>
+              </div>
+            )}
+            {displayedSalesHistory.map((item, idx) => {
+              const salesHeightPercent =
+                item.totalSales > 0 ? Math.max((item.totalSales / maxSales) * 100, 4) : 2;
+              const commHeightPercent =
+                item.totalCommission > 0
+                  ? Math.max((item.totalCommission / maxSales) * 100, 4)
+                  : 2;
+
+              return (
+                <div
+                  key={idx}
+                  className="flex-1 flex flex-col items-center h-full justify-end group relative"
+                >
+                  {/* Tooltip on hover */}
+                  <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-opacity bg-[#092147] text-white text-[10px] p-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap z-20 font-mono border border-amber-400/40">
+                    <p className="font-bold text-amber-300">{item.month}</p>
+                    <p>Penjualan: {formatRupiah(item.totalSales)}</p>
+                    <p className="text-emerald-300">Komisi: {formatRupiah(item.totalCommission)}</p>
+                    <p className="text-blue-200">
+                      {userRole === 'mitra'
+                        ? `${item.dealsClosed} deal klien Anda`
+                        : `${item.dealsClosed} deals · ${item.mitraCount} mitra`}
+                    </p>
+                  </div>
+
+                  <div className="w-full flex items-end justify-center gap-1 sm:gap-2 h-full">
+                    {/* Sales Bar */}
+                    <div
+                      style={{ height: `${salesHeightPercent}%` }}
+                      className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
+                        item.totalSales > 0 ? 'bg-[#092147] hover:bg-[#113872]' : 'bg-slate-200'
+                      }`}
+                    />
+                    {/* Commission Bar */}
+                    <div
+                      style={{ height: `${commHeightPercent}%` }}
+                      className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
+                        item.totalCommission > 0
+                          ? 'bg-amber-500 hover:bg-amber-600'
+                          : 'bg-slate-200'
+                      }`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Month Labels */}
+          <div className="flex justify-between text-xs text-slate-500 font-medium pt-3 px-2">
+            {displayedSalesHistory.map((item, idx) => (
+              <span key={idx} className="text-center font-display text-[11px] truncate">
+                {item.month.split(' ')[0]}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* UPGRADED & IMMEDIATELY VISIBLE REWARD SHOWCASE FOR MITRA (POSITIONED BELOW CHART, HIDDEN WHEN BOTH MONTHLY & YEARLY BONUS TARGETS ARE OFF) */}
+      {userRole === 'mitra' && anyBonusEnabled && (() => {
         const rewardTiers = [
           {
             tier: 'TIER 1',
@@ -440,98 +549,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
         );
       })()}
-
-      {/* Main Sales Bar Chart */}
-      <div className="grid grid-cols-1 gap-6">
-        {/* Sales Performance Chart */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 font-display">
-                {userRole === 'mitra'
-                  ? 'Grafik Penjualan & Komisi Akun Anda (6 Bulan)'
-                  : 'Grafik Penjualan & Tren Pertumbuhan Omset (6 Bulan)'}
-              </h3>
-            </div>
-            <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-xs bg-[#092147] inline-block" />
-                <span>{userRole === 'mitra' ? 'Penjualan Klien Anda' : 'Total Penjualan'}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-xs bg-amber-500 inline-block" />
-                <span>{userRole === 'mitra' ? 'Komisi Anda' : 'Komisi Mitra'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Clean Interactive SVG Bar Chart with Tabular Numerals */}
-          <div className="h-64 w-full flex items-end gap-3 sm:gap-6 pt-6 pb-2 px-2 border-b border-slate-200 relative">
-            {!hasAnySalesInHistory && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500">
-                  Belum ada transaksi penjualan / deal disetujui (Rp 0)
-                </span>
-              </div>
-            )}
-            {displayedSalesHistory.map((item, idx) => {
-              const salesHeightPercent =
-                item.totalSales > 0 ? Math.max((item.totalSales / maxSales) * 100, 4) : 2;
-              const commHeightPercent =
-                item.totalCommission > 0
-                  ? Math.max((item.totalCommission / maxSales) * 100, 4)
-                  : 2;
-
-              return (
-                <div
-                  key={idx}
-                  className="flex-1 flex flex-col items-center h-full justify-end group relative"
-                >
-                  {/* Tooltip on hover */}
-                  <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-opacity bg-[#092147] text-white text-[10px] p-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap z-20 font-mono border border-amber-400/40">
-                    <p className="font-bold text-amber-300">{item.month}</p>
-                    <p>Penjualan: {formatRupiah(item.totalSales)}</p>
-                    <p className="text-emerald-300">Komisi: {formatRupiah(item.totalCommission)}</p>
-                    <p className="text-blue-200">
-                      {userRole === 'mitra'
-                        ? `${item.dealsClosed} deal klien Anda`
-                        : `${item.dealsClosed} deals · ${item.mitraCount} mitra`}
-                    </p>
-                  </div>
-
-                  <div className="w-full flex items-end justify-center gap-1 sm:gap-2 h-full">
-                    {/* Sales Bar */}
-                    <div
-                      style={{ height: `${salesHeightPercent}%` }}
-                      className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
-                        item.totalSales > 0 ? 'bg-[#092147] hover:bg-[#113872]' : 'bg-slate-200'
-                      }`}
-                    />
-                    {/* Commission Bar */}
-                    <div
-                      style={{ height: `${commHeightPercent}%` }}
-                      className={`w-1/2 sm:w-8 rounded-t-sm transition-all duration-300 ${
-                        item.totalCommission > 0
-                          ? 'bg-amber-500 hover:bg-amber-600'
-                          : 'bg-slate-200'
-                      }`}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Month Labels */}
-          <div className="flex justify-between text-xs text-slate-500 font-medium pt-3 px-2">
-            {displayedSalesHistory.map((item, idx) => (
-              <span key={idx} className="text-center font-display text-[11px] truncate">
-                {item.month.split(' ')[0]}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

@@ -518,7 +518,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                       Tautan Registrasi Klien Terkunci Sementara (Data Diri Belum Lengkap)
                     </span>
                     <span className="text-slate-200 text-[11px] leading-relaxed block mt-0.5">
-                      Silakan lengkapi Data Diri (NIK KTP, No. WhatsApp, dan Rekening Bank) terlebih dahulu agar Anda dapat menyalin dan membagikan tautan registrasi klien maupun menginput klien baru.
+                      Silakan lengkapi Data Diri (NIK KTP, Upload File KTP/NPWP, No. WhatsApp, dan Rekening Bank) terlebih dahulu agar Anda dapat menyalin dan membagikan tautan registrasi klien maupun menginput klien baru.
                     </span>
                   </div>
                 </div>

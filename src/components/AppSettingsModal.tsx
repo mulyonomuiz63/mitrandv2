@@ -82,7 +82,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const canAccessFormsTab = !isStaff || staffAllowedMenus.includes('settings-forms');
   const [settings, setSettings] = useState<AppSettings>({
     firmName: 'NDTAXANDLAW',
-    tagline: 'Firma Konsultan Pajak & Kuasa Hukum Pengadilan Pajak Terakreditasi',
+    tagline: 'Kantor Konsultan Pajak & Hukum',
     supportPhone: '0812-8899-7711',
     supportEmail: 'advisory@ndtaxandlaw.com',
     officeAddress: 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
@@ -137,34 +137,34 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const [editingSpecLabel, setEditingSpecLabel] = useState('');
 
   const [newMitraFieldLabel, setNewMitraFieldLabel] = useState('');
-  const [newMitraFieldType, setNewMitraFieldType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [newMitraFieldType, setNewMitraFieldType] = useState<'text' | 'number' | 'select' | 'textarea' | 'file'>('text');
   const [newMitraFieldPlaceholder, setNewMitraFieldPlaceholder] = useState('');
   const [newMitraFieldOptions, setNewMitraFieldOptions] = useState('');
   const [newMitraFieldRequired, setNewMitraFieldRequired] = useState(false);
 
   const [newBankOptionName, setNewBankOptionName] = useState('');
   const [newBankFieldLabel, setNewBankFieldLabel] = useState('');
-  const [newBankFieldType, setNewBankFieldType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [newBankFieldType, setNewBankFieldType] = useState<'text' | 'number' | 'select' | 'textarea' | 'file'>('text');
   const [newBankFieldPlaceholder, setNewBankFieldPlaceholder] = useState('');
   const [newBankFieldOptions, setNewBankFieldOptions] = useState('');
   const [newBankFieldRequired, setNewBankFieldRequired] = useState(false);
 
   const [editingMitraFieldId, setEditingMitraFieldId] = useState<string | null>(null);
   const [editMitraLabel, setEditMitraLabel] = useState('');
-  const [editMitraType, setEditMitraType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [editMitraType, setEditMitraType] = useState<'text' | 'number' | 'select' | 'textarea' | 'file'>('text');
   const [editMitraPlaceholder, setEditMitraPlaceholder] = useState('');
   const [editMitraOptions, setEditMitraOptions] = useState('');
   const [editMitraRequired, setEditMitraRequired] = useState(false);
 
   const [newClientFieldLabel, setNewClientFieldLabel] = useState('');
-  const [newClientFieldType, setNewClientFieldType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [newClientFieldType, setNewClientFieldType] = useState<'text' | 'number' | 'select' | 'textarea' | 'file'>('text');
   const [newClientFieldPlaceholder, setNewClientFieldPlaceholder] = useState('');
   const [newClientFieldOptions, setNewClientFieldOptions] = useState('');
   const [newClientFieldRequired, setNewClientFieldRequired] = useState(false);
 
   const [editingClientFieldId, setEditingClientFieldId] = useState<string | null>(null);
   const [editClientLabel, setEditClientLabel] = useState('');
-  const [editClientType, setEditClientType] = useState<'text' | 'number' | 'select' | 'textarea'>('text');
+  const [editClientType, setEditClientType] = useState<'text' | 'number' | 'select' | 'textarea' | 'file'>('text');
   const [editClientPlaceholder, setEditClientPlaceholder] = useState('');
   const [editClientOptions, setEditClientOptions] = useState('');
   const [editClientRequired, setEditClientRequired] = useState(false);
@@ -1517,6 +1517,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         <option value="number">Angka / Nomor (Number)</option>
                         <option value="select">Pilihan Dropdown (Select)</option>
                         <option value="textarea">Catatan Panjang (Textarea)</option>
+                        <option value="file">Upload File (JPG, JPEG, PNG, PDF)</option>
                       </select>
                     </div>
                     <div>
@@ -1644,6 +1645,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                     <option value="number">Angka / Nomor (Number)</option>
                                     <option value="select">Pilihan Dropdown (Select)</option>
                                     <option value="textarea">Catatan Panjang (Textarea)</option>
+                                    <option value="file">Upload File (JPG, JPEG, PNG, PDF)</option>
                                   </select>
                                 </div>
                                 <div>
@@ -2099,6 +2101,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         <option value="number">Angka / Nomor (Number)</option>
                         <option value="select">Pilihan Dropdown (Select)</option>
                         <option value="textarea">Catatan Panjang (Textarea)</option>
+                        <option value="file">Upload File (JPG, JPEG, PNG, PDF)</option>
                       </select>
                     </div>
                     <div>
@@ -2226,6 +2229,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                     <option value="number">Angka / Nomor (Number)</option>
                                     <option value="select">Pilihan Dropdown (Select)</option>
                                     <option value="textarea">Catatan Panjang (Textarea)</option>
+                                    <option value="file">Upload File (JPG, JPEG, PNG, PDF)</option>
                                   </select>
                                 </div>
                                 <div>
@@ -2524,6 +2528,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                         <option value="number">Angka / Nomor (Number)</option>
                         <option value="select">Pilihan Dropdown (Select)</option>
                         <option value="textarea">Catatan Panjang (Textarea)</option>
+                        <option value="file">Upload File (JPG, JPEG, PNG, PDF)</option>
                       </select>
                     </div>
                     <div>
@@ -2648,6 +2653,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                                   <option value="number">Angka / Nomor (Number)</option>
                                   <option value="select">Pilihan Dropdown (Select)</option>
                                   <option value="textarea">Catatan Panjang (Textarea)</option>
+                                  <option value="file">Upload File (JPG, JPEG, PNG, PDF)</option>
                                 </select>
                               </div>
                               <div>

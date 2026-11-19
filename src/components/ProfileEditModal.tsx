@@ -9,7 +9,10 @@ import {
   Eye,
   EyeOff,
   Camera,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  FileText,
+  ExternalLink
 } from 'lucide-react';
 import {
   Mitra,
@@ -21,10 +24,12 @@ import {
   resolveSpecializationOptions,
   isBankFormField,
   resolveMitraFormFields,
+  getMitraKtpFileUrl,
+  getMitraKtpFileName,
 } from '../types';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, inferGenderFromName } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
-import { compressAndUploadFile } from '../utils/fileCompressor';
+import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -105,6 +110,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik
   );
   const [phone, setPhone] = useState(mitra.phone === '-' ? '' : mitra.phone);
+  const [ktpFileUrl, setKtpFileUrl] = useState<string>(() => getMitraKtpFileUrl(mitra));
+  const [ktpFileName, setKtpFileName] = useState<string>(() => getMitraKtpFileName(mitra));
+  const [ktpCompressionInfo, setKtpCompressionInfo] = useState<string | null>(null);
+  const [isUploadingKtp, setIsUploadingKtp] = useState(false);
+  const [uploadingCustomKey, setUploadingCustomKey] = useState<string | null>(null);
   const [gender, setGender] = useState<'male' | 'female'>(() => resolveMitraGender(mitra));
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string>(() => {
     if (
@@ -157,6 +167,9 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     setFullName(mitra.fullName);
     setNik(mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik);
     setPhone(mitra.phone === '-' ? '' : mitra.phone);
+    setKtpFileUrl(getMitraKtpFileUrl(mitra));
+    setKtpFileName(getMitraKtpFileName(mitra));
+    setKtpCompressionInfo(null);
     setGender(resolveMitraGender(mitra));
     if (
       mitra.avatarUrl &&
@@ -222,12 +235,97 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     }
   };
 
+  const handleKtpFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorMessage(null);
+    if (!isAllowedVerificationDocumentFile(file)) {
+      setErrorMessage('Format file KTP/NPWP tidak valid. Harap unggah file berformat JPG, JPEG, PNG, atau PDF.');
+      e.target.value = '';
+      return;
+    }
+    setIsUploadingKtp(true);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 1400,
+        quality: 0.78,
+        uploadToServer: true,
+      });
+      const finalUrl = compressed.hostedUrl || compressed.dataUrl;
+      setKtpFileUrl(finalUrl);
+      setKtpFileName(compressed.fileName || file.name);
+      setKtpCompressionInfo(
+        `Terkompres: ${compressed.originalFormattedSize} → ${compressed.compressedFormattedSize}`
+      );
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Gagal mengompres dan mengunggah dokumen KTP/NPWP.');
+    } finally {
+      setIsUploadingKtp(false);
+    }
+  };
+
+  const handleDynamicFileUpload = async (
+    file: File,
+    fieldLabel: string,
+    isBankSection: boolean
+  ) => {
+    setErrorMessage(null);
+    if (!isAllowedVerificationDocumentFile(file)) {
+      setErrorMessage(
+        `Format file untuk "${fieldLabel}" harus berupa JPG, JPEG, PNG, atau PDF.`
+      );
+      return;
+    }
+    setUploadingCustomKey(`${isBankSection ? 'bank' : 'profile'}:${fieldLabel}`);
+    try {
+      const compressed = await compressAndUploadFile(file, {
+        maxDimension: 1400,
+        quality: 0.78,
+        uploadToServer: true,
+      });
+      const finalUrl = compressed.hostedUrl || compressed.dataUrl;
+      if (isBankSection) {
+        setBankCustomFieldValues((prev) => ({
+          ...prev,
+          [fieldLabel]: finalUrl,
+        }));
+      } else {
+        setCustomFieldValues((prev) => ({
+          ...prev,
+          [fieldLabel]: finalUrl,
+        }));
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || `Gagal mengunggah file "${fieldLabel}".`);
+    } finally {
+      setUploadingCustomKey(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     if (newPassword && newPassword !== confirmPassword) {
       setErrorMessage('Konfirmasi kata sandi baru tidak cocok.');
       return;
+    }
+    if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !ktpFileUrl) {
+      setErrorMessage(
+        'Dokumen File KTP / NPWP wajib diunggah (Format JPG, JPEG, PNG, atau PDF) untuk kelengkapan verifikasi.'
+      );
+      return;
+    }
+    for (const f of activeMitraCustomFields) {
+      if (f.type === 'file' && f.required && !customFieldValues[f.label]) {
+        setErrorMessage(`Mohon unggah file untuk kolom wajib "${f.label}".`);
+        return;
+      }
+    }
+    for (const f of activeMitraBankCustomFields) {
+      if (f.type === 'file' && f.required && !bankCustomFieldValues[f.label]) {
+        setErrorMessage(`Mohon unggah file untuk kolom wajib "${f.label}".`);
+        return;
+      }
     }
 
     const isRejected = mitra.status === 'rejected';
@@ -237,8 +335,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         : 'Konfirmasi Simpan Perubahan Profil & Rekening',
       message: isRejected
         ? 'Apakah data yang Anda perbaiki sudah sesuai dengan catatan Admin dan siap diajukan kembali untuk diverifikasi?'
-        : 'Apakah Anda yakin ingin menyimpan perubahan data diri, foto profil, dan informasi rekening bank Anda?',
-      detail: `Nama Mitra: ${fullName}\nNIK KTP: ${nik}\nNo. WhatsApp: ${phone}\nRekening Pencairan: ${bankName} - ${accountNumber} (a.n. ${accountHolder})${newPassword ? '\nKata Sandi: Akan diperbarui' : ''}`,
+        : 'Apakah Anda yakin ingin menyimpan perubahan data diri, berkas KTP/NPWP, foto profil, dan informasi rekening bank Anda?',
+      detail: `Nama Mitra: ${fullName}\nNIK KTP: ${nik}\nBerkas KTP/NPWP: ${ktpFileName || (ktpFileUrl ? 'Sudah Diunggah' : 'Belum Diunggah')}\nNo. WhatsApp: ${phone}\nRekening Pencairan: ${bankName} - ${accountNumber} (a.n. ${accountHolder})${newPassword ? '\nKata Sandi: Akan diperbarui' : ''}`,
       confirmText: isRejected ? 'Ya, Simpan & Ajukan Ulang' : 'Ya, Simpan Perubahan',
       cancelText: 'Batalkan',
       variant: isRejected ? 'success' : 'primary',
@@ -248,14 +346,19 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     setIsSubmitting(true);
     try {
       const resolvedAvatar = customAvatarUrl || getDefaultAvatar(gender, fullName);
-      const mergedCustomFields = {
+      const ktpLabel = getSysField('ktpFile')?.label || 'Upload File KTP / NPWP';
+      const mergedCustomFields: Record<string, string> = {
         ...customFieldValues,
         ...bankCustomFieldValues,
+        ...(ktpFileUrl ? { [ktpLabel]: ktpFileUrl, 'mitra-def-ktpFile': ktpFileUrl } : {}),
+        ...(ktpFileName ? { __ktpFileName: ktpFileName } : {}),
       };
       await onUpdateProfile(mitra.id, {
         fullName,
         phone,
         nik,
+        ktpFileUrl: ktpFileUrl || undefined,
+        ktpFileName: ktpFileName || undefined,
         gender,
         avatarUrl: resolvedAvatar,
         specialization,
@@ -476,6 +579,104 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 </div>
               )}
 
+              {/* Upload File KTP / NPWP (Wajib untuk Kelengkapan Verifikasi) */}
+              {isSysActive('ktpFile') && (
+                <div
+                  className={`p-3.5 rounded-xl border space-y-2.5 ${
+                    ktpFileUrl
+                      ? 'bg-emerald-50/60 border-emerald-300'
+                      : 'bg-amber-50/80 border-amber-300'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-blue-700" />
+                          <span>{getSysField('ktpFile')?.label || 'Upload File KTP / NPWP'}</span>
+                          {getSysField('ktpFile')?.required !== false && (
+                            <span className="text-rose-600">*</span>
+                          )}
+                        </label>
+                        {ktpFileUrl ? (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Sudah Diunggah
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                            Wajib Upload untuk Verifikasi
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Format didukung: <strong>JPG, JPEG, PNG, atau PDF</strong> (otomatis dikompres &amp; disimpan permanen).
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {ktpFileUrl && (
+                        <a
+                          href={ktpFileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-1 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Lihat File</span>
+                        </a>
+                      )}
+                      <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>
+                          {isUploadingKtp
+                            ? 'Mengompres...'
+                            : ktpFileUrl
+                            ? 'Ganti File'
+                            : 'Pilih File KTP/NPWP'}
+                        </span>
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                          onChange={handleKtpFileChange}
+                          disabled={isUploadingKtp}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {ktpFileUrl && (
+                    <div className="p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {ktpFileUrl.toLowerCase().endsWith('.pdf') ||
+                        ktpFileUrl.startsWith('data:application/pdf') ? (
+                          <div className="w-9 h-9 rounded-lg bg-rose-100 border border-rose-200 text-rose-700 font-extrabold text-[10px] flex items-center justify-center shrink-0">
+                            PDF
+                          </div>
+                        ) : (
+                          <img
+                            src={ktpFileUrl}
+                            alt="Preview KTP/NPWP"
+                            className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-800 truncate">
+                            {ktpFileName || 'Dokumen_KTP_NPWP'}
+                          </p>
+                          {ktpCompressionInfo && (
+                            <p className="text-[10px] font-mono text-emerald-700">
+                              {ktpCompressionInfo}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {specEnabled && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -504,12 +705,51 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                   {activeMitraCustomFields.map((field) => (
                     <div
                       key={field.id}
-                      className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                      className={
+                        field.type === 'textarea' || field.type === 'file' ? 'sm:col-span-2' : ''
+                      }
                     >
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         {field.label} {field.required && <span className="text-rose-500">*</span>}
                       </label>
-                      {field.type === 'select' ? (
+                      {field.type === 'file' ? (
+                        <div className="p-2.5 rounded-lg border border-slate-300 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="text-[11px] text-slate-600 truncate">
+                            {customFieldValues[field.label] ? (
+                              <a
+                                href={customFieldValues[field.label]}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-bold text-emerald-700 hover:underline inline-flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>File sudah diunggah (Klik untuk lihat)</span>
+                              </a>
+                            ) : (
+                              <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                            )}
+                          </div>
+                          <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>
+                              {uploadingCustomKey === `profile:${field.label}`
+                                ? 'Mengompres...'
+                                : customFieldValues[field.label]
+                                ? 'Ganti File'
+                                : 'Upload File'}
+                            </span>
+                            <input
+                              type="file"
+                              accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleDynamicFileUpload(f, field.label, false);
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      ) : field.type === 'select' ? (
                         <select
                           required={field.required}
                           value={customFieldValues[field.label] || ''}
@@ -693,12 +933,51 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                     {activeMitraBankCustomFields.map((field) => (
                       <div
                         key={field.id}
-                        className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
+                        className={
+                          field.type === 'textarea' || field.type === 'file' ? 'sm:col-span-2' : ''
+                        }
                       >
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
                           {field.label} {field.required && <span className="text-rose-500">*</span>}
                         </label>
-                        {field.type === 'select' ? (
+                        {field.type === 'file' ? (
+                          <div className="p-2.5 rounded-lg border border-slate-300 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="text-[11px] text-slate-600 truncate">
+                              {bankCustomFieldValues[field.label] ? (
+                                <a
+                                  href={bankCustomFieldValues[field.label]}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-bold text-emerald-700 hover:underline inline-flex items-center gap-1"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>File sudah diunggah (Klik untuk lihat)</span>
+                                </a>
+                              ) : (
+                                <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                              )}
+                            </div>
+                            <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>
+                                {uploadingCustomKey === `bank:${field.label}`
+                                  ? 'Mengompres...'
+                                  : bankCustomFieldValues[field.label]
+                                  ? 'Ganti File'
+                                  : 'Upload File'}
+                              </span>
+                              <input
+                                type="file"
+                                accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleDynamicFileUpload(f, field.label, true);
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        ) : field.type === 'select' ? (
                           <select
                             required={field.required}
                             value={bankCustomFieldValues[field.label] || ''}

@@ -7,10 +7,14 @@ import {
   CreditCard, 
   Eye, 
   Clock,
-  X
+  X,
+  FileText,
+  Upload,
+  ExternalLink
 } from 'lucide-react';
-import { Mitra } from '../types';
+import { Mitra, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
+import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 import {
   useServerDataTable,
   ServerDataTableTopBar,
@@ -22,9 +26,11 @@ interface MitraVerificationPanelProps {
   mitras: Mitra[];
   onVerifyMitra: (id: string, status: 'verified' | 'rejected', rejectionReason?: string) => Promise<void>;
   onSelectMitraPreview: (mitra: Mitra) => void;
+  onUpdateMitraProfile?: (id: string, data: Partial<Mitra>) => Promise<void>;
 }
 
 const REJECTION_REASON_PRESETS = [
+  'Dokumen File KTP / NPWP belum diunggah atau tidak terbaca dengan jelas.',
   'Nomor NIK KTP (16 digit) tidak sesuai atau belum valid.',
   'Nama pemilik rekening bank tidak sesuai dengan nama lengkap Mitra terdaftar.',
   'Nomor rekening bank pencairan tidak valid / belum lengkap.',
@@ -35,12 +41,15 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   mitras,
   onVerifyMitra,
   onSelectMitraPreview,
+  onUpdateMitraProfile,
 }) => {
   const confirm = useConfirm();
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMitraDetail, setSelectedMitraDetail] = useState<Mitra | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [isAdminUploadingKtp, setIsAdminUploadingKtp] = useState(false);
+  const [adminUploadMsg, setAdminUploadMsg] = useState<string | null>(null);
 
   // Rejection Reason Modal State
   const [mitraToReject, setMitraToReject] = useState<Mitra | null>(null);
@@ -267,6 +276,24 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                           <p className="text-[11px] font-mono text-slate-500 mt-0.5">
                             {m.memberCode} · NIK: {m.nik}
                           </p>
+                          <div className="mt-1">
+                            {getMitraKtpFileUrl(m) ? (
+                              <a
+                                href={getMitraKtpFileUrl(m)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                              >
+                                <FileText className="w-3 h-3" />
+                                <span>Berkas KTP/NPWP Terunggah</span>
+                              </a>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                <AlertCircle className="w-3 h-3" />
+                                <span>Belum Upload KTP/NPWP</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -468,6 +495,146 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 </div>
               </div>
 
+              {/* Berkas Verifikasi KTP / NPWP Section (View & Manual Upload by Admin) */}
+              {(() => {
+                const ktpUrl = getMitraKtpFileUrl(selectedMitraDetail);
+                const ktpName = getMitraKtpFileName(selectedMitraDetail);
+                const isPdf =
+                  ktpUrl.toLowerCase().endsWith('.pdf') ||
+                  ktpUrl.startsWith('data:application/pdf');
+
+                const handleAdminKtpUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setAdminUploadMsg(null);
+                  if (!isAllowedVerificationDocumentFile(file)) {
+                    setAdminUploadMsg('Format file wajib JPG, JPEG, PNG, atau PDF.');
+                    e.target.value = '';
+                    return;
+                  }
+                  setIsAdminUploadingKtp(true);
+                  try {
+                    const compressed = await compressAndUploadFile(file, {
+                      maxDimension: 1400,
+                      quality: 0.78,
+                      uploadToServer: true,
+                    });
+                    const finalUrl = compressed.hostedUrl || compressed.dataUrl;
+                    const finalName = compressed.fileName || file.name;
+                    const payload = {
+                      ktpFileUrl: finalUrl,
+                      ktpFileName: finalName,
+                      customFields: {
+                        ...(selectedMitraDetail.customFields || {}),
+                        'Upload File KTP / NPWP': finalUrl,
+                        'mitra-def-ktpFile': finalUrl,
+                        __ktpFileName: finalName,
+                      },
+                    };
+                    if (onUpdateMitraProfile) {
+                      await onUpdateMitraProfile(selectedMitraDetail.id, payload);
+                    } else {
+                      await fetch(`/api/mitra/${selectedMitraDetail.id}/profile`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                      });
+                    }
+                    setSelectedMitraDetail({
+                      ...selectedMitraDetail,
+                      ktpFileUrl: finalUrl,
+                      ktpFileName: finalName,
+                      customFields: payload.customFields,
+                    });
+                    mitraDt.refresh();
+                    setAdminUploadMsg(
+                      `Berkas "${finalName}" berhasil dikompres (${compressed.originalFormattedSize} → ${compressed.compressedFormattedSize}) dan disimpan.`
+                    );
+                  } catch (err: any) {
+                    setAdminUploadMsg(err?.message || 'Gagal mengunggah berkas KTP/NPWP.');
+                  } finally {
+                    setIsAdminUploadingKtp(false);
+                  }
+                };
+
+                return (
+                  <div
+                    className={`p-3.5 rounded-xl border space-y-2 ${
+                      ktpUrl
+                        ? 'bg-emerald-50/70 border-emerald-200'
+                        : 'bg-amber-50/80 border-amber-200'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[11px] font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-blue-700" />
+                          <span>Dokumen Verifikasi KTP / NPWP Mitra</span>
+                        </p>
+                        {ktpUrl ? (
+                          <p className="text-[11px] text-emerald-800 font-semibold mt-0.5">
+                            ✓ Berkas: {ktpName || 'Dokumen_KTP_NPWP'}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-amber-900 font-semibold mt-0.5">
+                            ⚠ Mitra belum mengunggah file KTP / NPWP (Wajib JPG, JPEG, PNG, atau PDF)
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {ktpUrl && (
+                          <a
+                            href={ktpUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg inline-flex items-center gap-1"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>Lihat / Unduh</span>
+                          </a>
+                        )}
+                        <label className="px-2.5 py-1.5 text-[11px] font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer inline-flex items-center gap-1">
+                          <Upload className="w-3 h-3" />
+                          <span>
+                            {isAdminUploadingKtp
+                              ? 'Mengompres...'
+                              : ktpUrl
+                              ? 'Ganti File'
+                              : 'Upload Manual'}
+                          </span>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                            onChange={handleAdminKtpUpload}
+                            disabled={isAdminUploadingKtp}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {ktpUrl && !isPdf && (
+                      <div className="pt-1">
+                        <a href={ktpUrl} target="_blank" rel="noopener noreferrer" className="block">
+                          <img
+                            src={ktpUrl}
+                            alt="Berkas KTP/NPWP Mitra"
+                            className="max-h-36 rounded-lg border border-slate-200 object-contain bg-white p-1"
+                          />
+                        </a>
+                      </div>
+                    )}
+
+                    {adminUploadMsg && (
+                      <p className="text-[11px] font-semibold text-blue-800 bg-white/80 px-2.5 py-1.5 rounded-lg border border-blue-200">
+                        {adminUploadMsg}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Bank Verification Section */}
               <div className="bg-blue-50/70 p-3.5 rounded-xl border border-blue-200">
                 <p className="text-[11px] font-semibold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -483,7 +650,18 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                       v ? (
                         <p key={k}>
                           <span className="text-slate-600">{k}:</span>{' '}
-                          <strong className="text-slate-900">{v}</strong>
+                          {typeof v === 'string' && (v.startsWith('/uploads/') || v.startsWith('data:')) ? (
+                            <a
+                              href={v}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-bold text-blue-700 hover:underline"
+                            >
+                              Lihat Berkas Terunggah
+                            </a>
+                          ) : (
+                            <strong className="text-slate-900">{v}</strong>
+                          )}
                         </p>
                       ) : null
                     )}
@@ -491,18 +669,36 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </div>
 
               {/* Dynamic Custom Fields Section (if any) */}
-              {selectedMitraDetail.customFields && Object.keys(selectedMitraDetail.customFields).length > 0 && (
+              {selectedMitraDetail.customFields &&
+                Object.keys(selectedMitraDetail.customFields).filter(
+                  (k) => k !== '__ktpFileName' && k !== 'mitra-def-ktpFile'
+                ).length > 0 && (
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1.5">
                   <p className="text-[11px] font-semibold text-slate-800 uppercase tracking-wider">
                     Data Tambahan Pendaftaran Mitra
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    {Object.entries(selectedMitraDetail.customFields).map(([k, v]) => (
-                      <div key={k} className="bg-white p-2 rounded-lg border border-slate-200/80">
-                        <span className="text-[10px] text-slate-500 block">{k}</span>
-                        <span className="font-semibold text-slate-900 text-xs">{v || '-'}</span>
-                      </div>
-                    ))}
+                    {Object.entries(selectedMitraDetail.customFields)
+                      .filter(([k]) => k !== '__ktpFileName' && k !== 'mitra-def-ktpFile')
+                      .map(([k, v]) => (
+                        <div key={k} className="bg-white p-2 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] text-slate-500 block">{k}</span>
+                          {typeof v === 'string' &&
+                          (v.startsWith('/uploads/') || v.startsWith('data:')) ? (
+                            <a
+                              href={v}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-bold text-blue-700 hover:underline text-xs inline-flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Lihat Berkas</span>
+                            </a>
+                          ) : (
+                            <span className="font-semibold text-slate-900 text-xs">{v || '-'}</span>
+                          )}
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}

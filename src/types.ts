@@ -16,6 +16,7 @@ export type MitraSystemFieldKey =
   | 'email'
   | 'phone'
   | 'nik'
+  | 'ktpFile'
   | 'specialization'
   | 'bankName'
   | 'accountNumber'
@@ -34,7 +35,7 @@ export interface DynamicFormField {
   section?: 'profile' | 'bank';
   isDefault?: boolean;
   label: string;
-  type: 'text' | 'number' | 'select' | 'textarea';
+  type: 'text' | 'number' | 'select' | 'textarea' | 'file';
   placeholder?: string;
   required: boolean;
   options?: string[];
@@ -128,6 +129,17 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     label: 'Nomor KTP / NIK',
     type: 'text',
     placeholder: '16 digit NIK resmi',
+    required: true,
+    isActive: true,
+  },
+  {
+    id: 'mitra-def-ktpFile',
+    systemKey: 'ktpFile',
+    section: 'profile',
+    isDefault: true,
+    label: 'Upload File KTP / NPWP',
+    type: 'file',
+    placeholder: 'Unggah dokumen KTP atau NPWP (Format: JPG, JPEG, PNG, atau PDF)',
     required: true,
     isActive: true,
   },
@@ -239,6 +251,8 @@ export interface Mitra {
   email: string;
   phone: string;
   nik: string;
+  ktpFileUrl?: string;
+  ktpFileName?: string;
   specialization: string;
   status: 'verified' | 'pending' | 'rejected';
   avatarUrl: string;
@@ -259,6 +273,46 @@ export interface Mitra {
   rejectedAt?: string;
   customFields?: Record<string, string>;
   isLoadingFallback?: boolean;
+}
+
+export function getMitraKtpFileUrl(mitra?: Mitra | null): string {
+  if (!mitra) return '';
+  const bankMeta = (mitra.bankDetails || {}) as any;
+  const direct = mitra.ktpFileUrl || bankMeta.__ktpFileUrl;
+  if (direct && typeof direct === 'string' && direct.trim() !== '' && direct.trim() !== '-') {
+    return direct.trim();
+  }
+  if (mitra.customFields) {
+    for (const [k, v] of Object.entries(mitra.customFields)) {
+      if (!v || typeof v !== 'string') continue;
+      const kl = k.toLowerCase();
+      if (
+        (k === 'mitra-def-ktpFile' || kl.includes('ktp') || kl.includes('npwp')) &&
+        v.trim() !== '' &&
+        v.trim() !== '-'
+      ) {
+        return v.trim();
+      }
+    }
+  }
+  return '';
+}
+
+export function getMitraKtpFileName(mitra?: Mitra | null): string {
+  if (!mitra) return '';
+  const bankMeta = (mitra.bankDetails || {}) as any;
+  const directName =
+    mitra.ktpFileName || bankMeta.__ktpFileName || mitra.customFields?.['__ktpFileName'];
+  if (directName && typeof directName === 'string' && directName.trim() !== '') {
+    return directName.trim();
+  }
+  const url = getMitraKtpFileUrl(mitra);
+  if (!url) return '';
+  if (url.startsWith('/uploads/')) {
+    const base = url.split('/').pop() || 'Dokumen_KTP_NPWP';
+    return base.replace(/^\d+-/, '');
+  }
+  return 'Dokumen_KTP_NPWP';
 }
 
 export function isMitraDataIncomplete(mitra?: Mitra | null, settings?: AppSettings | null): boolean {
@@ -297,7 +351,24 @@ export function isMitraDataIncomplete(mitra?: Mitra | null, settings?: AppSettin
     (!mitra.phone ||
       mitra.phone.trim() === '' ||
       mitra.phone.trim() === '-');
-  return missingBank || missingNik || missingPhone;
+
+  const ktpField = fields.find((f) => f.systemKey === 'ktpFile');
+  const isKtpRequiredAndActive = ktpField
+    ? ktpField.isActive !== false && ktpField.required !== false
+    : true;
+  const missingKtpFile = isKtpRequiredAndActive && !getMitraKtpFileUrl(mitra);
+
+  const missingRequiredCustomFile = fields.some((f) => {
+    if (f.systemKey || f.isActive === false || !f.required || f.type !== 'file') return false;
+    const val =
+      mitra.customFields?.[f.label] ||
+      mitra.customFields?.[f.id] ||
+      mitra.bankDetails?.customBankFields?.[f.label] ||
+      mitra.bankDetails?.customBankFields?.[f.id];
+    return !val || String(val).trim() === '' || String(val).trim() === '-';
+  });
+
+  return missingBank || missingNik || missingPhone || missingKtpFile || missingRequiredCustomFile;
 }
 
 
@@ -1180,14 +1251,30 @@ export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFo
     };
   };
 
+  const ensureDefaultKtpFileField = (list: DynamicFormField[]): DynamicFormField[] => {
+    const hasKtpFile = list.some(
+      (f) => f.systemKey === 'ktpFile' || f.id === 'mitra-def-ktpFile'
+    );
+    if (hasKtpFile) return list;
+    const defaultKtpField = DEFAULT_MITRA_FORM_FIELDS.find((f) => f.systemKey === 'ktpFile');
+    if (!defaultKtpField) return list;
+    const nikIdx = list.findIndex((f) => f.systemKey === 'nik' || f.id === 'mitra-def-nik');
+    if (nikIdx >= 0) {
+      const next = [...list];
+      next.splice(nikIdx + 1, 0, { ...defaultKtpField });
+      return next;
+    }
+    return [{ ...defaultKtpField }, ...list];
+  };
+
   if (settings?.mitraFieldsInitialized) {
-    return existing.map(normalizeField);
+    return ensureDefaultKtpFileField(existing.map(normalizeField));
   }
 
   // Merge default fields with any existing custom fields (when not initialized yet)
   const hasAnyDefault = existing.some((f) => Boolean(f.systemKey || f.isDefault));
   if (hasAnyDefault) {
-    return existing.map(normalizeField);
+    return ensureDefaultKtpFileField(existing.map(normalizeField));
   }
 
   const defaults = DEFAULT_MITRA_FORM_FIELDS.map((df) => {
@@ -1230,6 +1317,8 @@ export function getMitraFieldUsageCount(field: DynamicFormField, mitras: Mitra[]
       return list.filter(
         (m) => Boolean(m.nik && m.nik.trim() && m.nik !== '-' && m.nik !== '0000000000000000')
       ).length;
+    case 'ktpFile':
+      return list.filter((m) => Boolean(getMitraKtpFileUrl(m))).length;
     case 'specialization':
       return list.filter((m) => Boolean(m.specialization && m.specialization.trim() && m.specialization !== '-'))
         .length;
