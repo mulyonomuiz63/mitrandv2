@@ -170,17 +170,34 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
     return withTs.map((x) => x.item);
   }, [payouts]);
 
+  // Filter Mode untuk Tabel Pemantauan Target & Bonus Per Mitra (Capaian Penjualan, Bulanan, Tahunan)
+  const [monitoringTargetFilter, setMonitoringTargetFilter] = useState<'tiers' | 'monthly' | 'yearly'>(() => {
+    if (!mBonusEnabled && !yBonusEnabled) return 'tiers';
+    if (yBonusEnabled) return 'yearly';
+    if (mBonusEnabled) return 'monthly';
+    return 'tiers';
+  });
+
+  useEffect(() => {
+    if (monitoringTargetFilter === 'monthly' && !mBonusEnabled) {
+      setMonitoringTargetFilter(yBonusEnabled ? 'yearly' : 'tiers');
+    } else if (monitoringTargetFilter === 'yearly' && !yBonusEnabled) {
+      setMonitoringTargetFilter(mBonusEnabled ? 'monthly' : 'tiers');
+    }
+  }, [mBonusEnabled, yBonusEnabled, monitoringTargetFilter]);
+
   // Sorted Mitras for Tabel Pemantauan Target & Bonus Per Mitra (Achieved target with highest sales at the top)
   const sortedMonitoringMitras = React.useMemo(() => {
     const sourceMitras = allMitras.length > 0 ? [...allMitras] : [mitra];
+    const isTiers = monitoringTargetFilter === 'tiers';
     const tRev =
-      selectedBonusPeriod === 'yearly'
-        ? Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000))
-        : Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000));
+      monitoringTargetFilter === 'monthly'
+        ? Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000))
+        : Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000));
     const tCli =
-      selectedBonusPeriod === 'yearly'
-        ? Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12))
-        : Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3));
+      monitoringTargetFilter === 'monthly'
+        ? Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3))
+        : Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12));
 
     const enriched = sourceMitras.map((m) => {
       const mDeals = clientDeals.filter(
@@ -191,11 +208,13 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       const mOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
       const mClients = mDeals.length;
       const tierInfo = resolveQualifiedRewardTier(mOmzet, bonusTarget);
-      const mAchieved =
-        mOmzet >= tRev || mClients >= tCli || Boolean(tierInfo.achievedTier);
+      const mAchieved = isTiers
+        ? Boolean(tierInfo.achievedTier)
+        : mOmzet >= tRev || mClients >= tCli;
       return {
         item: m,
         achieved: mAchieved ? 1 : 0,
+        tierNo: tierInfo.achievedTier ? tierInfo.achievedTier.no : 0,
         omzet: mOmzet,
         clients: mClients,
       };
@@ -203,19 +222,20 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 
     enriched.sort((a, b) => {
       if (b.achieved !== a.achieved) return b.achieved - a.achieved;
+      if (isTiers && b.tierNo !== a.tierNo) return b.tierNo - a.tierNo;
       if (b.omzet !== a.omzet) return b.omzet - a.omzet;
       return b.clients - a.clients;
     });
 
     return enriched.map((x) => x.item);
-  }, [allMitras, mitra, clientDeals, selectedBonusPeriod, bonusTarget]);
+  }, [allMitras, mitra, clientDeals, monitoringTargetFilter, bonusTarget]);
 
   const monitoringTargetsDt = useServerDataTable<Mitra>({
     resource: 'mitra-monitoring-targets',
     fallbackItems: sortedMonitoringMitras,
     defaultPerPage: 10,
-    extraParams: { period: selectedBonusPeriod },
-    dependencyKey: `${allMitras.length}-${clientDeals.length}-${selectedBonusPeriod}`,
+    extraParams: { period: monitoringTargetFilter },
+    dependencyKey: `${allMitras.length}-${clientDeals.length}-${monitoringTargetFilter}`,
   });
 
   const referralsDt = useServerDataTable<ClientDeal>({
@@ -820,23 +840,87 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   <h3 className="text-sm font-bold text-slate-900 font-display flex items-center gap-2">
                     <Target className="w-4 h-4 text-[#113872]" />
                     <span>
-                      Tabel Pemantauan Target &amp; Bonus Per Mitra ({selectedBonusPeriod === 'yearly' ? 'Per Tahun' : 'Per Bulan'})
+                      {monitoringTargetFilter === 'tiers'
+                        ? 'Tabel Pemantauan Target Capaian Penjualan & Hadiah Mitra'
+                        : `Tabel Pemantauan Target & Bonus Per Mitra (${
+                            monitoringTargetFilter === 'yearly' ? 'Per Tahun' : 'Per Bulan'
+                          })`}
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Standar Target ({selectedBonusPeriod === 'yearly' ? 'Tahunan' : 'Bulanan'}): Capaian Penjualan <strong>{formatRupiah(targetRev)}</strong> atau <strong>{targetCli} Klien Deal</strong> per masing-masing Mitra.
+                    {monitoringTargetFilter === 'tiers' ? (
+                      <>
+                        Standar Capaian Penjualan: Monitoring progres real-time masing-masing Mitra menuju{' '}
+                        <strong>5 Tier Hadiah / Bonus Mitra</strong> (Mulai dari{' '}
+                        {formatRupiah(activeTiers[0]?.salesTarget || 500000000)} -{' '}
+                        {activeTiers[0]?.rewardName || 'Jalan-Jalan LN'}).
+                      </>
+                    ) : (
+                      <>
+                        Standar Target ({monitoringTargetFilter === 'yearly' ? 'Tahunan' : 'Bulanan'}): Capaian Penjualan{' '}
+                        <strong>
+                          {formatRupiah(
+                            monitoringTargetFilter === 'yearly'
+                              ? Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000)
+                              : Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000)
+                          )}
+                        </strong>{' '}
+                        atau{' '}
+                        <strong>
+                          {monitoringTargetFilter === 'yearly'
+                            ? Number(bonusTarget.yearlyTargetClientCount ?? 12)
+                            : Number(bonusTarget.monthlyTargetClientCount ?? 3)}{' '}
+                          Klien Deal
+                        </strong>{' '}
+                        per masing-masing Mitra.
+                      </>
+                    )}
                   </p>
                 </div>
 
-                {onNavigateToOperations && (
+                {/* Filter Selector Target: Menggantikan Tombol 'Kelola Target, Bonus & Pencairan Komisi' */}
+                <div className="flex items-center gap-1.5 p-1 bg-white rounded-xl border border-slate-300 shadow-2xs self-start sm:self-auto">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline">
+                    Filter:
+                  </span>
                   <button
                     type="button"
-                    onClick={onNavigateToOperations}
-                    className="px-3.5 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-xs transition-all cursor-pointer self-start sm:self-auto"
+                    onClick={() => setMonitoringTargetFilter('tiers')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      monitoringTargetFilter === 'tiers'
+                        ? 'bg-[#113872] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
                   >
-                    Kelola Target, Bonus &amp; Pencairan Komisi →
+                    Target Capaian Penjualan
                   </button>
-                )}
+                  {mBonusEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringTargetFilter('monthly')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                        monitoringTargetFilter === 'monthly'
+                          ? 'bg-[#113872] text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      Target Bulanan
+                    </button>
+                  )}
+                  {yBonusEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringTargetFilter('yearly')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                        monitoringTargetFilter === 'yearly'
+                          ? 'bg-[#113872] text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      Target Tahunan
+                    </button>
+                  )}
+                </div>
               </div>
 
               <ServerDataTableTopBar
@@ -856,10 +940,16 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                   <thead>
                     <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
                       <th className="py-3 px-5">Nama Mitra &amp; ID</th>
-                      <th className="py-3 px-4 text-center">Klien Deal vs Target</th>
-                      <th className="py-3 px-4 text-right">Capaian Penjualan vs Target</th>
+                      <th className="py-3 px-4 text-center">
+                        {monitoringTargetFilter === 'tiers' ? 'Klien Deal' : 'Klien Deal vs Target'}
+                      </th>
+                      <th className="py-3 px-4 text-right">
+                        {monitoringTargetFilter === 'tiers' ? 'Total Capaian Penjualan' : 'Capaian Penjualan vs Target'}
+                      </th>
                       <th className="py-3 px-4">Tier Hadiah / Bonus</th>
-                      <th className="py-3 px-4 text-center">Status Target</th>
+                      <th className="py-3 px-4 text-center">
+                        {monitoringTargetFilter === 'tiers' ? 'Status Capaian Tier' : 'Status Target'}
+                      </th>
                       <th className="py-3 px-4 text-right">Total Bonus Diterima</th>
                       <th className="py-3 px-5 text-right">Saldo Komisi Siap Cair</th>
                     </tr>
@@ -882,11 +972,29 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                       );
                       const mOmzet = mDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
                       const mClients = mDeals.length;
-                      const mRevPct = Math.min(100, Math.round((mOmzet / targetRev) * 100));
-                      const mCliPct = Math.min(100, Math.round((mClients / targetCli) * 100));
+
+                      const isTiers = monitoringTargetFilter === 'tiers';
+                      const currentTRev =
+                        monitoringTargetFilter === 'monthly'
+                          ? Math.max(1, Number(bonusTarget.monthlyTargetDealRevenue ?? 50000000))
+                          : Math.max(1, Number(bonusTarget.yearlyTargetDealRevenue ?? 500000000));
+                      const currentTCli =
+                        monitoringTargetFilter === 'monthly'
+                          ? Math.max(1, Number(bonusTarget.monthlyTargetClientCount ?? 3))
+                          : Math.max(1, Number(bonusTarget.yearlyTargetClientCount ?? 12));
+
+                      const mRevPct = Math.min(100, Math.round((mOmzet / currentTRev) * 100));
+                      const mCliPct = Math.min(100, Math.round((mClients / currentTCli) * 100));
                       const bestPct = Math.max(mRevPct, mCliPct);
-                      const mAchieved = mOmzet >= targetRev || mClients >= targetCli;
+                      const mAchieved = mOmzet >= currentTRev || mClients >= currentTCli;
                       const mTierInfo = resolveQualifiedRewardTier(mOmzet, bonusTarget);
+
+                      const isCurrentFilterPeriodEnabled =
+                        monitoringTargetFilter === 'yearly'
+                          ? yBonusEnabled
+                          : monitoringTargetFilter === 'monthly'
+                          ? mBonusEnabled
+                          : true;
 
                       return (
                         <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
@@ -897,11 +1005,17 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                             </div>
                           </td>
                           <td className="py-3 px-4 text-center font-mono font-bold text-slate-800">
-                            {mClients} / {targetCli} Klien
+                            {isTiers ? (
+                              <span>{mClients} Klien</span>
+                            ) : (
+                              <span>{mClients} / {currentTCli} Klien</span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right font-mono">
                             <div className="font-bold text-slate-900">{formatRupiah(mOmzet)}</div>
-                            <div className="text-[10px] text-slate-400">dari {formatRupiah(targetRev)}</div>
+                            {!isTiers && (
+                              <div className="text-[10px] text-slate-400">dari {formatRupiah(currentTRev)}</div>
+                            )}
                           </td>
                           <td className="py-3 px-4">
                             {mTierInfo.achievedTier ? (
@@ -909,15 +1023,34 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                                 🏆 Tier {mTierInfo.achievedTier.no}: {mTierInfo.achievedTier.rewardName}
                               </span>
                             ) : mTierInfo.nextTier ? (
-                              <span className="text-[10px] font-semibold text-slate-600">
-                                Menuju {mTierInfo.nextTier.rewardName} ({mRevPct}%)
-                              </span>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-semibold text-slate-700 block">
+                                  Menuju {mTierInfo.nextTier.rewardName}
+                                </span>
+                                <span className="text-[9.5px] font-mono text-slate-400 block">
+                                  ({Math.min(100, Math.round((mOmzet / mTierInfo.nextTier.salesTarget) * 100))}% dari {formatRupiah(mTierInfo.nextTier.salesTarget)})
+                                </span>
+                              </div>
                             ) : (
                               <span className="text-[10px] text-slate-400">-</span>
                             )}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap">
-                            {!isCurrentPeriodEnabled ? (
+                            {isTiers ? (
+                              mTierInfo.achievedTier ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  🏆 Tercapai Tier {mTierInfo.achievedTier.no}
+                                </span>
+                              ) : mTierInfo.nextTier ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                                  Progres ({Math.min(100, Math.round((mOmzet / mTierInfo.nextTier.salesTarget) * 100))}%)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                                  Belum Ada Capaian
+                                </span>
+                              )
+                            ) : !isCurrentFilterPeriodEnabled ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
                                 Nonaktif
                               </span>
