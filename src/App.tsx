@@ -25,6 +25,7 @@ import { StaffManagementPanel } from './components/StaffManagementPanel';
 import { MitraPublicVerificationView } from './components/MitraPublicVerificationView';
 import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
 import { RealtimeChatHub } from './components/RealtimeChatHub';
+import { PageLoadingSkeleton } from './components/SkeletonLoader';
 import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer, isMitraDataIncomplete } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
@@ -828,6 +829,10 @@ export default function App() {
   }
 
   // 3. Portal View (Mitra & Admin Operations)
+  if (!isMitrasLoaded) {
+    return <PageLoadingSkeleton brandName={settings?.firmName} />;
+  }
+
   return (
     <div className="portal-root min-h-screen w-full overflow-x-hidden pb-20 md:pb-0 bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900 transition-colors duration-300">
       <div className="w-full min-w-0">

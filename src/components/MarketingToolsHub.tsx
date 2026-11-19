@@ -31,6 +31,7 @@ import {
   ServerDataTableFooter,
   parseClientRecordTimestamp,
 } from './ServerDataTableControls';
+import { TableSkeletonRows, CardGridSkeleton } from './SkeletonLoader';
 
 interface MarketingToolsHubProps {
   tools: MarketingTool[];
@@ -721,7 +722,9 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       </div>
 
       {/* Marketing Tools Content (DataTables Table View or Paginated Card Grid View) */}
-      {filteredTools.length === 0 ? (
+      {toolsDt.isLoading && displayLayout === 'grid' ? (
+        <CardGridSkeleton count={toolsDt.perPage > 6 ? 6 : toolsDt.perPage} />
+      ) : filteredTools.length === 0 && !toolsDt.isLoading ? (
         <div className="text-center py-16 bg-white rounded-xl border border-slate-200 p-6">
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-slate-800">Materi Tidak Ditemukan</h3>
@@ -744,7 +747,10 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredTools.map((tool) => {
+                {toolsDt.isLoading ? (
+                  <TableSkeletonRows columns={6} rows={toolsDt.perPage > 8 ? 8 : toolsDt.perPage} />
+                ) : (
+                  filteredTools.map((tool) => {
                   const badge = getFileBadge(tool.fileType);
                   const BadgeIcon = badge.icon;
                   return (
@@ -829,7 +835,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>

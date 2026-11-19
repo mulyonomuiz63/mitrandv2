@@ -32,6 +32,7 @@ import {
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, resolveAvatarUrl } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 import { compressAndUploadFile } from '../utils/fileCompressor';
+import { Skeleton } from './SkeletonLoader';
 
 interface StaffManagementPanelProps {
   currentUser: AuthUser;
@@ -568,7 +569,24 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
             </button>
           </div>
 
-          {staffList.length === 0 ? (
+          {loading ? (
+            <div className="grid grid-cols-1 gap-4 animate-pulse">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="w-10 h-10" rounded="rounded-xl" />
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-3 w-56" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-8 w-24" rounded="rounded-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : staffList.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3">
               <Users className="w-10 h-10 text-slate-400 mx-auto" />
               <p className="text-sm font-bold text-slate-800">Belum Ada Staf Terdaftar</p>

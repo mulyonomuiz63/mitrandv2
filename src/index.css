@@ -198,3 +198,37 @@ html.dark-portal .portal-root .bg-\[\#d9fdd3\] {
   background-color: #064e3b !important;
   color: #f8fafc !important;
 }
+
+/* ============================================================================
+   SKELETON SHIMMER ANIMATION FOR EXECUTIVE LOADERS
+   ============================================================================ */
+@keyframes shimmerWave {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(226, 232, 240, 0.75) 0%,
+    rgba(248, 250, 252, 1) 50%,
+    rgba(226, 232, 240, 0.75) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerWave 1.6s ease-in-out infinite;
+}
+
+html.dark-portal .animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(15, 35, 75, 0.8) 0%,
+    rgba(26, 60, 120, 0.95) 50%,
+    rgba(15, 35, 75, 0.8) 100%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: shimmerWave 1.6s ease-in-out infinite !important;
+}

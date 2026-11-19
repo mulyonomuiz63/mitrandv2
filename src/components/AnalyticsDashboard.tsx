@@ -19,6 +19,7 @@ import {
   CommissionTransaction,
   AppSettings,
 } from '../types';
+import { DashboardSkeleton } from './SkeletonLoader';
 
 interface AnalyticsDashboardProps {
   salesHistory: SalesHistoryMonth[];
@@ -29,6 +30,7 @@ interface AnalyticsDashboardProps {
   commissions?: CommissionTransaction[];
   settings?: AppSettings | null;
   onNavigateTab: (tab: string) => void;
+  isLoading?: boolean;
 }
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
@@ -39,7 +41,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   allClientDeals = [],
   commissions = [],
   settings,
+  isLoading = false,
 }) => {
+  if (isLoading) {
+    return <DashboardSkeleton />;
+  }
+
   const [selectedPeriod, setSelectedPeriod] = useState('November 2026');
 
   const formatRupiah = (val: number) => {

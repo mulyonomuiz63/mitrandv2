@@ -42,6 +42,7 @@ import {
   ChatLinkPreview,
 } from '../types';
 import { useConfirm, useAlert } from './ConfirmDialogModal';
+import { Skeleton } from './SkeletonLoader';
 
 interface RealtimeChatHubProps {
   currentUserId: string;
@@ -271,6 +272,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [isCompressingImage, setIsCompressingImage] = useState(false);
   const [composerLinkPreview, setComposerLinkPreview] = useState<ChatLinkPreview | null>(null);
   const [isLoadingLinkPreview, setIsLoadingLinkPreview] = useState(false);
+  const [isChatInitialLoading, setIsChatInitialLoading] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
@@ -384,6 +386,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       }
     } catch {
       // Ignore background fetch error
+    } finally {
+      setIsChatInitialLoading(false);
     }
   }, [currentUserId, currentUserRole]);
 
@@ -1458,7 +1462,19 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               )
             ) : (
               <>
-                {filteredRooms.length === 0 ? (
+                {isChatInitialLoading && filteredRooms.length === 0 ? (
+                  <div className="p-3 space-y-3 animate-pulse">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3 p-2">
+                        <Skeleton className="w-11 h-11 shrink-0" rounded="rounded-full" />
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <Skeleton className="h-3.5 w-3/4" />
+                          <Skeleton className="h-2.5 w-1/2" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredRooms.length === 0 ? (
                   <div className="p-6 text-center space-y-2">
                     <p className="text-xs font-semibold text-slate-500">
                       {sidebarSearch

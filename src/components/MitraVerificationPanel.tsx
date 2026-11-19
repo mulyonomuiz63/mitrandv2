@@ -20,6 +20,7 @@ import {
   ServerDataTableTopBar,
   ServerDataTableFooter,
   parseClientRecordTimestamp,
+  TableSkeletonRows,
 } from './ServerDataTableControls';
 
 interface MitraVerificationPanelProps {
@@ -253,7 +254,9 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredMitras.length === 0 ? (
+              {mitraDt.isLoading ? (
+                <TableSkeletonRows columns={6} rows={mitraDt.perPage > 10 ? 10 : mitraDt.perPage} />
+              ) : filteredMitras.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-500">
                     Tidak ada data mitra yang sesuai dengan filter pencarian.

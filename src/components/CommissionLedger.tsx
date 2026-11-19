@@ -37,6 +37,7 @@ import {
   ServerDataTableTopBar,
   ServerDataTableFooter,
   parseClientRecordTimestamp,
+  TableSkeletonRows,
 } from './ServerDataTableControls';
 
 interface CommissionLedgerProps {
@@ -864,7 +865,16 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {monitoringTargetsDt.rows.map((m) => {
+                    {monitoringTargetsDt.isLoading ? (
+                      <TableSkeletonRows columns={7} rows={monitoringTargetsDt.perPage > 10 ? 10 : monitoringTargetsDt.perPage} />
+                    ) : monitoringTargetsDt.rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-500">
+                          Belum ada data evaluasi mitra.
+                        </td>
+                      </tr>
+                    ) : (
+                      monitoringTargetsDt.rows.map((m) => {
                       const mDeals = clientDeals.filter(
                         (d) =>
                           d.mitraId === m.id &&
@@ -929,7 +939,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                           </td>
                         </tr>
                       );
-                    })}
+                    }))}
                   </tbody>
                 </table>
               </div>
@@ -1075,7 +1085,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {referralsDt.rows.length === 0 ? (
+                {referralsDt.isLoading ? (
+                  <TableSkeletonRows columns={userRole === 'admin' ? 8 : 7} rows={referralsDt.perPage > 10 ? 10 : referralsDt.perPage} />
+                ) : referralsDt.rows.length === 0 ? (
                   <tr>
                     <td colSpan={userRole === 'admin' ? 8 : 7} className="py-8 text-center text-slate-500">
                       Belum ada klien yang terdaftar. Klik <strong>"Input Klien Baru"</strong> untuk mereferensikan klien pertama Anda.
@@ -1313,7 +1325,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {transactionsDt.rows.length === 0 ? (
+              {transactionsDt.isLoading ? (
+                <TableSkeletonRows columns={userRole === 'admin' ? 8 : 7} rows={transactionsDt.perPage > 10 ? 10 : transactionsDt.perPage} />
+              ) : transactionsDt.rows.length === 0 ? (
                 <tr>
                   <td colSpan={userRole === 'admin' ? 8 : 7} className="py-8 text-center text-slate-500">
                     Belum ada riwayat komisi masuk. Komisi akan otomatis tampil di sini setelah pengajuan klien atau pembayaran langganan klien di-approve oleh Admin.
@@ -1433,7 +1447,9 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {payoutsDt.rows.length === 0 ? (
+                {payoutsDt.isLoading ? (
+                  <TableSkeletonRows columns={7} rows={payoutsDt.perPage > 10 ? 10 : payoutsDt.perPage} />
+                ) : payoutsDt.rows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-500">
                       Belum ada riwayat penarikan dana. Klik <strong>"Tarik Komisi ke Rekening"</strong> untuk mengajukan penarikan pertama Anda.

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Mitra, isMitraDataIncomplete } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
+import { Skeleton } from './SkeletonLoader';
 
 const CARD_BASE_WIDTH = 500;
 const CARD_BASE_HEIGHT = 315;
@@ -127,6 +128,37 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   const mitraVerificationLink = typeof window !== 'undefined'
     ? `${window.location.origin}/?verify=${encodeURIComponent(mitra.memberCode || 'ND-TAX-LAW-0000')}`
     : `https://ndtaxandlaw.com/?verify=${encodeURIComponent(mitra.memberCode || 'ND-TAX-LAW-0000')}`;
+
+  if (mitra.isLoadingFallback) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6 animate-pulse">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-5 flex justify-center">
+            <div className="w-[380px] h-[520px] rounded-3xl bg-slate-200 border border-slate-300 p-6 space-y-4">
+              <Skeleton className="h-10 w-48" />
+              <Skeleton className="w-28 h-28 rounded-2xl mx-auto" />
+              <Skeleton className="h-5 w-3/4 mx-auto" />
+              <Skeleton className="h-4 w-1/2 mx-auto" />
+              <Skeleton className="h-28 w-full rounded-2xl" />
+            </div>
+          </div>
+          <div className="lg:col-span-7 space-y-4">
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 space-y-4">
+              <Skeleton className="h-6 w-52" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-10 w-full rounded-xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     let active = true;

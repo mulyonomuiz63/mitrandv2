@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, RefreshCw } from 'lucide-react';
+export { TableSkeletonRows } from './SkeletonLoader';
 
 const INDO_MONTH_MAP: Record<string, number> = {
   jan: 0, januari: 0,

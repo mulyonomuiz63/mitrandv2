@@ -60,6 +60,7 @@ import {
   ServerDataTableTopBar,
   ServerDataTableFooter,
   parseClientRecordTimestamp,
+  TableSkeletonRows,
 } from './ServerDataTableControls';
 
 export type AdminSubTab =
@@ -1232,7 +1233,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredDeals.length === 0 ? (
+                  {clientsValidationDt.isLoading ? (
+                    <TableSkeletonRows columns={8} rows={clientsValidationDt.perPage > 10 ? 10 : clientsValidationDt.perPage} />
+                  ) : filteredDeals.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-slate-500">
                         Tidak ada data klien yang cocok dengan filter pencarian.
@@ -1694,7 +1697,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {mitraAnalysisDt.rows.length === 0 ? (
+                  {mitraAnalysisDt.isLoading ? (
+                    <TableSkeletonRows columns={8} rows={mitraAnalysisDt.perPage > 10 ? 10 : mitraAnalysisDt.perPage} />
+                  ) : mitraAnalysisDt.rows.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-slate-500">
                         Tidak ada data mitra yang sesuai dengan kata kunci pencarian.
@@ -1849,7 +1854,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {payoutBalanceDt.rows.length === 0 ? (
+                  {payoutBalanceDt.isLoading ? (
+                    <TableSkeletonRows columns={6} rows={payoutBalanceDt.perPage > 10 ? 10 : payoutBalanceDt.perPage} />
+                  ) : payoutBalanceDt.rows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-slate-500">
                         Tidak ada data mitra yang sesuai dengan pencarian.
@@ -1961,7 +1968,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {payoutHistoryDt.rows.length === 0 ? (
+                  {payoutHistoryDt.isLoading ? (
+                    <TableSkeletonRows columns={8} rows={payoutHistoryDt.perPage > 10 ? 10 : payoutHistoryDt.perPage} />
+                  ) : payoutHistoryDt.rows.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-slate-500">
                         Belum ada riwayat pencairan dana komisi yang sesuai dengan pencarian.
@@ -2687,7 +2696,9 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {targetEvalDt.rows.length === 0 ? (
+                  {targetEvalDt.isLoading ? (
+                    <TableSkeletonRows columns={7} rows={targetEvalDt.perPage > 10 ? 10 : targetEvalDt.perPage} />
+                  ) : targetEvalDt.rows.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="p-8 text-center text-slate-500">
                         Tidak ada data mitra yang sesuai dengan kata kunci pencarian.
