@@ -104,6 +104,7 @@ export default function App() {
     return 'dashboard';
   });
 
+  const [pendingChatRoomId, setPendingChatRoomId] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   
   // State from server API with immediate offline fallbacks
@@ -1183,7 +1184,11 @@ export default function App() {
                 }
                 chatEnabled={settings?.chatEnabled !== false}
                 isChatPageOpen={true}
-                onOpenChatPage={() => setActiveTab('chat')}
+                initialRoomId={pendingChatRoomId}
+                onOpenChatPage={(roomId) => {
+                  if (roomId) setPendingChatRoomId(roomId);
+                  setActiveTab('chat');
+                }}
                 onToggleChatEnabled={
                   currentRole === 'admin' && currentUser?.roleCode !== 'staff'
                     ? async (enabled) => {
@@ -1235,7 +1240,10 @@ export default function App() {
           }
           chatEnabled={settings?.chatEnabled !== false}
           isChatPageOpen={false}
-          onOpenChatPage={() => setActiveTab('chat')}
+          onOpenChatPage={(roomId) => {
+            setPendingChatRoomId(roomId || null);
+            setActiveTab('chat');
+          }}
         />
       )}
 

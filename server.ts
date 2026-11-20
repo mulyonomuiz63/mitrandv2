@@ -783,7 +783,7 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal' | 'system_update';
+  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal' | 'system_update' | 'chat';
   timestamp: string;
   isRead: boolean;
   targetAudience?: 'admin_only' | 'admin_staff' | 'mitra';
@@ -5049,8 +5049,13 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
         if (!room.participantIds.includes(mitra.id)) {
           room.participantIds = Array.from(new Set([...room.participantIds, mitra.id]));
           room.updatedAt = nowIso;
-          await persistChatToCloud(room, undefined);
-          broadcastChatEvent({ type: 'chat:room_updated', room });
+          await notifyMembersAddedToGroup(
+            room,
+            [mitra.id],
+            'system-admin',
+            'Admin Operasional',
+            false
+          );
         }
         joinedGroupNames.push(room.name || 'Grup Chat');
       }
@@ -9250,39 +9255,135 @@ app.post('/api/chat/rooms/direct', async (req: Request, res: Response) => {
   res.status(201).json(newRoom);
 });
 
+// Helper: Create in-chat system message + real-time WS notification + portal Bell notification when members are added to a group
+const notifyMembersAddedToGroup = async (
+  room: ChatRoom,
+  addedMemberIds: string[],
+  actorId: string,
+  actorName: string,
+  isNewGroup = false
+) => {
+  const uniqueAdded = Array.from(new Set(addedMemberIds.map(String).filter(Boolean)));
+  const participants = buildChatParticipantsList();
+  const addedNames = uniqueAdded.map((pid) => {
+    const found = participants.find((p) => p.id === pid);
+    return found?.name || pid;
+  });
+
+  const safeActorName = String(actorName || 'Tim Operasional').trim() || 'Tim Operasional';
+  const groupTitle = room.name || 'Grup Chat';
+  const nowIso = new Date().toISOString();
+
+  const text = isNewGroup
+    ? addedNames.length > 0
+      ? `🎉 ${safeActorName} membuat grup "${groupTitle}" dan menambahkan ${addedNames.join(', ')} ke dalam grup.`
+      : `🎉 ${safeActorName} membuat grup "${groupTitle}".`
+    : `👋 ${safeActorName} menambahkan ${addedNames.join(', ')} ke dalam grup "${groupTitle}".`;
+
+  const sysMsg: ChatMessage = {
+    id: `msg-sys-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    roomId: room.id,
+    senderId: String(actorId || 'system'),
+    senderName: safeActorName,
+    senderRole: 'staff',
+    senderAvatar: MALE_AVATAR_URL,
+    text,
+    reactions: [],
+    createdAt: nowIso,
+    isSystemMessage: true,
+  };
+
+  chatMessages.push(sysMsg);
+  room.updatedAt = nowIso;
+  room.lastMessageAt = nowIso;
+  room.lastMessageSenderId = sysMsg.senderId;
+  room.lastMessageSenderName = safeActorName;
+  room.lastMessageText = text;
+
+  await persistChatToCloud(room, sysMsg);
+  broadcastChatEvent({
+    type: 'chat:message_created',
+    message: sysMsg,
+    room,
+  });
+
+  // Also push a portal Bell notification for each added Mitra
+  for (const pid of uniqueAdded) {
+    if (pid === String(actorId)) continue;
+    const isMitra = mitras.some((m) => m.id === pid);
+    if (!isMitra) continue;
+
+    const groupNotif: NotificationItem = {
+      id: `notif-mtr-${pid}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      title: `Anda Ditambahkan ke Grup "${groupTitle}"`,
+      message: `${safeActorName} menambahkan Anda ke dalam grup chat "${groupTitle}". Buka menu Chat untuk mulai berdiskusi dengan tim.`,
+      type: 'chat',
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: 'mitra',
+      mitraId: pid,
+    };
+    notifications.unshift(groupNotif);
+    if (supabase) {
+      try {
+        await supabase.from('notifications').insert([toSupabaseNotification(groupNotif)]);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  saveDatabase();
+};
+
 // POST Create Group Chat (Only visible to group members + Admin monitor)
 app.post('/api/chat/rooms/group', async (req: Request, res: Response) => {
-  const { name, description, participantIds, createdBy, createdByName } = req.body;
+  const { name, description, avatarUrl, participantIds, createdBy, createdByName } = req.body;
   if (!name || !Array.isArray(participantIds) || participantIds.length < 2) {
     return res.status(400).json({
       message: 'Nama grup dan minimal 2 peserta wajib dipilih.',
     });
   }
 
+  let finalAvatarUrl: string | undefined = avatarUrl ? String(avatarUrl).trim() : undefined;
+  if (finalAvatarUrl && finalAvatarUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(
+      finalAvatarUrl,
+      `group-avatar-${Date.now()}`,
+      'jpg'
+    );
+    if (saved) {
+      finalAvatarUrl = saved.hostedUrl;
+    }
+  }
+
   const uniqueIds = Array.from(new Set(participantIds.map(String)));
+  const creatorId = String(createdBy || uniqueIds[0]);
+  const creatorName = String(createdByName || 'Anggota');
   const nowIso = new Date().toISOString();
   const newRoom: ChatRoom = {
     id: `room-group-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     type: 'group',
     name: String(name).trim(),
     description: String(description || 'Grup Diskusi Mitra & Staf').trim(),
+    avatarUrl: finalAvatarUrl,
     participantIds: uniqueIds,
-    createdBy: String(createdBy || uniqueIds[0]),
+    createdBy: creatorId,
+    createdByName: creatorName,
     createdAt: nowIso,
     updatedAt: nowIso,
-    lastMessageText: `Grup "${String(name).trim()}" dibuat oleh ${createdByName || 'Anggota'}`,
+    lastMessageText: `Grup "${String(name).trim()}" dibuat oleh ${creatorName}`,
     lastMessageAt: nowIso,
-    lastMessageSenderName: String(createdByName || 'Sistem'),
+    lastMessageSenderName: creatorName,
   };
 
   chatRooms.unshift(newRoom);
-  await persistChatToCloud(newRoom, undefined);
-  broadcastChatEvent({ type: 'chat:room_updated', room: newRoom });
+  const addedOtherIds = uniqueIds.filter((pid) => pid !== creatorId);
+  await notifyMembersAddedToGroup(newRoom, addedOtherIds, creatorId, creatorName, true);
 
   res.status(201).json(newRoom);
 });
 
-// PUT Update Group Chat Members / Name
+// PUT Update Group Chat Members / Name / Description / Group Profile Photo
 app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const room = chatRooms.find((r) => r.id === id);
@@ -9290,16 +9391,62 @@ app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
     return res.status(404).json({ message: 'Ruang grup tidak ditemukan.' });
   }
 
-  const { name, description, participantIds } = req.body;
-  if (name) room.name = String(name).trim();
-  if (description !== undefined) room.description = String(description).trim();
-  if (Array.isArray(participantIds) && participantIds.length >= 2) {
-    room.participantIds = Array.from(new Set(participantIds.map(String)));
+  const {
+    name,
+    description,
+    avatarUrl,
+    removeAvatar,
+    participantIds,
+    actorId,
+    actorName,
+  } = req.body;
+
+  if (name !== undefined && String(name).trim()) {
+    room.name = String(name).trim();
   }
+  if (description !== undefined) {
+    room.description = String(description).trim();
+  }
+  if (removeAvatar === true) {
+    room.avatarUrl = undefined;
+  } else if (avatarUrl !== undefined && String(avatarUrl).trim()) {
+    let nextAvatar = String(avatarUrl).trim();
+    if (nextAvatar.startsWith('data:')) {
+      const saved = saveDataUrlToHostingServer(
+        nextAvatar,
+        `group-avatar-${room.id}-${Date.now()}`,
+        'jpg'
+      );
+      if (saved) {
+        nextAvatar = saved.hostedUrl;
+      }
+    }
+    room.avatarUrl = nextAvatar;
+  }
+
+  const prevIds = Array.isArray(room.participantIds) ? [...room.participantIds] : [];
+  let newlyAddedIds: string[] = [];
+  if (Array.isArray(participantIds) && participantIds.length >= 2) {
+    const nextIds = Array.from(new Set(participantIds.map(String)));
+    newlyAddedIds = nextIds.filter((pid) => !prevIds.includes(pid));
+    room.participantIds = nextIds;
+  }
+
   room.updatedAt = new Date().toISOString();
 
-  await persistChatToCloud(room, undefined);
-  broadcastChatEvent({ type: 'chat:room_updated', room });
+  if (newlyAddedIds.length > 0) {
+    await notifyMembersAddedToGroup(
+      room,
+      newlyAddedIds,
+      String(actorId || 'system'),
+      String(actorName || 'Staf Operasional'),
+      false
+    );
+  } else {
+    await persistChatToCloud(room, undefined);
+    broadcastChatEvent({ type: 'chat:room_updated', room });
+  }
+
   res.json(room);
 });
 
@@ -9526,6 +9673,10 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   msg.imageUrl = undefined;
   msg.linkPreview = undefined;
   msg.reactions = [];
+  msg.isPinned = false;
+  msg.pinnedAt = undefined;
+  msg.pinnedBy = undefined;
+  msg.pinnedByName = undefined;
 
   const room = chatRooms.find((r) => r.id === msg.roomId);
   if (room) {
@@ -9533,6 +9684,54 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   }
 
   await persistChatToCloud(room, msg);
+  broadcastChatEvent({ type: 'chat:message_updated', message: msg });
+  res.json(msg);
+});
+
+// POST Pin / Unpin Message (Works in BOTH Personal 1-on-1 Chat & Group Chat)
+app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { userId, userName, userRole, pinned } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ message: 'Identitas pengguna wajib diisi.' });
+  }
+  if (userRole === 'admin') {
+    return res.status(403).json({
+      message: 'Admin berada dalam Mode Monitoring dan tidak menyematkan pesan.',
+    });
+  }
+
+  const msg = chatMessages.find((m) => m.id === id);
+  if (!msg) {
+    return res.status(404).json({ message: 'Pesan tidak ditemukan.' });
+  }
+  if (msg.isDeleted || msg.isSystemMessage) {
+    return res.status(400).json({
+      message: 'Pesan sistem atau pesan yang sudah ditarik tidak dapat disematkan.',
+    });
+  }
+
+  const room = chatRooms.find((r) => r.id === msg.roomId);
+  if (!room || !room.participantIds.includes(String(userId))) {
+    return res.status(403).json({
+      message: 'Anda bukan anggota dari ruang percakapan ini.',
+    });
+  }
+
+  const nextPinned = typeof pinned === 'boolean' ? pinned : !Boolean(msg.isPinned);
+  msg.isPinned = nextPinned;
+  if (nextPinned) {
+    msg.pinnedAt = new Date().toISOString();
+    msg.pinnedBy = String(userId);
+    msg.pinnedByName = String(userName || 'Peserta');
+  } else {
+    msg.pinnedAt = undefined;
+    msg.pinnedBy = undefined;
+    msg.pinnedByName = undefined;
+  }
+
+  await persistChatToCloud(undefined, msg);
   broadcastChatEvent({ type: 'chat:message_updated', message: msg });
   res.json(msg);
 });

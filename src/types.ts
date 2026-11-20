@@ -943,7 +943,7 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal' | 'system_update';
+  type: 'tools_update' | 'verification' | 'commission' | 'training' | 'client_deal' | 'system_update' | 'chat';
   timestamp: string;
   isRead: boolean;
   targetAudience?: 'admin_only' | 'admin_staff' | 'mitra';
@@ -1453,6 +1453,11 @@ export interface ChatMessage {
   editedAt?: string;
   isDeleted?: boolean;
   deletedAt?: string;
+  isSystemMessage?: boolean;
+  isPinned?: boolean;
+  pinnedAt?: string;
+  pinnedBy?: string;
+  pinnedByName?: string;
 }
 
 export interface ChatRoom {

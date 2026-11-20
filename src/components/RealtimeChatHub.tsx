@@ -33,6 +33,12 @@ import {
   Volume2,
   VolumeX,
   BellRing,
+  Pin,
+  PinOff,
+  Camera,
+  ChevronDown,
+  ChevronUp,
+  Save,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -52,7 +58,8 @@ interface RealtimeChatHubProps {
   currentUserCode?: string;
   chatEnabled: boolean;
   isChatPageOpen: boolean;
-  onOpenChatPage: () => void;
+  initialRoomId?: string | null;
+  onOpenChatPage: (roomId?: string) => void;
   onToggleChatEnabled?: (enabled: boolean) => Promise<void>;
 }
 
@@ -237,6 +244,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   currentUserCode,
   chatEnabled,
   isChatPageOpen,
+  initialRoomId,
   onOpenChatPage,
   onToggleChatEnabled,
 }) => {
@@ -280,11 +288,36 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDescription, setNewGroupDescription] = useState('');
+  const [newGroupAvatar, setNewGroupAvatar] = useState<string>('');
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
   const [groupMemberSearch, setGroupMemberSearch] = useState('');
 
-  // Group Info / Edit Members Modal
+  // Group Info / Edit Profile, Description & Members Modal
   const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupDescription, setEditGroupDescription] = useState('');
+  const [editGroupAvatar, setEditGroupAvatar] = useState<string>('');
+  const [removeGroupAvatarFlag, setRemoveGroupAvatarFlag] = useState(false);
+  const [isSavingGroupInfo, setIsSavingGroupInfo] = useState(false);
+  const [groupInfoMemberSearch, setGroupInfoMemberSearch] = useState('');
+
+  // Pinned Messages Expandable List
+  const [showAllPinnedList, setShowAllPinnedList] = useState(false);
+  const [pinningMessageId, setPinningMessageId] = useState<string | null>(null);
+
+  // Real-Time In-App Chat Notification Toast (Personal Chat, Group Chat & Added to Group)
+  const [chatToast, setChatToast] = useState<{
+    id: string;
+    roomId: string;
+    roomTitle: string;
+    isGroup: boolean;
+    isSystem: boolean;
+    senderName: string;
+    avatar: string;
+    previewText: string;
+    createdAt: string;
+  } | null>(null);
+  const chatToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Forward Modal
   const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
@@ -293,7 +326,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   // Image Lightbox
   const [lightboxImage, setLightboxImage] = useState<{ url: string; name?: string } | null>(null);
 
-  // Highlighted message when clicking a quote reply
+  // Highlighted message when clicking a quote reply or pinned message
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   // Active reaction picker message ID (for both Group & Personal 1-on-1 chat)
@@ -314,8 +347,94 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const newGroupAvatarInputRef = useRef<HTMLInputElement | null>(null);
+  const editGroupAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const selectedRoomIdRef = useRef<string | null>(selectedRoomId);
+  const isChatPageOpenRef = useRef<boolean>(isChatPageOpen);
+  const roomsRef = useRef<ChatRoom[]>(rooms);
+  const participantsRef = useRef<ChatParticipant[]>(participants);
+
+  useEffect(() => {
+    selectedRoomIdRef.current = selectedRoomId;
+    setShowAllPinnedList(false);
+  }, [selectedRoomId]);
+
+  useEffect(() => {
+    isChatPageOpenRef.current = isChatPageOpen;
+  }, [isChatPageOpen]);
+
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
+
+  useEffect(() => {
+    participantsRef.current = participants;
+  }, [participants]);
+
+  // Honor initialRoomId when opening Chat from a notification toast
+  useEffect(() => {
+    if (isChatPageOpen && initialRoomId) {
+      setSelectedRoomId(initialRoomId);
+    }
+  }, [isChatPageOpen, initialRoomId]);
+
+  // Helper to show a clickable real-time chat toast banner
+  const triggerChatNotificationToast = useCallback(
+    (incoming: ChatMessage, roomHint?: ChatRoom) => {
+      // Skip if user is already viewing this exact room on the Chat page
+      if (isChatPageOpenRef.current && selectedRoomIdRef.current === incoming.roomId) {
+        return;
+      }
+      const targetRoom =
+        roomHint || roomsRef.current.find((r) => r.id === incoming.roomId);
+      const isGroup = targetRoom?.type === 'group';
+      const roomTitle = isGroup
+        ? targetRoom?.name || 'Grup Diskusi'
+        : incoming.senderName || targetRoom?.name || 'Pesan Baru';
+      const avatar = isGroup
+        ? targetRoom?.avatarUrl ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            roomTitle
+          )}&background=0f766e&color=fff&bold=true`
+        : incoming.senderAvatar ||
+          participantsRef.current.find((p) => p.id === incoming.senderId)?.avatar ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            incoming.senderName || 'User'
+          )}&background=1d4ed8&color=fff`;
+
+      const previewText =
+        incoming.text ||
+        (incoming.imageUrl ? '📷 Mengirim lampiran gambar' : 'Pesan baru masuk');
+
+      setChatToast({
+        id: incoming.id,
+        roomId: incoming.roomId,
+        roomTitle,
+        isGroup: Boolean(isGroup),
+        isSystem: Boolean(incoming.isSystemMessage),
+        senderName: incoming.senderName,
+        avatar,
+        previewText,
+        createdAt: incoming.createdAt,
+      });
+
+      if (chatToastTimerRef.current) {
+        clearTimeout(chatToastTimerRef.current);
+      }
+      chatToastTimerRef.current = setTimeout(() => {
+        setChatToast((prev) => (prev?.id === incoming.id ? null : prev));
+      }, 7500);
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (chatToastTimerRef.current) clearTimeout(chatToastTimerRef.current);
+    };
+  }, []);
 
   // Notification Ringtone state & refs
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -366,18 +485,24 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data.participants)) setParticipants(data.participants);
-      if (Array.isArray(data.rooms)) setRooms(data.rooms);
+      const fetchedRooms: ChatRoom[] = Array.isArray(data.rooms) ? data.rooms : [];
+      if (Array.isArray(data.rooms)) setRooms(fetchedRooms);
       if (Array.isArray(data.messages)) {
         const fetchedMessages: ChatMessage[] = data.messages;
         if (initialFetchDoneRef.current) {
-          const hasNewIncoming = fetchedMessages.some(
+          const newIncomingMsgs = fetchedMessages.filter(
             (m) =>
               !knownMessageIdsRef.current.has(m.id) &&
               m.senderId !== currentUserId &&
               !m.isDeleted
           );
-          if (hasNewIncoming && soundEnabledRef.current) {
-            playChatNotificationRingtone();
+          if (newIncomingMsgs.length > 0) {
+            if (soundEnabledRef.current) {
+              playChatNotificationRingtone();
+            }
+            const latestNew = newIncomingMsgs[newIncomingMsgs.length - 1];
+            const matchedRoom = fetchedRooms.find((r) => r.id === latestNew.roomId);
+            triggerChatNotificationToast(latestNew, matchedRoom);
           }
         }
         fetchedMessages.forEach((m) => knownMessageIdsRef.current.add(m.id));
@@ -389,7 +514,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     } finally {
       setIsChatInitialLoading(false);
     }
-  }, [currentUserId, currentUserRole]);
+  }, [currentUserId, currentUserRole, triggerChatNotificationToast]);
 
   useEffect(() => {
     fetchChatState();
@@ -432,10 +557,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                 isNewMsg &&
                 incoming.senderId !== currentUserId &&
                 !incoming.isDeleted &&
-                userCanSeeRoom &&
-                soundEnabledRef.current
+                userCanSeeRoom
               ) {
-                playChatNotificationRingtone();
+                if (soundEnabledRef.current) {
+                  playChatNotificationRingtone();
+                }
+                triggerChatNotificationToast(incoming, roomForMsg);
               }
 
               setMessages((prev) => {
@@ -514,7 +641,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         }
       }
     };
-  }, [currentUserId, currentUserRole, isAdminMonitor, fetchChatState]);
+  }, [currentUserId, currentUserRole, isAdminMonitor, fetchChatState, triggerChatNotificationToast]);
 
   // Requirement 9: Pressing ESC when a chat is open closes the active chat (selectedRoomId -> null)
   // while keeping the user on the dedicated Chat page so they can select another user to chat with.
@@ -668,6 +795,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     return (Object.values(unreadCountByRoom) as number[]).reduce((acc, n) => acc + n, 0);
   }, [unreadCountByRoom]);
 
+  const groupUnreadCount = useMemo(() => {
+    return visibleRooms
+      .filter((r) => r.type === 'group')
+      .reduce((acc, r) => acc + (unreadCountByRoom[r.id] || 0), 0);
+  }, [visibleRooms, unreadCountByRoom]);
+
   // Helper to resolve display title, subtitle, and avatar for a room
   const getRoomDisplayMeta = useCallback(
     (room: ChatRoom) => {
@@ -792,6 +925,16 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     [visibleRooms, selectedRoomId]
   );
 
+  const pinnedMessages = useMemo(() => {
+    return selectedRoomMessages
+      .filter((m) => m.isPinned && !m.isDeleted && !m.isSystemMessage)
+      .sort(
+        (a, b) =>
+          new Date(b.pinnedAt || b.createdAt).getTime() -
+          new Date(a.pinnedAt || a.createdAt).getTime()
+      );
+  }, [selectedRoomMessages]);
+
   const displayedMessages = useMemo(() => {
     const q = messageSearch.trim().toLowerCase();
     if (!q) return selectedRoomMessages;
@@ -803,6 +946,25 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           (m.linkPreview?.title && m.linkPreview.title.toLowerCase().includes(q)))
     );
   }, [selectedRoomMessages, messageSearch]);
+
+  // Sync Group Info Modal edit form whenever opened or selectedRoom changes
+  useEffect(() => {
+    if (showGroupInfoModal && selectedRoom && selectedRoom.type === 'group') {
+      setEditGroupName(selectedRoom.name || '');
+      setEditGroupDescription(selectedRoom.description || '');
+      setEditGroupAvatar(selectedRoom.avatarUrl || '');
+      setRemoveGroupAvatarFlag(false);
+      setGroupInfoMemberSearch('');
+    }
+  }, [showGroupInfoModal, selectedRoom]);
+
+  // Staff can always edit group description & group profile photo; group creator can also edit
+  const canEditSelectedGroup = Boolean(
+    selectedRoom &&
+      selectedRoom.type === 'group' &&
+      !isAdminMonitor &&
+      (currentUserRole === 'staff' || selectedRoom.createdBy === currentUserId)
+  );
 
   // Start or open a direct 1-on-1 chat with a participant
   const handleStartDirectChat = async (target: ChatParticipant) => {
@@ -849,6 +1011,39 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
+  // Select & compress Group Profile Photo (for Create Group or Edit Group modal)
+  const handleSelectGroupAvatar = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    mode: 'create' | 'edit'
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    if (!file.type.startsWith('image/')) {
+      showAlert({
+        type: 'warning',
+        title: 'Format Tidak Didukung',
+        message: 'Silakan pilih file gambar (JPG, PNG, atau WEBP) untuk foto profil grup.',
+      });
+      return;
+    }
+    try {
+      const compressed = await compressImageFile(file, 512, 0.8);
+      if (mode === 'create') {
+        setNewGroupAvatar(compressed.dataUrl);
+      } else {
+        setEditGroupAvatar(compressed.dataUrl);
+        setRemoveGroupAvatarFlag(false);
+      }
+    } catch {
+      showAlert({
+        type: 'error',
+        title: 'Gagal Memproses Foto',
+        message: 'Terjadi kesalahan saat mengompres foto profil grup.',
+      });
+    }
+  };
+
   // Create Group Chat (Mitra & Staf)
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -870,6 +1065,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         body: JSON.stringify({
           name: newGroupName.trim(),
           description: newGroupDescription.trim() || 'Grup Koordinasi Internal Mitra & Staf',
+          avatarUrl: newGroupAvatar || undefined,
           participantIds,
           createdBy: currentUserId,
           createdByName: currentUserName,
@@ -882,11 +1078,98 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         setShowCreateGroupModal(false);
         setNewGroupName('');
         setNewGroupDescription('');
+        setNewGroupAvatar('');
         setSelectedGroupMemberIds([]);
         setSidebarTab('chats');
       }
     } catch {
       // ignore
+    }
+  };
+
+  // Save Group Profile (Name, Description & Group Profile Photo) — accessible to Staff & Group Creator
+  const handleSaveGroupProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRoom || selectedRoom.type !== 'group' || !canEditSelectedGroup) return;
+    if (!editGroupName.trim()) {
+      showAlert({
+        type: 'warning',
+        title: 'Nama Grup Wajib Diisi',
+        message: 'Nama grup tidak boleh kosong.',
+      });
+      return;
+    }
+
+    setIsSavingGroupInfo(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: editGroupName.trim(),
+        description: editGroupDescription.trim(),
+        actorId: currentUserId,
+        actorName: currentUserName,
+      };
+      if (removeGroupAvatarFlag) {
+        payload.removeAvatar = true;
+      } else if (editGroupAvatar && editGroupAvatar !== selectedRoom.avatarUrl) {
+        payload.avatarUrl = editGroupAvatar;
+      }
+
+      const res = await fetch(`/api/chat/rooms/${selectedRoom.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-skip-crud-alert': 'true',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const updated: ChatRoom = await res.json();
+        setRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        setEditGroupAvatar(updated.avatarUrl || '');
+        setRemoveGroupAvatarFlag(false);
+        showAlert({
+          type: 'success',
+          title: 'Profil Grup Diperbarui',
+          message: 'Nama, deskripsi, dan foto profil grup berhasil disimpan.',
+        });
+      }
+    } catch {
+      showAlert({
+        type: 'error',
+        title: 'Gagal Menyimpan',
+        message: 'Terjadi kesalahan saat menyimpan perubahan grup.',
+      });
+    } finally {
+      setIsSavingGroupInfo(false);
+    }
+  };
+
+  // Pin / Unpin any message in BOTH Personal (Direct) & Group Chat
+  const handleTogglePinMessage = async (msg: ChatMessage) => {
+    if (isAdminMonitor || msg.isDeleted || msg.isSystemMessage) return;
+    setPinningMessageId(msg.id);
+    try {
+      const res = await fetch(`/api/chat/messages/${msg.id}/pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-skip-crud-alert': 'true',
+        },
+        body: JSON.stringify({
+          userId: currentUserId,
+          userName: currentUserName,
+          userRole: currentUserRole,
+          pinned: !msg.isPinned,
+        }),
+      });
+      if (res.ok) {
+        const updated: ChatMessage = await res.json();
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPinningMessageId(null);
     }
   };
 
@@ -1148,6 +1431,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           name: selectedRoom.name,
           description: selectedRoom.description,
           participantIds: nextIds,
+          actorId: currentUserId,
+          actorName: currentUserName,
         }),
       });
       if (res.ok) {
@@ -1164,13 +1449,77 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     return null;
   }
 
-  // FLOATING BOTTOM-RIGHT CHAT BUTTON (Icon-only + Notification Badge if unread > 0)
+  // FLOATING BOTTOM-RIGHT CHAT BUTTON + REAL-TIME MESSAGE / GROUP TOAST NOTIFICATION
   if (!isChatPageOpen) {
     return (
-      <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-40">
+      <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-40 flex flex-col items-end gap-2.5">
+        {chatToast && (
+          <div className="w-76 sm:w-84 bg-white rounded-2xl shadow-2xl border border-emerald-200 overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-200">
+            <div className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <BellRing className="w-3.5 h-3.5 text-amber-300 shrink-0 animate-pulse" />
+                <span className="text-[10px] font-extrabold uppercase tracking-wide truncate">
+                  {chatToast.isSystem
+                    ? 'Ditambahkan ke Grup Chat'
+                    : chatToast.isGroup
+                    ? `Pesan Grup • ${chatToast.roomTitle}`
+                    : 'Pesan Personal Baru'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setChatToast(null);
+                }}
+                className="p-0.5 rounded text-white/80 hover:text-white cursor-pointer"
+                aria-label="Tutup notifikasi chat"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const targetRoomId = chatToast.roomId;
+                setChatToast(null);
+                onOpenChatPage(targetRoomId);
+              }}
+              className="w-full p-3 flex items-start gap-2.5 text-left hover:bg-emerald-50/60 transition-colors cursor-pointer"
+            >
+              <img
+                src={chatToast.avatar}
+                alt={chatToast.roomTitle}
+                className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-extrabold text-slate-900 truncate">
+                    {chatToast.isGroup ? chatToast.roomTitle : chatToast.senderName}
+                  </p>
+                  <span className="text-[10px] text-slate-400 shrink-0">
+                    {formatChatTime(chatToast.createdAt)}
+                  </span>
+                </div>
+                {chatToast.isGroup && !chatToast.isSystem && (
+                  <p className="text-[10px] font-bold text-teal-700 truncate">
+                    {chatToast.senderName}
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-600 line-clamp-2 mt-0.5 leading-snug">
+                  {chatToast.previewText}
+                </p>
+                <p className="text-[10px] font-bold text-emerald-700 mt-1">
+                  Klik untuk membuka percakapan →
+                </p>
+              </div>
+            </button>
+          </div>
+        )}
+
         <button
           type="button"
-          onClick={onOpenChatPage}
+          onClick={() => onOpenChatPage()}
           title={
             isAdminMonitor
               ? 'Monitor Chat - ND TAX AND LAW'
@@ -1204,7 +1553,65 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const selectedMeta = selectedRoom ? getRoomDisplayMeta(selectedRoom) : null;
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2.5 relative">
+      {/* Real-Time Chat Notification Toast when another room receives a message or user is added to a group */}
+      {chatToast && (
+        <div className="fixed top-20 right-4 sm:right-6 z-50 w-76 sm:w-84 bg-white rounded-2xl shadow-2xl border border-emerald-200 overflow-hidden animate-in slide-in-from-top-3 fade-in duration-200">
+          <div className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <BellRing className="w-3.5 h-3.5 text-amber-300 shrink-0 animate-pulse" />
+              <span className="text-[10px] font-extrabold uppercase tracking-wide truncate">
+                {chatToast.isSystem
+                  ? 'Ditambahkan ke Grup Baru'
+                  : chatToast.isGroup
+                  ? `Pesan Grup • ${chatToast.roomTitle}`
+                  : 'Pesan Personal Baru'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setChatToast(null)}
+              className="p-0.5 rounded text-white/80 hover:text-white cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const targetRoomId = chatToast.roomId;
+              setChatToast(null);
+              setSelectedRoomId(targetRoomId);
+              setSidebarTab('chats');
+            }}
+            className="w-full p-3 flex items-start gap-2.5 text-left hover:bg-emerald-50/60 transition-colors cursor-pointer"
+          >
+            <img
+              src={chatToast.avatar}
+              alt={chatToast.roomTitle}
+              className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-extrabold text-slate-900 truncate">
+                  {chatToast.isGroup ? chatToast.roomTitle : chatToast.senderName}
+                </p>
+                <span className="text-[10px] text-slate-400 shrink-0">
+                  {formatChatTime(chatToast.createdAt)}
+                </span>
+              </div>
+              {chatToast.isGroup && !chatToast.isSystem && (
+                <p className="text-[10px] font-bold text-teal-700 truncate">
+                  {chatToast.senderName}
+                </p>
+              )}
+              <p className="text-[11px] text-slate-600 line-clamp-2 mt-0.5 leading-snug">
+                {chatToast.previewText}
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
       {/* Simple Top Header Bar: Icon + Chat - ND TAX AND LAW + Ringtone Toggle */}
       <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl px-4 py-2.5 shadow-md border border-emerald-700/40 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
@@ -1350,24 +1757,34 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   <button
                     type="button"
                     onClick={() => setSidebarTab('chats')}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer inline-flex items-center justify-center gap-1 ${
                       sidebarTab === 'chats'
                         ? 'bg-white text-emerald-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Chat ({visibleRooms.length})
+                    <span>Chat ({visibleRooms.length})</span>
+                    {totalUnreadCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-extrabold leading-tight">
+                        {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarTab('groups')}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer inline-flex items-center justify-center gap-1 ${
                       sidebarTab === 'groups'
                         ? 'bg-white text-emerald-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Grup ({visibleRooms.filter((r) => r.type === 'group').length})
+                    <span>Grup ({visibleRooms.filter((r) => r.type === 'group').length})</span>
+                    {groupUnreadCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-extrabold leading-tight">
+                        {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"
@@ -1680,17 +2097,23 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     <Search className="w-4 h-4" />
                   </button>
 
-                  {/* Group Members Info / Manage */}
+                  {/* Group Members Info / Manage Profile & Description */}
                   {selectedRoom.type === 'group' && (
                     <button
                       type="button"
                       onClick={() => setShowGroupInfoModal(true)}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold transition-colors cursor-pointer"
-                      title="Lihat Anggota Grup"
+                      title={
+                        canEditSelectedGroup
+                          ? 'Info Grup, Edit Deskripsi, Foto Profil & Anggota'
+                          : 'Lihat Info & Anggota Grup'
+                      }
                     >
                       <Users className="w-4 h-4" />
                       <span className="hidden sm:inline">
-                        Anggota ({selectedRoom.participantIds.length})
+                        {canEditSelectedGroup
+                          ? `Edit & Info (${selectedRoom.participantIds.length})`
+                          : `Info Grup (${selectedRoom.participantIds.length})`}
                       </span>
                     </button>
                   )}
@@ -1732,13 +2155,15 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                 </div>
               )}
 
-              {/* Group Privacy Banner */}
+              {/* Group Description & Privacy Banner */}
               {selectedRoom.type === 'group' && (
                 <div className="px-4 py-1.5 bg-teal-900/90 text-teal-100 text-[11px] flex items-center justify-between gap-2 shrink-0">
-                  <div className="flex items-center gap-1.5 truncate">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <Lock className="w-3.5 h-3.5 text-teal-300 shrink-0" />
                     <span className="truncate">
-                      Grup Privat: Hanya {selectedRoom.participantIds.length} anggota terdaftar yang dapat melihat &amp; berdiskusi di grup ini.
+                      {selectedRoom.description
+                        ? selectedRoom.description
+                        : `Grup Privat: Hanya ${selectedRoom.participantIds.length} anggota terdaftar yang dapat melihat & berdiskusi di grup ini.`}
                     </span>
                   </div>
                   <button
@@ -1746,8 +2171,114 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     onClick={() => setShowGroupInfoModal(true)}
                     className="text-[10px] font-bold underline text-teal-200 hover:text-white shrink-0 cursor-pointer"
                   >
-                    Detail Anggota
+                    {canEditSelectedGroup ? 'Edit Grup & Anggota' : 'Info & Anggota'}
                   </button>
+                </div>
+              )}
+
+              {/* STICKY PINNED MESSAGES BAR (Works in BOTH Personal 1-on-1 & Group Chat) */}
+              {pinnedMessages.length > 0 && (
+                <div className="bg-amber-50/95 border-b border-amber-200/90 shrink-0">
+                  <div className="px-4 py-2 flex items-center justify-between gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => scrollToQuotedMessage(pinnedMessages[0].id)}
+                      className="flex items-center gap-2.5 min-w-0 flex-1 text-left group cursor-pointer"
+                      title="Klik untuk melompat ke pesan yang disematkan"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-amber-200/80 text-amber-800 flex items-center justify-center shrink-0">
+                        <Pin className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wide text-amber-900">
+                            Pesan Disematkan
+                          </span>
+                          {pinnedMessages.length > 1 && (
+                            <span className="px-1.5 py-0.2 rounded-full bg-amber-300/80 text-amber-950 text-[9px] font-extrabold">
+                              {pinnedMessages.length} pesan
+                            </span>
+                          )}
+                          <span className="text-[10px] text-amber-700 truncate">
+                            • {pinnedMessages[0].senderName}
+                          </span>
+                        </div>
+                        <p className="text-xs font-medium text-slate-800 truncate group-hover:text-amber-950">
+                          {pinnedMessages[0].imageUrl ? '📷 ' : ''}
+                          {pinnedMessages[0].text || 'Lampiran Gambar'}
+                        </p>
+                      </div>
+                    </button>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {pinnedMessages.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllPinnedList((prev) => !prev)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-200/70 hover:bg-amber-300/80 text-amber-950 text-[10px] font-bold cursor-pointer"
+                        >
+                          <span>{showAllPinnedList ? 'Tutup' : `Semua (${pinnedMessages.length})`}</span>
+                          {showAllPinnedList ? (
+                            <ChevronUp className="w-3 h-3" />
+                          ) : (
+                            <ChevronDown className="w-3 h-3" />
+                          )}
+                        </button>
+                      )}
+                      {!isAdminMonitor && (
+                        <button
+                          type="button"
+                          disabled={pinningMessageId === pinnedMessages[0].id}
+                          onClick={() => handleTogglePinMessage(pinnedMessages[0])}
+                          className="p-1.5 rounded-lg text-amber-800 hover:bg-amber-200/80 transition-colors cursor-pointer"
+                          title="Lepas sematan pesan ini"
+                        >
+                          <PinOff className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {showAllPinnedList && pinnedMessages.length > 1 && (
+                    <div className="px-4 pb-2.5 pt-1 border-t border-amber-200/70 max-h-44 overflow-y-auto space-y-1.5">
+                      {pinnedMessages.map((pm, pIdx) => (
+                        <div
+                          key={pm.id}
+                          className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white/90 border border-amber-200/80"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              scrollToQuotedMessage(pm.id);
+                              setShowAllPinnedList(false);
+                            }}
+                            className="min-w-0 flex-1 text-left cursor-pointer"
+                          >
+                            <p className="text-[10px] font-bold text-amber-900 truncate">
+                              #{pIdx + 1} • {pm.senderName}
+                              {pm.pinnedByName ? ` (disematkan oleh ${pm.pinnedByName})` : ''}
+                            </p>
+                            <p className="text-[11px] text-slate-700 truncate">
+                              {pm.imageUrl ? '📷 ' : ''}
+                              {pm.text || 'Lampiran Gambar'}
+                            </p>
+                          </button>
+                          {!isAdminMonitor && (
+                            <button
+                              type="button"
+                              disabled={pinningMessageId === pm.id}
+                              onClick={() => handleTogglePinMessage(pm)}
+                              className="px-2 py-1 rounded-md text-[10px] font-bold text-rose-700 hover:bg-rose-50 inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                              title="Lepas sematan"
+                            >
+                              <PinOff className="w-3 h-3" />
+                              <span>Lepas</span>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1791,6 +2322,16 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                           </div>
                         )}
 
+                        {msg.isSystemMessage ? (
+                          <div id={`chat-msg-${msg.id}`} className="flex justify-center my-1.5">
+                            <div className="max-w-[90%] px-3.5 py-1.5 rounded-xl bg-teal-50/95 border border-teal-200 text-teal-900 text-[11px] font-semibold text-center shadow-2xs flex items-center gap-1.5">
+                              <span>{msg.text}</span>
+                              <span className="text-[9px] text-teal-600 font-mono shrink-0">
+                                {formatChatTime(msg.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
                         <div
                           id={`chat-msg-${msg.id}`}
                           className={`flex flex-col ${
@@ -1805,13 +2346,17 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                             className={`group relative max-w-[88%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 shadow-xs ${
                               msg.isDeleted
                                 ? 'bg-slate-200/90 text-slate-500 italic border border-slate-300'
+                                : msg.isPinned
+                                ? isMine
+                                  ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs ring-2 ring-amber-400/80'
+                                  : 'bg-white text-slate-900 rounded-tl-xs ring-2 ring-amber-400/80'
                                 : isMine
                                 ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs'
                                 : 'bg-white text-slate-900 rounded-tl-xs'
                             }`}
                           >
                             {/* Sender Header */}
-                            <div className="flex items-center justify-between gap-3 mb-1">
+                            <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
                               <div className="flex items-center gap-1.5">
                                 <span
                                   className={`text-[11px] font-extrabold ${
@@ -1829,6 +2374,19 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                 >
                                   {msg.senderRole === 'staff' ? 'Staf' : 'Mitra'}
                                 </span>
+                                {msg.isPinned && !msg.isDeleted && (
+                                  <span
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-100 border border-amber-300 text-amber-900 text-[9px] font-extrabold"
+                                    title={
+                                      msg.pinnedByName
+                                        ? `Disematkan oleh ${msg.pinnedByName}`
+                                        : 'Pesan disematkan'
+                                    }
+                                  >
+                                    <Pin className="w-2.5 h-2.5" />
+                                    Disematkan
+                                  </span>
+                                )}
                               </div>
 
                               {msg.forwardedFrom && !msg.isDeleted && (
@@ -2073,6 +2631,33 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                         <Reply className="w-3 h-3" />
                                         Balas
                                       </button>
+                                      <button
+                                        type="button"
+                                        disabled={pinningMessageId === msg.id}
+                                        onClick={() => handleTogglePinMessage(msg)}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 ${
+                                          msg.isPinned
+                                            ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                            : 'bg-black/5 hover:bg-amber-500 hover:text-white text-slate-700'
+                                        }`}
+                                        title={
+                                          msg.isPinned
+                                            ? 'Lepas sematan pesan ini'
+                                            : 'Sematkan pesan ini di atas ruang percakapan'
+                                        }
+                                      >
+                                        {msg.isPinned ? (
+                                          <>
+                                            <PinOff className="w-3 h-3" />
+                                            Lepas
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Pin className="w-3 h-3" />
+                                            Sematkan
+                                          </>
+                                        )}
+                                      </button>
                                     </>
                                   )}
 
@@ -2119,6 +2704,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                             </div>
                           </div>
                         </div>
+                        )}
                       </React.Fragment>
                     );
                   })
@@ -2380,7 +2966,64 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateGroup} className="p-5 space-y-4">
+            <form onSubmit={handleCreateGroup} className="p-5 space-y-4 max-h-[82vh] overflow-y-auto">
+              {/* Group Profile Photo Uploader */}
+              <div className="flex items-center gap-3.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <input
+                  ref={newGroupAvatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleSelectGroupAvatar(e, 'create')}
+                  className="hidden"
+                />
+                <div className="relative shrink-0">
+                  <img
+                    src={
+                      newGroupAvatar ||
+                      `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        newGroupName.trim() || 'Grup'
+                      )}&background=0f766e&color=fff&bold=true`
+                    }
+                    alt="Foto Profil Grup"
+                    className="w-14 h-14 rounded-full object-cover border-2 border-emerald-500/40 shadow-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => newGroupAvatarInputRef.current?.click()}
+                    className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-md border-2 border-white cursor-pointer"
+                    title="Pilih Foto Profil Grup"
+                  >
+                    <Camera className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-800">
+                    Foto Profil Grup (Opsional)
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Unggah logo atau ikon grup agar mudah dikenali anggota.
+                  </p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => newGroupAvatarInputRef.current?.click()}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold cursor-pointer"
+                    >
+                      {newGroupAvatar ? 'Ganti Foto' : 'Unggah Foto'}
+                    </button>
+                    {newGroupAvatar && (
+                      <button
+                        type="button"
+                        onClick={() => setNewGroupAvatar('')}
+                        className="px-2 py-1 rounded-lg text-rose-600 hover:bg-rose-50 text-[10px] font-bold cursor-pointer"
+                      >
+                        Hapus
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nama Grup Diskusi *
@@ -2399,12 +3042,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Deskripsi / Topik Grup
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  rows={2}
                   value={newGroupDescription}
                   onChange={(e) => setNewGroupDescription(e.target.value)}
-                  placeholder="Koordinasi dokumen kepatuhan & pelaporan pajak"
-                  className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="Tulis deskripsi, tujuan koordinasi, atau info penting grup ini..."
+                  className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
                 />
               </div>
 
@@ -2423,7 +3066,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
                 />
 
-                <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
                   {participants
                     .filter((p) => p.id !== currentUserId)
                     .filter(
@@ -2501,16 +3144,33 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: GROUP MEMBERS INFO & MANAGEMENT */}
+      {/* MODAL 2: GROUP INFO, PROFILE PHOTO, DESCRIPTION & MEMBERS MANAGEMENT */}
       {showGroupInfoModal && selectedRoom && selectedRoom.type === 'group' && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="px-5 py-4 bg-teal-900 text-white flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-extrabold">{selectedRoom.name}</h3>
-                <p className="text-[11px] text-teal-200">
-                  {selectedRoom.participantIds.length} Anggota Terdaftar (Hanya anggota yang dapat mengakses grup)
-                </p>
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 bg-gradient-to-r from-teal-900 to-emerald-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={
+                    removeGroupAvatarFlag
+                      ? `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          editGroupName || selectedRoom.name || 'Grup'
+                        )}&background=0f766e&color=fff&bold=true`
+                      : editGroupAvatar ||
+                        selectedRoom.avatarUrl ||
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          selectedRoom.name || 'Grup'
+                        )}&background=0f766e&color=fff&bold=true`
+                  }
+                  alt={selectedRoom.name || 'Grup'}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-white/40 shrink-0"
+                />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-extrabold truncate">{selectedRoom.name}</h3>
+                  <p className="text-[11px] text-teal-200">
+                    {selectedRoom.participantIds.length} Anggota Terdaftar • Grup Privat
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -2521,54 +3181,212 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               </button>
             </div>
 
-            <div className="p-4 max-h-80 overflow-y-auto divide-y divide-slate-100">
-              {participants.map((p) => {
-                const isMember = selectedRoom.participantIds.includes(p.id);
-                if (isAdminMonitor && !isMember) return null;
-                return (
-                  <div
-                    key={p.id}
-                    className="py-2.5 flex items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <img
-                        src={p.avatar}
-                        alt={p.name}
-                        className="w-8 h-8 rounded-full object-cover"
-                      />
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-900 truncate">
-                          {p.name} {p.id === currentUserId ? '(Anda)' : ''}
-                        </p>
-                        <p className="text-[10px] text-slate-500">
-                          {p.role === 'staff' ? 'Staf Operasional' : 'Mitra Konsultan'}
-                        </p>
-                      </div>
-                    </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* SECTION 1: GROUP PROFILE PHOTO & DESCRIPTION (Editable by Staff & Creator) */}
+              {canEditSelectedGroup ? (
+                <form
+                  onSubmit={handleSaveGroupProfile}
+                  className="p-4 rounded-xl bg-teal-50/60 border border-teal-200/80 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-900">
+                      Pengaturan Profil &amp; Deskripsi Grup
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-teal-100 text-teal-800 text-[9px] font-bold">
+                      {currentUserRole === 'staff' ? 'Akses Staf' : 'Pembuat Grup'}
+                    </span>
+                  </div>
 
-                    {!isAdminMonitor ? (
+                  {/* Group Photo Picker */}
+                  <div className="flex items-center gap-3.5">
+                    <input
+                      ref={editGroupAvatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleSelectGroupAvatar(e, 'edit')}
+                      className="hidden"
+                    />
+                    <div className="relative shrink-0">
+                      <img
+                        src={
+                          removeGroupAvatarFlag
+                            ? `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                editGroupName || selectedRoom.name || 'Grup'
+                              )}&background=0f766e&color=fff&bold=true`
+                            : editGroupAvatar ||
+                              selectedRoom.avatarUrl ||
+                              `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                editGroupName || selectedRoom.name || 'Grup'
+                              )}&background=0f766e&color=fff&bold=true`
+                        }
+                        alt="Foto Grup"
+                        className="w-16 h-16 rounded-full object-cover border-2 border-teal-500/40 bg-white shadow-xs"
+                      />
                       <button
                         type="button"
-                        onClick={() => handleToggleExistingGroupMember(p.id)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
-                          isMember
-                            ? 'bg-emerald-100 text-emerald-800 hover:bg-rose-100 hover:text-rose-700'
-                            : 'bg-slate-100 text-slate-700 hover:bg-emerald-600 hover:text-white'
-                        }`}
+                        onClick={() => editGroupAvatarInputRef.current?.click()}
+                        className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-teal-700 hover:bg-teal-800 text-white flex items-center justify-center shadow-md border-2 border-white cursor-pointer"
+                        title="Ganti Foto Profil Grup"
                       >
-                        {isMember ? '✓ Anggota' : '+ Tambahkan'}
+                        <Camera className="w-3 h-3" />
                       </button>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                        Anggota
-                      </span>
-                    )}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <p className="text-xs font-bold text-slate-900">Foto Profil Grup</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => editGroupAvatarInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded-lg bg-white hover:bg-teal-100 text-teal-900 border border-teal-300 text-[11px] font-bold cursor-pointer inline-flex items-center gap-1"
+                        >
+                          <Camera className="w-3 h-3" />
+                          <span>Ganti Foto Profil</span>
+                        </button>
+                        {(editGroupAvatar || selectedRoom.avatarUrl) && !removeGroupAvatarFlag && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditGroupAvatar('');
+                              setRemoveGroupAvatarFlag(true);
+                            }}
+                            className="px-2 py-1 rounded-lg text-rose-700 hover:bg-rose-50 text-[11px] font-bold cursor-pointer"
+                          >
+                            Reset Default
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                );
-              })}
+
+                  {/* Group Name */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Nama Grup
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editGroupName}
+                      onChange={(e) => setEditGroupName(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                    />
+                  </div>
+
+                  {/* Group Description */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Deskripsi Grup
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={editGroupDescription}
+                      onChange={(e) => setEditGroupDescription(e.target.value)}
+                      placeholder="Tambahkan deskripsi grup, panduan koordinasi, atau informasi penting untuk seluruh anggota..."
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isSavingGroupInfo}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-xs font-bold shadow-xs cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isSavingGroupInfo ? 'Menyimpan...' : 'Simpan Profil Grup'}</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                    Deskripsi Grup
+                  </p>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {selectedRoom.description || 'Belum ada deskripsi untuk grup ini.'}
+                  </p>
+                </div>
+              )}
+
+              {/* SECTION 2: GROUP MEMBERS DIRECTORY */}
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+                    Daftar Anggota ({selectedRoom.participantIds.length})
+                  </p>
+                </div>
+
+                {!isAdminMonitor && (
+                  <input
+                    type="text"
+                    value={groupInfoMemberSearch}
+                    onChange={(e) => setGroupInfoMemberSearch(e.target.value)}
+                    placeholder="Cari nama Mitra atau Staf untuk ditambahkan..."
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
+                  />
+                )}
+
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl px-3">
+                  {participants
+                    .filter((p) => {
+                      const isMember = selectedRoom.participantIds.includes(p.id);
+                      if (isAdminMonitor && !isMember) return false;
+                      const q = groupInfoMemberSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (
+                        p.name.toLowerCase().includes(q) ||
+                        p.email.toLowerCase().includes(q) ||
+                        (p.code && p.code.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((p) => {
+                      const isMember = selectedRoom.participantIds.includes(p.id);
+                      return (
+                        <div
+                          key={p.id}
+                          className="py-2.5 flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={p.avatar}
+                              alt={p.name}
+                              className="w-8 h-8 rounded-full object-cover"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 truncate">
+                                {p.name} {p.id === currentUserId ? '(Anda)' : ''}
+                              </p>
+                              <p className="text-[10px] text-slate-500">
+                                {p.role === 'staff' ? 'Staf Operasional' : 'Mitra Konsultan'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {!isAdminMonitor ? (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleExistingGroupMember(p.id)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer shrink-0 ${
+                                isMember
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-rose-100 hover:text-rose-700'
+                                  : 'bg-slate-100 text-slate-700 hover:bg-emerald-600 hover:text-white'
+                              }`}
+                            >
+                              {isMember ? '✓ Anggota' : '+ Tambahkan'}
+                            </button>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0">
+                              Anggota
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
             </div>
 
-            <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
               <button
                 type="button"
                 onClick={() => setShowGroupInfoModal(false)}

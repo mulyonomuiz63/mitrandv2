@@ -8,7 +8,8 @@ import {
   Sparkles,
   Building2,
   Settings,
-  Trash2
+  Trash2,
+  MessageSquare
 } from 'lucide-react';
 import { NotificationItem } from '../types';
 
@@ -49,6 +50,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         return <CheckCircle2 className="w-4 h-4 text-emerald-700" />;
       case 'verification':
         return <Sparkles className="w-4 h-4 text-amber-700" />;
+      case 'chat':
+        return <MessageSquare className="w-4 h-4 text-teal-700" />;
       default:
         return <Bell className="w-4 h-4 text-slate-700" />;
     }
@@ -80,6 +83,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         return (
           <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[9px] font-bold uppercase">
             Update Sistem (Admin)
+          </span>
+        );
+      case 'chat':
+        return (
+          <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 text-[9px] font-bold uppercase">
+            Grup &amp; Chat
           </span>
         );
       default:
@@ -177,6 +186,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                       onSelectAction(isAdminOrStaff ? 'admin-operations' : 'commissions');
                     } else if (item.type === 'tools_update' || item.type === 'training') {
                       onSelectAction('marketing-tools');
+                    } else if (item.type === 'chat') {
+                      onSelectAction('chat');
                     } else if (item.type === 'system_update') {
                       onSelectAction('dashboard');
                     }
