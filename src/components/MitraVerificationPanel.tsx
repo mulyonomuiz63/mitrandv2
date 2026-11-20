@@ -17,9 +17,12 @@ import {
   Power,
   Trash2,
   Ban,
-  Briefcase
+  Briefcase,
+  ChevronDown,
+  MoreVertical
 } from 'lucide-react';
 import { Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
+import { getDefaultAvatar } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 import {
@@ -71,6 +74,46 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const [isAdminUploadingKtp, setIsAdminUploadingKtp] = useState(false);
   const [adminUploadMsg, setAdminUploadMsg] = useState<string | null>(null);
   const [panelFeedback, setPanelFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [openActionMenu, setOpenActionMenu] = useState<{
+    mitra: Mitra;
+    top: number;
+    left: number;
+    openUpward: boolean;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!openActionMenu) return;
+    const handleClose = () => setOpenActionMenu(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenActionMenu(null);
+    };
+    window.addEventListener('click', handleClose);
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('resize', handleClose);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClose);
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('resize', handleClose);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openActionMenu]);
+
+  const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, m: Mitra) => {
+    e.stopPropagation();
+    if (openActionMenu?.mitra.id === m.id) {
+      setOpenActionMenu(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 224;
+    const estimatedMenuHeight = 250;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpward = spaceBelow < estimatedMenuHeight && rect.top > estimatedMenuHeight;
+    const left = Math.max(12, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 12));
+    const top = openUpward ? rect.top - 6 : rect.bottom + 6;
+    setOpenActionMenu({ mitra: m, top, left, openUpward });
+  };
 
   // Approve Modal + Optional Group Chat Selection State
   const [mitraToApprove, setMitraToApprove] = useState<Mitra | null>(null);
@@ -445,7 +488,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 <th className="py-3 px-6">Rekening Bank Pencairan</th>
                 <th className="py-3 px-6">Tanggal Bergabung</th>
                 <th className="py-3 px-6 text-center">Status Verifikasi</th>
-                <th className="py-3 px-6 text-right">Tindakan Admin</th>
+                <th className="py-3 px-6 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -471,7 +514,8 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
                         <ImageWithSkeleton
-                          src={m.avatarUrl}
+                          src={m.avatarUrl || getDefaultAvatar(m.gender, m.fullName)}
+                          fallbackSrc={getDefaultAvatar(m.gender, m.fullName)}
                           alt={m.fullName}
                           className={`w-9 h-9 rounded-full object-cover ring-1 ${
                             isMitraActive ? 'ring-slate-200' : 'ring-red-300 grayscale'
@@ -601,103 +645,27 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                     </td>
 
                     <td className="py-4 px-6 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                        <button
-                          onClick={() => setSelectedMitraDetail(m)}
-                          className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                          title="Cek Detail Berkas Mitra"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Cek Data</span>
-                        </button>
-
-                        {m.status === 'pending' && (
-                          <>
-                            <button
-                              onClick={() => handleApproveAction(m.id)}
-                              disabled={actionLoadingId === m.id}
-                              className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
-                              title="Setujui dan terbitkan kartu identitas"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Setujui</span>
-                            </button>
-
-                            <button
-                              onClick={() => openRejectModal(m)}
-                              disabled={actionLoadingId === m.id}
-                              className="px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200 flex items-center gap-1 cursor-pointer"
-                              title="Tolak pendaftaran & berikan alasan"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>Tolak</span>
-                            </button>
-                          </>
-                        )}
-
-                        {m.status === 'rejected' && (
-                          <button
-                            onClick={() => handleApproveAction(m.id)}
-                            disabled={actionLoadingId === m.id}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                            title="Setujui pendaftaran mitra ini"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Setujui</span>
-                          </button>
-                        )}
-
-                        {m.status === 'verified' && (
-                          <button
-                            onClick={() => onSelectMitraPreview(m)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
-                          >
-                            Lihat ID Card
-                          </button>
-                        )}
-
-                        {onToggleMitraActive && (
-                          <button
-                            type="button"
-                            onClick={() => handleToggleActiveAction(m)}
-                            disabled={actionLoadingId === m.id}
-                            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors border flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
-                              isMitraActive
-                                ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-200'
-                                : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
-                            }`}
-                            title={
-                              isMitraActive
-                                ? 'Nonaktifkan akun mitra agar tidak bisa login'
-                                : 'Aktifkan kembali akun mitra agar dapat login'
-                            }
-                          >
-                            <Power className="w-3.5 h-3.5" />
-                            <span>{isMitraActive ? 'Nonaktifkan' : 'Aktifkan'}</span>
-                          </button>
-                        )}
-
-                        {onDeleteMitra && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMitraAction(m)}
-                            disabled={actionLoadingId === m.id || mitraClientCount > 0}
-                            className={`px-2 py-1.5 text-xs font-semibold rounded-lg transition-colors border flex items-center gap-1 ${
-                              mitraClientCount > 0
-                                ? 'text-slate-400 bg-slate-100 border-slate-200 cursor-not-allowed opacity-60'
-                                : 'text-red-700 bg-red-50 hover:bg-red-100 border-red-200 cursor-pointer'
-                            }`}
-                            title={
-                              mitraClientCount > 0
-                                ? `Tidak dapat dihapus karena sudah memiliki ${mitraClientCount} klien. Gunakan Nonaktifkan untuk memblokir login.`
-                                : 'Hapus permanen data mitra (belum memiliki klien)'
-                            }
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Hapus</span>
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleActionMenu(e, m)}
+                        disabled={actionLoadingId === m.id}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
+                          openActionMenu?.mitra.id === m.id
+                            ? 'bg-blue-700 text-white border-blue-700 shadow-xs'
+                            : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-2xs'
+                        }`}
+                        aria-haspopup="menu"
+                        aria-expanded={openActionMenu?.mitra.id === m.id}
+                        title="Buka daftar aksi untuk mitra ini"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                        <span>{actionLoadingId === m.id ? 'Memproses...' : 'Aksi'}</span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform ${
+                            openActionMenu?.mitra.id === m.id ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
                     </td>
                   </tr>
                   );
@@ -706,6 +674,167 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Floating Dropdown Menu Aksi Mitra (Anti-Clipping) */}
+        {openActionMenu && (() => {
+          const target =
+            mitras.find((item) => item.id === openActionMenu.mitra.id) || openActionMenu.mitra;
+          const isTargetActive = target.isActive !== false;
+          const targetClientCount = getMitraClientCount(target);
+          return (
+            <div
+              role="menu"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'fixed',
+                top: openActionMenu.top,
+                left: openActionMenu.left,
+                transform: openActionMenu.openUpward ? 'translateY(-100%)' : undefined,
+              }}
+              className="z-50 w-56 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs animate-in fade-in zoom-in-95"
+            >
+              <div className="px-3 py-1.5 border-b border-slate-100">
+                <p className="font-bold text-slate-900 truncate">{target.fullName}</p>
+                <p className="text-[10px] font-mono text-slate-500 truncate">
+                  {target.memberCode} · {targetClientCount} Klien
+                </p>
+              </div>
+
+              <div className="py-1">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenActionMenu(null);
+                    setSelectedMitraDetail(target);
+                  }}
+                  className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer transition-colors"
+                >
+                  <Eye className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Cek Data Mitra</span>
+                </button>
+
+                {target.status === 'pending' && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenActionMenu(null);
+                        handleApproveAction(target.id);
+                      }}
+                      className="w-full px-3 py-2 text-left text-emerald-700 hover:bg-emerald-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Setujui (Approve)</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenActionMenu(null);
+                        openRejectModal(target);
+                      }}
+                      className="w-full px-3 py-2 text-left text-red-700 hover:bg-red-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                    >
+                      <XCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                      <span>Tolak &amp; Beri Alasan</span>
+                    </button>
+                  </>
+                )}
+
+                {target.status === 'rejected' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenActionMenu(null);
+                      handleApproveAction(target.id);
+                    }}
+                    className="w-full px-3 py-2 text-left text-emerald-700 hover:bg-emerald-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Setujui (Approve)</span>
+                  </button>
+                )}
+
+                {target.status === 'verified' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenActionMenu(null);
+                      onSelectMitraPreview(target);
+                    }}
+                    className="w-full px-3 py-2 text-left text-blue-700 hover:bg-blue-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                  >
+                    <CreditCard className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>Lihat ID Card</span>
+                  </button>
+                )}
+              </div>
+
+              {(onToggleMitraActive || onDeleteMitra) && (
+                <div className="border-t border-slate-100 py-1">
+                  {onToggleMitraActive && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenActionMenu(null);
+                        handleToggleActiveAction(target);
+                      }}
+                      className={`w-full px-3 py-2 text-left flex items-center gap-2.5 font-semibold cursor-pointer transition-colors ${
+                        isTargetActive
+                          ? 'text-amber-800 hover:bg-amber-50'
+                          : 'text-emerald-700 hover:bg-emerald-50'
+                      }`}
+                    >
+                      <Power
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isTargetActive ? 'text-amber-600' : 'text-emerald-600'
+                        }`}
+                      />
+                      <span>{isTargetActive ? 'Nonaktifkan Akun' : 'Aktifkan Kembali'}</span>
+                    </button>
+                  )}
+
+                  {onDeleteMitra && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={targetClientCount > 0}
+                      onClick={() => {
+                        setOpenActionMenu(null);
+                        handleDeleteMitraAction(target);
+                      }}
+                      className={`w-full px-3 py-2 text-left flex items-start gap-2.5 transition-colors ${
+                        targetClientCount > 0
+                          ? 'text-slate-400 cursor-not-allowed bg-slate-50/50'
+                          : 'text-red-700 hover:bg-red-50 font-semibold cursor-pointer'
+                      }`}
+                      title={
+                        targetClientCount > 0
+                          ? `Tidak dapat dihapus karena sudah memiliki ${targetClientCount} klien.`
+                          : 'Hapus permanen data mitra ini'
+                      }
+                    >
+                      <Trash2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <span className="block leading-tight">Hapus Mitra</span>
+                        {targetClientCount > 0 && (
+                          <span className="block text-[10px] font-normal text-slate-400 mt-0.5 leading-tight">
+                            Terkunci ({targetClientCount} klien aktif)
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <ServerDataTableFooter
           page={mitraDt.meta.page}
           perPage={mitraDt.perPage}
@@ -724,7 +853,14 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             <div className="flex items-start justify-between p-5 sm:p-6 border-b border-slate-200 shrink-0 bg-white">
               <div className="flex items-center gap-3">
                 <ImageWithSkeleton
-                  src={selectedMitraDetail.avatarUrl}
+                  src={
+                    selectedMitraDetail.avatarUrl ||
+                    getDefaultAvatar(selectedMitraDetail.gender, selectedMitraDetail.fullName)
+                  }
+                  fallbackSrc={getDefaultAvatar(
+                    selectedMitraDetail.gender,
+                    selectedMitraDetail.fullName
+                  )}
                   alt={selectedMitraDetail.fullName}
                   className="w-12 h-12 rounded-xl object-cover ring-2 ring-blue-600/20"
                   containerClassName="w-12 h-12 shrink-0"
@@ -1147,7 +1283,11 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
                   <div className="flex items-center gap-2.5 pb-2 mb-1.5 border-b border-slate-200/80">
                     <ImageWithSkeleton
-                      src={mitraToApprove.avatarUrl}
+                      src={
+                        mitraToApprove.avatarUrl ||
+                        getDefaultAvatar(mitraToApprove.gender, mitraToApprove.fullName)
+                      }
+                      fallbackSrc={getDefaultAvatar(mitraToApprove.gender, mitraToApprove.fullName)}
                       alt={mitraToApprove.fullName}
                       className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200"
                       containerClassName="w-9 h-9 shrink-0"

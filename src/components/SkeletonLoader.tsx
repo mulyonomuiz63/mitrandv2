@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 /**
  * Base shimmering Skeleton block
@@ -38,6 +38,7 @@ export interface ImageWithSkeletonProps extends React.ImgHTMLAttributes<HTMLImag
   skeletonClassName?: string;
   containerClassName?: string;
   rounded?: string;
+  fallbackSrc?: string;
 }
 
 export const ImageWithSkeleton: React.FC<ImageWithSkeletonProps> = ({
@@ -47,17 +48,66 @@ export const ImageWithSkeleton: React.FC<ImageWithSkeletonProps> = ({
   skeletonClassName = '',
   containerClassName = '',
   rounded = 'rounded-md',
+  fallbackSrc,
+  referrerPolicy = 'no-referrer',
   onLoad,
   onError,
   ...props
 }) => {
-  const [isLoaded, setIsLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const initialSrc = (src && String(src).trim()) || fallbackSrc || '';
+  const [activeSrc, setActiveSrc] = useState<string>(initialSrc);
+  const [isLoaded, setIsLoaded] = useState<boolean>(
+    () => !initialSrc || initialSrc.startsWith('data:')
+  );
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
-    setIsLoaded(false);
+    const nextSrc = (src && String(src).trim()) || fallbackSrc || '';
+    setActiveSrc(nextSrc);
     setHasError(false);
-  }, [src]);
+    if (!nextSrc || nextSrc.startsWith('data:')) {
+      setIsLoaded(true);
+      return;
+    }
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0 && img.getAttribute('src') === nextSrc) {
+      setIsLoaded(true);
+    } else {
+      setIsLoaded(false);
+    }
+  }, [src, fallbackSrc]);
+
+  useEffect(() => {
+    if (!activeSrc || activeSrc.startsWith('data:')) {
+      setIsLoaded(true);
+      return;
+    }
+    const img = imgRef.current;
+    if (img && img.complete) {
+      if (img.naturalWidth > 0) {
+        setIsLoaded(true);
+        setHasError(false);
+      } else if (fallbackSrc && activeSrc !== fallbackSrc) {
+        setActiveSrc(fallbackSrc);
+      } else {
+        setHasError(true);
+        setIsLoaded(true);
+      }
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const currentImg = imgRef.current;
+      if (currentImg && currentImg.complete && currentImg.naturalWidth > 0) {
+        setIsLoaded(true);
+      } else if (fallbackSrc && activeSrc !== fallbackSrc) {
+        setActiveSrc(fallbackSrc);
+      } else {
+        setIsLoaded(true);
+      }
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [activeSrc, fallbackSrc]);
 
   return (
     <div className={`relative overflow-hidden ${rounded} ${containerClassName}`}>
@@ -68,14 +118,26 @@ export const ImageWithSkeleton: React.FC<ImageWithSkeletonProps> = ({
         />
       )}
       <img
-        src={src}
+        ref={imgRef}
+        src={activeSrc}
         alt={alt}
+        referrerPolicy={referrerPolicy}
         onLoad={(e) => {
           setIsLoaded(true);
+          setHasError(false);
           onLoad?.(e);
         }}
         onError={(e) => {
-          setHasError(true);
+          if (fallbackSrc && activeSrc !== fallbackSrc) {
+            setActiveSrc(fallbackSrc);
+            setHasError(false);
+            if (fallbackSrc.startsWith('data:')) {
+              setIsLoaded(true);
+            }
+          } else {
+            setHasError(true);
+            setIsLoaded(true);
+          }
           onError?.(e);
         }}
         className={`${rounded} transition-opacity duration-300 ${
