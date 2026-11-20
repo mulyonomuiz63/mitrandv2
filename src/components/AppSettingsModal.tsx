@@ -207,30 +207,6 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const [copiedSql, setCopiedSql] = useState(false);
   const [sqlQueryMode, setSqlQueryMode] = useState<'migration' | 'full'>('migration');
 
-  // Production Data Migration Wizard (Supabase -> MySQL) States
-  const [migrateSourceUrl, setMigrateSourceUrl] = useState('');
-  const [migrateSourceKey, setMigrateSourceKey] = useState('');
-  const [showMigrateKey, setShowMigrateKey] = useState(false);
-  const [migrateMode, setMigrateMode] = useState<'merge' | 'replace'>('merge');
-  const [isRunningMigration, setIsRunningMigration] = useState(false);
-  const [migrationReport, setMigrationReport] = useState<{
-    success: boolean;
-    dryRun: boolean;
-    mode: 'merge' | 'replace';
-    totalSourceRows: number;
-    totalMigratedRows: number;
-    message: string;
-    tables: Array<{
-      table: string;
-      label: string;
-      sourceCount: number;
-      migratedCount: number;
-      mysqlFinalCount: number;
-      status: 'ok' | 'skipped' | 'warning' | 'error';
-      error?: string;
-    }>;
-  } | null>(null);
-
   // Backup & Restore Database States
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [isDownloadingSqlDump, setIsDownloadingSqlDump] = useState(false);
@@ -396,79 +372,6 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
       });
     } finally {
       setIsSyncingMysql(false);
-    }
-  };
-
-  const handleRunSupabaseToMysqlMigration = async (dryRun: boolean) => {
-    if (!migrateSourceUrl.trim() || !migrateSourceKey.trim()) {
-      setMigrationReport({
-        success: false,
-        dryRun,
-        mode: migrateMode,
-        totalSourceRows: 0,
-        totalMigratedRows: 0,
-        message: 'Mohon isi URL Project Supabase lama dan Service Role Key terlebih dahulu.',
-        tables: [],
-      });
-      return;
-    }
-
-    if (!dryRun) {
-      const isReplace = migrateMode === 'replace';
-      const ok = await confirm({
-        title: isReplace
-          ? 'Konfirmasi Migrasi Penuh (Replace) Supabase → MySQL'
-          : 'Konfirmasi Migrasi Aman (Merge) Supabase → MySQL',
-        message: isReplace
-          ? 'Seluruh data tabel di MySQL saat ini akan dikosongkan terlebih dahulu lalu diisi penuh dengan seluruh data produksi dari Supabase lama (14 tabel). Lanjutkan?'
-          : 'Seluruh data produksi dari 14 tabel Supabase lama akan ditarik dan digabungkan (upsert) ke MySQL secara otomatis tanpa menghapus data lain. Lanjutkan migrasi?',
-        detail: `Sumber: ${migrateSourceUrl.trim()}\nTarget: ${mysqlStatus?.url || 'MySQL (.env)'}\nMode: ${isReplace ? 'Replace Penuh' : 'Merge Aman (Upsert)'}`,
-        confirmText: 'Ya, Mulai Migrasi ke MySQL',
-        cancelText: 'Batalkan',
-        variant: isReplace ? 'danger' : 'warning',
-      });
-      if (!ok) return;
-    }
-
-    setIsRunningMigration(true);
-    setMigrationReport(null);
-    try {
-      const res = await fetch('/api/system/migrate-from-supabase', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          supabaseUrl: migrateSourceUrl.trim(),
-          supabaseKey: migrateSourceKey.trim(),
-          mode: migrateMode,
-          dryRun,
-        }),
-      });
-      const data = await res.json();
-      setMigrationReport({
-        success: Boolean(data.success),
-        dryRun,
-        mode: migrateMode,
-        totalSourceRows: data.totalSourceRows ?? 0,
-        totalMigratedRows: data.totalMigratedRows ?? 0,
-        message: data.message || 'Proses selesai.',
-        tables: Array.isArray(data.tables) ? data.tables : [],
-      });
-      if (!dryRun && data.success) {
-        await checkMysql();
-        fetchEmailLogs();
-      }
-    } catch (err: any) {
-      setMigrationReport({
-        success: false,
-        dryRun,
-        mode: migrateMode,
-        totalSourceRows: 0,
-        totalMigratedRows: 0,
-        message: err?.message || 'Gagal menghubungi server untuk proses migrasi.',
-        tables: [],
-      });
-    } finally {
-      setIsRunningMigration(false);
     }
   };
 
@@ -3117,11 +3020,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           {mysqlStatus?.success ? 'ONLINE' : 'PERLU SETUP'}
                         </span>
                       </div>
-                      {mysqlStatus?.message && (
-                        <p className="text-xs mt-1 text-slate-700 leading-relaxed">
-                          {mysqlStatus.message}
-                        </p>
-                      )}
+                      {mysqlStatus?.message &&
+                        !(mysqlStatus.success && !mysqlStatus.hasPendingMigration) && (
+                          <p className="text-xs mt-1 text-slate-700 leading-relaxed">
+                            {mysqlStatus.message}
+                          </p>
+                        )}
                       {mysqlStatus?.url && (
                         <p className="text-[11px] font-mono text-slate-600 mt-1">
                           Server: <strong>{mysqlStatus.url}</strong>
@@ -3180,196 +3084,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 )}
               </div>
 
-              {/* WIZARD MIGRASI DATA PRODUKSI: SUPABASE -> MYSQL (1-KLIK + DRY RUN + VERIFIKASI) */}
-              <div className="p-5 bg-white border-2 border-indigo-600/30 rounded-xl space-y-4 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Rocket className="w-4 h-4 text-indigo-700" />
-                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Migrasi Data Produksi: Supabase Lama &rarr; MySQL (14 Tabel Otomatis)
-                      </h4>
-                      <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 rounded">
-                        PAGINASI PENUH &amp; AMAN
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 mt-1">
-                      Tarik seluruh data produksi dari Supabase lama Anda (Mitra, Klien, Komisi, Pencairan, Chat, Akun Staf, Password Terenkripsi, Pengaturan, Log) langsung ke MySQL tanpa kehilangan data.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      URL Project Supabase Lama (Sumber Data)
-                    </label>
-                    <input
-                      type="text"
-                      value={migrateSourceUrl}
-                      onChange={(e) => setMigrateSourceUrl(e.target.value)}
-                      placeholder="https://xxxxxxxxxxxxxxxx.supabase.co"
-                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Service Role Key Supabase Lama (Hanya Sekali Pakai, Tidak Disimpan)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showMigrateKey ? 'text' : 'password'}
-                        value={migrateSourceKey}
-                        onChange={(e) => setMigrateSourceKey(e.target.value)}
-                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                        className="w-full px-3 py-2 pr-9 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowMigrateKey(!showMigrateKey)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                      >
-                        {showMigrateKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-300 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="migrateMode"
-                        checked={migrateMode === 'merge'}
-                        onChange={() => setMigrateMode('merge')}
-                        className="text-indigo-700"
-                      />
-                      <span>Mode Merge / Upsert (Aman, Direkomendasikan)</span>
-                    </label>
-                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-300 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="migrateMode"
-                        checked={migrateMode === 'replace'}
-                        onChange={() => setMigrateMode('replace')}
-                        className="text-amber-600"
-                      />
-                      <span>Mode Replace (Kosongkan Target MySQL Dulu)</span>
-                    </label>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleRunSupabaseToMysqlMigration(true)}
-                      disabled={isRunningMigration}
-                      className="px-3.5 py-2 text-xs font-bold rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isRunningMigration ? 'animate-spin' : ''}`} />
-                      <span>Cek Jumlah Data (Dry Run)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRunSupabaseToMysqlMigration(false)}
-                      disabled={isRunningMigration || !mysqlStatus?.isConfigured}
-                      className="px-4 py-2 text-xs font-bold rounded-lg bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-300 text-white transition-colors flex items-center gap-1.5 shadow-2xs disabled:cursor-not-allowed"
-                    >
-                      <Rocket className="w-3.5 h-3.5" />
-                      <span>{isRunningMigration ? 'Memigrasi Data...' : 'Migrasi ke MySQL Sekarang'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {migrationReport && (
-                  <div className="space-y-3 pt-2">
-                    <div
-                      className={`p-3 rounded-xl text-xs border flex items-start gap-2 ${
-                        migrationReport.success
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                          : 'bg-amber-50 border-amber-300 text-amber-950'
-                      }`}
-                    >
-                      {migrationReport.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      )}
-                      <div>
-                        <p className="font-bold">{migrationReport.message}</p>
-                        <p className="text-[11px] mt-0.5 text-slate-600">
-                          Total Sumber Supabase: <strong>{migrationReport.totalSourceRows.toLocaleString('id-ID')}</strong> baris
-                          {!migrationReport.dryRun && (
-                            <>
-                              {' '}· Berhasil Masuk MySQL: <strong>{migrationReport.totalMigratedRows.toLocaleString('id-ID')}</strong> baris
-                            </>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    {migrationReport.tables.length > 0 && (
-                      <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                        <table className="w-full text-left text-[11px]">
-                          <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
-                            <tr>
-                              <th className="px-3 py-2">Tabel</th>
-                              <th className="px-3 py-2 text-right">Sumber Supabase</th>
-                              {!migrationReport.dryRun && <th className="px-3 py-2 text-right">Masuk MySQL</th>}
-                              {!migrationReport.dryRun && <th className="px-3 py-2 text-right">Total Akhir MySQL</th>}
-                              <th className="px-3 py-2 text-right">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {migrationReport.tables.map((t) => (
-                              <tr key={t.table} className="hover:bg-slate-50">
-                                <td className="px-3 py-1.5">
-                                  <span className="font-mono font-bold text-slate-900">{t.table}</span>
-                                  <span className="text-slate-500 ml-1.5">({t.label})</span>
-                                  {t.error && <p className="text-[10px] text-amber-700 mt-0.5">{t.error}</p>}
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-mono font-semibold">{t.sourceCount}</td>
-                                {!migrationReport.dryRun && (
-                                  <td className="px-3 py-1.5 text-right font-mono font-semibold text-emerald-700">
-                                    {t.migratedCount}
-                                  </td>
-                                )}
-                                {!migrationReport.dryRun && (
-                                  <td className="px-3 py-1.5 text-right font-mono font-bold text-slate-900">
-                                    {t.mysqlFinalCount}
-                                  </td>
-                                )}
-                                <td className="px-3 py-1.5 text-right">
-                                  <span
-                                    className={`px-1.5 py-0.5 rounded font-bold uppercase text-[9px] ${
-                                      t.status === 'ok'
-                                        ? 'bg-emerald-100 text-emerald-800'
-                                        : t.status === 'skipped'
-                                          ? 'bg-slate-100 text-slate-600'
-                                          : 'bg-red-100 text-red-800'
-                                    }`}
-                                  >
-                                    {t.status === 'ok' ? 'OK' : t.status === 'skipped' ? 'LEWATI' : 'ERROR'}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 leading-relaxed">
-                  <strong>Alternatif Migrasi via Terminal VPS (CLI) untuk Data Sangat Besar:</strong>{' '}
-                  Jalankan <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-900">npm run migrate:mysql -- --dry-run</code> lalu{' '}
-                  <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-900">npm run migrate:mysql</code> atau dari file backup JSON:{' '}
-                  <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-900">npm run migrate:mysql -- --from-json=./backup.json</code>.
-                </div>
-              </div>
-
-              {/* BACKUP & RESTORE DATABASE MYSQL (.JSON & .SQL — SUPPORT IMPORT BACKUP SUPABASE LAMA) */}
+              {/* BACKUP & RESTORE DATABASE MYSQL (.JSON & .SQL) */}
               <div className="p-5 bg-white border-2 border-blue-600/25 rounded-xl space-y-4 shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
                   <div>
@@ -3654,9 +3369,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                     <span className="w-6 h-6 rounded-full bg-blue-700 text-white font-bold flex items-center justify-center text-xs">
                       3
                     </span>
-                    <p className="font-bold text-slate-900">Migrasi Data Produksi</p>
+                    <p className="font-bold text-slate-900">Sinkronisasi Tabel &amp; Backup</p>
                     <p className="text-[11px] text-slate-600 leading-relaxed">
-                      14 tabel terbuat otomatis saat startup. Jalankan Wizard Migrasi di atas atau <code>npm run migrate:mysql</code> untuk memindahkan data produksi Supabase lama ke MySQL.
+                      Seluruh 14 tabel terbuat otomatis saat startup. Gunakan tombol <strong>Auto-Buat / Update 14 Tabel</strong> atau fitur <strong>Backup &amp; Restore</strong> di atas untuk pemeliharaan rutin.
                     </p>
                   </div>
                 </div>
@@ -3685,9 +3400,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
                   <FileText className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold">File Skema &amp; Skrip Migrasi Tersedia di Root Proyek</p>
+                    <p className="font-bold">File Skema MySQL Tersedia di Root Proyek</p>
                     <p className="mt-0.5 text-blue-800 text-[11px] leading-relaxed">
-                      File <strong>mysql_schema.sql</strong> (siap import phpMyAdmin) dan skrip migrasi CLI <strong>scripts/migrate-supabase-to-mysql.ts</strong> telah tersedia di repository.
+                      File <strong>mysql_schema.sql</strong> (siap import phpMyAdmin / MySQL CLI) telah tersedia di repository sebagai referensi struktur 14 tabel produksi.
                     </p>
                   </div>
                 </div>

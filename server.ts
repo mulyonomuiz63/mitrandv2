@@ -9287,6 +9287,14 @@ const extractServerLinkMetadata = async (rawUrl: string): Promise<ChatLinkPrevie
   }
 };
 
+// Direct 1-on-1 rooms only appear in chat history once at least one message has been sent
+// (including recalled/deleted messages, which remain in chatMessages with isDeleted: true and preserve lastMessageAt).
+const hasDirectRoomHistory = (room: ChatRoom, allMessages: ChatMessage[]): boolean => {
+  if (room.type !== 'direct') return true;
+  if (room.lastMessageAt) return true;
+  return allMessages.some((m) => m.roomId === room.id);
+};
+
 // GET Chat State (Filtered by visibility: Admin sees all rooms for monitoring; Mitra & Staf see only rooms where they are members)
 app.get('/api/chat/state', async (req: Request, res: Response) => {
   const userId = String(req.query.userId || '').trim();
@@ -9306,7 +9314,11 @@ app.get('/api/chat/state', async (req: Request, res: Response) => {
 
   const participants = buildChatParticipantsList();
   const visibleRooms = activeRooms
-    .filter((r) => isAdmin || r.participantIds.includes(userId))
+    .filter(
+      (r) =>
+        (isAdmin || r.participantIds.includes(userId)) &&
+        hasDirectRoomHistory(r, activeMessages)
+    )
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   const visibleRoomIds = new Set(visibleRooms.map((r) => r.id));
@@ -9373,29 +9385,30 @@ app.post('/api/chat/rooms/direct', async (req: Request, res: Response) => {
       (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
   );
 
-  if (existing) {
+  if (existing && hasDirectRoomHistory(existing, chatMessages)) {
     return res.json(existing);
   }
 
+  // Return an unpersisted draft room so opening a chat without sending any message
+  // does NOT create an empty chat history entry. The room will be persisted lazily
+  // in POST /api/chat/messages when the first message is actually sent.
   const participants = buildChatParticipantsList();
   const pA = participants.find((p) => p.id === sorted[0]);
   const pB = participants.find((p) => p.id === sorted[1]);
   const nowIso = new Date().toISOString();
 
-  const newRoom: ChatRoom = {
-    id: `room-direct-${sorted[0]}__${sorted[1]}`,
+  const draftRoom: ChatRoom & { isDraft: boolean } = {
+    id: existing?.id || `room-direct-${sorted[0]}__${sorted[1]}`,
     type: 'direct',
     name: `${pA?.name || sorted[0]} & ${pB?.name || sorted[1]}`,
     participantIds: sorted,
     createdBy: String(userAId),
-    createdAt: nowIso,
-    updatedAt: nowIso,
+    createdAt: existing?.createdAt || nowIso,
+    updatedAt: existing?.updatedAt || nowIso,
+    isDraft: true,
   };
 
-  chatRooms.unshift(newRoom);
-  await persistChatToCloud(newRoom, undefined);
-  broadcastChatEvent({ type: 'chat:room_updated', room: newRoom });
-  res.status(201).json(newRoom);
+  res.status(200).json(draftRoom);
 });
 
 // Helper: Create in-chat system message + real-time WS notification + portal Bell notification when members are added to a group
@@ -9609,6 +9622,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     replyTo,
     linkPreview,
     forwardedFrom,
+    participantIds,
   } = req.body;
 
   if (senderRole === 'admin') {
@@ -9617,7 +9631,59 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     });
   }
 
-  const room = chatRooms.find((r) => r.id === roomId);
+  const cleanText = String(text || '').trim();
+  if (!cleanText && !imageUrl) {
+    return res.status(400).json({ message: 'Isi pesan atau gambar tidak boleh kosong.' });
+  }
+
+  let room = chatRooms.find((r) => r.id === roomId);
+  if (!room && typeof roomId === 'string' && roomId.startsWith('room-direct-')) {
+    const rawPair =
+      Array.isArray(participantIds) && participantIds.length === 2
+        ? participantIds.map((pid: unknown) => String(pid).trim()).filter(Boolean)
+        : roomId
+            .slice('room-direct-'.length)
+            .split('__')
+            .map((pid) => pid.trim())
+            .filter(Boolean);
+
+    if (
+      rawPair.length === 2 &&
+      rawPair[0] !== rawPair[1] &&
+      rawPair.includes(String(senderId))
+    ) {
+      const sorted = [rawPair[0], rawPair[1]].sort();
+      const existingByPair = chatRooms.find(
+        (r) =>
+          r.type === 'direct' &&
+          r.participantIds.length === 2 &&
+          r.participantIds.includes(sorted[0]) &&
+          r.participantIds.includes(sorted[1]) &&
+          (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
+      );
+
+      if (existingByPair) {
+        room = existingByPair;
+      } else {
+        const participants = buildChatParticipantsList();
+        const pA = participants.find((p) => p.id === sorted[0]);
+        const pB = participants.find((p) => p.id === sorted[1]);
+        const createdNow = new Date().toISOString();
+        const createdDirectRoom: ChatRoom = {
+          id: `room-direct-${sorted[0]}__${sorted[1]}`,
+          type: 'direct',
+          name: `${pA?.name || sorted[0]} & ${pB?.name || sorted[1]}`,
+          participantIds: sorted,
+          createdBy: String(senderId),
+          createdAt: createdNow,
+          updatedAt: createdNow,
+        };
+        chatRooms.unshift(createdDirectRoom);
+        room = createdDirectRoom;
+      }
+    }
+  }
+
   if (!room) {
     return res.status(404).json({ message: 'Ruang percakapan tidak ditemukan.' });
   }
@@ -9626,11 +9692,6 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     return res.status(403).json({
       message: 'Anda bukan anggota dari ruang percakapan atau grup ini.',
     });
-  }
-
-  const cleanText = String(text || '').trim();
-  if (!cleanText && !imageUrl) {
-    return res.status(400).json({ message: 'Isi pesan atau gambar tidak boleh kosong.' });
   }
 
   let finalImageUrl: string | undefined = imageUrl ? String(imageUrl) : undefined;
@@ -9827,7 +9888,7 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   }
 
   await persistChatToCloud(room, msg);
-  broadcastChatEvent({ type: 'chat:message_updated', message: msg });
+  broadcastChatEvent({ type: 'chat:message_updated', message: msg, room });
   res.json(msg);
 });
 

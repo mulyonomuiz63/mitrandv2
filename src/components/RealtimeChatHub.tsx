@@ -257,6 +257,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [draftDirectRoom, setDraftDirectRoom] = useState<ChatRoom | null>(null);
 
   // Sidebar Filters & Tabs
   const [sidebarSearch, setSidebarSearch] = useState('');
@@ -571,6 +572,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               });
               if (payload.room) {
                 const updatedRoom: ChatRoom = payload.room;
+                setDraftDirectRoom((prev) =>
+                  prev && prev.id === updatedRoom.id ? null : prev
+                );
                 setRooms((prev) => {
                   const canSee =
                     isAdminMonitor || updatedRoom.participantIds.includes(currentUserId);
@@ -590,9 +594,18 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             } else if (payload.type === 'chat:message_updated' && payload.message) {
               const updated: ChatMessage = payload.message;
               setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+              if (payload.room) {
+                const updatedRoom: ChatRoom = payload.room;
+                setRooms((prev) =>
+                  prev.map((r) => (r.id === updatedRoom.id ? updatedRoom : r))
+                );
+              }
             } else if (payload.type === 'chat:room_updated' && payload.room) {
               const updatedRoom: ChatRoom = payload.room;
               setRooms((prev) => {
+                if (updatedRoom.type === 'direct' && !updatedRoom.lastMessageAt) {
+                  return prev;
+                }
                 const canSee =
                   isAdminMonitor || updatedRoom.participantIds.includes(currentUserId);
                 if (!canSee) return prev.filter((r) => r.id !== updatedRoom.id);
@@ -765,14 +778,31 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   }, [selectedRoomId, selectedRoomMessages.length, isChatPageOpen]);
 
+  // Clear temporary unsent direct chat draft whenever navigating back or switching rooms
+  useEffect(() => {
+    if (draftDirectRoom && selectedRoomId !== draftDirectRoom.id) {
+      setDraftDirectRoom(null);
+    }
+  }, [selectedRoomId, draftDirectRoom]);
+
   // Visible rooms for current user:
   // - Admin: all rooms (1-on-1 & group) for monitoring
   // - Mitra & Staf: ONLY rooms where room.participantIds.includes(currentUserId)
+  // - Direct 1-on-1 rooms only appear in chat history once at least 1 message has been sent
+  //   (including messages that were later recalled/deleted).
   const visibleRooms = useMemo(() => {
     return rooms
-      .filter((room) => isAdminMonitor || room.participantIds.includes(currentUserId))
+      .filter((room) => {
+        if (!isAdminMonitor && !room.participantIds.includes(currentUserId)) return false;
+        if (room.type === 'direct') {
+          const hasHistory =
+            Boolean(room.lastMessageAt) || messages.some((m) => m.roomId === room.id);
+          if (!hasHistory) return false;
+        }
+        return true;
+      })
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  }, [rooms, isAdminMonitor, currentUserId]);
+  }, [rooms, messages, isAdminMonitor, currentUserId]);
 
   // Unread messages count across visible rooms
   const unreadCountByRoom = useMemo(() => {
@@ -921,8 +951,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   }, [participants, currentUserId, sidebarRoleFilter, sidebarSearch]);
 
   const selectedRoom = useMemo(
-    () => visibleRooms.find((r) => r.id === selectedRoomId) || null,
-    [visibleRooms, selectedRoomId]
+    () =>
+      visibleRooms.find((r) => r.id === selectedRoomId) ||
+      (draftDirectRoom && draftDirectRoom.id === selectedRoomId ? draftDirectRoom : null),
+    [visibleRooms, draftDirectRoom, selectedRoomId]
   );
 
   const pinnedMessages = useMemo(() => {
@@ -986,29 +1018,34 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       return;
     }
 
-    try {
-      const res = await fetch('/api/chat/rooms/direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-skip-crud-alert': 'true',
-        },
-        body: JSON.stringify({
-          userAId: currentUserId,
-          userBId: target.id,
-        }),
-      });
-      if (!res.ok) return;
-      const room: ChatRoom = await res.json();
-      setRooms((prev) => {
-        const exists = prev.some((r) => r.id === room.id);
-        return exists ? prev.map((r) => (r.id === room.id ? room : r)) : [room, ...prev];
-      });
-      setSelectedRoomId(room.id);
+    const existing = visibleRooms.find(
+      (r) =>
+        r.type === 'direct' &&
+        r.participantIds.includes(currentUserId) &&
+        r.participantIds.includes(target.id)
+    );
+    if (existing) {
+      setDraftDirectRoom(null);
+      setSelectedRoomId(existing.id);
       setSidebarTab('chats');
-    } catch {
-      // ignore
+      return;
     }
+
+    // Open an unsent local draft direct chat without saving to history or database.
+    // If the user goes back without sending a message, no empty chat history will exist.
+    const sorted = [String(currentUserId), String(target.id)].sort();
+    const nowIso = new Date().toISOString();
+    const draftRoom: ChatRoom = {
+      id: `room-direct-${sorted[0]}__${sorted[1]}`,
+      type: 'direct',
+      name: `${currentUserName} & ${target.name}`,
+      participantIds: sorted,
+      createdBy: String(currentUserId),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    setDraftDirectRoom(draftRoom);
+    setSelectedRoomId(draftRoom.id);
   };
 
   // Select & compress Group Profile Photo (for Create Group or Edit Group modal)
@@ -1259,6 +1296,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           },
           body: JSON.stringify({
             roomId: selectedRoomId,
+            participantIds: selectedRoom?.participantIds,
             senderId: currentUserId,
             senderName: currentUserName,
             senderRole: currentUserRole === 'staff' ? 'staff' : 'mitra',
@@ -1278,6 +1316,25 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           setMessages((prev) =>
             prev.some((m) => m.id === created.id) ? prev : [...prev, created]
           );
+          // Promote draft direct room into persistent chat history once the first message is sent
+          if (draftDirectRoom && draftDirectRoom.id === selectedRoomId) {
+            const promotedRoom: ChatRoom = {
+              ...draftDirectRoom,
+              updatedAt: created.createdAt,
+              lastMessageAt: created.createdAt,
+              lastMessageSenderName: created.senderName,
+              lastMessageText:
+                created.text ||
+                (created.imageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan baru'),
+            };
+            setRooms((prev) =>
+              prev.some((r) => r.id === promotedRoom.id)
+                ? prev.map((r) => (r.id === promotedRoom.id ? promotedRoom : r))
+                : [promotedRoom, ...prev]
+            );
+            setDraftDirectRoom(null);
+            setSidebarTab('chats');
+          }
           setInputText('');
           setReplyingTo(null);
           setPendingImage(null);
@@ -1321,6 +1378,11 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       if (res.ok) {
         const updated: ChatMessage = await res.json();
         setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        setRooms((prev) =>
+          prev.map((r) =>
+            r.id === updated.roomId ? { ...r, lastMessageText: '🚫 Pesan telah ditarik' } : r
+          )
+        );
       }
     } catch {
       // ignore
@@ -2921,7 +2983,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                           handleSendMessage();
                         }
                       }}
-                      placeholder="Ketik pesan, tempel link (https://...), atau pilih gambar..."
+                      placeholder="Ketik pesan..."
                       className="flex-1 px-3.5 py-2.5 text-xs sm:text-sm bg-slate-100 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none max-h-28"
                     />
 
