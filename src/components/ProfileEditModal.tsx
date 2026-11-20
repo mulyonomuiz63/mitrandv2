@@ -109,7 +109,9 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [nik, setNik] = useState(
     !mitra.nik || mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik
   );
-  const [phone, setPhone] = useState(!mitra.phone || mitra.phone === '-' ? '' : mitra.phone);
+  const [phone, setPhone] = useState(
+    !mitra.phone || mitra.phone === '-' ? '' : mitra.phone.replace(/\D/g, '')
+  );
   const [ktpFileUrl, setKtpFileUrl] = useState<string>(() => getMitraKtpFileUrl(mitra));
   const [ktpFileName, setKtpFileName] = useState<string>(() => getMitraKtpFileName(mitra));
   const [ktpCompressionInfo, setKtpCompressionInfo] = useState<string | null>(null);
@@ -194,7 +196,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     setStatusMessage(null);
     setNewPassword('');
     setConfirmPassword('');
-    setPhone(!mitra.phone || mitra.phone === '-' ? '' : mitra.phone);
+    setPhone(!mitra.phone || mitra.phone === '-' ? '' : mitra.phone.replace(/\D/g, ''));
     setKtpFileUrl(getMitraKtpFileUrl(mitra));
     setKtpFileName(getMitraKtpFileName(mitra));
     setKtpCompressionInfo(null);
@@ -368,6 +370,16 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     setNikError(null);
     if (newPassword && newPassword !== confirmPassword) {
       setErrorMessage('Konfirmasi kata sandi baru tidak cocok.');
+      return;
+    }
+    if (isSysActive('phone') && getSysField('phone')?.required !== false) {
+      const cleanPhone = (phone || '').trim();
+      if (!cleanPhone || !/^\d+$/.test(cleanPhone)) {
+        setErrorMessage('No. WhatsApp Aktif wajib diisi dengan angka saja tanpa huruf atau simbol.');
+        return;
+      }
+    } else if (phone && !/^\d+$/.test(phone.trim())) {
+      setErrorMessage('No. WhatsApp Aktif hanya boleh berisi angka.');
       return;
     }
     if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !ktpFileUrl) {
@@ -618,11 +630,17 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                       </label>
                       <input
                         type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder={getSysField('phone')?.placeholder || 'Contoh: 081234567890'}
                         required={getSysField('phone')?.required !== false}
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                       />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        * Wajib diisi angka saja tanpa huruf, spasi, atau tanda hubung
+                      </p>
                     </div>
                   )}
                   {isSysActive('nik') && (
