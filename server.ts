@@ -196,6 +196,10 @@ export interface Mitra {
   verificationTokenExpiry?: string;
   rejectionReason?: string;
   rejectedAt?: string;
+  isActive?: boolean;
+  deactivatedAt?: string;
+  deactivatedBy?: string;
+  deactivatedReason?: string;
   customFields?: Record<string, string>;
 }
 
@@ -699,6 +703,8 @@ export interface ActivityLogItem {
     | 'verify_email'
     | 'password_reset'
     | 'mitra_verify'
+    | 'mitra_status'
+    | 'mitra_delete'
     | 'profile_update'
     | 'client_create'
     | 'client_acc'
@@ -2230,6 +2236,18 @@ const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
       bankMeta.__ktpFileName ||
       resolvedCustomFields?.['__ktpFileName'] ||
       undefined;
+    const isActive: boolean =
+      typeof m.isActive === 'boolean'
+        ? m.isActive
+        : typeof bankMeta.__isActive === 'boolean'
+        ? bankMeta.__isActive
+        : true;
+    const deactivatedAt: string | undefined =
+      m.deactivatedAt || bankMeta.__deactivatedAt || undefined;
+    const deactivatedBy: string | undefined =
+      m.deactivatedBy || bankMeta.__deactivatedBy || undefined;
+    const deactivatedReason: string | undefined =
+      m.deactivatedReason || bankMeta.__deactivatedReason || undefined;
     return {
       ...m,
       memberCode: formatMitraMemberCode(m.memberCode, m.id),
@@ -2240,6 +2258,10 @@ const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
       verificationTokenExpiry,
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || undefined,
       rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || undefined,
+      isActive,
+      deactivatedAt,
+      deactivatedBy,
+      deactivatedReason,
       customFields: resolvedCustomFields,
       ktpFileUrl: resolvedKtpUrl,
       ktpFileName: resolvedKtpName,
@@ -3374,6 +3396,15 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   }
 
   if (mitra) {
+    if (mitra.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        code: 'MITRA_INACTIVE',
+        message:
+          'Akun Mitra Anda sedang dinonaktifkan oleh Admin / Staf sehingga tidak dapat login. Silakan hubungi Administrator untuk informasi lebih lanjut.',
+      });
+    }
+
     if (mitra.emailVerified === false) {
       return res.status(403).json({
         success: false,
@@ -3452,9 +3483,128 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 // ========================================================
 // GOOGLE OAUTH 2.0 AUTHENTICATION ENDPOINT
 // ========================================================
+// ========================================================
+// MITRA IDENTITY UNIQUENESS VALIDATION HELPERS (EMAIL & NIK/NPWP)
+// ========================================================
+const normalizeMitraEmail = (raw?: string | null): string =>
+  String(raw || '').trim().toLowerCase();
+
+const normalizeNikNpwp = (raw?: string | null): string => {
+  const cleaned = String(raw || '')
+    .replace(/[\s.\-/]/g, '')
+    .trim()
+    .toLowerCase();
+  if (!cleaned || cleaned === '-' || cleaned === '0' || cleaned === '3201000000000000') {
+    return '';
+  }
+  return cleaned;
+};
+
+const syncMitrasFromSupabaseForValidation = async () => {
+  if (!supabase) return;
+  try {
+    const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+    if (!errM && Array.isArray(dbMitras)) {
+      mitras = normalizeMitraAvatars(dbMitras);
+    }
+  } catch {}
+};
+
+const checkMitraIdentityUniqueness = (params: {
+  email?: string | null;
+  nik?: string | null;
+  excludeMitraId?: string | null;
+}) => {
+  const rawEmail = String(params.email || '').trim();
+  const normalizedEmail = normalizeMitraEmail(rawEmail);
+  const rawNik = String(params.nik || '').trim();
+  const normalizedNik = normalizeNikNpwp(rawNik);
+  const excludeId = params.excludeMitraId || '';
+
+  let emailTaken = false;
+  let emailMessage: string | null = null;
+  let nikTaken = false;
+  let nikMessage: string | null = null;
+
+  if (normalizedEmail) {
+    const isAdminEmail =
+      normalizedEmail === adminAccount.email.toLowerCase() ||
+      normalizedEmail === 'admin@ndtaxandlaw.com' ||
+      normalizedEmail === 'admin@ndtaxlaw.com';
+
+    const altStaffEmail = normalizedEmail.endsWith('@ndtaxandlaw.com')
+      ? normalizedEmail.replace('@ndtaxandlaw.com', '@ndtaxlaw.com')
+      : normalizedEmail.endsWith('@ndtaxlaw.com')
+      ? normalizedEmail.replace('@ndtaxlaw.com', '@ndtaxandlaw.com')
+      : normalizedEmail;
+
+    const isStaffEmail = staffAccounts.some(
+      (s) => s.email.toLowerCase() === normalizedEmail || s.email.toLowerCase() === altStaffEmail
+    );
+
+    const existingMitraByEmail = mitras.find(
+      (m) => m.id !== excludeId && normalizeMitraEmail(m.email) === normalizedEmail
+    );
+
+    if (isAdminEmail || isStaffEmail) {
+      emailTaken = true;
+      emailMessage = `Email "${rawEmail}" sudah terdaftar pada akun sistem. Setiap mitra hanya boleh mendaftar dengan 1 email unik.`;
+    } else if (existingMitraByEmail) {
+      emailTaken = true;
+      emailMessage = `Email "${rawEmail}" sudah pernah digunakan untuk mendaftar sebagai mitra. Setiap mitra hanya boleh mendaftar dengan 1 email unik. Silakan masuk (login) ke akun Anda atau gunakan email lain.`;
+    }
+  }
+
+  if (normalizedNik) {
+    const existingMitraByNik = mitras.find(
+      (m) => m.id !== excludeId && normalizeNikNpwp(m.nik) === normalizedNik
+    );
+    if (existingMitraByNik) {
+      nikTaken = true;
+      nikMessage = `NIK / NPWP "${rawNik}" sudah terdaftar pada akun mitra lain. Setiap mitra hanya diperbolehkan menggunakan 1 NIK / NPWP yang unik.`;
+    }
+  }
+
+  return {
+    available: !emailTaken && !nikTaken,
+    emailTaken,
+    emailMessage,
+    nikTaken,
+    nikMessage,
+    conflictField: emailTaken ? ('email' as const) : nikTaken ? ('nik' as const) : null,
+    message: emailMessage || nikMessage || null,
+  };
+};
+
+app.post('/api/mitra/check-unique', async (req: Request, res: Response) => {
+  try {
+    const { email, nik, excludeMitraId } = req.body || {};
+    await syncMitrasFromSupabaseForValidation();
+    const result = checkMitraIdentityUniqueness({ email, nik, excludeMitraId });
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Gagal memvalidasi keunikan data mitra.',
+    });
+  }
+});
+
 app.post('/api/auth/google', async (req: Request, res: Response) => {
   try {
-    const { credential, idToken, accessToken, email: directEmail, name: directName, picture: directPicture } = req.body;
+    const {
+      credential,
+      idToken,
+      accessToken,
+      email: directEmail,
+      name: directName,
+      picture: directPicture,
+      mode,
+    } = req.body;
+    const isRegisterMode = mode === 'register';
     let googleEmail = directEmail || '';
     let googleName = directName || '';
     let googlePicture = directPicture || '';
@@ -3498,6 +3648,22 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
         success: false,
         message: 'Kredensial akun Google tidak valid atau email tidak terdeteksi.',
       });
+    }
+
+    // Sinkronkan daftar mitra dari Supabase terlebih dahulu agar validasi email unik selalu akurat
+    await syncMitrasFromSupabaseForValidation();
+
+    // Validasi ketat keunikan email saat mendaftar menggunakan akun Google
+    if (isRegisterMode) {
+      const uniqueness = checkMitraIdentityUniqueness({ email: normalizedEmail });
+      if (uniqueness.emailTaken) {
+        return res.status(400).json({
+          success: false,
+          field: 'email',
+          code: 'EMAIL_ALREADY_REGISTERED',
+          message: `Email Google "${normalizedEmail}" sudah pernah terdaftar di sistem. Setiap mitra hanya boleh mendaftar dengan 1 email unik. Silakan masuk melalui tab Masuk Akun.`,
+        });
+      }
     }
 
     // 3. Match Admin Login
@@ -3624,16 +3790,7 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
     }
 
     // 5. Match or Auto-Register Mitra
-    if (supabase) {
-      try {
-        const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
-        if (!errM && Array.isArray(dbMitras)) {
-          mitras = normalizeMitraAvatars(dbMitras);
-        }
-      } catch {}
-    }
-
-    let mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+    let mitra = mitras.find((m) => normalizeMitraEmail(m.email) === normalizedEmail);
 
     if (!mitra) {
       const newMitraId = `mitra-${Date.now()}`;
@@ -3658,7 +3815,9 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
           bankName: 'Bank Central Asia (BCA)',
           accountNumber: '',
           accountHolder: googleName || 'Mitra',
-        },
+          __gender: resolvedGender,
+          __emailVerified: true,
+        } as any,
         totalCommission: 0,
         totalBonus: 0,
         pendingPayout: 0,
@@ -3672,7 +3831,26 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
       mitras.unshift(mitra);
       if (supabase) {
         try {
-          await supabase.from('mitras').insert([mitra]);
+          const {
+            gender: _g,
+            customFields: _cf,
+            ktpFileUrl: _kfu,
+            ktpFileName: _kfn,
+            ...supabaseMitraPayload
+          } = mitra;
+          const { error: insertErr } = await supabase.from('mitras').insert([supabaseMitraPayload]);
+          if (insertErr) {
+            const {
+              emailVerified: _ev,
+              verificationToken: _vt,
+              verificationTokenExpiry: _vte,
+              ...minimalPayload
+            } = supabaseMitraPayload;
+            const { error: retryErr } = await supabase.from('mitras').insert([minimalPayload]);
+            if (retryErr) {
+              console.warn('[Supabase Mitra Google Register Warning]', retryErr.message);
+            }
+          }
         } catch (supaErr) {
           console.warn('[Supabase Mitra Google Register Warning]', supaErr);
         }
@@ -3688,6 +3866,16 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
         operation: 'CREATE',
         targetEntity: 'Pendaftaran Mitra Baru via Google OAuth',
         description: `Mitra baru "${mitra.fullName}" (${mitra.memberCode}) berhasil terdaftar via Google OAuth.`,
+      });
+    }
+
+    // Block login via Google if Mitra account has been deactivated by Admin / Staff
+    if (mitra.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        code: 'MITRA_INACTIVE',
+        message:
+          'Akun Mitra Anda sedang dinonaktifkan oleh Admin / Staf sehingga tidak dapat login menggunakan Google. Silakan hubungi Administrator.',
       });
     }
 
@@ -4625,22 +4813,23 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   const normalizedEmail = (email || '').trim().toLowerCase();
 
-  // Sinkronkan daftar mitra dari Supabase terlebih dahulu agar validasi email unik selalu akurat
-  if (supabase) {
-    try {
-      const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
-      if (!errM && Array.isArray(dbMitras)) {
-        mitras = normalizeMitraAvatars(dbMitras);
-      }
-    } catch {}
-  }
+  // Sinkronkan daftar mitra dari Supabase terlebih dahulu agar validasi email & NIK/NPWP unik selalu akurat
+  await syncMitrasFromSupabaseForValidation();
 
-  // VALIDASI 1: EMAIL UNIQUE
-  const existingMitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
-  if (existingMitra) {
+  // VALIDASI 1 & 2: EMAIL UNIQUE & NIK/NPWP UNIQUE
+  const uniqueness = checkMitraIdentityUniqueness({ email, nik });
+  if (uniqueness.emailTaken) {
     return res.status(400).json({
       success: false,
-      message: `Email "${email}" sudah terdaftar sebagai mitra. Silakan masuk (login) ke akun Anda atau gunakan email lain.`,
+      field: 'email',
+      message: uniqueness.emailMessage,
+    });
+  }
+  if (uniqueness.nikTaken) {
+    return res.status(400).json({
+      success: false,
+      field: 'nik',
+      message: uniqueness.nikMessage,
     });
   }
 
@@ -4982,6 +5171,191 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   res.json({ success: true, data: mitra, addedGroups: joinedGroupNames });
 });
 
+// Toggle Mitra Active / Inactive status (Admin & Staff)
+app.put('/api/mitra/:id/active-status', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { isActive, reason, actorName, actorRole, actorId, actorEmail } = req.body || {};
+
+  if (typeof isActive !== 'boolean') {
+    return res.status(400).json({
+      success: false,
+      message: 'Parameter isActive (boolean) wajib diisi.',
+    });
+  }
+
+  await syncMitrasFromSupabaseForValidation();
+  const mitra = mitras.find((m) => m.id === id);
+  if (!mitra) {
+    return res.status(404).json({ success: false, message: 'Data Mitra tidak ditemukan.' });
+  }
+
+  const resolvedRole: 'admin' | 'staff' = actorRole === 'staff' ? 'staff' : 'admin';
+  const resolvedActorName =
+    String(actorName || '').trim() ||
+    (resolvedRole === 'staff' ? 'Staf Operasional' : adminAccount.name);
+  const nowIso = new Date().toISOString();
+  const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+
+  mitra.isActive = isActive;
+  const updatedBank: any = { ...(mitra.bankDetails || {}) };
+  updatedBank.__isActive = isActive;
+
+  if (!isActive) {
+    mitra.deactivatedAt = nowIso;
+    mitra.deactivatedBy = resolvedActorName;
+    mitra.deactivatedReason = trimmedReason || undefined;
+    updatedBank.__deactivatedAt = nowIso;
+    updatedBank.__deactivatedBy = resolvedActorName;
+    if (trimmedReason) {
+      updatedBank.__deactivatedReason = trimmedReason;
+    } else {
+      delete updatedBank.__deactivatedReason;
+    }
+  } else {
+    mitra.deactivatedAt = undefined;
+    mitra.deactivatedBy = undefined;
+    mitra.deactivatedReason = undefined;
+    delete updatedBank.__deactivatedAt;
+    delete updatedBank.__deactivatedBy;
+    delete updatedBank.__deactivatedReason;
+  }
+
+  mitra.bankDetails = updatedBank;
+
+  if (supabase) {
+    try {
+      await supabase
+        .from('mitras')
+        .update({ bankDetails: mitra.bankDetails })
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Supabase update mitra active-status error', e);
+    }
+  }
+
+  recordActivity({
+    actorRole: resolvedRole,
+    actorId: actorId || (resolvedRole === 'staff' ? 'staff-01' : adminAccount.id),
+    actorName: resolvedActorName,
+    actorEmail: actorEmail || adminAccount.email,
+    actionType: 'mitra_status',
+    operation: 'UPDATE',
+    targetEntity: 'Status Aktif Mitra',
+    description: isActive
+      ? `${resolvedActorName} mengaktifkan kembali akun Mitra "${mitra.fullName}" (${mitra.memberCode}). Mitra kini dapat login kembali.`
+      : `${resolvedActorName} menonaktifkan akun Mitra "${mitra.fullName}" (${mitra.memberCode}) sehingga tidak dapat login.${
+          trimmedReason ? ` Alasan: "${trimmedReason}".` : ''
+        }`,
+  });
+
+  saveDatabase();
+
+  return res.json({
+    success: true,
+    data: mitra,
+    message: isActive
+      ? `Akun Mitra "${mitra.fullName}" berhasil diaktifkan kembali.`
+      : `Akun Mitra "${mitra.fullName}" berhasil dinonaktifkan dan tidak dapat login.`,
+  });
+});
+
+// Delete Mitra (Admin & Staff) — ONLY allowed if Mitra has 0 clients
+app.delete('/api/mitra/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { actorName, actorRole, actorId, actorEmail } = req.body || {};
+
+  await syncMitrasFromSupabaseForValidation();
+  if (supabase) {
+    try {
+      const { data: dbDeals, error: errD } = await supabase.from('client_deals').select('*');
+      if (!errD && Array.isArray(dbDeals)) {
+        clientDeals = dbDeals;
+      }
+    } catch {}
+  }
+
+  const mitraIndex = mitras.findIndex((m) => m.id === id);
+  if (mitraIndex === -1) {
+    return res.status(404).json({ success: false, message: 'Data Mitra tidak ditemukan.' });
+  }
+
+  const targetMitra = mitras[mitraIndex];
+  const linkedClients = clientDeals.filter((c) => c.mitraId === id);
+  const effectiveClientCount = Math.max(
+    linkedClients.length,
+    Number(targetMitra.referredClientsCount || 0)
+  );
+
+  if (effectiveClientCount > 0) {
+    return res.status(400).json({
+      success: false,
+      code: 'MITRA_HAS_CLIENTS',
+      clientCount: effectiveClientCount,
+      message: `Data Mitra "${targetMitra.fullName}" tidak dapat dihapus karena sudah memiliki ${effectiveClientCount} klien terdaftar. Anda hanya dapat menonaktifkan akun mitra ini agar tidak bisa login.`,
+    });
+  }
+
+  // Remove mitra from in-memory array
+  mitras.splice(mitraIndex, 1);
+
+  // Remove stored password so email is completely freed
+  const normalizedEmail = normalizeMitraEmail(targetMitra.email);
+  if (normalizedEmail) {
+    userPasswords.delete(normalizedEmail);
+  }
+
+  // Remove mitra from any chat rooms
+  const nowIso = new Date().toISOString();
+  for (const room of chatRooms) {
+    if (Array.isArray(room.participantIds) && room.participantIds.includes(id)) {
+      room.participantIds = room.participantIds.filter((pid) => pid !== id);
+      room.updatedAt = nowIso;
+      try {
+        await persistChatToCloud(room, undefined);
+        broadcastChatEvent({ type: 'chat:room_updated', room });
+      } catch {}
+    }
+  }
+
+  // Remove mitra-specific notifications
+  notifications = notifications.filter((n) => n.mitraId !== id);
+
+  if (supabase) {
+    try {
+      await supabase.from('mitras').delete().eq('id', id);
+      if (normalizedEmail) {
+        await supabase.from('user_passwords').delete().eq('email', normalizedEmail);
+      }
+    } catch (e) {
+      console.warn('Supabase delete mitra error', e);
+    }
+  }
+
+  const resolvedRole: 'admin' | 'staff' = actorRole === 'staff' ? 'staff' : 'admin';
+  const resolvedActorName =
+    String(actorName || '').trim() ||
+    (resolvedRole === 'staff' ? 'Staf Operasional' : adminAccount.name);
+
+  recordActivity({
+    actorRole: resolvedRole,
+    actorId: actorId || (resolvedRole === 'staff' ? 'staff-01' : adminAccount.id),
+    actorName: resolvedActorName,
+    actorEmail: actorEmail || adminAccount.email,
+    actionType: 'mitra_delete',
+    operation: 'DELETE',
+    targetEntity: 'Hapus Data Mitra',
+    description: `${resolvedActorName} menghapus permanen data Mitra "${targetMitra.fullName}" (${targetMitra.memberCode}, ${targetMitra.email}) yang belum memiliki klien.`,
+  });
+
+  saveDatabase();
+
+  return res.json({
+    success: true,
+    deletedId: id,
+    message: `Data Mitra "${targetMitra.fullName}" berhasil dihapus secara permanen.`,
+  });
+});
+
 app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   const { id } = req.params;
   const {
@@ -4999,12 +5373,7 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     customFields,
   } = req.body;
 
-  if (supabase) {
-    try {
-      const { data: dbMitras } = await supabase.from('mitras').select('*');
-      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
-    } catch {}
-  }
+  await syncMitrasFromSupabaseForValidation();
 
   const mitra = mitras.find((m) => m.id === id);
 
@@ -5012,11 +5381,26 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan' });
   }
 
+  // VALIDASI KEUNIKAN NIK / NPWP SAAT MELENGKAPI ATAU MENGUBAH DATA PROFIL MITRA
+  if (typeof nik === 'string' && normalizeNikNpwp(nik)) {
+    const uniqueness = checkMitraIdentityUniqueness({
+      nik,
+      excludeMitraId: id,
+    });
+    if (uniqueness.nikTaken) {
+      return res.status(400).json({
+        success: false,
+        field: 'nik',
+        message: uniqueness.nikMessage,
+      });
+    }
+  }
+
   const wasRejected = mitra.status === 'rejected';
 
   if (fullName) mitra.fullName = fullName;
   if (phone) mitra.phone = phone;
-  if (nik) mitra.nik = nik;
+  if (nik) mitra.nik = String(nik).trim();
   if (specialization) mitra.specialization = specialization;
 
   if (typeof ktpFileUrl === 'string' && ktpFileUrl.trim()) {
@@ -7814,7 +8198,10 @@ app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
     allItems.sort((a, b) => b._ts - a._ts);
 
     filteredItems = allItems.filter((m) => {
-      const matchStatus = status === 'all' || !status || m.status === status;
+      const matchStatus =
+        status === 'all' ||
+        !status ||
+        (status === 'inactive' ? m.isActive === false : m.status === status);
       const matchSearch =
         !search ||
         (m.fullName || '').toLowerCase().includes(search) ||

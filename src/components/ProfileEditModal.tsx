@@ -164,10 +164,14 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [nikError, setNikError] = useState<string | null>(null);
+  const [isCheckingNik, setIsCheckingNik] = useState(false);
 
   useEffect(() => {
     setFullName(mitra.fullName);
     setNik(mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik);
+    setNikError(null);
+    setErrorMessage(null);
     setPhone(mitra.phone === '-' ? '' : mitra.phone);
     setKtpFileUrl(getMitraKtpFileUrl(mitra));
     setKtpFileName(getMitraKtpFileName(mitra));
@@ -306,9 +310,40 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     }
   };
 
+  const checkNikUnique = async (value: string): Promise<{ ok: boolean; message?: string }> => {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === '-' || trimmed === '3201000000000000') {
+      setNikError(null);
+      return { ok: true };
+    }
+    setIsCheckingNik(true);
+    try {
+      const res = await fetch('/api/mitra/check-unique', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nik: trimmed, excludeMitraId: mitra.id }),
+      });
+      const data = await res.json();
+      if (data.nikTaken) {
+        const msg =
+          data.nikMessage ||
+          'NIK / NPWP sudah terdaftar pada akun mitra lain. Setiap mitra hanya boleh menggunakan 1 NIK / NPWP yang unik.';
+        setNikError(msg);
+        return { ok: false, message: msg };
+      }
+      setNikError(null);
+      return { ok: true };
+    } catch {
+      return { ok: true };
+    } finally {
+      setIsCheckingNik(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setNikError(null);
     if (newPassword && newPassword !== confirmPassword) {
       setErrorMessage('Konfirmasi kata sandi baru tidak cocok.');
       return;
@@ -338,6 +373,18 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     for (const f of activeMitraBankCustomFields) {
       if (f.type === 'file' && f.required && !bankCustomFieldValues[f.label]) {
         setErrorMessage(`Mohon unggah file untuk kolom wajib "${f.label}".`);
+        return;
+      }
+    }
+
+    // Validasi keunikan NIK / NPWP sebelum membuka konfirmasi simpan
+    if (isSysActive('nik') && nik && nik.trim()) {
+      const nikCheck = await checkNikUnique(nik);
+      if (!nikCheck.ok) {
+        setErrorMessage(
+          nikCheck.message ||
+            'NIK / NPWP sudah terdaftar pada akun mitra lain. Gunakan NIK / NPWP Anda sendiri.'
+        );
         return;
       }
     }
@@ -397,7 +444,12 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         setStatusMessage(null);
         onClose();
       }, 1500);
-    } catch (err) {
+    } catch (err: any) {
+      const msg = err?.message || 'Gagal menyimpan perubahan data profil.';
+      if (msg.toLowerCase().includes('nik') || msg.toLowerCase().includes('npwp')) {
+        setNikError(msg);
+      }
+      setErrorMessage(msg);
       console.error(err);
     } finally {
       setIsSubmitting(false);
@@ -554,7 +606,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                   {isSysActive('nik') && (
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        {getSysField('nik')?.label || 'NIK KTP'}{' '}
+                        {getSysField('nik')?.label || 'NIK / NPWP'}{' '}
                         {(mitra.status !== 'verified' ||
                           !mitra.nik ||
                           mitra.nik === '-' ||
@@ -564,6 +616,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                       </label>
                       <input
                         type="text"
+                        maxLength={25}
                         required={getSysField('nik')?.required !== false}
                         disabled={
                           mitra.status === 'verified' &&
@@ -575,7 +628,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                           )
                         }
                         value={nik}
-                        onChange={(e) => setNik(e.target.value)}
+                        onChange={(e) => {
+                          setNik(e.target.value);
+                          if (nikError) setNikError(null);
+                        }}
+                        onBlur={(e) => checkNikUnique(e.target.value)}
                         className={`w-full px-3 py-2 text-xs font-mono rounded-lg border ${
                           mitra.status === 'verified' &&
                           Boolean(
@@ -585,9 +642,22 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                               mitra.nik.trim() !== '3201000000000000'
                           )
                             ? 'border-slate-200 bg-slate-50 text-slate-500'
+                            : nikError
+                            ? 'border-red-500 bg-red-50/40 text-slate-900 focus:ring-2 focus:ring-red-500 focus:outline-hidden'
                             : 'border-slate-300 bg-white text-slate-900'
                         }`}
                       />
+                      {isCheckingNik && (
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Memeriksa keunikan NIK / NPWP...
+                        </p>
+                      )}
+                      {nikError && (
+                        <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>{nikError}</span>
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

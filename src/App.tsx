@@ -474,6 +474,26 @@ export default function App() {
     }
   }, [isMitrasLoaded, viewMode, currentRole, isMitraProfileIncomplete, dismissedProfileAlertForId, activeMitra.id]);
 
+  // Auto-logout if currently logged-in Mitra account has been deactivated by Admin/Staff
+  useEffect(() => {
+    if (
+      isMitrasLoaded &&
+      viewMode === 'portal' &&
+      currentRole === 'mitra' &&
+      activeMitra &&
+      !activeMitra.isLoadingFallback &&
+      activeMitra.isActive === false
+    ) {
+      setCurrentUser(null);
+      setViewMode('auth');
+      setAuthInitialMode('login');
+      try {
+        localStorage.removeItem('nd_auth_user');
+        localStorage.removeItem('nd_cached_active_mitra');
+      } catch {}
+    }
+  }, [isMitrasLoaded, viewMode, currentRole, activeMitra]);
+
   // Handlers
   const handleRegisterMitra = async (formData: {
     fullName: string;
@@ -526,38 +546,82 @@ export default function App() {
     }
   };
 
-  const handleUpdateProfile = async (id: string, profileData: Partial<Mitra>) => {
-    try {
-      const res = await fetch(`/api/mitra/${id}/profile`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profileData),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setMitras((prev) => {
-          const exists = prev.some((m) => m.id === id);
-          return exists ? prev.map((m) => (m.id === id ? data.data : m)) : [data.data, ...prev];
-        });
-        try {
-          localStorage.setItem('nd_cached_active_mitra', JSON.stringify(data.data));
-        } catch {}
-        if (currentUser && (currentUser.mitraId === id || currentUser.id === id)) {
-          const updatedUser: AuthUser = {
-            ...currentUser,
-            name: data.data.fullName || currentUser.name,
-            avatarUrl: data.data.avatarUrl || currentUser.avatarUrl,
-            gender: data.data.gender || currentUser.gender,
-          };
-          setCurrentUser(updatedUser);
-          try {
-            localStorage.setItem('nd_auth_user', JSON.stringify(updatedUser));
-          } catch {}
-        }
-      }
-    } catch (err) {
-      console.error(err);
+  const handleToggleMitraActive = async (id: string, isActive: boolean, reason?: string) => {
+    const res = await fetch(`/api/mitra/${id}/active-status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        isActive,
+        reason,
+        actorName: currentUser?.name,
+        actorRole: currentUser?.roleCode === 'staff' ? 'staff' : 'admin',
+        actorId: currentUser?.id,
+        actorEmail: currentUser?.email,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'Gagal mengubah status aktif mitra.');
     }
+    if (data.data) {
+      setMitras((prev) => prev.map((m) => (m.id === id ? data.data : m)));
+      fetchData();
+    }
+    return data;
+  };
+
+  const handleDeleteMitra = async (id: string) => {
+    const res = await fetch(`/api/mitra/${id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actorName: currentUser?.name,
+        actorRole: currentUser?.roleCode === 'staff' ? 'staff' : 'admin',
+        actorId: currentUser?.id,
+        actorEmail: currentUser?.email,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'Gagal menghapus data mitra.');
+    }
+    setMitras((prev) => prev.filter((m) => m.id !== id));
+    fetchData();
+    return data;
+  };
+
+  const handleUpdateProfile = async (id: string, profileData: Partial<Mitra>) => {
+    const res = await fetch(`/api/mitra/${id}/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profileData),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'Gagal memperbarui data profil.');
+    }
+    if (data.success && data.data) {
+      setMitras((prev) => {
+        const exists = prev.some((m) => m.id === id);
+        return exists ? prev.map((m) => (m.id === id ? data.data : m)) : [data.data, ...prev];
+      });
+      try {
+        localStorage.setItem('nd_cached_active_mitra', JSON.stringify(data.data));
+      } catch {}
+      if (currentUser && (currentUser.mitraId === id || currentUser.id === id)) {
+        const updatedUser: AuthUser = {
+          ...currentUser,
+          name: data.data.fullName || currentUser.name,
+          avatarUrl: data.data.avatarUrl || currentUser.avatarUrl,
+          gender: data.data.gender || currentUser.gender,
+        };
+        setCurrentUser(updatedUser);
+        try {
+          localStorage.setItem('nd_auth_user', JSON.stringify(updatedUser));
+        } catch {}
+      }
+    }
+    return data;
   };
 
   const handleAddMarketingTool = async (newTool: Partial<MarketingTool>) => {
@@ -1065,8 +1129,11 @@ export default function App() {
           {activeTab === 'verification' && currentRole === 'admin' && (
             <MitraVerificationPanel
               mitras={mitras}
+              clientDeals={clientDeals}
               onVerifyMitra={handleVerifyMitra}
               onUpdateMitraProfile={handleUpdateProfile}
+              onToggleMitraActive={handleToggleMitraActive}
+              onDeleteMitra={handleDeleteMitra}
               onSelectMitraPreview={(m) => {
                 setActiveMitraId(m.id);
                 setActiveTab('idcard');

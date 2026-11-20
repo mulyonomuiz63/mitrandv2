@@ -162,6 +162,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regSuccessMessage, setRegSuccessMessage] = useState<string | null>(null);
+  const [regEmailError, setRegEmailError] = useState<string | null>(null);
+  const [regNikError, setRegNikError] = useState<string | null>(null);
+  const [isCheckingRegEmail, setIsCheckingRegEmail] = useState(false);
+  const [isCheckingRegNik, setIsCheckingRegNik] = useState(false);
 
   useEffect(() => {
     if (activeSpecOptions.length > 0 && !activeSpecOptions.some((o) => o.label === regSpecialization)) {
@@ -252,17 +256,23 @@ export const AuthView: React.FC<AuthViewProps> = ({
       if (!response?.credential) return;
       setIsLoading(true);
       setLoginError(null);
+      const googleMode = authMode === 'register' ? 'register' : 'login';
       try {
         const res = await fetch('/api/auth/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credential: response.credential }),
+          body: JSON.stringify({ credential: response.credential, mode: googleMode }),
         });
         const data = await res.json();
         if (data.success && data.user) {
           onLoginSuccess(data.user);
         } else {
-          setLoginError(data.message || 'Gagal masuk menggunakan akun Google.');
+          setLoginError(
+            data.message ||
+              (googleMode === 'register'
+                ? 'Gagal mendaftar menggunakan akun Google.'
+                : 'Gagal masuk menggunakan akun Google.')
+          );
         }
       } catch {
         setLoginError('Terjadi kesalahan saat memverifikasi akun Google ke server.');
@@ -270,24 +280,30 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setIsLoading(false);
       }
     },
-    [onLoginSuccess]
+    [onLoginSuccess, authMode]
   );
 
   const handleGoogleTokenLogin = useCallback(
     async (accessToken: string) => {
       setIsLoading(true);
       setLoginError(null);
+      const googleMode = authMode === 'register' ? 'register' : 'login';
       try {
         const res = await fetch('/api/auth/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accessToken }),
+          body: JSON.stringify({ accessToken, mode: googleMode }),
         });
         const data = await res.json();
         if (data.success && data.user) {
           onLoginSuccess(data.user);
         } else {
-          setLoginError(data.message || 'Gagal masuk menggunakan akun Google.');
+          setLoginError(
+            data.message ||
+              (googleMode === 'register'
+                ? 'Gagal mendaftar menggunakan akun Google.'
+                : 'Gagal masuk menggunakan akun Google.')
+          );
         }
       } catch {
         setLoginError('Terjadi kesalahan saat menghubungkan ke server Google.');
@@ -295,8 +311,47 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setIsLoading(false);
       }
     },
-    [onLoginSuccess]
+    [onLoginSuccess, authMode]
   );
+
+  const checkRegFieldUnique = useCallback(async (field: 'email' | 'nik', value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      if (field === 'email') setRegEmailError(null);
+      else setRegNikError(null);
+      return true;
+    }
+    if (field === 'email') setIsCheckingRegEmail(true);
+    else setIsCheckingRegNik(true);
+    try {
+      const res = await fetch('/api/mitra/check-unique', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(field === 'email' ? { email: trimmed } : { nik: trimmed }),
+      });
+      const data = await res.json();
+      if (field === 'email') {
+        if (data.emailTaken) {
+          setRegEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
+          return false;
+        }
+        setRegEmailError(null);
+        return true;
+      } else {
+        if (data.nikTaken) {
+          setRegNikError(data.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
+          return false;
+        }
+        setRegNikError(null);
+        return true;
+      }
+    } catch {
+      return true;
+    } finally {
+      if (field === 'email') setIsCheckingRegEmail(false);
+      else setIsCheckingRegNik(false);
+    }
+  }, []);
 
   // Initialize Google Identity Services (GSI) Client
   useEffect(() => {
@@ -445,6 +500,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setRegEmailError(null);
+    setRegNikError(null);
+
     if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !regKtpFileUrl) {
       setLoginError('Silakan unggah dokumen File KTP / NPWP (Format JPG, JPEG, PNG, atau PDF).');
       return;
@@ -452,6 +510,32 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setIsLoading(true);
 
     try {
+      // Validasi keunikan Email dan NIK/NPWP ke server sebelum submit pendaftaran
+      const checkRes = await fetch('/api/mitra/check-unique', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: regEmail,
+          nik: isSysActive('nik') ? regNik : undefined,
+        }),
+      });
+      const checkData = await checkRes.json();
+      if (checkData.emailTaken || checkData.nikTaken) {
+        if (checkData.emailTaken) {
+          setRegEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
+        }
+        if (checkData.nikTaken) {
+          setRegNikError(checkData.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
+        }
+        setLoginError(
+          checkData.emailMessage ||
+            checkData.nikMessage ||
+            'Email atau NIK / NPWP sudah pernah terdaftar pada akun mitra lain.'
+        );
+        setIsLoading(false);
+        return;
+      }
+
       const ktpLabel = getSysField('ktpFile')?.label || 'Upload File KTP / NPWP';
       const mergedCustom: Record<string, string> = {
         ...regCustomFields,
@@ -490,7 +574,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
       setVerifySuccess(null);
       setAuthMode('verify');
     } catch (err: any) {
-      setLoginError(err.message || 'Gagal mengirim pendaftaran.');
+      const msg = err?.message || 'Gagal mengirim pendaftaran.';
+      if (msg.toLowerCase().includes('nik') || msg.toLowerCase().includes('npwp')) {
+        setRegNikError(msg);
+      } else if (msg.toLowerCase().includes('email')) {
+        setRegEmailError(msg);
+      }
+      setLoginError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -708,6 +798,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   onClick={() => {
                     setAuthMode('login');
                     setLoginError(null);
+                    setRegEmailError(null);
+                    setRegNikError(null);
                   }}
                   className={`text-sm font-bold font-display pb-1 border-b-2 transition-all ${
                     authMode === 'login'
@@ -723,6 +815,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   onClick={() => {
                     setAuthMode('register');
                     setLoginError(null);
+                    setRegEmailError(null);
+                    setRegNikError(null);
                   }}
                   className={`text-sm font-bold font-display pb-1 border-b-2 transition-all ${
                     authMode === 'register'
@@ -1067,9 +1161,26 @@ export const AuthView: React.FC<AuthViewProps> = ({
                           required={getSysField('email')?.required !== false}
                           placeholder={getSysField('email')?.placeholder || 'email@domain.com'}
                           value={regEmail}
-                          onChange={(e) => setRegEmail(e.target.value)}
-                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                          onChange={(e) => {
+                            setRegEmail(e.target.value);
+                            if (regEmailError) setRegEmailError(null);
+                          }}
+                          onBlur={(e) => checkRegFieldUnique('email', e.target.value)}
+                          className={`w-full px-3 py-2 text-xs rounded-lg border focus:ring-2 focus:outline-hidden ${
+                            regEmailError
+                              ? 'border-red-500 bg-red-50/40 focus:ring-red-500'
+                              : 'border-slate-300 focus:ring-blue-600'
+                          }`}
                         />
+                        {isCheckingRegEmail && (
+                          <p className="text-[10px] text-slate-500 mt-1">Memeriksa keunikan email...</p>
+                        )}
+                        {regEmailError && (
+                          <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>{regEmailError}</span>
+                          </p>
+                        )}
                       </div>
                     )}
                     {isSysActive('phone') && (
@@ -1100,18 +1211,35 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     {isSysActive('nik') && (
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          {getSysField('nik')?.label || 'Nomor NIK KTP'}{' '}
+                          {getSysField('nik')?.label || 'Nomor NIK / NPWP'}{' '}
                           {getSysField('nik')?.required !== false && '*'}
                         </label>
                         <input
                           type="text"
                           required={getSysField('nik')?.required !== false}
-                          maxLength={16}
-                          placeholder={getSysField('nik')?.placeholder || '16 digit NIK'}
+                          maxLength={25}
+                          placeholder={getSysField('nik')?.placeholder || '16 digit NIK / NPWP'}
                           value={regNik}
-                          onChange={(e) => setRegNik(e.target.value)}
-                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
+                          onChange={(e) => {
+                            setRegNik(e.target.value);
+                            if (regNikError) setRegNikError(null);
+                          }}
+                          onBlur={(e) => checkRegFieldUnique('nik', e.target.value)}
+                          className={`w-full px-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 focus:outline-hidden ${
+                            regNikError
+                              ? 'border-red-500 bg-red-50/40 focus:ring-red-500'
+                              : 'border-slate-300 focus:ring-blue-600'
+                          }`}
                         />
+                        {isCheckingRegNik && (
+                          <p className="text-[10px] text-slate-500 mt-1">Memeriksa keunikan NIK / NPWP...</p>
+                        )}
+                        {regNikError && (
+                          <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>{regNikError}</span>
+                          </p>
+                        )}
                       </div>
                     )}
                     {specEnabled && (

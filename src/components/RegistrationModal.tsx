@@ -126,6 +126,10 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [nikError, setNikError] = useState<string | null>(null);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [isCheckingNik, setIsCheckingNik] = useState(false);
 
   React.useEffect(() => {
     if (activeSpecOptions.length > 0 && !activeSpecOptions.some((o) => o.label === specialization)) {
@@ -193,15 +197,83 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
     }
   };
 
+  const checkFieldUnique = async (field: 'email' | 'nik', value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      if (field === 'email') setEmailError(null);
+      else setNikError(null);
+      return true;
+    }
+    if (field === 'email') setIsCheckingEmail(true);
+    else setIsCheckingNik(true);
+    try {
+      const res = await fetch('/api/mitra/check-unique', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(field === 'email' ? { email: trimmed } : { nik: trimmed }),
+      });
+      const data = await res.json();
+      if (field === 'email') {
+        if (data.emailTaken) {
+          setEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
+          return false;
+        }
+        setEmailError(null);
+        return true;
+      } else {
+        if (data.nikTaken) {
+          setNikError(data.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
+          return false;
+        }
+        setNikError(null);
+        return true;
+      }
+    } catch {
+      return true;
+    } finally {
+      if (field === 'email') setIsCheckingEmail(false);
+      else setIsCheckingNik(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setEmailError(null);
+    setNikError(null);
+
     if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !ktpFileUrl) {
       setErrorMessage('Silakan unggah dokumen File KTP / NPWP (Format JPG, JPEG, PNG, atau PDF).');
       return;
     }
     setIsSubmitting(true);
     try {
+      // Validasi keunikan Email dan NIK/NPWP ke server sebelum mendaftar
+      const checkRes = await fetch('/api/mitra/check-unique', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          nik: isSysActive('nik') ? nik : undefined,
+        }),
+      });
+      const checkData = await checkRes.json();
+      if (checkData.emailTaken || checkData.nikTaken) {
+        if (checkData.emailTaken) {
+          setEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
+        }
+        if (checkData.nikTaken) {
+          setNikError(checkData.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
+        }
+        setErrorMessage(
+          checkData.emailMessage ||
+            checkData.nikMessage ||
+            'Email atau NIK / NPWP sudah pernah digunakan untuk pendaftaran mitra lain.'
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const ktpLabel = getSysField('ktpFile')?.label || 'Upload File KTP / NPWP';
       const mergedCustomFields: Record<string, string> = {
         ...customFieldValues,
@@ -229,7 +301,13 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
       });
       setIsDone(true);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Pendaftaran gagal diproses. Silakan periksa kembali data Anda.');
+      const msg = err?.message || 'Pendaftaran gagal diproses. Silakan periksa kembali data Anda.';
+      if (msg.toLowerCase().includes('nik') || msg.toLowerCase().includes('npwp')) {
+        setNikError(msg);
+      } else if (msg.toLowerCase().includes('email')) {
+        setEmailError(msg);
+      }
+      setErrorMessage(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -318,18 +396,35 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                       {isSysActive('nik') && (
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            {getSysField('nik')?.label || 'Nomor KTP / NIK'}{' '}
+                            {getSysField('nik')?.label || 'Nomor NIK / NPWP'}{' '}
                             {getSysField('nik')?.required !== false && '*'}
                           </label>
                           <input
                             type="text"
                             required={getSysField('nik')?.required !== false}
-                            maxLength={16}
-                            placeholder={getSysField('nik')?.placeholder || '16 digit NIK resmi'}
+                            maxLength={25}
+                            placeholder={getSysField('nik')?.placeholder || '16 digit NIK / NPWP resmi'}
                             value={nik}
-                            onChange={(e) => setNik(e.target.value)}
-                            className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                            onChange={(e) => {
+                              setNik(e.target.value);
+                              if (nikError) setNikError(null);
+                            }}
+                            onBlur={(e) => checkFieldUnique('nik', e.target.value)}
+                            className={`w-full px-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 focus:outline-hidden ${
+                              nikError
+                                ? 'border-red-500 bg-red-50/40 focus:ring-red-500'
+                                : 'border-slate-300 focus:ring-blue-600'
+                            }`}
                           />
+                          {isCheckingNik && (
+                            <p className="text-[10px] text-slate-500 mt-1">Memeriksa keunikan NIK / NPWP...</p>
+                          )}
+                          {nikError && (
+                            <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <span>{nikError}</span>
+                            </p>
+                          )}
                         </div>
                       )}
                       {specEnabled && (
@@ -461,9 +556,26 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                             required={getSysField('email')?.required !== false}
                             placeholder={getSysField('email')?.placeholder || 'nama@email.com'}
                             value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                            onChange={(e) => {
+                              setEmail(e.target.value);
+                              if (emailError) setEmailError(null);
+                            }}
+                            onBlur={(e) => checkFieldUnique('email', e.target.value)}
+                            className={`w-full px-3 py-2 text-xs rounded-lg border focus:ring-2 focus:outline-hidden ${
+                              emailError
+                                ? 'border-red-500 bg-red-50/40 focus:ring-red-500'
+                                : 'border-slate-300 focus:ring-blue-600'
+                            }`}
                           />
+                          {isCheckingEmail && (
+                            <p className="text-[10px] text-slate-500 mt-1">Memeriksa keunikan email...</p>
+                          )}
+                          {emailError && (
+                            <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <span>{emailError}</span>
+                            </p>
+                          )}
                         </div>
                       )}
                       {isSysActive('phone') && (

@@ -271,6 +271,10 @@ export interface Mitra {
   verificationTokenExpiry?: string;
   rejectionReason?: string;
   rejectedAt?: string;
+  isActive?: boolean;
+  deactivatedAt?: string;
+  deactivatedBy?: string;
+  deactivatedReason?: string;
   customFields?: Record<string, string>;
   isLoadingFallback?: boolean;
 }
@@ -884,6 +888,8 @@ export interface ActivityLogItem {
     | 'verify_email'
     | 'password_reset'
     | 'mitra_verify'
+    | 'mitra_status'
+    | 'mitra_delete'
     | 'profile_update'
     | 'client_create'
     | 'client_acc'
