@@ -115,27 +115,43 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
 
   // Fetch available services & reset form every time modal opens
   useEffect(() => {
-    if (isOpen) {
-      setSubmissionSuccess(false);
-      setLastSubmittedDeal(null);
-      resetFormFields();
-      setLoadingServices(true);
-      Promise.all([
-        fetch('/api/services').then((res) => res.json()),
-        fetch('/api/settings').then((res) => res.json()).catch(() => null),
-      ])
-        .then(([data, settingsRes]) => {
-          if (data.success && data.data && data.data.length > 0) {
-            setServices(data.data);
-            resetFormFields(data.data);
-          }
-          if (settingsRes?.success && settingsRes?.data) {
-            setDynamicSettings(settingsRes.data);
-          }
-        })
-        .catch((err) => console.error('Error fetching services:', err))
-        .finally(() => setLoadingServices(false));
-    }
+    if (!isOpen) return;
+    let cancelled = false;
+    setSubmissionSuccess(false);
+    setLastSubmittedDeal(null);
+    resetFormFields();
+    setLoadingServices(true);
+    Promise.all([
+      fetch('/api/services').then((res) => res.json()),
+      fetch('/api/settings').then((res) => res.json()).catch(() => null),
+    ])
+      .then(([data, settingsRes]) => {
+        if (cancelled) return;
+        if (data.success && data.data && data.data.length > 0) {
+          setServices(data.data);
+          setSelectedServiceId((prevId) => {
+            const exists = data.data.some((s: ServiceItem) => s.id === prevId);
+            const target = exists
+              ? data.data.find((s: ServiceItem) => s.id === prevId)
+              : data.data[0];
+            if (target) {
+              setPricingType(resolveServicePricingType(target));
+              return target.id;
+            }
+            return prevId;
+          });
+        }
+        if (settingsRes?.success && settingsRes?.data) {
+          setDynamicSettings(settingsRes.data);
+        }
+      })
+      .catch((err) => console.error('Error fetching services:', err))
+      .finally(() => {
+        if (!cancelled) setLoadingServices(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;

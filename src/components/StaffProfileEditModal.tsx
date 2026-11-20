@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   UserCheck,
@@ -60,62 +60,87 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    if (isOpen && currentUser) {
-      setName(currentUser.name || '');
-      setEmail(currentUser.email || '');
-      setPhone(currentUser.phone || '');
-      setPosition(
-        currentUser.position || (isStaff ? 'Staf Operasional & Administrasi' : 'Super Administrator')
-      );
-      setGender(currentUser.gender || 'male');
-      setAvatarUrl(
-        resolveAvatarUrl(currentUser.avatarUrl, currentUser.gender || 'male', currentUser.name)
-      );
-      setNewPassword('');
-      setConfirmPassword('');
-      setFeedback(null);
+  const hydratedForOpenRef = useRef<{ isOpen: boolean; userId: string | null }>({
+    isOpen: false,
+    userId: null,
+  });
+  const isDirtyRef = useRef(false);
 
-      // Fetch latest from server
-      if (isStaff && (currentUser.staffId || currentUser.id)) {
-        fetch('/api/staff')
-          .then((r) => r.json())
-          .then((res) => {
-            if (res.success && Array.isArray(res.data)) {
-              const found = res.data.find(
-                (s: any) =>
-                  s.id === currentUser.staffId ||
-                  s.id === currentUser.id ||
-                  s.email?.toLowerCase() === currentUser.email?.toLowerCase()
-              );
-              if (found) {
-                setName(found.name || currentUser.name);
-                setEmail(found.email || currentUser.email);
-                setPhone(found.phone || '');
-                setPosition(found.position || 'Staf Operasional & Administrasi');
-                setGender(found.gender || 'male');
-                setAvatarUrl(resolveAvatarUrl(found.avatarUrl, found.gender, found.name));
-              }
-            }
-          })
-          .catch(() => {});
-      } else if (!isStaff) {
-        fetch('/api/admin/profile')
-          .then((r) => r.json())
-          .then((res) => {
-            if (res.success && res.data?.admin) {
-              const adm = res.data.admin;
-              setName(adm.name || currentUser.name);
-              setEmail(adm.email || currentUser.email);
-              setPhone(adm.phone || '');
-              setPosition(adm.position || 'Super Administrator');
-              setGender(adm.gender || 'male');
-              setAvatarUrl(resolveAvatarUrl(adm.avatarUrl, adm.gender, adm.name));
-            }
-          })
-          .catch(() => {});
-      }
+  useEffect(() => {
+    if (!isOpen || !currentUser) {
+      hydratedForOpenRef.current = { isOpen: false, userId: null };
+      isDirtyRef.current = false;
+      return;
     }
+    const targetUserId = currentUser.staffId || currentUser.id || currentUser.email;
+    if (
+      hydratedForOpenRef.current.isOpen &&
+      hydratedForOpenRef.current.userId === targetUserId
+    ) {
+      return;
+    }
+    hydratedForOpenRef.current = { isOpen: true, userId: targetUserId };
+    isDirtyRef.current = false;
+
+    setName(currentUser.name || '');
+    setEmail(currentUser.email || '');
+    setPhone(currentUser.phone || '');
+    setPosition(
+      currentUser.position || (isStaff ? 'Staf Operasional & Administrasi' : 'Super Administrator')
+    );
+    setGender(currentUser.gender || 'male');
+    setAvatarUrl(
+      resolveAvatarUrl(currentUser.avatarUrl, currentUser.gender || 'male', currentUser.name)
+    );
+    setNewPassword('');
+    setConfirmPassword('');
+    setFeedback(null);
+
+    let cancelled = false;
+    // Fetch latest from server (only apply if modal still open and user hasn't edited yet)
+    if (isStaff && (currentUser.staffId || currentUser.id)) {
+      fetch('/api/staff')
+        .then((r) => r.json())
+        .then((res) => {
+          if (cancelled || isDirtyRef.current) return;
+          if (res.success && Array.isArray(res.data)) {
+            const found = res.data.find(
+              (s: any) =>
+                s.id === currentUser.staffId ||
+                s.id === currentUser.id ||
+                s.email?.toLowerCase() === currentUser.email?.toLowerCase()
+            );
+            if (found) {
+              setName(found.name || currentUser.name);
+              setEmail(found.email || currentUser.email);
+              setPhone(found.phone || '');
+              setPosition(found.position || 'Staf Operasional & Administrasi');
+              setGender(found.gender || 'male');
+              setAvatarUrl(resolveAvatarUrl(found.avatarUrl, found.gender, found.name));
+            }
+          }
+        })
+        .catch(() => {});
+    } else if (!isStaff) {
+      fetch('/api/admin/profile')
+        .then((r) => r.json())
+        .then((res) => {
+          if (cancelled || isDirtyRef.current) return;
+          if (res.success && res.data?.admin) {
+            const adm = res.data.admin;
+            setName(adm.name || currentUser.name);
+            setEmail(adm.email || currentUser.email);
+            setPhone(adm.phone || '');
+            setPosition(adm.position || 'Super Administrator');
+            setGender(adm.gender || 'male');
+            setAvatarUrl(resolveAvatarUrl(adm.avatarUrl, adm.gender, adm.name));
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, currentUser, isStaff]);
 
   if (!isOpen) return null;
@@ -291,7 +316,13 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <form
+          onSubmit={handleSubmit}
+          onInput={() => {
+            isDirtyRef.current = true;
+          }}
+          className="flex flex-col flex-1 min-h-0 overflow-hidden"
+        >
           <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
             {feedback && (
               <div

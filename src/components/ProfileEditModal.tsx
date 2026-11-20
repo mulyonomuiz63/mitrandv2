@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, 
   CreditCard, 
@@ -105,11 +105,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     return inferGenderFromName(m.fullName);
   }, []);
 
-  const [fullName, setFullName] = useState(mitra.fullName);
+  const [fullName, setFullName] = useState(mitra.fullName || '');
   const [nik, setNik] = useState(
-    mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik
+    !mitra.nik || mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik
   );
-  const [phone, setPhone] = useState(mitra.phone === '-' ? '' : mitra.phone);
+  const [phone, setPhone] = useState(!mitra.phone || mitra.phone === '-' ? '' : mitra.phone);
   const [ktpFileUrl, setKtpFileUrl] = useState<string>(() => getMitraKtpFileUrl(mitra));
   const [ktpFileName, setKtpFileName] = useState<string>(() => getMitraKtpFileName(mitra));
   const [ktpCompressionInfo, setKtpCompressionInfo] = useState<string | null>(null);
@@ -151,7 +151,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   );
   const [accountHolder, setAccountHolder] = useState(
     !mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder === '-'
-      ? mitra.fullName
+      ? mitra.fullName || ''
       : mitra.bankDetails.accountHolder
   );
   
@@ -167,12 +167,34 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [nikError, setNikError] = useState<string | null>(null);
   const [isCheckingNik, setIsCheckingNik] = useState(false);
 
+  const hydratedForOpenRef = useRef<{ isOpen: boolean; mitraId: string | null }>({
+    isOpen: false,
+    mitraId: null,
+  });
+
   useEffect(() => {
-    setFullName(mitra.fullName);
-    setNik(mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik);
+    if (!isOpen) {
+      hydratedForOpenRef.current = { isOpen: false, mitraId: null };
+      return;
+    }
+    // Only hydrate form state when the modal opens or switches to another mitra,
+    // never overwrite in-progress typing during background polling refreshes.
+    if (
+      hydratedForOpenRef.current.isOpen &&
+      hydratedForOpenRef.current.mitraId === mitra.id
+    ) {
+      return;
+    }
+    hydratedForOpenRef.current = { isOpen: true, mitraId: mitra.id };
+
+    setFullName(mitra.fullName || '');
+    setNik(!mitra.nik || mitra.nik === '-' || mitra.nik === '3201000000000000' ? '' : mitra.nik);
     setNikError(null);
     setErrorMessage(null);
-    setPhone(mitra.phone === '-' ? '' : mitra.phone);
+    setStatusMessage(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPhone(!mitra.phone || mitra.phone === '-' ? '' : mitra.phone);
     setKtpFileUrl(getMitraKtpFileUrl(mitra));
     setKtpFileName(getMitraKtpFileName(mitra));
     setKtpCompressionInfo(null);
@@ -215,7 +237,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     );
     setAccountHolder(
       !mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder === '-'
-        ? mitra.fullName
+        ? mitra.fullName || ''
         : mitra.bankDetails.accountHolder
     );
   }, [mitra, isOpen, activeMitraBankCustomFields, activeSpecOptions, bankOptions, resolveMitraGender]);
