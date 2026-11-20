@@ -17,8 +17,7 @@ import {
   EyeOff,
   UserCheck,
   Check,
-  Upload,
-  FileText
+  Upload
 } from 'lucide-react';
 import {
   AuthUser,
@@ -144,11 +143,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regFullName, setRegFullName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
-  const [regNik, setRegNik] = useState('');
-  const [regKtpFileUrl, setRegKtpFileUrl] = useState('');
-  const [regKtpFileName, setRegKtpFileName] = useState('');
-  const [regKtpCompressionInfo, setRegKtpCompressionInfo] = useState<string | null>(null);
-  const [isUploadingRegKtp, setIsUploadingRegKtp] = useState(false);
   const [uploadingRegCustomKey, setUploadingRegCustomKey] = useState<string | null>(null);
   const [regGender, setRegGender] = useState<'male' | 'female'>('male');
   const [regSpecialization, setRegSpecialization] = useState(
@@ -163,9 +157,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regSuccessMessage, setRegSuccessMessage] = useState<string | null>(null);
   const [regEmailError, setRegEmailError] = useState<string | null>(null);
-  const [regNikError, setRegNikError] = useState<string | null>(null);
   const [isCheckingRegEmail, setIsCheckingRegEmail] = useState(false);
-  const [isCheckingRegNik, setIsCheckingRegNik] = useState(false);
 
   useEffect(() => {
     if (activeSpecOptions.length > 0 && !activeSpecOptions.some((o) => o.label === regSpecialization)) {
@@ -314,42 +306,30 @@ export const AuthView: React.FC<AuthViewProps> = ({
     [onLoginSuccess, authMode]
   );
 
-  const checkRegFieldUnique = useCallback(async (field: 'email' | 'nik', value: string) => {
+  const checkRegFieldUnique = useCallback(async (_field: 'email', value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
-      if (field === 'email') setRegEmailError(null);
-      else setRegNikError(null);
+      setRegEmailError(null);
       return true;
     }
-    if (field === 'email') setIsCheckingRegEmail(true);
-    else setIsCheckingRegNik(true);
+    setIsCheckingRegEmail(true);
     try {
       const res = await fetch('/api/mitra/check-unique', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(field === 'email' ? { email: trimmed } : { nik: trimmed }),
+        body: JSON.stringify({ email: trimmed }),
       });
       const data = await res.json();
-      if (field === 'email') {
-        if (data.emailTaken) {
-          setRegEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
-          return false;
-        }
-        setRegEmailError(null);
-        return true;
-      } else {
-        if (data.nikTaken) {
-          setRegNikError(data.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
-          return false;
-        }
-        setRegNikError(null);
-        return true;
+      if (data.emailTaken) {
+        setRegEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
+        return false;
       }
+      setRegEmailError(null);
+      return true;
     } catch {
       return true;
     } finally {
-      if (field === 'email') setIsCheckingRegEmail(false);
-      else setIsCheckingRegNik(false);
+      setIsCheckingRegEmail(false);
     }
   }, []);
 
@@ -445,34 +425,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
     window.open(authUrl, 'google_login_popup', 'width=500,height=600');
   };
 
-  const handleRegKtpFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setLoginError(null);
-    if (!isAllowedVerificationDocumentFile(file)) {
-      setLoginError('Format file KTP/NPWP tidak valid. Harap unggah file JPG, JPEG, PNG, atau PDF.');
-      e.target.value = '';
-      return;
-    }
-    setIsUploadingRegKtp(true);
-    try {
-      const compressed = await compressAndUploadFile(file, {
-        maxDimension: 1400,
-        quality: 0.78,
-        uploadToServer: true,
-      });
-      setRegKtpFileUrl(compressed.hostedUrl || compressed.dataUrl);
-      setRegKtpFileName(compressed.fileName || file.name);
-      setRegKtpCompressionInfo(
-        `Terkompres: ${compressed.originalFormattedSize} → ${compressed.compressedFormattedSize}`
-      );
-    } catch (err: any) {
-      setLoginError(err?.message || 'Gagal mengompres file KTP/NPWP.');
-    } finally {
-      setIsUploadingRegKtp(false);
-    }
-  };
-
   const handleRegDynamicFileUpload = async (file: File, fieldLabel: string) => {
     setLoginError(null);
     if (!isAllowedVerificationDocumentFile(file)) {
@@ -501,55 +453,38 @@ export const AuthView: React.FC<AuthViewProps> = ({
     e.preventDefault();
     setLoginError(null);
     setRegEmailError(null);
-    setRegNikError(null);
-
-    if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !regKtpFileUrl) {
-      setLoginError('Silakan unggah dokumen File KTP / NPWP (Format JPG, JPEG, PNG, atau PDF).');
-      return;
-    }
     setIsLoading(true);
 
     try {
-      // Validasi keunikan Email dan NIK/NPWP ke server sebelum submit pendaftaran
+      // Validasi keunikan Email ke server sebelum submit pendaftaran
       const checkRes = await fetch('/api/mitra/check-unique', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: regEmail,
-          nik: isSysActive('nik') ? regNik : undefined,
         }),
       });
       const checkData = await checkRes.json();
-      if (checkData.emailTaken || checkData.nikTaken) {
-        if (checkData.emailTaken) {
-          setRegEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
-        }
-        if (checkData.nikTaken) {
-          setRegNikError(checkData.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
-        }
+      if (checkData.emailTaken) {
+        setRegEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
         setLoginError(
-          checkData.emailMessage ||
-            checkData.nikMessage ||
-            'Email atau NIK / NPWP sudah pernah terdaftar pada akun mitra lain.'
+          checkData.emailMessage || 'Email sudah pernah terdaftar pada akun mitra lain.'
         );
         setIsLoading(false);
         return;
       }
 
-      const ktpLabel = getSysField('ktpFile')?.label || 'Upload File KTP / NPWP';
       const mergedCustom: Record<string, string> = {
         ...regCustomFields,
         ...regBankCustomFields,
-        ...(regKtpFileUrl ? { [ktpLabel]: regKtpFileUrl, 'mitra-def-ktpFile': regKtpFileUrl } : {}),
-        ...(regKtpFileName ? { __ktpFileName: regKtpFileName } : {}),
       };
       const regResult = await onRegisterSubmit({
         fullName: regFullName || (regEmail ? regEmail.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email: regEmail,
         phone: isSysActive('phone') ? regPhone : '-',
-        nik: isSysActive('nik') && regNik ? regNik : '-',
-        ktpFileUrl: regKtpFileUrl || undefined,
-        ktpFileName: regKtpFileName || undefined,
+        nik: '-',
+        ktpFileUrl: undefined,
+        ktpFileName: undefined,
         specialization: specEnabled ? regSpecialization : 'Business Partner',
         gender: regGender,
         avatarUrl: getDefaultAvatar(regGender),
@@ -575,9 +510,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       setAuthMode('verify');
     } catch (err: any) {
       const msg = err?.message || 'Gagal mengirim pendaftaran.';
-      if (msg.toLowerCase().includes('nik') || msg.toLowerCase().includes('npwp')) {
-        setRegNikError(msg);
-      } else if (msg.toLowerCase().includes('email')) {
+      if (msg.toLowerCase().includes('email')) {
         setRegEmailError(msg);
       }
       setLoginError(msg);
@@ -799,7 +732,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     setAuthMode('login');
                     setLoginError(null);
                     setRegEmailError(null);
-                    setRegNikError(null);
                   }}
                   className={`text-sm font-bold font-display pb-1 border-b-2 transition-all ${
                     authMode === 'login'
@@ -816,7 +748,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     setAuthMode('register');
                     setLoginError(null);
                     setRegEmailError(null);
-                    setRegNikError(null);
                   }}
                   className={`text-sm font-bold font-display pb-1 border-b-2 transition-all ${
                     authMode === 'register'
@@ -1107,7 +1038,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                           d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                         />
                       </svg>
-                      <span>Daftar Cepat dengan Google</span>
+                      <span>Daftar dengan Google</span>
                     </button>
                     <div className="relative flex items-center justify-center">
                       <div className="absolute inset-0 flex items-center">
@@ -1202,113 +1133,22 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                 )}
 
-                {(isSysActive('nik') || specEnabled) && (
-                  <div
-                    className={`grid grid-cols-1 ${
-                      isSysActive('nik') && specEnabled ? 'sm:grid-cols-2' : ''
-                    } gap-3`}
-                  >
-                    {isSysActive('nik') && (
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          {getSysField('nik')?.label || 'Nomor NIK / NPWP'}{' '}
-                          {getSysField('nik')?.required !== false && '*'}
-                        </label>
-                        <input
-                          type="text"
-                          required={getSysField('nik')?.required !== false}
-                          maxLength={25}
-                          placeholder={getSysField('nik')?.placeholder || '16 digit NIK / NPWP'}
-                          value={regNik}
-                          onChange={(e) => {
-                            setRegNik(e.target.value);
-                            if (regNikError) setRegNikError(null);
-                          }}
-                          onBlur={(e) => checkRegFieldUnique('nik', e.target.value)}
-                          className={`w-full px-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 focus:outline-hidden ${
-                            regNikError
-                              ? 'border-red-500 bg-red-50/40 focus:ring-red-500'
-                              : 'border-slate-300 focus:ring-blue-600'
-                          }`}
-                        />
-                        {isCheckingRegNik && (
-                          <p className="text-[10px] text-slate-500 mt-1">Memeriksa keunikan NIK / NPWP...</p>
-                        )}
-                        {regNikError && (
-                          <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>{regNikError}</span>
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {specEnabled && (
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          {specLabel} {specSysField?.required !== false && '*'}
-                        </label>
-                        <select
-                          value={regSpecialization}
-                          onChange={(e) => setRegSpecialization(e.target.value)}
-                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
-                        >
-                          {activeSpecOptions.map((opt) => (
-                            <option key={opt.id} value={opt.label}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Upload File KTP / NPWP */}
-                {isSysActive('ktpFile') && (
-                  <div
-                    className={`p-3 rounded-xl border space-y-2 ${
-                      regKtpFileUrl
-                        ? 'bg-emerald-50/70 border-emerald-300'
-                        : 'bg-amber-50/80 border-amber-300'
-                    }`}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                          <FileText className="w-3.5 h-3.5 text-blue-700" />
-                          <span>{getSysField('ktpFile')?.label || 'Upload File KTP / NPWP'}</span>
-                          {getSysField('ktpFile')?.required !== false && (
-                            <span className="text-rose-600">*</span>
-                          )}
-                        </label>
-                        <p className="text-[11px] text-slate-600 mt-0.5">
-                          Format: <strong>JPG, JPEG, PNG, atau PDF</strong> (otomatis dikompres).
-                        </p>
-                        {regKtpFileName && (
-                          <p className="text-[11px] font-bold text-emerald-700 mt-1">
-                            ✓ {regKtpFileName}{' '}
-                            {regKtpCompressionInfo ? `(${regKtpCompressionInfo})` : ''}
-                          </p>
-                        )}
-                      </div>
-                      <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>
-                          {isUploadingRegKtp
-                            ? 'Mengompres...'
-                            : regKtpFileUrl
-                            ? 'Ganti File'
-                            : 'Pilih File KTP/NPWP'}
-                        </span>
-                        <input
-                          type="file"
-                          accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-                          onChange={handleRegKtpFileChange}
-                          disabled={isUploadingRegKtp}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
+                {specEnabled && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {specLabel} {specSysField?.required !== false && '*'}
+                    </label>
+                    <select
+                      value={regSpecialization}
+                      onChange={(e) => setRegSpecialization(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                    >
+                      {activeSpecOptions.map((opt) => (
+                        <option key={opt.id} value={opt.label}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 

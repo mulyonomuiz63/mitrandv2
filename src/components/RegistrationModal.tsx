@@ -9,8 +9,7 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  Upload,
-  FileText
+  Upload
 } from 'lucide-react';
 import {
   BankDetails,
@@ -103,11 +102,6 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [nik, setNik] = useState('');
-  const [ktpFileUrl, setKtpFileUrl] = useState('');
-  const [ktpFileName, setKtpFileName] = useState('');
-  const [ktpCompressionInfo, setKtpCompressionInfo] = useState<string | null>(null);
-  const [isUploadingKtp, setIsUploadingKtp] = useState(false);
   const [uploadingCustomKey, setUploadingCustomKey] = useState<string | null>(null);
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [specialization, setSpecialization] = useState(
@@ -127,9 +121,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   const [isDone, setIsDone] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
-  const [nikError, setNikError] = useState<string | null>(null);
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
-  const [isCheckingNik, setIsCheckingNik] = useState(false);
 
   React.useEffect(() => {
     if (activeSpecOptions.length > 0 && !activeSpecOptions.some((o) => o.label === specialization)) {
@@ -144,34 +136,6 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   }, [bankOptions, bankName]);
 
   if (!isOpen) return null;
-
-  const handleKtpFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setErrorMessage(null);
-    if (!isAllowedVerificationDocumentFile(file)) {
-      setErrorMessage('Format file KTP/NPWP tidak valid. Harap unggah file JPG, JPEG, PNG, atau PDF.');
-      e.target.value = '';
-      return;
-    }
-    setIsUploadingKtp(true);
-    try {
-      const compressed = await compressAndUploadFile(file, {
-        maxDimension: 1400,
-        quality: 0.78,
-        uploadToServer: true,
-      });
-      setKtpFileUrl(compressed.hostedUrl || compressed.dataUrl);
-      setKtpFileName(compressed.fileName || file.name);
-      setKtpCompressionInfo(
-        `Terkompres: ${compressed.originalFormattedSize} → ${compressed.compressedFormattedSize}`
-      );
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Gagal mengompres file KTP/NPWP.');
-    } finally {
-      setIsUploadingKtp(false);
-    }
-  };
 
   const handleDynamicFileUpload = async (file: File, fieldLabel: string) => {
     setErrorMessage(null);
@@ -197,42 +161,30 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
     }
   };
 
-  const checkFieldUnique = async (field: 'email' | 'nik', value: string) => {
+  const checkFieldUnique = async (_field: 'email', value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
-      if (field === 'email') setEmailError(null);
-      else setNikError(null);
+      setEmailError(null);
       return true;
     }
-    if (field === 'email') setIsCheckingEmail(true);
-    else setIsCheckingNik(true);
+    setIsCheckingEmail(true);
     try {
       const res = await fetch('/api/mitra/check-unique', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(field === 'email' ? { email: trimmed } : { nik: trimmed }),
+        body: JSON.stringify({ email: trimmed }),
       });
       const data = await res.json();
-      if (field === 'email') {
-        if (data.emailTaken) {
-          setEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
-          return false;
-        }
-        setEmailError(null);
-        return true;
-      } else {
-        if (data.nikTaken) {
-          setNikError(data.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
-          return false;
-        }
-        setNikError(null);
-        return true;
+      if (data.emailTaken) {
+        setEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
+        return false;
       }
+      setEmailError(null);
+      return true;
     } catch {
       return true;
     } finally {
-      if (field === 'email') setIsCheckingEmail(false);
-      else setIsCheckingNik(false);
+      setIsCheckingEmail(false);
     }
   };
 
@@ -240,54 +192,38 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
     setEmailError(null);
-    setNikError(null);
-
-    if (isSysActive('ktpFile') && getSysField('ktpFile')?.required !== false && !ktpFileUrl) {
-      setErrorMessage('Silakan unggah dokumen File KTP / NPWP (Format JPG, JPEG, PNG, atau PDF).');
-      return;
-    }
     setIsSubmitting(true);
     try {
-      // Validasi keunikan Email dan NIK/NPWP ke server sebelum mendaftar
+      // Validasi keunikan Email ke server sebelum mendaftar
       const checkRes = await fetch('/api/mitra/check-unique', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email,
-          nik: isSysActive('nik') ? nik : undefined,
         }),
       });
       const checkData = await checkRes.json();
-      if (checkData.emailTaken || checkData.nikTaken) {
-        if (checkData.emailTaken) {
-          setEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
-        }
-        if (checkData.nikTaken) {
-          setNikError(checkData.nikMessage || 'NIK / NPWP sudah pernah digunakan.');
-        }
+      if (checkData.emailTaken) {
+        setEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
         setErrorMessage(
           checkData.emailMessage ||
-            checkData.nikMessage ||
-            'Email atau NIK / NPWP sudah pernah digunakan untuk pendaftaran mitra lain.'
+            'Email sudah pernah digunakan untuk pendaftaran mitra lain.'
         );
         setIsSubmitting(false);
         return;
       }
 
-      const ktpLabel = getSysField('ktpFile')?.label || 'Upload File KTP / NPWP';
       const mergedCustomFields: Record<string, string> = {
         ...customFieldValues,
         ...bankCustomFieldValues,
-        ...(ktpFileUrl ? { [ktpLabel]: ktpFileUrl, 'mitra-def-ktpFile': ktpFileUrl } : {}),
-        ...(ktpFileName ? { __ktpFileName: ktpFileName } : {}),
       };
       await onRegister({
         fullName: fullName || (email ? email.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email,
         phone: isSysActive('phone') ? phone : '-',
-        nik: isSysActive('nik') && nik ? nik : '-',
-        ktpFileUrl: ktpFileUrl || undefined,
-        ktpFileName: ktpFileName || undefined,
+        nik: '-',
+        ktpFileUrl: undefined,
+        ktpFileName: undefined,
         specialization: specEnabled ? specialization : 'Business Partner',
         gender,
         avatarUrl: getDefaultAvatar(gender),
@@ -302,9 +238,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
       setIsDone(true);
     } catch (err: any) {
       const msg = err?.message || 'Pendaftaran gagal diproses. Silakan periksa kembali data Anda.';
-      if (msg.toLowerCase().includes('nik') || msg.toLowerCase().includes('npwp')) {
-        setNikError(msg);
-      } else if (msg.toLowerCase().includes('email')) {
+      if (msg.toLowerCase().includes('email')) {
         setEmailError(msg);
       }
       setErrorMessage(msg);
@@ -333,7 +267,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     Pendaftaran Mitra NDTAXANDLAW
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Lengkapi data diri profesional. Data rekening bank dapat dilengkapi setelah login.
+                    Isi data dasar untuk mendaftar. NIK/NPWP, berkas KTP/NPWP, dan rekening bank dapat dilengkapi setelah login.
                   </p>
                 </div>
               </div>
@@ -387,112 +321,22 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     </div>
                   )}
 
-                  {(isSysActive('nik') || specEnabled) && (
-                    <div
-                      className={`grid grid-cols-1 ${
-                        isSysActive('nik') && specEnabled ? 'sm:grid-cols-2' : ''
-                      } gap-3`}
-                    >
-                      {isSysActive('nik') && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            {getSysField('nik')?.label || 'Nomor NIK / NPWP'}{' '}
-                            {getSysField('nik')?.required !== false && '*'}
-                          </label>
-                          <input
-                            type="text"
-                            required={getSysField('nik')?.required !== false}
-                            maxLength={25}
-                            placeholder={getSysField('nik')?.placeholder || '16 digit NIK / NPWP resmi'}
-                            value={nik}
-                            onChange={(e) => {
-                              setNik(e.target.value);
-                              if (nikError) setNikError(null);
-                            }}
-                            onBlur={(e) => checkFieldUnique('nik', e.target.value)}
-                            className={`w-full px-3 py-2 text-xs font-mono rounded-lg border focus:ring-2 focus:outline-hidden ${
-                              nikError
-                                ? 'border-red-500 bg-red-50/40 focus:ring-red-500'
-                                : 'border-slate-300 focus:ring-blue-600'
-                            }`}
-                          />
-                          {isCheckingNik && (
-                            <p className="text-[10px] text-slate-500 mt-1">Memeriksa keunikan NIK / NPWP...</p>
-                          )}
-                          {nikError && (
-                            <p className="text-[11px] font-semibold text-red-600 mt-1 flex items-start gap-1">
-                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                              <span>{nikError}</span>
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      {specEnabled && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            {specLabel} {specSysField?.required !== false && '*'}
-                          </label>
-                          <select
-                            value={specialization}
-                            onChange={(e) => setSpecialization(e.target.value)}
-                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
-                          >
-                            {activeSpecOptions.map((opt) => (
-                              <option key={opt.id} value={opt.label}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Upload File KTP / NPWP */}
-                  {isSysActive('ktpFile') && (
-                    <div
-                      className={`p-3 rounded-xl border space-y-2 ${
-                        ktpFileUrl
-                          ? 'bg-emerald-50/70 border-emerald-300'
-                          : 'bg-amber-50/80 border-amber-300'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                          <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                            <FileText className="w-3.5 h-3.5 text-blue-700" />
-                            <span>{getSysField('ktpFile')?.label || 'Upload File KTP / NPWP'}</span>
-                            {getSysField('ktpFile')?.required !== false && (
-                              <span className="text-rose-600">*</span>
-                            )}
-                          </label>
-                          <p className="text-[11px] text-slate-600 mt-0.5">
-                            Format: <strong>JPG, JPEG, PNG, atau PDF</strong> (otomatis dikompres).
-                          </p>
-                          {ktpFileName && (
-                            <p className="text-[11px] font-bold text-emerald-700 mt-1">
-                              ✓ {ktpFileName} {ktpCompressionInfo ? `(${ktpCompressionInfo})` : ''}
-                            </p>
-                          )}
-                        </div>
-                        <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>
-                            {isUploadingKtp
-                              ? 'Mengompres...'
-                              : ktpFileUrl
-                              ? 'Ganti File'
-                              : 'Pilih File KTP/NPWP'}
-                          </span>
-                          <input
-                            type="file"
-                            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-                            onChange={handleKtpFileChange}
-                            disabled={isUploadingKtp}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
+                  {specEnabled && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {specLabel} {specSysField?.required !== false && '*'}
+                      </label>
+                      <select
+                        value={specialization}
+                        onChange={(e) => setSpecialization(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      >
+                        {activeSpecOptions.map((opt) => (
+                          <option key={opt.id} value={opt.label}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   )}
 
