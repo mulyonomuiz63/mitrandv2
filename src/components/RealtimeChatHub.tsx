@@ -39,6 +39,7 @@ import {
   ChevronDown,
   ChevronUp,
   Save,
+  Download,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -74,7 +75,7 @@ const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
   },
 ];
 
-const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏', '🎉', '✅'];
+const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
@@ -320,18 +321,25 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   } | null>(null);
   const chatToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Forward Modal
-  const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
+  // Forward Modal & Multi-Select Forward Mode
+  const [forwardingMessages, setForwardingMessages] = useState<ChatMessage[]>([]);
   const [forwardRoomSearch, setForwardRoomSearch] = useState('');
+  const [isForwardSelectMode, setIsForwardSelectMode] = useState(false);
+  const [selectedForwardMsgIds, setSelectedForwardMsgIds] = useState<string[]>([]);
+  const [isForwardingBatch, setIsForwardingBatch] = useState(false);
+
+  // WhatsApp-style Floating Context Menu (Right-click, Desktop Hover Chevron, Mobile Long-Press)
+  const [contextMenu, setContextMenu] = useState<{
+    message: ChatMessage;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Image Lightbox
   const [lightboxImage, setLightboxImage] = useState<{ url: string; name?: string } | null>(null);
 
   // Highlighted message when clicking a quote reply or pinned message
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-
-  // Active reaction picker message ID (for both Group & Personal 1-on-1 chat)
-  const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
 
   // Clock tick every second so 5-minute edit/recall window updates live
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -353,6 +361,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const selectedRoomIdRef = useRef<string | null>(selectedRoomId);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const isChatPageOpenRef = useRef<boolean>(isChatPageOpen);
   const roomsRef = useRef<ChatRoom[]>(rooms);
   const participantsRef = useRef<ChatParticipant[]>(participants);
@@ -663,12 +674,16 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (contextMenu) {
+          setContextMenu(null);
+          return;
+        }
         if (lightboxImage) {
           setLightboxImage(null);
           return;
         }
-        if (forwardingMessage) {
-          setForwardingMessage(null);
+        if (forwardingMessages.length > 0) {
+          setForwardingMessages([]);
           return;
         }
         if (showCreateGroupModal) {
@@ -681,6 +696,11 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         }
         if (showEmojiPicker) {
           setShowEmojiPicker(false);
+          return;
+        }
+        if (isForwardSelectMode) {
+          setIsForwardSelectMode(false);
+          setSelectedForwardMsgIds([]);
           return;
         }
         if (editingMessage) {
@@ -705,8 +725,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   }, [
     isChatPageOpen,
     selectedRoomId,
+    contextMenu,
     lightboxImage,
-    forwardingMessage,
+    forwardingMessages.length,
+    isForwardSelectMode,
     showCreateGroupModal,
     showGroupInfoModal,
     showEmojiPicker,
@@ -778,11 +800,14 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   }, [selectedRoomId, selectedRoomMessages.length, isChatPageOpen]);
 
-  // Clear temporary unsent direct chat draft whenever navigating back or switching rooms
+  // Clear temporary unsent direct chat draft, context menu, and forward selection whenever navigating back or switching rooms
   useEffect(() => {
     if (draftDirectRoom && selectedRoomId !== draftDirectRoom.id) {
       setDraftDirectRoom(null);
     }
+    setContextMenu(null);
+    setIsForwardSelectMode(false);
+    setSelectedForwardMsgIds([]);
   }, [selectedRoomId, draftDirectRoom]);
 
   // Visible rooms for current user:
@@ -1389,10 +1414,65 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
+  // Open WhatsApp-style floating context menu safely clamped inside viewport
+  const openMessageContextMenu = useCallback(
+    (msg: ChatMessage, clientX: number, clientY: number) => {
+      if (msg.isDeleted || msg.isSystemMessage) return;
+      const menuWidth = 248;
+      const estimatedHeight = 360;
+      const pad = 12;
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+      const x = Math.max(pad, Math.min(clientX, vw - menuWidth - pad));
+      const y = Math.max(pad, Math.min(clientY, vh - estimatedHeight - pad));
+      setContextMenu({ message: msg, x, y });
+    },
+    []
+  );
+
+  // Cancel any pending mobile long-press timer
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressOriginRef.current = null;
+  }, []);
+
+  // Toggle selection of a message in Multi-Select Forward Mode
+  const toggleForwardMessageSelection = useCallback((msgId: string) => {
+    setSelectedForwardMsgIds((prev) =>
+      prev.includes(msgId) ? prev.filter((id) => id !== msgId) : [...prev, msgId]
+    );
+  }, []);
+
+  // Enter Multi-Select Forward Mode starting with an optional message
+  const enterForwardSelectMode = useCallback((initialMsgId?: string) => {
+    setContextMenu(null);
+    setIsForwardSelectMode(true);
+    setSelectedForwardMsgIds(initialMsgId ? [initialMsgId] : []);
+  }, []);
+
+  // Trigger image download cleanly from context menu
+  const handleDownloadChatImage = useCallback((imageUrl: string, imageName?: string) => {
+    try {
+      const link = document.createElement('a');
+      link.href = imageUrl;
+      link.download = imageName || `chat-image-${Date.now()}.jpg`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Toggle emoji reaction on any message (Group Chat & Personal 1-on-1 Chat)
   const handleToggleReaction = async (messageId: string, emoji: string) => {
     if (isAdminMonitor) return;
-    setActiveReactionPickerMsgId(null);
+    setContextMenu(null);
     try {
       const res = await fetch(`/api/chat/messages/${messageId}/reactions`, {
         method: 'POST',
@@ -1416,38 +1496,75 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
-  // Forward message internally to another room
+  // Forward 1 or multiple selected messages internally to another room or contact
   const handleForwardToInternalRoom = async (targetRoom: ChatRoom) => {
-    if (!forwardingMessage || isAdminMonitor) return;
+    if (forwardingMessages.length === 0 || isAdminMonitor || isForwardingBatch) return;
+    setIsForwardingBatch(true);
     try {
-      const res = await fetch('/api/chat/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId: targetRoom.id,
-          senderId: currentUserId,
-          senderName: currentUserName,
-          senderRole: currentUserRole === 'staff' ? 'staff' : 'mitra',
-          senderAvatar: currentUserAvatar,
-          text: forwardingMessage.text,
-          imageUrl: forwardingMessage.imageUrl,
-          imageName: forwardingMessage.imageName,
-          imageOriginalSize: forwardingMessage.imageOriginalSize,
-          imageCompressedSize: forwardingMessage.imageCompressedSize,
-          linkPreview: forwardingMessage.linkPreview,
-          forwardedFrom: forwardingMessage.senderName,
-        }),
-      });
-      if (res.ok) {
-        const created: ChatMessage = await res.json();
-        setMessages((prev) =>
-          prev.some((m) => m.id === created.id) ? prev : [...prev, created]
+      const ordered = [...forwardingMessages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      let lastCreated: ChatMessage | null = null;
+
+      for (const item of ordered) {
+        const res = await fetch('/api/chat/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-skip-crud-alert': 'true',
+          },
+          body: JSON.stringify({
+            roomId: targetRoom.id,
+            participantIds: targetRoom.participantIds,
+            senderId: currentUserId,
+            senderName: currentUserName,
+            senderRole: currentUserRole === 'staff' ? 'staff' : 'mitra',
+            senderAvatar: currentUserAvatar,
+            text: item.text,
+            imageUrl: item.imageUrl,
+            imageName: item.imageName,
+            imageOriginalSize: item.imageOriginalSize,
+            imageCompressedSize: item.imageCompressedSize,
+            linkPreview: item.linkPreview,
+            forwardedFrom: item.senderName,
+          }),
+        });
+        if (res.ok) {
+          const created: ChatMessage = await res.json();
+          lastCreated = created;
+          setMessages((prev) =>
+            prev.some((m) => m.id === created.id) ? prev : [...prev, created]
+          );
+        }
+      }
+
+      if (lastCreated) {
+        const promotedRoom: ChatRoom = {
+          ...targetRoom,
+          updatedAt: lastCreated.createdAt,
+          lastMessageAt: lastCreated.createdAt,
+          lastMessageSenderName: lastCreated.senderName,
+          lastMessageText:
+            lastCreated.text ||
+            (lastCreated.imageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan diteruskan'),
+        };
+        setRooms((prev) =>
+          prev.some((r) => r.id === promotedRoom.id)
+            ? prev.map((r) => (r.id === promotedRoom.id ? promotedRoom : r))
+            : [promotedRoom, ...prev]
         );
-        setForwardingMessage(null);
+        setDraftDirectRoom(null);
+        setForwardingMessages([]);
+        setForwardRoomSearch('');
+        setIsForwardSelectMode(false);
+        setSelectedForwardMsgIds([]);
         setSelectedRoomId(targetRoom.id);
+        setSidebarTab('chats');
       }
     } catch {
       // ignore
+    } finally {
+      setIsForwardingBatch(false);
     }
   };
 
@@ -1461,12 +1578,19 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
-  // Build social share text for forwarding
-  const buildForwardShareText = (msg: ChatMessage) => {
-    const header = `[NDTAXANDLAW Live Chat • ${msg.senderName}]`;
-    const body = msg.text || (msg.imageUrl ? '[Lampiran Gambar Terkompresi]' : '');
-    const urlPart = msg.linkPreview?.url ? `\n🔗 ${msg.linkPreview.url}` : '';
-    return `${header}\n${body}${urlPart}`;
+  // Build social share text for forwarding 1 or multiple selected messages
+  const buildForwardShareText = (msgs: ChatMessage[]) => {
+    const ordered = [...msgs].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    return ordered
+      .map((msg) => {
+        const header = `[NDTAXANDLAW Live Chat • ${msg.senderName}]`;
+        const body = msg.text || (msg.imageUrl ? '[Lampiran Gambar Terkompresi]' : '');
+        const urlPart = msg.linkPreview?.url ? `\n🔗 ${msg.linkPreview.url}` : '';
+        return `${header}\n${body}${urlPart}`;
+      })
+      .join('\n\n');
   };
 
   // Update group members (for existing group)
@@ -2180,15 +2304,15 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     </button>
                   )}
 
-                  {/* Close Chat Button (ESC) */}
+                  {/* Close Chat Button (Icon X only) */}
                   <button
                     type="button"
                     onClick={() => setSelectedRoomId(null)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                    title="Tutup percakapan ini (Tekan ESC)"
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 transition-colors cursor-pointer"
+                    title="Tutup percakapan (ESC)"
+                    aria-label="Tutup percakapan"
                   >
                     <X className="w-4 h-4" />
-                    <span className="hidden sm:inline">Tutup (ESC)</span>
                   </button>
                 </div>
               </div>
@@ -2361,18 +2485,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       formatChatDateBadge(prevMsg.createdAt) !==
                         formatChatDateBadge(msg.createdAt);
 
-                    const elapsedMs = nowTick - new Date(msg.createdAt).getTime();
-                    const canEditOrRecall =
-                      isMine &&
-                      !isAdminMonitor &&
-                      !msg.isDeleted &&
-                      elapsedMs >= 0 &&
-                      elapsedMs < FIVE_MINUTES_MS;
-                    const remainingSeconds = canEditOrRecall
-                      ? Math.max(0, Math.ceil((FIVE_MINUTES_MS - elapsedMs) / 1000))
-                      : 0;
-                    const remainingMin = Math.floor(remainingSeconds / 60);
-                    const remainingSec = remainingSeconds % 60;
+                    const isSelectedForForward = selectedForwardMsgIds.includes(msg.id);
+                    const isContextActive = contextMenu?.message.id === msg.id;
 
                     return (
                       <React.Fragment key={msg.id}>
@@ -2396,29 +2510,139 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                         ) : (
                         <div
                           id={`chat-msg-${msg.id}`}
-                          className={`flex flex-col ${
-                            isMine ? 'items-end' : 'items-start'
-                          } transition-all duration-300 ${
+                          onClick={() => {
+                            if (isForwardSelectMode && !msg.isDeleted) {
+                              toggleForwardMessageSelection(msg.id);
+                            }
+                          }}
+                          className={`flex items-center gap-2.5 transition-all duration-200 ${
+                            isForwardSelectMode && !msg.isDeleted
+                              ? `cursor-pointer px-2 py-1 -mx-2 rounded-xl ${
+                                  isSelectedForForward
+                                    ? 'bg-emerald-500/15 ring-1 ring-emerald-500/40'
+                                    : 'hover:bg-black/5'
+                                }`
+                              : ''
+                          } ${
                             highlightedMessageId === msg.id
                               ? ' ring-4 ring-amber-400 rounded-2xl bg-amber-100/50 p-1'
                               : ''
                           }`}
                         >
+                          {/* Multi-Select Checkbox for Batch Forwarding */}
+                          {isForwardSelectMode && !msg.isDeleted && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleForwardMessageSelection(msg.id);
+                              }}
+                              aria-label={
+                                isSelectedForForward ? 'Batalkan pilihan pesan' : 'Pilih pesan untuk diteruskan'
+                              }
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                                isSelectedForForward
+                                  ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                                  : 'bg-white border-slate-400 text-transparent hover:border-emerald-500'
+                              }`}
+                            >
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </button>
+                          )}
+
                           <div
-                            className={`group relative max-w-[88%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 shadow-xs ${
-                              msg.isDeleted
-                                ? 'bg-slate-200/90 text-slate-500 italic border border-slate-300'
-                                : msg.isPinned
-                                ? isMine
-                                  ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs ring-2 ring-amber-400/80'
-                                  : 'bg-white text-slate-900 rounded-tl-xs ring-2 ring-amber-400/80'
-                                : isMine
-                                ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs'
-                                : 'bg-white text-slate-900 rounded-tl-xs'
+                            className={`flex-1 flex flex-col ${
+                              isMine ? 'items-end' : 'items-start'
                             }`}
                           >
-                            {/* Sender Header */}
-                            <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+                            <div
+                              onContextMenu={(e) => {
+                                if (msg.isDeleted || isForwardSelectMode) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openMessageContextMenu(msg, e.clientX, e.clientY);
+                              }}
+                              onTouchStart={(e) => {
+                                if (msg.isDeleted || isForwardSelectMode) return;
+                                const touch = e.touches[0];
+                                if (!touch) return;
+                                longPressTriggeredRef.current = false;
+                                clearLongPressTimer();
+                                longPressOriginRef.current = {
+                                  x: touch.clientX,
+                                  y: touch.clientY,
+                                };
+                                longPressTimerRef.current = setTimeout(() => {
+                                  longPressTriggeredRef.current = true;
+                                  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                    try {
+                                      navigator.vibrate(15);
+                                    } catch {
+                                      // ignore
+                                    }
+                                  }
+                                  openMessageContextMenu(msg, touch.clientX, touch.clientY);
+                                }, 450);
+                              }}
+                              onTouchMove={(e) => {
+                                if (!longPressOriginRef.current) return;
+                                const touch = e.touches[0];
+                                if (!touch) return;
+                                const dx = Math.abs(touch.clientX - longPressOriginRef.current.x);
+                                const dy = Math.abs(touch.clientY - longPressOriginRef.current.y);
+                                if (dx > 10 || dy > 10) {
+                                  clearLongPressTimer();
+                                }
+                              }}
+                              onTouchEnd={() => clearLongPressTimer()}
+                              onTouchCancel={() => clearLongPressTimer()}
+                              className={`group relative max-w-[88%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 shadow-xs select-none md:select-text ${
+                                isForwardSelectMode && !msg.isDeleted ? 'pointer-events-none' : ''
+                              } ${
+                                msg.isDeleted
+                                  ? 'bg-slate-200/90 text-slate-500 italic border border-slate-300'
+                                  : isContextActive
+                                  ? isMine
+                                    ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs ring-2 ring-emerald-500 shadow-md'
+                                    : 'bg-white text-slate-900 rounded-tl-xs ring-2 ring-emerald-500 shadow-md'
+                                  : msg.isPinned
+                                  ? isMine
+                                    ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs ring-2 ring-amber-400/80'
+                                    : 'bg-white text-slate-900 rounded-tl-xs ring-2 ring-amber-400/80'
+                                  : isMine
+                                  ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-xs'
+                                  : 'bg-white text-slate-900 rounded-tl-xs'
+                              }`}
+                            >
+                              {/* Desktop Hover Downward Chevron Trigger (Opens Context Menu) */}
+                              {!msg.isDeleted && !isForwardSelectMode && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    openMessageContextMenu(
+                                      msg,
+                                      isMine ? rect.left - 210 : rect.right - 24,
+                                      rect.bottom + 6
+                                    );
+                                  }}
+                                  className={`hidden md:flex items-center justify-center w-6 h-6 rounded-full absolute top-1.5 right-1.5 z-10 transition-all cursor-pointer shadow-xs ${
+                                    isContextActive
+                                      ? 'opacity-100 bg-slate-900 text-white'
+                                      : isMine
+                                      ? 'opacity-0 group-hover:opacity-100 focus:opacity-100 bg-[#d9fdd3]/95 hover:bg-emerald-200 text-slate-600 hover:text-slate-900'
+                                      : 'opacity-0 group-hover:opacity-100 focus:opacity-100 bg-white/95 hover:bg-slate-100 text-slate-500 hover:text-slate-900'
+                                  }`}
+                                  title="Opsi pesan (atau klik kanan)"
+                                  aria-label="Opsi pesan"
+                                >
+                                  <ChevronDown className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {/* Sender Header */}
+                              <div className="flex items-center justify-between gap-3 mb-1 pr-6 flex-wrap">
                               <div className="flex items-center gap-1.5">
                                 <span
                                   className={`text-[11px] font-extrabold ${
@@ -2611,160 +2835,18 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                               </>
                             )}
 
-                            {/* Floating Quick Emoji Reaction Picker Bar */}
-                            {!msg.isDeleted && !isAdminMonitor && activeReactionPickerMsgId === msg.id && (
-                              <div className="mt-2 p-1.5 rounded-2xl bg-white border border-slate-200 shadow-lg flex flex-wrap items-center gap-1 z-20 animate-in fade-in zoom-in-95 duration-150">
-                                {QUICK_REACTION_EMOJIS.map((emojiOpt) => {
-                                  const myReacted = msg.reactions?.some(
-                                    (r) => r.userId === currentUserId && r.emoji === emojiOpt
-                                  );
-                                  return (
-                                    <button
-                                      key={emojiOpt}
-                                      type="button"
-                                      onClick={() => handleToggleReaction(msg.id, emojiOpt)}
-                                      className={`w-7 h-7 rounded-full flex items-center justify-center text-sm transition-transform hover:scale-125 cursor-pointer ${
-                                        myReacted
-                                          ? 'bg-emerald-100 ring-2 ring-emerald-500'
-                                          : 'hover:bg-slate-100'
-                                      }`}
-                                      title={`Beri reaksi ${emojiOpt}`}
-                                    >
-                                      {emojiOpt}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* Timestamp + Edited Indicator + Action Buttons */}
-                            <div className="mt-1.5 pt-1 border-t border-black/5 flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                                <span>{formatChatTime(msg.createdAt)}</span>
-                                {msg.editedAt && !msg.isDeleted && (
-                                  <span className="italic text-slate-500">(diedit)</span>
-                                )}
-                                {isMine && !msg.isDeleted && (
-                                  <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                )}
-                              </div>
-
-                              {/* Message Actions: React, Reply, Forward (WA/Social), Edit (<5m), Recall (<5m) */}
-                              {!msg.isDeleted && (
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {!isAdminMonitor && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setActiveReactionPickerMsgId((prev) =>
-                                            prev === msg.id ? null : msg.id
-                                          )
-                                        }
-                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer ${
-                                          activeReactionPickerMsgId === msg.id
-                                            ? 'bg-emerald-600 text-white'
-                                            : 'bg-black/5 hover:bg-emerald-600 hover:text-white text-slate-700'
-                                        }`}
-                                        title="Berikan reaksi emoji pada pesan ini"
-                                      >
-                                        <Smile className="w-3 h-3" />
-                                        Reaksi
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setReplyingTo({
-                                            messageId: msg.id,
-                                            senderId: msg.senderId,
-                                            senderName: msg.senderName,
-                                            text:
-                                              msg.text ||
-                                              (msg.imageUrl ? 'Lampiran Gambar' : 'Pesan'),
-                                            imageUrl: msg.imageUrl,
-                                          });
-                                          setEditingMessage(null);
-                                          composerInputRef.current?.focus();
-                                        }}
-                                        className="px-1.5 py-0.5 rounded bg-black/5 hover:bg-emerald-600 hover:text-white text-slate-700 text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                                        title="Balas / Tag pesan ini"
-                                      >
-                                        <Reply className="w-3 h-3" />
-                                        Balas
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={pinningMessageId === msg.id}
-                                        onClick={() => handleTogglePinMessage(msg)}
-                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 ${
-                                          msg.isPinned
-                                            ? 'bg-amber-500 text-white hover:bg-amber-600'
-                                            : 'bg-black/5 hover:bg-amber-500 hover:text-white text-slate-700'
-                                        }`}
-                                        title={
-                                          msg.isPinned
-                                            ? 'Lepas sematan pesan ini'
-                                            : 'Sematkan pesan ini di atas ruang percakapan'
-                                        }
-                                      >
-                                        {msg.isPinned ? (
-                                          <>
-                                            <PinOff className="w-3 h-3" />
-                                            Lepas
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Pin className="w-3 h-3" />
-                                            Sematkan
-                                          </>
-                                        )}
-                                      </button>
-                                    </>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={() => setForwardingMessage(msg)}
-                                    className="px-1.5 py-0.5 rounded bg-black/5 hover:bg-blue-600 hover:text-white text-slate-700 text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                                    title="Teruskan ke WhatsApp, Media Sosial, atau Chat Lain"
-                                  >
-                                    <Share2 className="w-3 h-3" />
-                                    Forward
-                                  </button>
-
-                                  {canEditOrRecall && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingMessage(msg);
-                                          setReplyingTo(null);
-                                          setInputText(msg.text);
-                                          composerInputRef.current?.focus();
-                                        }}
-                                        className="px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-600 hover:text-white text-amber-900 text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                                        title={`Edit pesan (Sisa waktu ${remainingMin}m ${remainingSec}d)`}
-                                      >
-                                        <Edit3 className="w-3 h-3" />
-                                        Edit
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRecallMessage(msg)}
-                                        className="px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-600 hover:text-white text-rose-800 text-[10px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                                        title={`Tarik/Hapus pesan (Sisa waktu ${remainingMin}m ${remainingSec}d)`}
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                        Tarik ({remainingMin}:{String(remainingSec).padStart(2, '0')})
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
+                            {/* Clean Timestamp + Edited Indicator + Double Check Footer */}
+                            <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-slate-500">
+                              {msg.editedAt && !msg.isDeleted && (
+                                <span className="italic text-slate-500">(diedit)</span>
+                              )}
+                              <span>{formatChatTime(msg.createdAt)}</span>
+                              {isMine && !msg.isDeleted && (
+                                <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
                               )}
                             </div>
                           </div>
+                        </div>
                         </div>
                         )}
                       </React.Fragment>
@@ -2774,8 +2856,62 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* BOTTOM COMPOSER OR ADMIN MONITORING BAR */}
-              {isAdminMonitor ? (
+              {/* BOTTOM MULTI-SELECT FORWARD BAR, ADMIN MONITORING BAR, OR COMPOSER */}
+              {isForwardSelectMode ? (
+                <div className="bg-white border-t border-slate-200 px-4 py-3 flex items-center justify-between gap-3 shrink-0 shadow-sm">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsForwardSelectMode(false);
+                        setSelectedForwardMsgIds([]);
+                      }}
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                      title="Batalkan mode pilih pesan"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-extrabold text-slate-900 truncate">
+                        {selectedForwardMsgIds.length} pesan dipilih
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        Klik pesan yang ingin ditandai untuk diteruskan sekaligus
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {selectedForwardMsgIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedForwardMsgIds([])}
+                        className="hidden sm:inline-flex px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        Bersihkan
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={selectedForwardMsgIds.length === 0}
+                      onClick={() => {
+                        const chosen = selectedRoomMessages.filter(
+                          (m) =>
+                            !m.isDeleted &&
+                            !m.isSystemMessage &&
+                            selectedForwardMsgIds.includes(m.id)
+                        );
+                        if (chosen.length > 0) {
+                          setForwardingMessages(chosen);
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-extrabold inline-flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <Forward className="w-4 h-4" />
+                      <span>Teruskan ({selectedForwardMsgIds.length})</span>
+                    </button>
+                  </div>
+                </div>
+              ) : isAdminMonitor ? (
                 <div className="p-3.5 bg-slate-900 text-white border-t border-slate-800 flex items-center justify-between gap-3 shrink-0">
                   <div className="flex items-center gap-2.5 text-xs">
                     <Shield className="w-4 h-4 text-amber-400 shrink-0" />
@@ -3461,161 +3597,442 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         </div>
       )}
 
-      {/* MODAL 3: FORWARD MESSAGE TO WHATSAPP, SOCIAL MEDIA, OR INTERNAL CHAT (Requirement 3) */}
-      {forwardingMessage && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="px-5 py-4 bg-gradient-to-r from-emerald-700 to-teal-800 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Share2 className="w-5 h-5 text-emerald-200" />
-                <div>
-                  <h3 className="text-sm font-extrabold">
-                    Forward ke WhatsApp, Media Sosial &amp; Ruang Chat
-                  </h3>
-                  <p className="text-[11px] text-emerald-100">
-                    Bagikan pesan ini ke luar atau teruskan ke rekan Mitra/Staf
-                  </p>
+      {/* WHATSAPP-STYLE FLOATING MESSAGE CONTEXT MENU (Right-Click / Hover Chevron / Mobile Long-Press) */}
+      {contextMenu && (() => {
+        const liveMsg =
+          messages.find((m) => m.id === contextMenu.message.id) || contextMenu.message;
+        if (liveMsg.isDeleted || liveMsg.isSystemMessage) return null;
+        const isMineCtx = liveMsg.senderId === currentUserId;
+        const elapsedMs = nowTick - new Date(liveMsg.createdAt).getTime();
+        const canEditOrRecallCtx =
+          isMineCtx &&
+          !isAdminMonitor &&
+          !liveMsg.isDeleted &&
+          elapsedMs >= 0 &&
+          elapsedMs < FIVE_MINUTES_MS;
+        const remainingSeconds = canEditOrRecallCtx
+          ? Math.max(0, Math.ceil((FIVE_MINUTES_MS - elapsedMs) / 1000))
+          : 0;
+        const remainingMin = Math.floor(remainingSeconds / 60);
+        const remainingSec = remainingSeconds % 60;
+
+        return (
+          <div
+            className="fixed inset-0 z-50"
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu(null);
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+              className="fixed w-60 rounded-2xl bg-[#182229] text-slate-100 border border-white/10 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            >
+              {/* Top Quick Emoji Reaction Strip */}
+              {!isAdminMonitor && (
+                <div className="px-2.5 py-2 flex items-center justify-between gap-1 border-b border-white/10">
+                  {QUICK_REACTION_EMOJIS.map((emojiOpt) => {
+                    const myReacted = liveMsg.reactions?.some(
+                      (r) => r.userId === currentUserId && r.emoji === emojiOpt
+                    );
+                    return (
+                      <button
+                        key={emojiOpt}
+                        type="button"
+                        onClick={() => handleToggleReaction(liveMsg.id, emojiOpt)}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-lg transition-transform hover:scale-125 cursor-pointer ${
+                          myReacted
+                            ? 'bg-emerald-500/30 ring-2 ring-emerald-400'
+                            : 'hover:bg-white/10'
+                        }`}
+                        title={`Reaksi ${emojiOpt}`}
+                      >
+                        {emojiOpt}
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setForwardingMessage(null)}
-                className="p-1 rounded-lg text-white/80 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+              )}
 
-            <div className="p-5 space-y-4">
-              {/* Message snippet */}
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
-                <p className="text-[10px] font-bold text-emerald-700 mb-0.5">
-                  Pesan dari {forwardingMessage.senderName}:
-                </p>
-                <p className="line-clamp-3">
-                  {forwardingMessage.text || '[Lampiran Gambar Terkompresi]'}
-                </p>
-              </div>
-
-              {/* External Social Share Buttons */}
-              <div>
-                <p className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider mb-2">
-                  1. Bagikan ke WhatsApp &amp; Media Sosial Eksternal
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <a
-                    href={`https://wa.me/?text=${encodeURIComponent(
-                      buildForwardShareText(forwardingMessage)
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1ebe5d] text-white text-xs font-extrabold shadow-xs transition-colors"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    WhatsApp
-                  </a>
-
-                  <a
-                    href={`https://t.me/share/url?url=${encodeURIComponent(
-                      forwardingMessage.linkPreview?.url || window.location.origin
-                    )}&text=${encodeURIComponent(buildForwardShareText(forwardingMessage))}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#0088cc] hover:bg-[#0077b5] text-white text-xs font-extrabold shadow-xs transition-colors"
-                  >
-                    <Send className="w-4 h-4" />
-                    Telegram
-                  </a>
-
-                  <a
-                    href={`mailto:?subject=${encodeURIComponent(
-                      `Pesan Koordinasi NDTAXANDLAW - ${forwardingMessage.senderName}`
-                    )}&body=${encodeURIComponent(buildForwardShareText(forwardingMessage))}`}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-xs transition-colors"
-                  >
-                    <Mail className="w-4 h-4" />
-                    Email
-                  </a>
-
+              {/* Context Menu Action List */}
+              <div className="py-1.5">
+                {!isAdminMonitor && (
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(buildForwardShareText(forwardingMessage));
+                      setReplyingTo({
+                        messageId: liveMsg.id,
+                        senderId: liveMsg.senderId,
+                        senderName: liveMsg.senderName,
+                        text:
+                          liveMsg.text ||
+                          (liveMsg.imageUrl ? 'Lampiran Gambar' : 'Pesan'),
+                        imageUrl: liveMsg.imageUrl,
+                      });
+                      setEditingMessage(null);
+                      setContextMenu(null);
+                      composerInputRef.current?.focus();
+                    }}
+                    className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-slate-100 hover:bg-white/10 transition-colors cursor-pointer text-left"
+                  >
+                    <Reply className="w-4 h-4 text-slate-300 shrink-0" />
+                    <span>Balas</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContextMenu(null);
+                    setForwardingMessages([liveMsg]);
+                  }}
+                  className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-slate-100 hover:bg-white/10 transition-colors cursor-pointer text-left"
+                >
+                  <Forward className="w-4 h-4 text-slate-300 shrink-0" />
+                  <span>Teruskan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => enterForwardSelectMode(liveMsg.id)}
+                  className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-slate-100 hover:bg-white/10 transition-colors cursor-pointer text-left"
+                >
+                  <CheckCheck className="w-4 h-4 text-slate-300 shrink-0" />
+                  <span>Pilih</span>
+                </button>
+
+                {!isAdminMonitor && (
+                  <button
+                    type="button"
+                    disabled={pinningMessageId === liveMsg.id}
+                    onClick={() => {
+                      setContextMenu(null);
+                      handleTogglePinMessage(liveMsg);
+                    }}
+                    className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-slate-100 hover:bg-white/10 transition-colors cursor-pointer text-left disabled:opacity-50"
+                  >
+                    {liveMsg.isPinned ? (
+                      <>
+                        <PinOff className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>Lepas Pin</span>
+                      </>
+                    ) : (
+                      <>
+                        <Pin className="w-4 h-4 text-slate-300 shrink-0" />
+                        <span>Pin</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {liveMsg.text && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(liveMsg.text);
+                      setContextMenu(null);
                       showAlert({
                         type: 'success',
-                        title: 'Teks Pesan Disalin',
-                        message: 'Isi pesan berhasil disalin ke clipboard untuk ditempel di media sosial lainnya.',
+                        title: 'Pesan Disalin',
+                        message: 'Teks pesan berhasil disalin ke clipboard.',
                       });
                     }}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-extrabold shadow-xs transition-colors cursor-pointer"
+                    className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-slate-100 hover:bg-white/10 transition-colors cursor-pointer text-left"
                   >
-                    <Copy className="w-4 h-4" />
-                    Salin Teks
+                    <Copy className="w-4 h-4 text-slate-300 shrink-0" />
+                    <span>Salin</span>
                   </button>
-                </div>
-              </div>
+                )}
 
-              {/* Internal Forward to Another Chat Room */}
-              {!isAdminMonitor && (
-                <div className="pt-2 border-t border-slate-200">
-                  <p className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider mb-2">
-                    2. Teruskan ke Ruang Chat / Grup Internal
-                  </p>
-                  <input
-                    type="text"
-                    value={forwardRoomSearch}
-                    onChange={(e) => setForwardRoomSearch(e.target.value)}
-                    placeholder="Cari ruang chat atau grup tujuan..."
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
-                  />
-                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
-                    {visibleRooms
-                      .filter((r) => {
-                        const meta = getRoomDisplayMeta(r);
-                        return (
-                          !forwardRoomSearch.trim() ||
-                          meta.title.toLowerCase().includes(forwardRoomSearch.toLowerCase())
-                        );
-                      })
-                      .map((room) => {
-                        const meta = getRoomDisplayMeta(room);
-                        return (
-                          <div
-                            key={room.id}
-                            className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-emerald-50/60"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <img
-                                src={meta.avatar}
-                                alt={meta.title}
-                                className="w-7 h-7 rounded-full object-cover"
-                              />
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-slate-800 truncate">
-                                  {meta.title}
-                                </p>
-                                <p className="text-[10px] text-slate-500 truncate">
-                                  {meta.roleBadge}
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleForwardToInternalRoom(room)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer shrink-0"
-                            >
-                              Kirim
-                            </button>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
+                {liveMsg.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDownloadChatImage(liveMsg.imageUrl!, liveMsg.imageName);
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-slate-100 hover:bg-white/10 transition-colors cursor-pointer text-left"
+                  >
+                    <Download className="w-4 h-4 text-slate-300 shrink-0" />
+                    <span>Unduh</span>
+                  </button>
+                )}
+
+                {canEditOrRecallCtx && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingMessage(liveMsg);
+                        setReplyingTo(null);
+                        setInputText(liveMsg.text);
+                        setContextMenu(null);
+                        composerInputRef.current?.focus();
+                      }}
+                      className="w-full px-4 py-2.5 flex items-center gap-3 text-[13px] font-medium text-amber-300 hover:bg-white/10 transition-colors cursor-pointer text-left"
+                    >
+                      <Edit3 className="w-4 h-4 text-amber-300 shrink-0" />
+                      <span>Edit</span>
+                    </button>
+
+                    <div className="my-1 border-t border-white/10" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContextMenu(null);
+                        handleRecallMessage(liveMsg);
+                      }}
+                      className="w-full px-4 py-2.5 flex items-center justify-between gap-2 text-[13px] font-semibold text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer text-left"
+                    >
+                      <span className="inline-flex items-center gap-3">
+                        <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>Hapus</span>
+                      </span>
+                      <span className="text-[11px] font-mono text-rose-300/90">
+                        {remainingMin}:{String(remainingSec).padStart(2, '0')}
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* MODAL 3: FORWARD 1 OR MULTIPLE MESSAGES TO WHATSAPP, SOCIAL MEDIA, OR INTERNAL CHAT */}
+      {forwardingMessages.length > 0 && (() => {
+        const shareText = buildForwardShareText(forwardingMessages);
+        const firstMsg = forwardingMessages[0];
+        const qForward = forwardRoomSearch.trim().toLowerCase();
+
+        // Build unified internal forward targets: existing rooms + contacts without existing room yet
+        const existingDirectPartnerIds = new Set(
+          visibleRooms
+            .filter((r) => r.type === 'direct')
+            .map((r) => r.participantIds.find((id) => id !== currentUserId))
+            .filter(Boolean) as string[]
+        );
+
+        const extraContactDraftRooms: ChatRoom[] = participants
+          .filter(
+            (p) => p.id !== currentUserId && !existingDirectPartnerIds.has(p.id)
+          )
+          .map((p) => {
+            const sorted = [String(currentUserId), String(p.id)].sort();
+            const nowIso = new Date().toISOString();
+            return {
+              id: `room-direct-${sorted[0]}__${sorted[1]}`,
+              type: 'direct' as const,
+              name: `${currentUserName} & ${p.name}`,
+              participantIds: sorted,
+              createdBy: String(currentUserId),
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            };
+          });
+
+        const forwardTargetRooms = [...visibleRooms, ...extraContactDraftRooms].filter(
+          (r) => {
+            const meta = getRoomDisplayMeta(r);
+            return !qForward || meta.title.toLowerCase().includes(qForward);
+          }
+        );
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="px-5 py-4 bg-gradient-to-r from-emerald-700 to-teal-800 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Share2 className="w-5 h-5 text-emerald-200" />
+                  <div>
+                    <h3 className="text-sm font-extrabold">
+                      Teruskan {forwardingMessages.length > 1 ? `${forwardingMessages.length} Pesan Terpilih` : 'Pesan'}
+                    </h3>
+                    <p className="text-[11px] text-emerald-100">
+                      Bagikan ke luar atau teruskan ke rekan Mitra/Staf &amp; Grup
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForwardingMessages([])}
+                  className="p-1 rounded-lg text-white/80 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Message snippet(s) + Quick button to mark/select additional messages */}
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+                  {forwardingMessages.length === 1 ? (
+                    <div>
+                      <p className="text-[10px] font-bold text-emerald-700 mb-0.5">
+                        Pesan dari {firstMsg.senderName}:
+                      </p>
+                      <p className="line-clamp-3">
+                        {firstMsg.text || '[Lampiran Gambar Terkompresi]'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-[10px] font-bold text-emerald-700 mb-1">
+                        {forwardingMessages.length} pesan ditandai untuk diteruskan:
+                      </p>
+                      <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                        {forwardingMessages.map((fm) => (
+                          <p key={fm.id} className="text-[11px] text-slate-700 truncate">
+                            <span className="font-bold text-slate-900">{fm.senderName}:</span>{' '}
+                            {fm.text || '[Lampiran Gambar]'}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedRoomId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const preIds = forwardingMessages.map((m) => m.id);
+                        setForwardingMessages([]);
+                        setIsForwardSelectMode(true);
+                        setSelectedForwardMsgIds(preIds);
+                      }}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      <span>
+                        {forwardingMessages.length > 1
+                          ? 'Ubah / Tambah Pesan yang Ditandai'
+                          : 'Tandai Beberapa Pesan Lain untuk Di-Forward'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                {/* External Social Share Buttons */}
+                <div>
+                  <p className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider mb-2">
+                    1. Bagikan ke WhatsApp &amp; Media Sosial Eksternal
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1ebe5d] text-white text-xs font-extrabold shadow-xs transition-colors"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      WhatsApp
+                    </a>
+
+                    <a
+                      href={`https://t.me/share/url?url=${encodeURIComponent(
+                        firstMsg.linkPreview?.url || window.location.origin
+                      )}&text=${encodeURIComponent(shareText)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#0088cc] hover:bg-[#0077b5] text-white text-xs font-extrabold shadow-xs transition-colors"
+                    >
+                      <Send className="w-4 h-4" />
+                      Telegram
+                    </a>
+
+                    <a
+                      href={`mailto:?subject=${encodeURIComponent(
+                        `Pesan Koordinasi NDTAXANDLAW - ${firstMsg.senderName}`
+                      )}&body=${encodeURIComponent(shareText)}`}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-xs transition-colors"
+                    >
+                      <Mail className="w-4 h-4" />
+                      Email
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(shareText);
+                        showAlert({
+                          type: 'success',
+                          title: 'Teks Pesan Disalin',
+                          message:
+                            'Isi pesan berhasil disalin ke clipboard untuk ditempel di media sosial lainnya.',
+                        });
+                      }}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-extrabold shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Salin Teks
+                    </button>
+                  </div>
+                </div>
+
+                {/* Internal Forward to Another Chat Room or Contact */}
+                {!isAdminMonitor && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <p className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider mb-2">
+                      2. Teruskan ke Ruang Chat / Kontak / Grup Internal
+                    </p>
+                    <input
+                      type="text"
+                      value={forwardRoomSearch}
+                      onChange={(e) => setForwardRoomSearch(e.target.value)}
+                      placeholder="Cari kontak, ruang chat, atau grup tujuan..."
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
+                    />
+                    <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                      {forwardTargetRooms.length === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-slate-400">
+                          Tidak ada kontak atau grup yang cocok.
+                        </div>
+                      ) : (
+                        forwardTargetRooms.map((room) => {
+                          const meta = getRoomDisplayMeta(room);
+                          return (
+                            <div
+                              key={room.id}
+                              className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-emerald-50/60"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <img
+                                  src={meta.avatar}
+                                  alt={meta.title}
+                                  className="w-7 h-7 rounded-full object-cover"
+                                />
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-slate-800 truncate">
+                                    {meta.title}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 truncate">
+                                    {meta.roleBadge}
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={isForwardingBatch}
+                                onClick={() => handleForwardToInternalRoom(room)}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-[10px] font-bold cursor-pointer shrink-0"
+                              >
+                                {isForwardingBatch ? 'Mengirim...' : 'Kirim'}
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL 4: IMAGE LIGHTBOX */}
       {lightboxImage && (
