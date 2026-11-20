@@ -194,7 +194,7 @@ export const OnboardingSpotlightTour: React.FC<OnboardingSpotlightTourProps> = (
         badgeText: 'PANDUAN ADMIN • KONFIGURASI SISTEM',
         title: 'Pengaturan Sistem, Form Dinamis & Database',
         description:
-          'Konfigurasi profil firma, aktifkan/nonaktifkan tautan registrasi mandiri klien, kelola form input dinamis, koneksi Supabase, Mode Dev/Prod, dan SMTP Email.',
+          'Konfigurasi profil firma, aktifkan/nonaktifkan tautan registrasi mandiri klien, kelola form input dinamis, koneksi Database MySQL, Mode Dev/Prod, dan SMTP Email.',
       },
     ];
   }, [currentRole, isStaff, staffAllowedMenus]);

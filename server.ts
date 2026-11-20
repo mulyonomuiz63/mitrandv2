@@ -8,8 +8,18 @@ import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
-import { supabase, isSupabaseConfigured, getSupabaseConfig, testSupabaseConnection } from './src/supabase.ts';
+import {
+  mysqlDb,
+  isMysqlConfigured,
+  getMysqlConfig,
+  testMysqlConnection,
+  ensureMysqlSchema,
+  migrateFromSupabaseToMysql,
+  generateMysqlSqlDump,
+} from './src/mysql.ts';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, resolveAvatarUrl, inferGenderFromName } from './src/avatars.ts';
+
+const db = isMysqlConfigured() ? mysqlDb : null;
 import {
   OFFICIAL_ND_SERVICES,
   resolveServicePricingType,
@@ -790,13 +800,15 @@ export interface NotificationItem {
   mitraId?: string;
 }
 
-const toSupabaseNotification = (n: NotificationItem) => ({
+const toDbNotification = (n: NotificationItem) => ({
   id: n.id,
   title: n.title,
   message: n.message,
   type: n.type,
   timestamp: n.timestamp,
   isRead: Boolean(n.isRead),
+  targetAudience: n.targetAudience ?? null,
+  mitraId: n.mitraId ?? null,
 });
 
 // Initial Data with Default Male/Female Avatars
@@ -1274,7 +1286,15 @@ let appSettings: AppSettings = {
   googleClientId: '',
   geminiApiEnabled: true,
   geminiModel: 'gemini-3.8-flash',
-  appEnvironment: (process.env.APP_ENV === 'development' ? 'development' : 'production') as 'development' | 'production',
+  appEnvironment: (
+    process.env.APP_ENV === 'production'
+      ? 'production'
+      : process.env.APP_ENV === 'development'
+        ? 'development'
+        : isMysqlConfigured()
+          ? 'production'
+          : 'development'
+  ) as 'development' | 'production',
   smtpEnabled: true,
   smtpHost: process.env.SMTP_HOST || 'mail.ndtaxandlaw.com',
   smtpPort: Number(process.env.SMTP_PORT) || 465,
@@ -1340,18 +1360,18 @@ let activityLogs: ActivityLogItem[] = [
 ];
 
 // Cloud Persistence Helpers for Settings, Activity Logs, and Email Logs (Dual-Layer: Dedicated Table + user_passwords KV Fallback)
-export const persistSettingsToSupabase = async () => {
-  if (!supabase) return;
+export const persistSettingsToMysql = async () => {
+  if (!db) return;
   try {
-    await supabase.from('user_passwords').upsert([
+    await db.from('user_passwords').upsert([
       { email: '__sys_config__@ndtaxlaw.internal', password: JSON.stringify(appSettings) },
       { email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) },
     ]);
   } catch (e) {
-    console.warn('[Supabase Settings KV Warning]', e);
+    console.warn('[MySQL Settings KV Warning]', e);
   }
   try {
-    await supabase.from('app_settings').upsert([
+    await db.from('app_settings').upsert([
       { id: 'config_primary', settings: { ...appSettings, roles: systemRoles }, updated_at: new Date().toISOString() },
     ]);
   } catch {
@@ -1368,7 +1388,7 @@ export const getThreeMonthsAgoCutoff = () => {
   };
 };
 
-export const pruneOldLogs = async (syncSupabase = false) => {
+export const pruneOldLogs = async (syncDb = false) => {
   const { cutoffMs, cutoffIso } = getThreeMonthsAgoCutoff();
   const prevActLen = activityLogs.length;
   const prevEmLen = emailLogs.length;
@@ -1388,14 +1408,14 @@ export const pruneOldLogs = async (syncSupabase = false) => {
     saveDatabase();
   }
 
-  if (supabase && (syncSupabase || changed)) {
+  if (db && (syncDb || changed)) {
     try {
       await Promise.all([
-        supabase.from('activity_logs').delete().lt('timestamp', cutoffIso),
-        supabase.from('email_logs').delete().lt('timestamp', cutoffIso),
+        db.from('activity_logs').delete().lt('timestamp', cutoffIso),
+        db.from('email_logs').delete().lt('timestamp', cutoffIso),
       ]);
       if (changed) {
-        await supabase.from('user_passwords').upsert([
+        await db.from('user_passwords').upsert([
           { email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) },
           {
             email: '__sys_email_logs__@ndtaxlaw.internal',
@@ -1409,25 +1429,25 @@ export const pruneOldLogs = async (syncSupabase = false) => {
   }
 };
 
-export const persistActivityLogsToSupabase = async (latestItem?: ActivityLogItem) => {
-  if (!supabase) return;
+export const persistActivityLogsToMysql = async (latestItem?: ActivityLogItem) => {
+  if (!db) return;
   try {
-    await supabase.from('user_passwords').upsert([
+    await db.from('user_passwords').upsert([
       { email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) },
     ]);
   } catch (e) {
-    console.warn('[Supabase Activity Logs KV Warning]', e);
+    console.warn('[MySQL Activity Logs KV Warning]', e);
   }
   if (latestItem) {
     try {
-      await supabase.from('activity_logs').upsert([latestItem]);
+      await db.from('activity_logs').upsert([latestItem]);
     } catch {
       // Table activity_logs is optional if user_passwords KV is active
     }
   }
 };
 
-export const toSupabaseEmailLogRow = (item: EmailLogItem) => ({
+export const toDbEmailLogRow = (item: EmailLogItem) => ({
   id: item.id,
   recipient: item.recipient,
   recipientName: item.recipientName || item.recipient,
@@ -1442,7 +1462,7 @@ export const toSupabaseEmailLogRow = (item: EmailLogItem) => ({
   previewSnippet: item.previewSnippet || '',
 });
 
-export const fromSupabaseEmailLogRow = (row: any): EmailLogItem => {
+export const fromDbEmailLogRow = (row: any): EmailLogItem => {
   const rawResp = String(row.smtpResponse || '');
   const hostMatch = rawResp.match(/\[(.*?)\]/);
   const extractedHost = row.smtpHostUsed || (hostMatch ? hostMatch[1] : undefined);
@@ -1466,26 +1486,26 @@ export const fromSupabaseEmailLogRow = (row: any): EmailLogItem => {
   };
 };
 
-export const persistEmailLogsToSupabase = async (latestItem?: EmailLogItem) => {
+export const persistEmailLogsToMysql = async (latestItem?: EmailLogItem) => {
   await pruneOldLogs(false);
-  if (!supabase) return;
+  if (!db) return;
   try {
     const compactLogs = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
-    await supabase.from('user_passwords').upsert([
+    await db.from('user_passwords').upsert([
       { email: '__sys_email_logs__@ndtaxlaw.internal', password: JSON.stringify(compactLogs) },
     ]);
   } catch (e) {
-    console.warn('[Supabase Email Logs KV Warning]', e);
+    console.warn('[MySQL Email Logs KV Warning]', e);
   }
   try {
     if (latestItem) {
-      await supabase.from('email_logs').upsert([toSupabaseEmailLogRow(latestItem)]);
+      await db.from('email_logs').upsert([toDbEmailLogRow(latestItem)]);
     } else if (emailLogs.length > 0) {
-      const rows = emailLogs.slice(0, 100).map(toSupabaseEmailLogRow);
-      await supabase.from('email_logs').upsert(rows);
+      const rows = emailLogs.slice(0, 100).map(toDbEmailLogRow);
+      await db.from('email_logs').upsert(rows);
     }
   } catch (e) {
-    console.warn('[Supabase email_logs Table Warning]', e);
+    console.warn('[MySQL email_logs Table Warning]', e);
   }
 };
 
@@ -1518,7 +1538,7 @@ export const recordActivity = (params: {
     activityLogs = activityLogs.slice(0, 500);
   }
   saveDatabase();
-  void persistActivityLogsToSupabase(newItem);
+  void persistActivityLogsToMysql(newItem);
   return newItem;
 };
 
@@ -1567,10 +1587,10 @@ export const sendSystemEmail = async (params: {
   previewSnippet: string;
   htmlContent?: string;
 }): Promise<{ success: boolean; logId: string; message: string; error?: string }> => {
-  // Pastikan konfigurasi SMTP terbaru dari Supabase termuat jika ada perubahan
-  if (supabase && (!appSettings.smtpPassword || appSettings.smtpPassword === '••••••••••••••••')) {
+  // Pastikan konfigurasi SMTP terbaru dari MySQL termuat jika ada perubahan
+  if (db && (!appSettings.smtpPassword || appSettings.smtpPassword === '••••••••••••••••')) {
     try {
-      const { data: kvCfg } = await supabase
+      const { data: kvCfg } = await db
         .from('user_passwords')
         .select('*')
         .eq('email', '__sys_config__@ndtaxlaw.internal')
@@ -1606,7 +1626,7 @@ export const sendSystemEmail = async (params: {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
-    await persistEmailLogsToSupabase(failedLog);
+    await persistEmailLogsToMysql(failedLog);
     return { success: false, logId: failedLog.id, message: failedLog.errorMessage! };
   }
 
@@ -1627,7 +1647,7 @@ export const sendSystemEmail = async (params: {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
-    await persistEmailLogsToSupabase(failedLog);
+    await persistEmailLogsToMysql(failedLog);
     console.warn(`[SMTP Gagal] ${errMsg}`);
     return { success: false, logId: failedLog.id, message: errMsg, error: errMsg };
   }
@@ -1689,7 +1709,7 @@ export const sendSystemEmail = async (params: {
 
     emailLogs.unshift(sentLog);
     saveDatabase();
-    await persistEmailLogsToSupabase(sentLog);
+    await persistEmailLogsToMysql(sentLog);
     console.log(`[SMTP Terkirim] [${params.category}] Ke: ${params.recipient} | MessageID: ${info.messageId} via ${smtpHostUsed}`);
     return {
       success: true,
@@ -1712,7 +1732,7 @@ export const sendSystemEmail = async (params: {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
-    await persistEmailLogsToSupabase(failedLog);
+    await persistEmailLogsToMysql(failedLog);
     console.error(`[SMTP Error] Gagal mengirim email ke ${params.recipient} via ${smtpHostUsed}:`, errMsg);
     return {
       success: false,
@@ -1816,9 +1836,9 @@ const monthlySalesHistory = [
   { month: 'Nov 2026 (M-T-D)', totalSales: 430000000, totalCommission: 64500000, mitraCount: 48, dealsClosed: 21 },
 ];
 
-// Compute 100% Real-Time 6-Month Sales History from Supabase Records (client_deals, commissions, mitras)
+// Compute 100% Real-Time 6-Month Sales History from MySQL Records (client_deals, commissions, mitras)
 export const computeDynamicSalesHistory = () => {
-  if (!isProductionMode() && !supabase) {
+  if (!isProductionMode() && !db) {
     return monthlySalesHistory;
   }
 
@@ -1919,7 +1939,7 @@ let systemRoles: RoleDefinition[] = [
   {
     code: 'staff',
     name: 'Staf Operasional',
-    description: 'Role Staf di bawah Admin: akses operasional sesuai menu yang diaktifkan Admin (kecuali Log Aktivitas/Email dan pengaturan sensitif Mode Sistem, Supabase, SMTP, Google OAuth, & Gemini AI).',
+    description: 'Role Staf di bawah Admin: akses operasional sesuai menu yang diaktifkan Admin (kecuali Log Aktivitas/Email dan pengaturan sensitif Mode Sistem, MySQL, SMTP, Google OAuth, & Gemini AI).',
     portalView: 'admin',
     defaultTab: 'dashboard',
     allowedTabs: ['dashboard', 'admin-operations', 'verification', 'marketing-tools', 'commissions', 'ai-reports', 'idcard'],
@@ -2164,6 +2184,7 @@ let chatMessages: ChatMessage[] = [
 const passwordResetTokens = new Map<string, { otp: string; expiresAt: number; attempts: number }>();
 
 export const isProductionMode = (): boolean => {
+  if (!isMysqlConfigured()) return false;
   return (
     appSettings.appEnvironment === 'production' ||
     process.env.NODE_ENV === 'production' ||
@@ -2296,25 +2317,9 @@ const computeNextBillingDate = (
 
 const ND_META_REGEX = /\s*<!--ND_META:(.*?)-->\s*$/s;
 
-// Serialize ClientDeal into exact columns supported by public.client_deals in Supabase
-export const toSupabaseClientDeal = (deal: ClientDeal) => {
+// Serialize ClientDeal into native MySQL columns for client_deals
+export const toDbClientDeal = (deal: ClientDeal) => {
   const cleanNotes = (deal.notes || '').replace(ND_META_REGEX, '').trim();
-  const metaObj = {
-    subscriptionStartDate: deal.subscriptionStartDate,
-    billingDayOfMonth: deal.billingDayOfMonth,
-    nextBillingDate: deal.nextBillingDate,
-    lastBilledDate: deal.lastBilledDate,
-    isBillingDue: deal.isBillingDue,
-    terminatedAt: deal.terminatedAt,
-    terminationReason: deal.terminationReason,
-    rejectedAt: deal.rejectedAt,
-    rejectionReason: deal.rejectionReason,
-    customFields: deal.customFields,
-    appliedCommissionRate: deal.appliedCommissionRate,
-    lockedRecurringRate: deal.lockedRecurringRate,
-    recurringCommissionAmount: deal.recurringCommissionAmount,
-  };
-  const encodedNotes = `${cleanNotes}${cleanNotes ? ' ' : ''}<!--ND_META:${JSON.stringify(metaObj)}-->`;
 
   return {
     id: deal.id,
@@ -2330,6 +2335,9 @@ export const toSupabaseClientDeal = (deal: ClientDeal) => {
     pricingType: deal.pricingType,
     dealValue: deal.dealValue,
     commissionAmount: deal.commissionAmount,
+    appliedCommissionRate: deal.appliedCommissionRate ?? null,
+    lockedRecurringRate: deal.lockedRecurringRate ?? null,
+    recurringCommissionAmount: deal.recurringCommissionAmount ?? null,
     status: deal.status,
     date: deal.date,
     recurringPaidMonths: deal.recurringPaidMonths ?? null,
@@ -2338,13 +2346,23 @@ export const toSupabaseClientDeal = (deal: ClientDeal) => {
     periodEnd: deal.periodEnd ?? null,
     durationMonths: deal.durationMonths ?? null,
     paymentTermType: deal.paymentTermType ?? 'one_time',
-    notes: encodedNotes,
+    notes: cleanNotes,
     submittedBy: deal.submittedBy ?? 'mitra',
+    subscriptionStartDate: deal.subscriptionStartDate ?? null,
+    billingDayOfMonth: deal.billingDayOfMonth ?? null,
+    nextBillingDate: deal.nextBillingDate ?? null,
+    lastBilledDate: deal.lastBilledDate ?? null,
+    isBillingDue: Boolean(deal.isBillingDue),
+    terminatedAt: deal.terminatedAt ?? null,
+    terminationReason: deal.terminationReason ?? null,
+    rejectedAt: deal.rejectedAt ?? null,
+    rejectionReason: deal.rejectionReason ?? null,
+    customFields: deal.customFields ?? null,
   };
 };
 
-// Deserialize Supabase client_deals row back into full ClientDeal object
-export const fromSupabaseClientDeal = (row: any): ClientDeal => {
+// Deserialize MySQL client_deals row back into full ClientDeal object
+export const fromDbClientDeal = (row: any): ClientDeal => {
   const rawNotes = typeof row.notes === 'string' ? row.notes : '';
   const match = rawNotes.match(ND_META_REGEX);
   let meta: Partial<ClientDeal> = {};
@@ -2399,7 +2417,7 @@ export const fromSupabaseClientDeal = (row: any): ClientDeal => {
 const normalizeClientDeals = (list: ClientDeal[]): ClientDeal[] => {
   const todayStr = new Date().toISOString().split('T')[0];
   return list.map((rawDeal) => {
-    const d = fromSupabaseClientDeal(rawDeal);
+    const d = fromDbClientDeal(rawDeal);
     if (d.pricingType === 'monthly_subscription' || d.pricingType === 'annual_subscription') {
       const startDate = d.subscriptionStartDate || d.date || todayStr;
       const dayFromDate = Number(startDate.split('-')[2]) || 1;
@@ -2434,18 +2452,18 @@ const normalizeClientDeals = (list: ClientDeal[]): ClientDeal[] => {
 
 // ========================================================
 // STORAGE ENGINE:
-// - PRODUCTION MODE: STRICTLY SUPABASE ONLY (No local database.json file created or stored on disk)
+// - PRODUCTION MODE: STRICTLY MYSQL ONLY (No local database.json file created or stored on disk)
 // - DEVELOPMENT MODE: Local data/database.json used for local development (git-ignored)
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 
 export const cleanupLocalDatabaseFileInProduction = () => {
-  if (!isProductionMode() || !supabase) return;
+  if (!isProductionMode() || !db) return;
   try {
     if (fs.existsSync(DB_FILE)) {
       fs.unlinkSync(DB_FILE);
-      console.log('[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan Supabase).');
+      console.log('[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan MySQL).');
     }
     if (fs.existsSync(DATA_DIR)) {
       const remaining = fs.readdirSync(DATA_DIR);
@@ -2460,9 +2478,9 @@ export const cleanupLocalDatabaseFileInProduction = () => {
 
 export const saveDatabase = () => {
   try {
-    // PENTING: Saat Mode Production & Supabase aktif, JANGAN simpan file database lokal ke disk server!
-    // Seluruh data disimpan 100% di Cloud Supabase agar penyimpanan server tidak penuh dan lebih aman.
-    if (isProductionMode() && supabase) {
+    // PENTING: Saat Mode Production & MySQL aktif, JANGAN simpan file database lokal ke disk server!
+    // Seluruh data disimpan 100% di Database MySQL agar penyimpanan server tidak penuh dan lebih aman.
+    if (isProductionMode() && db) {
       cleanupLocalDatabaseFileInProduction();
       return;
     }
@@ -2481,7 +2499,7 @@ export const saveDatabase = () => {
             : extractUserRole(v, 'mitra');
       passwordsObj[k.toLowerCase()] = encryptUserPassword(v, role);
     }
-    // Hanya dijalankan pada Development Mode (atau saat Supabase belum dikonfigurasi)
+    // Hanya dijalankan pada Development Mode (atau saat MySQL belum dikonfigurasi)
     const { password: _adminPass, ...safeAdminProfile } = adminAccount;
     const payload = {
       mitras,
@@ -2519,8 +2537,8 @@ export const LEGACY_SEEDED_CHAT_MSG_IDS = new Set([
 
 export const loadDatabase = () => {
   try {
-    // Jika Mode Production & Supabase aktif, jangan buat atau baca file database lokal dari disk
-    if (isProductionMode() && supabase) {
+    // Jika Mode Production & MySQL aktif, jangan buat atau baca file database lokal dari disk
+    if (isProductionMode() && db) {
       mitras = [];
       services = [];
       clientDeals = [];
@@ -2533,7 +2551,7 @@ export const loadDatabase = () => {
       chatRooms = [];
       chatMessages = [];
       cleanupLocalDatabaseFileInProduction();
-      console.log('[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Cloud Supabase 100%.');
+      console.log('[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Database MySQL 100%.');
       return;
     }
 
@@ -2549,8 +2567,10 @@ export const loadDatabase = () => {
         if (appSettings.smtpPassword === '••••••••••••••••') {
           appSettings.smtpPassword = process.env.SMTP_PASS || '';
         }
-        if (process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production') {
+        if (isMysqlConfigured() && (process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production')) {
           appSettings.appEnvironment = 'production';
+        } else if (!isMysqlConfigured()) {
+          appSettings.appEnvironment = 'development';
         }
       }
 
@@ -2614,7 +2634,7 @@ export const loadDatabase = () => {
         chatRooms = [];
         chatMessages = [];
         cleanupLocalDatabaseFileInProduction();
-        console.log('[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).');
+        console.log('[Production Mode] Hanya terhubung ke Database MySQL (penyimpanan lokal dinonaktifkan).');
       } else {
         if (Array.isArray(data.mitras)) mitras = normalizeMitraAvatars(data.mitras);
         if (Array.isArray(data.services)) {
@@ -2646,66 +2666,66 @@ export const loadDatabase = () => {
   }
 };
 
-// Sinkronisasi langsung (Single Source of Truth) dari Cloud Database Supabase
-export const syncFromSupabase = async () => {
-  if (!supabase) return;
+// Sinkronisasi langsung (Single Source of Truth) dari Cloud Database MySQL
+export const syncFromMysql = async () => {
+  if (!db) return;
   try {
-    // 1. Mitras: Replace directly with Supabase rows (so deleted rows in Supabase are immediately gone!)
-    const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+    // 1. Mitras: Replace directly with MySQL rows (so deleted rows in MySQL are immediately gone!)
+    const { data: dbMitras, error: errM } = await db.from('mitras').select('*');
     if (!errM && Array.isArray(dbMitras)) {
       mitras = normalizeMitraAvatars(dbMitras);
-      console.log(`[Supabase Cloud] Sinkronisasi ${mitras.length} mitra dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${mitras.length} mitra dari MySQL`);
     }
 
     // 2. Services
-    const { data: dbServices, error: errS } = await supabase.from('services').select('*');
+    const { data: dbServices, error: errS } = await db.from('services').select('*');
     if (!errS && Array.isArray(dbServices)) {
       const normSrv = normalizeServicesCatalog(dbServices);
       services = normSrv.list;
       if (normSrv.migrated) {
         try {
-          await supabase.from('services').delete().in('id', Array.from(LEGACY_SEEDED_SERVICE_IDS));
-          await supabase.from('services').upsert(services);
+          await db.from('services').delete().in('id', Array.from(LEGACY_SEEDED_SERVICE_IDS));
+          await db.from('services').upsert(services);
         } catch (e) {
-          console.warn('[Supabase Services Catalog Sync Warning]', e);
+          console.warn('[MySQL Services Catalog Sync Warning]', e);
         }
       }
-      console.log(`[Supabase Cloud] Sinkronisasi ${services.length} layanan dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${services.length} layanan dari MySQL`);
     }
 
     // 3. Client Deals
-    const { data: dbDeals, error: errD } = await supabase.from('client_deals').select('*');
+    const { data: dbDeals, error: errD } = await db.from('client_deals').select('*');
     if (!errD && Array.isArray(dbDeals)) {
       clientDeals = normalizeClientDeals(dbDeals);
-      console.log(`[Supabase Cloud] Sinkronisasi ${clientDeals.length} deal klien dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${clientDeals.length} deal klien dari MySQL`);
     }
 
     // 4. Commissions
-    const { data: dbCommissions, error: errC } = await supabase.from('commissions').select('*');
+    const { data: dbCommissions, error: errC } = await db.from('commissions').select('*');
     if (!errC && Array.isArray(dbCommissions)) {
       commissions = dbCommissions;
-      console.log(`[Supabase Cloud] Sinkronisasi ${commissions.length} komisi dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${commissions.length} komisi dari MySQL`);
     }
 
     // 5. Payout Requests
-    const { data: dbPayouts, error: errPay } = await supabase.from('payout_requests').select('*');
+    const { data: dbPayouts, error: errPay } = await db.from('payout_requests').select('*');
     if (!errPay && Array.isArray(dbPayouts)) {
       payoutRequests = dbPayouts;
-      console.log(`[Supabase Cloud] Sinkronisasi ${payoutRequests.length} pengajuan pencairan dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${payoutRequests.length} pengajuan pencairan dari MySQL`);
     }
 
     // 6. Marketing Tools (Read from public.marketing_tools and merge with KV backup so nothing is ever lost)
-    const { data: dbTools, error: errT } = await supabase.from('marketing_tools').select('*');
+    const { data: dbTools, error: errT } = await db.from('marketing_tools').select('*');
     if (!errT && Array.isArray(dbTools) && dbTools.length > 0) {
       marketingTools = dbTools;
-      console.log(`[Supabase Cloud] Sinkronisasi ${marketingTools.length} tools marketing dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${marketingTools.length} tools marketing dari MySQL`);
     }
 
     // 7. Notifications
-    const { data: dbNotifs, error: errN } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
+    const { data: dbNotifs, error: errN } = await db.from('notifications').select('*').order('timestamp', { ascending: false });
     if (!errN && Array.isArray(dbNotifs)) {
       notifications = dbNotifs;
-      console.log(`[Supabase Cloud] Sinkronisasi ${notifications.length} notifikasi dari Supabase`);
+      console.log(`[MySQL Database] Sinkronisasi ${notifications.length} notifikasi dari MySQL`);
     }
 
     // 7b. Chat Rooms & Chat Messages (Read from dedicated public.chat_rooms / public.chat_messages tables if available)
@@ -2713,8 +2733,8 @@ export const syncFromSupabase = async () => {
     let tableChatMessages: ChatMessage[] = [];
     try {
       const [{ data: dbRooms, error: errCR }, { data: dbMsgs, error: errCM }] = await Promise.all([
-        supabase.from('chat_rooms').select('*'),
-        supabase.from('chat_messages').select('*').order('createdAt', { ascending: true }),
+        db.from('chat_rooms').select('*'),
+        db.from('chat_messages').select('*').order('createdAt', { ascending: true }),
       ]);
       if (!errCR && Array.isArray(dbRooms)) {
         tableChatRooms = dbRooms as ChatRoom[];
@@ -2728,9 +2748,9 @@ export const syncFromSupabase = async () => {
     let kvChatMessages: ChatMessage[] = [];
 
     // 8. User Passwords & Encrypted Credentials + System KV (Settings, Roles, Activity Logs, Email Logs)
-    const { data: dbPasswords, error: errP } = await supabase.from('user_passwords').select('*');
+    const { data: dbPasswords, error: errP } = await db.from('user_passwords').select('*');
     if (!errP && Array.isArray(dbPasswords)) {
-      const toUpgradeInSupabase: { email: string; password: string }[] = [];
+      const toUpgradeInMysql: { email: string; password: string }[] = [];
       let hasSysConfig = false;
       let hasSysRoles = false;
       let hasSysAdminProfile = false;
@@ -2888,62 +2908,62 @@ export const syncFromSupabase = async () => {
         if (!isEncryptedPassword(row.password)) {
           const encrypted = encryptUserPassword(row.password, defaultRole);
           userPasswords.set(emailLower, encrypted);
-          toUpgradeInSupabase.push({ email: emailLower, password: encrypted });
+          toUpgradeInMysql.push({ email: emailLower, password: encrypted });
         } else {
           userPasswords.set(emailLower, row.password);
         }
       }
 
-      // Seed System Config, Roles, Admin Profile, Staff Accounts, Activity Logs, and Email Logs into Supabase if not yet present
+      // Seed System Config, Roles, Admin Profile, Staff Accounts, Activity Logs, and Email Logs into MySQL if not yet present
       if (!hasSysConfig) {
-        toUpgradeInSupabase.push({ email: '__sys_config__@ndtaxlaw.internal', password: JSON.stringify(appSettings) });
+        toUpgradeInMysql.push({ email: '__sys_config__@ndtaxlaw.internal', password: JSON.stringify(appSettings) });
       }
       if (!hasSysRoles) {
-        toUpgradeInSupabase.push({ email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) });
+        toUpgradeInMysql.push({ email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) });
       }
       if (!hasSysAdminProfile) {
         const { password: _ap, ...safeAdmin } = adminAccount;
-        toUpgradeInSupabase.push({ email: '__sys_admin_profile__@ndtaxlaw.internal', password: JSON.stringify(safeAdmin) });
+        toUpgradeInMysql.push({ email: '__sys_admin_profile__@ndtaxlaw.internal', password: JSON.stringify(safeAdmin) });
       }
       if (!hasSysStaffAccounts) {
-        toUpgradeInSupabase.push({ email: '__sys_staff_accounts__@ndtaxlaw.internal', password: JSON.stringify(staffAccounts) });
+        toUpgradeInMysql.push({ email: '__sys_staff_accounts__@ndtaxlaw.internal', password: JSON.stringify(staffAccounts) });
       }
       if (!hasSysActivityLogs) {
-        toUpgradeInSupabase.push({ email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) });
+        toUpgradeInMysql.push({ email: '__sys_activity_logs__@ndtaxlaw.internal', password: JSON.stringify(activityLogs.slice(0, 250)) });
       }
       if (!hasSysEmailLogs) {
         const compactEmails = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
-        toUpgradeInSupabase.push({ email: '__sys_email_logs__@ndtaxlaw.internal', password: JSON.stringify(compactEmails) });
+        toUpgradeInMysql.push({ email: '__sys_email_logs__@ndtaxlaw.internal', password: JSON.stringify(compactEmails) });
       }
 
-      // Ensure every existing Mitra in Supabase has an encrypted password record in Supabase user_passwords
+      // Ensure every existing Mitra in MySQL has an encrypted password record in MySQL user_passwords
       for (const m of mitras) {
         const mEmail = m.email.toLowerCase();
         const existingInCloud = dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === mEmail);
         if (!existingInCloud) {
           const localEnc = userPasswords.get(mEmail) || encryptUserPassword('mitraND2026!', 'mitra');
           userPasswords.set(mEmail, localEnc);
-          toUpgradeInSupabase.push({ email: mEmail, password: localEnc });
+          toUpgradeInMysql.push({ email: mEmail, password: localEnc });
         }
       }
 
-      // Ensure every Staff account has an encrypted password record in Supabase user_passwords
+      // Ensure every Staff account has an encrypted password record in MySQL user_passwords
       for (const s of staffAccounts) {
         const sEmail = s.email.toLowerCase();
         const existingInCloud = dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === sEmail);
         if (!existingInCloud) {
           const localEnc = userPasswords.get(sEmail) || encryptUserPassword('stafND2026!', 'staff');
           userPasswords.set(sEmail, localEnc);
-          toUpgradeInSupabase.push({ email: sEmail, password: localEnc });
+          toUpgradeInMysql.push({ email: sEmail, password: localEnc });
         }
       }
 
-      // Ensure Admin has an encrypted password record in Supabase user_passwords
+      // Ensure Admin has an encrypted password record in MySQL user_passwords
       const adminEmail = adminAccount.email.toLowerCase();
       if (!dbPasswords.some((r: any) => r.email && r.email.toLowerCase() === adminEmail)) {
         const adminEnc = userPasswords.get(adminEmail) || encryptUserPassword(adminAccount.password, 'admin');
         userPasswords.set(adminEmail, adminEnc);
-        toUpgradeInSupabase.push({ email: adminEmail, password: adminEnc });
+        toUpgradeInMysql.push({ email: adminEmail, password: adminEnc });
       }
 
       const mergedRoomsMap = new Map<string, ChatRoom>();
@@ -2987,18 +3007,18 @@ export const syncFromSupabase = async () => {
         );
       }
       console.log(
-        `[Supabase Cloud] Sinkronisasi ${chatRooms.length} ruang chat & ${chatMessages.length} pesan chat dari Supabase`
+        `[MySQL Database] Sinkronisasi ${chatRooms.length} ruang chat & ${chatMessages.length} pesan chat dari MySQL`
       );
 
-      if (toUpgradeInSupabase.length > 0) {
-        await supabase.from('user_passwords').upsert(toUpgradeInSupabase);
-        console.log(`[Supabase Cloud] Sinkronisasi pengaturan, profil admin, akun staf, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
+      if (toUpgradeInMysql.length > 0) {
+        await db.from('user_passwords').upsert(toUpgradeInMysql);
+        console.log(`[MySQL Database] Sinkronisasi pengaturan, profil admin, akun staf, log aktivitas, log email & kredensial terenkripsi ke MySQL selesai.`);
       }
     }
 
-    // 9. Optional dedicated tables (app_settings, activity_logs, email_logs) if created in Supabase
+    // 9. Optional dedicated tables (app_settings, activity_logs, email_logs) if created in MySQL
     try {
-      const { data: dbSettings, error: errSet } = await supabase.from('app_settings').select('*').eq('id', 'config_primary').maybeSingle();
+      const { data: dbSettings, error: errSet } = await db.from('app_settings').select('*').eq('id', 'config_primary').maybeSingle();
       if (!errSet && dbSettings && dbSettings.settings) {
         const cloudSettings = dbSettings.settings as Partial<AppSettings>;
         if (cloudSettings.smtpPassword === '••••••••••••••••') {
@@ -3009,20 +3029,20 @@ export const syncFromSupabase = async () => {
     } catch {}
 
     try {
-      const { data: dbActLogs, error: errAct } = await supabase.from('activity_logs').select('*').order('timestamp', { ascending: false }).limit(250);
+      const { data: dbActLogs, error: errAct } = await db.from('activity_logs').select('*').order('timestamp', { ascending: false }).limit(250);
       if (!errAct && Array.isArray(dbActLogs) && dbActLogs.length > 0) {
         activityLogs = dbActLogs;
       }
     } catch {}
 
     try {
-      const { data: dbEmLogs, error: errEm } = await supabase
+      const { data: dbEmLogs, error: errEm } = await db
         .from('email_logs')
         .select('*')
         .order('timestamp', { ascending: false })
         .limit(200);
       if (!errEm && Array.isArray(dbEmLogs)) {
-        const mappedFromTable = dbEmLogs.map(fromSupabaseEmailLogRow);
+        const mappedFromTable = dbEmLogs.map(fromDbEmailLogRow);
         // Merge with any logs loaded from __sys_email_logs__@ndtaxlaw.internal so no logs are lost
         const mergedMap = new Map<string, EmailLogItem>();
         for (const item of [...mappedFromTable, ...emailLogs]) {
@@ -3035,25 +3055,38 @@ export const syncFromSupabase = async () => {
         );
         // Backfill public.email_logs table if KV had logs not yet in public.email_logs
         if (emailLogs.length > dbEmLogs.length) {
-          const rowsToSync = emailLogs.slice(0, 100).map(toSupabaseEmailLogRow);
-          await supabase.from('email_logs').upsert(rowsToSync);
+          const rowsToSync = emailLogs.slice(0, 100).map(toDbEmailLogRow);
+          await db.from('email_logs').upsert(rowsToSync);
         }
       }
     } catch {}
 
     saveDatabase();
   } catch (err) {
-    console.warn('[Supabase Cloud Warning] Gagal sinkronisasi data dari Supabase saat startup:', err);
+    console.warn('[MySQL Database Warning] Gagal sinkronisasi data dari MySQL saat startup:', err);
   }
 };
 
-// Muat konfigurasi awal & sinkronkan langsung dari Supabase
+// Muat konfigurasi awal & sinkronkan langsung dari Database MySQL
 loadDatabase();
-// Pastikan default mode adalah production (terkoneksi eksklusif ke Supabase) kecuali disetel development
+// Pastikan default mode adalah production (terkoneksi eksklusif ke MySQL saat dikonfigurasi) kecuali disetel development
 if (!process.env.APP_ENV) {
-  appSettings.appEnvironment = 'production';
+  appSettings.appEnvironment = isMysqlConfigured() ? 'production' : 'development';
 }
-syncFromSupabase();
+if (db) {
+  ensureMysqlSchema()
+    .then((res) => {
+      if (res.success) {
+        console.log(`[MySQL Database] ${res.message}`);
+      } else {
+        console.warn(`[MySQL Schema Warning] ${res.message}`);
+      }
+      return syncFromMysql();
+    })
+    .catch((err) => {
+      console.warn('[MySQL Startup Warning]', err);
+    });
+}
 
 // ========================================================
 // 0. AUTHENTICATION & DYNAMIC ROLE ENDPOINTS
@@ -3094,9 +3127,9 @@ app.post('/api/roles', async (req: Request, res: Response) => {
   systemRoles.push(newRole);
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('user_passwords').upsert([
+      await db.from('user_passwords').upsert([
         { email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) },
       ]);
     } catch {}
@@ -3121,9 +3154,9 @@ app.put('/api/roles/:code', async (req: Request, res: Response) => {
   if (isActive !== undefined && !target.isSystem) target.isActive = Boolean(isActive);
 
   saveDatabase();
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('user_passwords').upsert([
+      await db.from('user_passwords').upsert([
         { email: '__sys_roles__@ndtaxlaw.internal', password: JSON.stringify(systemRoles) },
       ]);
     } catch {}
@@ -3154,10 +3187,10 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     });
   }
 
-  // Sinkronisasi kredensial, profil admin, dan akun staf terbaru dari Supabase saat login
-  if (supabase) {
+  // Sinkronisasi kredensial, profil admin, dan akun staf terbaru dari MySQL saat login
+  if (db) {
     try {
-      const { data: sysRows } = await supabase
+      const { data: sysRows } = await db
         .from('user_passwords')
         .select('*')
         .in('email', [
@@ -3202,7 +3235,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           if (!isEncryptedPassword(pwRow.password)) {
             const enc = encryptUserPassword(pwRow.password, defaultRole);
             userPasswords.set(normalizedEmail, enc);
-            await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: enc }]);
+            await db.from('user_passwords').upsert([{ email: normalizedEmail, password: enc }]);
           } else {
             userPasswords.set(normalizedEmail, pwRow.password);
           }
@@ -3300,9 +3333,9 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       if (verifyRes.needsUpgrade) {
         const upgraded = encryptUserPassword(password, 'staff');
         userPasswords.set(normalizedEmail, upgraded);
-        if (supabase) {
+        if (db) {
           try {
-            await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: upgraded }]);
+            await db.from('user_passwords').upsert([{ email: normalizedEmail, password: upgraded }]);
           } catch {}
         }
       }
@@ -3368,11 +3401,11 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     return res.status(401).json({ success: false, message: 'Kata sandi akun Staf tidak valid.' });
   }
 
-  // 2. Check Mitra Login (Dalam mode Production, WAJIB mengecek langsung ke tabel mitras di Supabase)
+  // 2. Check Mitra Login (Dalam mode Production, WAJIB mengecek langsung ke tabel mitras di MySQL)
   let mitra: Mitra | undefined;
-  if (supabase) {
+  if (db) {
     try {
-      const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+      const { data: dbMitras, error: errM } = await db.from('mitras').select('*');
       if (!errM && Array.isArray(dbMitras)) {
         mitras = normalizeMitraAvatars(dbMitras);
         mitra = mitras.find(
@@ -3383,7 +3416,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       if (isProd) {
         return res.status(503).json({
           success: false,
-          message: 'Gagal terhubung ke Database Supabase pada mode Production.',
+          message: 'Gagal terhubung ke Database MySQL pada mode Production.',
         });
       }
     }
@@ -3425,9 +3458,9 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       if (verifyRes.needsUpgrade) {
         const upgraded = encryptUserPassword(password, verifyRes.role || 'mitra');
         userPasswords.set(mitraEmailLower, upgraded);
-        if (supabase) {
+        if (db) {
           try {
-            await supabase.from('user_passwords').upsert([{ email: mitraEmailLower, password: upgraded }]);
+            await db.from('user_passwords').upsert([{ email: mitraEmailLower, password: upgraded }]);
           } catch {}
         }
       }
@@ -3500,10 +3533,10 @@ const normalizeNikNpwp = (raw?: string | null): string => {
   return cleaned;
 };
 
-const syncMitrasFromSupabaseForValidation = async () => {
-  if (!supabase) return;
+const syncMitrasFromMysqlForValidation = async () => {
+  if (!db) return;
   try {
-    const { data: dbMitras, error: errM } = await supabase.from('mitras').select('*');
+    const { data: dbMitras, error: errM } = await db.from('mitras').select('*');
     if (!errM && Array.isArray(dbMitras)) {
       mitras = normalizeMitraAvatars(dbMitras);
     }
@@ -3579,7 +3612,7 @@ const checkMitraIdentityUniqueness = (params: {
 app.post('/api/mitra/check-unique', async (req: Request, res: Response) => {
   try {
     const { email, nik, excludeMitraId } = req.body || {};
-    await syncMitrasFromSupabaseForValidation();
+    await syncMitrasFromMysqlForValidation();
     const result = checkMitraIdentityUniqueness({ email, nik, excludeMitraId });
     return res.json({
       success: true,
@@ -3650,8 +3683,8 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
       });
     }
 
-    // Sinkronkan daftar mitra dari Supabase terlebih dahulu agar validasi email unik selalu akurat
-    await syncMitrasFromSupabaseForValidation();
+    // Sinkronkan daftar mitra dari MySQL terlebih dahulu agar validasi email unik selalu akurat
+    await syncMitrasFromMysqlForValidation();
 
     // Validasi ketat keunikan email saat mendaftar menggunakan akun Google
     if (isRegisterMode) {
@@ -3829,30 +3862,30 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
       };
 
       mitras.unshift(mitra);
-      if (supabase) {
+      if (db) {
         try {
           const {
             gender: _g,
             customFields: _cf,
             ktpFileUrl: _kfu,
             ktpFileName: _kfn,
-            ...supabaseMitraPayload
+            ...dbMitraPayload
           } = mitra;
-          const { error: insertErr } = await supabase.from('mitras').insert([supabaseMitraPayload]);
+          const { error: insertErr } = await db.from('mitras').insert([dbMitraPayload]);
           if (insertErr) {
             const {
               emailVerified: _ev,
               verificationToken: _vt,
               verificationTokenExpiry: _vte,
               ...minimalPayload
-            } = supabaseMitraPayload;
-            const { error: retryErr } = await supabase.from('mitras').insert([minimalPayload]);
+            } = dbMitraPayload;
+            const { error: retryErr } = await db.from('mitras').insert([minimalPayload]);
             if (retryErr) {
-              console.warn('[Supabase Mitra Google Register Warning]', retryErr.message);
+              console.warn('[MySQL Mitra Google Register Warning]', retryErr.message);
             }
           }
         } catch (supaErr) {
-          console.warn('[Supabase Mitra Google Register Warning]', supaErr);
+          console.warn('[MySQL Mitra Google Register Warning]', supaErr);
         }
       }
       saveDatabase();
@@ -3882,9 +3915,9 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
     // Auto-verify email if existing mitra signed in via verified Google account
     if (mitra.emailVerified === false) {
       mitra.emailVerified = true;
-      if (supabase) {
+      if (db) {
         try {
-          await supabase.from('mitras').update({ emailVerified: true }).eq('id', mitra.id);
+          await db.from('mitras').update({ emailVerified: true }).eq('id', mitra.id);
         } catch {}
       }
       saveDatabase();
@@ -3940,15 +3973,15 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
 // ========================================================
 const persistAdminAndStaffToCloud = async () => {
   saveDatabase();
-  if (supabase) {
+  if (db) {
     try {
       const { password: _ap, ...safeAdmin } = adminAccount;
-      await supabase.from('user_passwords').upsert([
+      await db.from('user_passwords').upsert([
         { email: '__sys_admin_profile__@ndtaxlaw.internal', password: JSON.stringify(safeAdmin) },
         { email: '__sys_staff_accounts__@ndtaxlaw.internal', password: JSON.stringify(staffAccounts) },
       ]);
     } catch (e) {
-      console.warn('Supabase admin/staff sync warning:', e);
+      console.warn('MySQL admin/staff sync warning:', e);
     }
   }
 };
@@ -4006,9 +4039,9 @@ app.put('/api/admin/profile', async (req: Request, res: Response) => {
   if (nextEmailLower !== oldEmailLower) {
     userPasswords.delete(oldEmailLower);
     adminAccount.email = nextEmailLower;
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').delete().eq('email', oldEmailLower);
+        await db.from('user_passwords').delete().eq('email', oldEmailLower);
       } catch {}
     }
   }
@@ -4018,17 +4051,17 @@ app.put('/api/admin/profile', async (req: Request, res: Response) => {
     adminAccount.password = cleanNewPass;
     const encryptedPass = encryptUserPassword(cleanNewPass, 'admin');
     userPasswords.set(nextEmailLower, encryptedPass);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPass }]);
+        await db.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPass }]);
       } catch {}
     }
   } else {
     const reEncrypted = encryptUserPassword(prevStoredEnc, 'admin');
     userPasswords.set(nextEmailLower, reEncrypted);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: reEncrypted }]);
+        await db.from('user_passwords').upsert([{ email: nextEmailLower, password: reEncrypted }]);
       } catch {}
     }
   }
@@ -4123,9 +4156,9 @@ app.post('/api/staff', async (req: Request, res: Response) => {
   );
   userPasswords.set(cleanEmail, encryptedPass);
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('user_passwords').upsert([{ email: cleanEmail, password: encryptedPass }]);
+      await db.from('user_passwords').upsert([{ email: cleanEmail, password: encryptedPass }]);
     } catch {}
   }
 
@@ -4200,9 +4233,9 @@ app.put('/api/staff/:id', async (req: Request, res: Response) => {
   if (nextEmailLower !== oldEmailLower) {
     userPasswords.delete(oldEmailLower);
     staff.email = nextEmailLower;
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').delete().eq('email', oldEmailLower);
+        await db.from('user_passwords').delete().eq('email', oldEmailLower);
       } catch {}
     }
   }
@@ -4210,17 +4243,17 @@ app.put('/api/staff/:id', async (req: Request, res: Response) => {
   if (newPassword && String(newPassword).trim().length >= 6) {
     const encryptedPass = encryptUserPassword(String(newPassword).trim(), 'staff');
     userPasswords.set(nextEmailLower, encryptedPass);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPass }]);
+        await db.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPass }]);
       } catch {}
     }
   } else {
     const reEncrypted = encryptUserPassword(prevStoredEnc, 'staff');
     userPasswords.set(nextEmailLower, reEncrypted);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').upsert([{ email: nextEmailLower, password: reEncrypted }]);
+        await db.from('user_passwords').upsert([{ email: nextEmailLower, password: reEncrypted }]);
       } catch {}
     }
   }
@@ -4262,9 +4295,9 @@ app.delete('/api/staff/:id', async (req: Request, res: Response) => {
   staffAccounts = staffAccounts.filter((s) => s.id !== id);
   userPasswords.delete(emailLower);
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('user_passwords').delete().eq('email', emailLower);
+      await db.from('user_passwords').delete().eq('email', emailLower);
     } catch {}
   }
 
@@ -4304,9 +4337,9 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
     });
   }
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      const { data: dbMitras } = await db.from('mitras').select('*');
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {}
   }
@@ -4329,9 +4362,9 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
     attempts: 0,
   };
   passwordResetTokens.set(normalizedEmail, tokenPayload);
-  if (supabase) {
+  if (db) {
     try {
-      await supabase
+      await db
         .from('user_passwords')
         .upsert([{ email: `__otp__:${normalizedEmail}`, password: JSON.stringify(tokenPayload) }]);
     } catch {}
@@ -4385,10 +4418,10 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
 
   let storedToken = passwordResetTokens.get(normalizedEmail);
 
-  // Fallback 1: Check Supabase KV if server restarted
-  if (!storedToken && supabase) {
+  // Fallback 1: Check MySQL KV if server restarted
+  if (!storedToken && db) {
     try {
-      const { data: kvOtp } = await supabase
+      const { data: kvOtp } = await db
         .from('user_passwords')
         .select('password')
         .eq('email', `__otp__:${normalizedEmail}`)
@@ -4450,9 +4483,9 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   }
 
   passwordResetTokens.delete(normalizedEmail);
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('user_passwords').delete().eq('email', `__otp__:${normalizedEmail}`);
+      await db.from('user_passwords').delete().eq('email', `__otp__:${normalizedEmail}`);
     } catch {}
   }
 
@@ -4485,11 +4518,11 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   });
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPassword }]);
+      await db.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPassword }]);
     } catch (e) {
-      console.warn('Supabase password reset update error', e);
+      console.warn('MySQL password reset update error', e);
     }
   }
 
@@ -4518,9 +4551,9 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
     });
   }
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      const { data: dbMitras } = await db.from('mitras').select('*');
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {}
   }
@@ -4576,9 +4609,9 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      const { error: upErr } = await supabase
+      const { error: upErr } = await db
         .from('mitras')
         .update({
           emailVerified: true,
@@ -4587,7 +4620,7 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
         })
         .eq('id', mitra.id);
       if (upErr) {
-        await supabase
+        await db
           .from('mitras')
           .update({
             bankDetails: mitra.bankDetails,
@@ -4595,7 +4628,7 @@ app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
           .eq('id', mitra.id);
       }
     } catch (e) {
-      console.warn('Supabase verify-email update error', e);
+      console.warn('MySQL verify-email update error', e);
     }
   }
 
@@ -4610,9 +4643,9 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
   const { email } = req.body;
   const normalizedEmail = (email || '').trim().toLowerCase();
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      const { data: dbMitras } = await db.from('mitras').select('*');
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {}
   }
@@ -4639,9 +4672,9 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      const { error: upErr } = await supabase
+      const { error: upErr } = await db
         .from('mitras')
         .update({
           verificationToken: newToken,
@@ -4650,7 +4683,7 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
         })
         .eq('id', mitra.id);
       if (upErr) {
-        await supabase
+        await db
           .from('mitras')
           .update({
             bankDetails: mitra.bankDetails,
@@ -4658,7 +4691,7 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
           .eq('id', mitra.id);
       }
     } catch (e) {
-      console.warn('Supabase resend-verification update error', e);
+      console.warn('MySQL resend-verification update error', e);
     }
   }
 
@@ -4704,26 +4737,26 @@ const toPublicSafeMitraList = (list: Mitra[]) =>
   list.map(({ verificationToken: _vt, verificationTokenExpiry: _vte, ...safeMitra }) => safeMitra);
 
 app.get('/api/mitra', async (req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
-      const { data, error } = await supabase.from('mitras').select('*');
+      const { data, error } = await db.from('mitras').select('*');
       if (!error && Array.isArray(data)) {
-        // LANGSUNG gunakan data dari Supabase tanpa merge lokal, sehingga jika data dihapus di Supabase otomatis hilang saat refresh!
+        // LANGSUNG gunakan data dari MySQL tanpa merge lokal, sehingga jika data dihapus di MySQL otomatis hilang saat refresh!
         mitras = normalizeMitraAvatars(data);
         saveDatabase();
         return res.json({ success: true, data: toPublicSafeMitraList(mitras) });
       }
       if (isProductionMode() && error) {
-        return res.status(503).json({ success: false, message: `Supabase Error: ${error.message}`, data: [] });
+        return res.status(503).json({ success: false, message: `MySQL Error: ${error.message}`, data: [] });
       }
     } catch (e: any) {
       if (isProductionMode()) {
-        return res.status(503).json({ success: false, message: 'Gagal memuat data mitra dari Supabase.', data: [] });
+        return res.status(503).json({ success: false, message: 'Gagal memuat data mitra dari MySQL.', data: [] });
       }
-      console.warn('Supabase query error for mitras, using dev fallback', e);
+      console.warn('MySQL query error for mitras, using dev fallback', e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: 'Supabase wajib terhubung pada mode Production.', data: [] });
+    return res.status(503).json({ success: false, message: 'Database MySQL wajib terhubung pada mode Production.', data: [] });
   }
   mitras = normalizeMitraAvatars(mitras);
   res.json({ success: true, data: toPublicSafeMitraList(mitras) });
@@ -4740,9 +4773,9 @@ app.get('/api/mitra/public-verify/:code', async (req: Request, res: Response) =>
     });
   }
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data } = await supabase.from('mitras').select('*');
+      const { data } = await db.from('mitras').select('*');
       if (Array.isArray(data)) {
         mitras = normalizeMitraAvatars(data);
       }
@@ -4813,8 +4846,8 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   const normalizedEmail = (email || '').trim().toLowerCase();
 
-  // Sinkronkan daftar mitra dari Supabase terlebih dahulu agar validasi email & NIK/NPWP unik selalu akurat
-  await syncMitrasFromSupabaseForValidation();
+  // Sinkronkan daftar mitra dari MySQL terlebih dahulu agar validasi email & NIK/NPWP unik selalu akurat
+  await syncMitrasFromMysqlForValidation();
 
   // VALIDASI 1 & 2: EMAIL UNIQUE & NIK/NPWP UNIQUE
   const uniqueness = checkMitraIdentityUniqueness({ email, nik });
@@ -4922,31 +4955,31 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`,
   });
 
-  if (supabase) {
+  if (db) {
     try {
       const {
         gender: _g,
         customFields: _cf,
         ktpFileUrl: _kfu,
         ktpFileName: _kfn,
-        ...supabaseMitraPayload
+        ...dbMitraPayload
       } = newMitra;
-      const { error: insertErr } = await supabase.from('mitras').insert([supabaseMitraPayload]);
+      const { error: insertErr } = await db.from('mitras').insert([dbMitraPayload]);
       if (insertErr) {
         const {
           emailVerified: _ev,
           verificationToken: _vt,
           verificationTokenExpiry: _vte,
           ...minimalPayload
-        } = supabaseMitraPayload;
-        const { error: retryErr } = await supabase.from('mitras').insert([minimalPayload]);
+        } = dbMitraPayload;
+        const { error: retryErr } = await db.from('mitras').insert([minimalPayload]);
         if (retryErr) {
-          console.warn('Supabase mitra insert warning:', retryErr.message);
+          console.warn('MySQL mitra insert warning:', retryErr.message);
         }
       }
-      await supabase.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPass }]);
+      await db.from('user_passwords').upsert([{ email: normalizedEmail, password: encryptedPass }]);
     } catch (e) {
-      console.warn('Supabase insert error for new mitra', e);
+      console.warn('MySQL insert error for new mitra', e);
     }
   }
 
@@ -4971,9 +5004,9 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   };
   notifications.unshift(newNotif);
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('notifications').insert([toSupabaseNotification(newNotif)]);
+      await db.from('notifications').insert([toDbNotification(newNotif)]);
     } catch {}
   }
 
@@ -4996,9 +5029,9 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status, rejectionReason, groupChatIds } = req.body; // 'verified' | 'rejected', optional groupChatIds: string[]
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data: dbMitras } = await supabase.from('mitras').select('*');
+      const { data: dbMitras } = await db.from('mitras').select('*');
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {}
   }
@@ -5030,9 +5063,9 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
       : [];
 
     if (requestedGroupIds.length > 0) {
-      if (supabase) {
+      if (db) {
         try {
-          await syncChatFromSupabase();
+          await syncChatFromMysql();
         } catch {}
       }
 
@@ -5088,11 +5121,11 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
       });
     }
 
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+        await db.from('notifications').insert([toDbNotification(notif)]);
       } catch (e) {
-        console.warn('Supabase insert error', e);
+        console.warn('MySQL insert error', e);
       }
     }
   } else if (status === 'rejected') {
@@ -5129,11 +5162,11 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
       });
     }
 
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+        await db.from('notifications').insert([toDbNotification(notif)]);
       } catch (e) {
-        console.warn('Supabase insert error', e);
+        console.warn('MySQL insert error', e);
       }
     }
   }
@@ -5156,9 +5189,9 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
         : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`,
   });
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase
+      await db
         .from('mitras')
         .update({
           status,
@@ -5167,7 +5200,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
         })
         .eq('id', id);
     } catch (e) {
-      console.warn('Supabase update verify error', e);
+      console.warn('MySQL update verify error', e);
     }
   }
 
@@ -5188,7 +5221,7 @@ app.put('/api/mitra/:id/active-status', async (req: Request, res: Response) => {
     });
   }
 
-  await syncMitrasFromSupabaseForValidation();
+  await syncMitrasFromMysqlForValidation();
   const mitra = mitras.find((m) => m.id === id);
   if (!mitra) {
     return res.status(404).json({ success: false, message: 'Data Mitra tidak ditemukan.' });
@@ -5227,14 +5260,14 @@ app.put('/api/mitra/:id/active-status', async (req: Request, res: Response) => {
 
   mitra.bankDetails = updatedBank;
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase
+      await db
         .from('mitras')
         .update({ bankDetails: mitra.bankDetails })
         .eq('id', id);
     } catch (e) {
-      console.warn('Supabase update mitra active-status error', e);
+      console.warn('MySQL update mitra active-status error', e);
     }
   }
 
@@ -5269,10 +5302,10 @@ app.delete('/api/mitra/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { actorName, actorRole, actorId, actorEmail } = req.body || {};
 
-  await syncMitrasFromSupabaseForValidation();
-  if (supabase) {
+  await syncMitrasFromMysqlForValidation();
+  if (db) {
     try {
-      const { data: dbDeals, error: errD } = await supabase.from('client_deals').select('*');
+      const { data: dbDeals, error: errD } = await db.from('client_deals').select('*');
       if (!errD && Array.isArray(dbDeals)) {
         clientDeals = dbDeals;
       }
@@ -5325,14 +5358,14 @@ app.delete('/api/mitra/:id', async (req: Request, res: Response) => {
   // Remove mitra-specific notifications
   notifications = notifications.filter((n) => n.mitraId !== id);
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('mitras').delete().eq('id', id);
+      await db.from('mitras').delete().eq('id', id);
       if (normalizedEmail) {
-        await supabase.from('user_passwords').delete().eq('email', normalizedEmail);
+        await db.from('user_passwords').delete().eq('email', normalizedEmail);
       }
     } catch (e) {
-      console.warn('Supabase delete mitra error', e);
+      console.warn('MySQL delete mitra error', e);
     }
   }
 
@@ -5378,7 +5411,7 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     customFields,
   } = req.body;
 
-  await syncMitrasFromSupabaseForValidation();
+  await syncMitrasFromMysqlForValidation();
 
   const mitra = mitras.find((m) => m.id === id);
 
@@ -5512,9 +5545,9 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
       mitraId: mitra.id,
     };
     notifications.unshift(notif);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+        await db.from('notifications').insert([toDbNotification(notif)]);
       } catch {}
     }
   }
@@ -5522,9 +5555,9 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   if (newPassword && newPassword.length >= 6) {
     const encryptedPwd = encryptUserPassword(newPassword, 'mitra');
     userPasswords.set(mitra.email.toLowerCase(), encryptedPwd);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('user_passwords').upsert([{ email: mitra.email.toLowerCase(), password: encryptedPwd }]);
+        await db.from('user_passwords').upsert([{ email: mitra.email.toLowerCase(), password: encryptedPwd }]);
       } catch {}
     }
   }
@@ -5543,9 +5576,9 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
         : `Mitra "${mitra.fullName}" memperbarui data profil dan rekening bank (${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber}).`,
   });
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('mitras').update({
+      await db.from('mitras').update({
         fullName: mitra.fullName,
         phone: mitra.phone,
         nik: mitra.nik,
@@ -5555,7 +5588,7 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
         status: mitra.status,
       }).eq('id', id);
     } catch (e) {
-      console.warn('Supabase update profile error', e);
+      console.warn('MySQL update profile error', e);
     }
   }
 
@@ -5625,7 +5658,7 @@ const getMimeTypeFromExt = (filename: string): string => {
   return 'application/octet-stream';
 };
 
-// Self-healing static file handler: restores missing files from persistent OS storage or Supabase Cloud automatically
+// Self-healing static file handler: restores missing files from persistent OS storage or MySQL Cloud automatically
 app.get('/uploads/marketing-tools/:filename', async (req: Request, res: Response) => {
   const safeName = path.basename(String(req.params.filename || ''));
   if (!safeName) {
@@ -5661,11 +5694,11 @@ app.get('/uploads/marketing-tools/:filename', async (req: Request, res: Response
     }
   }
 
-  // 3. Self-heal from Supabase Cloud backup if server disk was wiped during redeploy/git pull
-  if (supabase) {
+  // 3. Self-heal from MySQL Cloud backup if server disk was wiped during redeploy/git pull
+  if (db) {
     try {
       const cloudKey = `__sys_file_${safeName.toLowerCase()}__@ndtaxlaw.internal`;
-      const { data } = await supabase
+      const { data } = await db
         .from('user_passwords')
         .select('password')
         .eq('email', cloudKey)
@@ -5721,16 +5754,16 @@ const compressBinaryBuffer = (buf: Buffer, ext: string): Buffer => {
 };
 
 const persistMarketingToolsToCloud = async () => {
-  if (!supabase) return;
+  if (!db) return;
   try {
-    await supabase.from('user_passwords').upsert([
+    await db.from('user_passwords').upsert([
       {
         email: '__sys_marketing_tools__@ndtaxlaw.internal',
         password: JSON.stringify(marketingTools),
       },
     ]);
   } catch (e) {
-    console.warn('Supabase KV marketing_tools backup warning:', e);
+    console.warn('MySQL KV marketing_tools backup warning:', e);
   }
 };
 
@@ -5786,8 +5819,8 @@ const saveDataUrlToHostingServer = (
   }
 
   let cloudSyncPromise: Promise<any> | undefined;
-  // Also back up file binary in Supabase Cloud so even a fresh VPS/container redeploy restores it
-  if (supabase && optimizedBuffer.length <= 18 * 1024 * 1024) {
+  // Also back up file binary in MySQL Cloud so even a fresh VPS/container redeploy restores it
+  if (db && optimizedBuffer.length <= 18 * 1024 * 1024) {
     const cloudKey = `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`;
     const cloudPayload = JSON.stringify({
       fileName,
@@ -5796,7 +5829,7 @@ const saveDataUrlToHostingServer = (
       savedAt: new Date().toISOString(),
     });
     cloudSyncPromise = Promise.resolve(
-      supabase
+      db
         .from('user_passwords')
         .upsert([{ email: cloudKey, password: cloudPayload }])
     ).catch(() => {});
@@ -5842,11 +5875,11 @@ app.post('/api/marketing-tools/upload', async (req: Request, res: Response) => {
 });
 
 app.get('/api/marketing-tools', async (req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
       const [{ data: tableData, error: tableErr }, { data: kvData }] = await Promise.all([
-        supabase.from('marketing_tools').select('*'),
-        supabase
+        db.from('marketing_tools').select('*'),
+        db
           .from('user_passwords')
           .select('password')
           .eq('email', '__sys_marketing_tools__@ndtaxlaw.internal')
@@ -5873,11 +5906,11 @@ app.get('/api/marketing-tools', async (req: Request, res: Response) => {
         return res.json({ success: true, data: marketingTools });
       }
     } catch (e) {
-      console.warn('Supabase tools error', e);
+      console.warn('MySQL tools error', e);
     }
   }
-  if (isProductionMode() && !supabase) {
-    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  if (isProductionMode() && !db) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database MySQL.' });
   }
   res.json({ success: true, data: marketingTools });
 });
@@ -5937,14 +5970,14 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
     description: `Admin mengunggah materi marketing baru: "${title}" (${category}) [${finalFileSize}].`,
   });
 
-  if (supabase) {
+  if (db) {
     try {
-      const { error: insErr } = await supabase.from('marketing_tools').upsert([newTool]);
+      const { error: insErr } = await db.from('marketing_tools').upsert([newTool]);
       if (insErr) {
-        console.warn('Supabase marketing_tools table insert warning (using KV backup):', insErr.message);
+        console.warn('MySQL marketing_tools table insert warning (using KV backup):', insErr.message);
       }
     } catch (e) {
-      console.warn('Supabase insert tool error', e);
+      console.warn('MySQL insert tool error', e);
     }
     await persistMarketingToolsToCloud();
   }
@@ -5960,11 +5993,11 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
   };
   notifications.unshift(notif);
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
     } catch (e) {
-      console.warn('Supabase insert notif error', e);
+      console.warn('MySQL insert notif error', e);
     }
   }
 
@@ -6059,14 +6092,14 @@ app.put('/api/marketing-tools/:id', async (req: Request, res: Response) => {
     description: `Admin memperbarui materi marketing: "${updatedTool.title}" (${updatedTool.category}) [${updatedTool.fileSize}].`,
   });
 
-  if (supabase) {
+  if (db) {
     try {
-      const { error: upErr } = await supabase.from('marketing_tools').upsert([updatedTool]);
+      const { error: upErr } = await db.from('marketing_tools').upsert([updatedTool]);
       if (upErr) {
-        console.warn('Supabase marketing_tools table update warning (using KV backup):', upErr.message);
+        console.warn('MySQL marketing_tools table update warning (using KV backup):', upErr.message);
       }
     } catch (e) {
-      console.warn('Supabase update tool error', e);
+      console.warn('MySQL update tool error', e);
     }
     await persistMarketingToolsToCloud();
   }
@@ -6092,9 +6125,9 @@ app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
         } catch {}
       }
     }
-    if (supabase) {
+    if (db) {
       try {
-        await supabase
+        await db
           .from('user_passwords')
           .delete()
           .eq('email', `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`);
@@ -6113,11 +6146,11 @@ app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
     description: `Admin menghapus materi marketing: "${target?.title || id}".`,
   });
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('marketing_tools').delete().eq('id', id);
+      await db.from('marketing_tools').delete().eq('id', id);
     } catch (e) {
-      console.warn('Supabase delete tool error', e);
+      console.warn('MySQL delete tool error', e);
     }
     await persistMarketingToolsToCloud();
   }
@@ -6133,9 +6166,9 @@ app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
 app.get('/api/commissions', async (req: Request, res: Response) => {
   const { mitraId } = req.query;
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data, error } = await supabase.from('commissions').select('*');
+      const { data, error } = await db.from('commissions').select('*');
       if (!error && Array.isArray(data)) {
         commissions = data;
         saveDatabase();
@@ -6145,12 +6178,12 @@ app.get('/api/commissions', async (req: Request, res: Response) => {
         return res.json({ success: true, data: commissions });
       }
     } catch (e) {
-      console.warn('Supabase commissions query error', e);
+      console.warn('MySQL commissions query error', e);
     }
   }
 
-  if (isProductionMode() && !supabase) {
-    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  if (isProductionMode() && !db) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database MySQL.' });
   }
 
   if (mitraId) {
@@ -6232,12 +6265,12 @@ app.post('/api/commissions/payout', async (req: Request, res: Response) => {
   };
   notifications.unshift(notif);
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('payout_requests').insert([newPayout]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('payout_requests').insert([newPayout]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
     } catch (e) {
-      console.warn('Supabase insert payout error', e);
+      console.warn('MySQL insert payout error', e);
     }
   }
 
@@ -6251,23 +6284,23 @@ app.post('/api/commissions/payout', async (req: Request, res: Response) => {
 // ========================================================
 app.get('/api/services', async (req: Request, res: Response) => {
   const { all } = req.query;
-  if (supabase) {
+  if (db) {
     try {
-      const { data, error } = await supabase.from('services').select('*');
+      const { data, error } = await db.from('services').select('*');
       if (!error && Array.isArray(data)) {
         const normSrv = normalizeServicesCatalog(data);
         services = normSrv.list;
         if (normSrv.migrated) {
-          await supabase.from('services').delete().in('id', Array.from(LEGACY_SEEDED_SERVICE_IDS));
-          await supabase.from('services').upsert(services);
+          await db.from('services').delete().in('id', Array.from(LEGACY_SEEDED_SERVICE_IDS));
+          await db.from('services').upsert(services);
         }
         saveDatabase();
       }
     } catch (e) {
-      console.warn('Supabase services query error', e);
+      console.warn('MySQL services query error', e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database MySQL.' });
   } else {
     services = normalizeServicesCatalog(services).list;
   }
@@ -6331,12 +6364,12 @@ app.post('/api/services', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('services').insert([newService]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('services').insert([newService]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
     } catch (e) {
-      console.warn('Supabase insert service error', e);
+      console.warn('MySQL insert service error', e);
     }
   }
 
@@ -6374,11 +6407,11 @@ app.put('/api/services/:id', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('services').upsert([service]);
+      await db.from('services').upsert([service]);
     } catch (e) {
-      console.warn('Supabase upsert service error', e);
+      console.warn('MySQL upsert service error', e);
     }
   }
 
@@ -6403,11 +6436,11 @@ app.delete('/api/services/:id', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('services').delete().eq('id', id);
+      await db.from('services').delete().eq('id', id);
     } catch (e) {
-      console.warn('Supabase delete service error', e);
+      console.warn('MySQL delete service error', e);
     }
   }
 
@@ -6419,18 +6452,18 @@ app.delete('/api/services/:id', async (req: Request, res: Response) => {
 // ========================================================
 app.get('/api/clients', async (req: Request, res: Response) => {
   const { mitraId, referralCode } = req.query;
-  if (supabase) {
+  if (db) {
     try {
-      const { data, error } = await supabase.from('client_deals').select('*');
+      const { data, error } = await db.from('client_deals').select('*');
       if (!error && Array.isArray(data)) {
-        clientDeals = data.map((row: any) => fromSupabaseClientDeal(row));
+        clientDeals = data.map((row: any) => fromDbClientDeal(row));
         saveDatabase();
       }
     } catch (e) {
-      console.warn('Supabase client_deals query error', e);
+      console.warn('MySQL client_deals query error', e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database MySQL.' });
   }
 
   let filtered = [...clientDeals];
@@ -6469,9 +6502,9 @@ app.post('/api/clients', async (req: Request, res: Response) => {
   const safeCompanyName = (companyName || '').trim() || (picName || '').trim() || 'Klien Referral NDTAXANDLAW';
   const safePicName = (picName || '').trim() || safeCompanyName;
 
-  if (supabase) {
+  if (db) {
     try {
-      const { data: supaSettings } = await supabase
+      const { data: supaSettings } = await db
         .from('app_settings')
         .select('*')
         .eq('id', 'config_primary')
@@ -6481,7 +6514,7 @@ app.post('/api/clients', async (req: Request, res: Response) => {
       }
     } catch {}
     try {
-      const { data: supaMitras } = await supabase.from('mitras').select('*');
+      const { data: supaMitras } = await db.from('mitras').select('*');
       if (Array.isArray(supaMitras)) {
         mitras = normalizeMitraAvatars(supaMitras);
       }
@@ -6588,12 +6621,12 @@ app.post('/api/clients', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').insert([toSupabaseClientDeal(newDeal)]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('client_deals').insert([toDbClientDeal(newDeal)]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
     } catch (e) {
-      console.warn('Supabase client deal insert error', e);
+      console.warn('MySQL client deal insert error', e);
     }
   }
 
@@ -6741,14 +6774,14 @@ app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
-      await supabase.from('commissions').insert([newCommTrx]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
+      await db.from('commissions').insert([newCommTrx]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
 
       if (mitra) {
-        await supabase.from('mitras').update({
+        await db.from('mitras').update({
           referredClientsCount: mitra.referredClientsCount,
           activeSubscribersCount: mitra.activeSubscribersCount,
           totalCommission: mitra.totalCommission,
@@ -6756,7 +6789,7 @@ app.put('/api/clients/:id/acc', async (req: Request, res: Response) => {
         }).eq('id', deal.mitraId);
       }
     } catch (e) {
-      console.warn('Supabase client ACC update error', e);
+      console.warn('MySQL client ACC update error', e);
     }
   }
 
@@ -6806,12 +6839,12 @@ app.put('/api/clients/:id/reject', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
     } catch (e) {
-      console.warn('Supabase reject client error', e);
+      console.warn('MySQL reject client error', e);
     }
   }
 
@@ -6838,11 +6871,11 @@ app.put('/api/clients/:id/trigger-billing-due', async (req: Request, res: Respon
   deal.isBillingDue = true;
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
     } catch (e) {
-      console.warn('Supabase trigger-billing-due error', e);
+      console.warn('MySQL trigger-billing-due error', e);
     }
   }
 
@@ -6955,19 +6988,19 @@ app.post('/api/clients/:id/bill-cycle', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
-      await supabase.from('commissions').insert([newCommTrx]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
+      await db.from('commissions').insert([newCommTrx]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
       if (mitra) {
-        await supabase.from('mitras').update({
+        await db.from('mitras').update({
           totalCommission: mitra.totalCommission,
           pendingPayout: mitra.pendingPayout,
         }).eq('id', mitra.id);
       }
     } catch (e) {
-      console.warn('Supabase bill-cycle error', e);
+      console.warn('MySQL bill-cycle error', e);
     }
   }
 
@@ -7032,7 +7065,7 @@ app.put('/api/admin/commission-scheme', async (req: Request, res: Response) => {
   });
 
   saveDatabase();
-  await persistSettingsToSupabase();
+  await persistSettingsToMysql();
 
   res.json({
     success: true,
@@ -7085,9 +7118,9 @@ app.put('/api/admin/clients/:id/commission', async (req: Request, res: Response)
   });
 
   saveDatabase();
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
     } catch {}
   }
 
@@ -7170,11 +7203,11 @@ app.post('/api/admin/mitra/:id/bonus', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('commissions').insert([bonusTrx]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
-      await supabase
+      await db.from('commissions').insert([bonusTrx]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
+      await db
         .from('mitras')
         .update({
           totalBonus: mitra.totalBonus,
@@ -7183,7 +7216,7 @@ app.post('/api/admin/mitra/:id/bonus', async (req: Request, res: Response) => {
         })
         .eq('id', mitra.id);
     } catch (e) {
-      console.warn('Supabase bonus grant update error', e);
+      console.warn('MySQL bonus grant update error', e);
     }
   }
 
@@ -7243,18 +7276,18 @@ app.put('/api/clients/:id/terminate', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
 
       if (mitra) {
-        await supabase.from('mitras').update({
+        await db.from('mitras').update({
           activeSubscribersCount: mitra.activeSubscribersCount,
         }).eq('id', mitra.id);
       }
     } catch (e) {
-      console.warn('Supabase terminate client subscription error', e);
+      console.warn('MySQL terminate client subscription error', e);
     }
   }
 
@@ -7303,16 +7336,16 @@ app.put('/api/clients/:id/status', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('client_deals').upsert([toSupabaseClientDeal(deal)]);
+      await db.from('client_deals').upsert([toDbClientDeal(deal)]);
       if (mitra) {
-        await supabase.from('mitras').update({
+        await db.from('mitras').update({
           activeSubscribersCount: mitra.activeSubscribersCount,
         }).eq('id', mitra.id);
       }
     } catch (e) {
-      console.warn('Supabase update client status error', e);
+      console.warn('MySQL update client status error', e);
     }
   }
 
@@ -7324,18 +7357,18 @@ app.put('/api/clients/:id/status', async (req: Request, res: Response) => {
 // ========================================================
 app.get('/api/commissions/payout-requests', async (req: Request, res: Response) => {
   const { mitraId } = req.query;
-  if (supabase) {
+  if (db) {
     try {
-      const { data, error } = await supabase.from('payout_requests').select('*');
+      const { data, error } = await db.from('payout_requests').select('*');
       if (!error && Array.isArray(data)) {
         payoutRequests = data;
         saveDatabase();
       }
     } catch (e) {
-      console.warn('Supabase payout_requests query error', e);
+      console.warn('MySQL payout_requests query error', e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database MySQL.' });
   }
 
   if (mitraId) {
@@ -7437,21 +7470,21 @@ app.put('/api/commissions/payout-requests/:id/approve', async (req: Request, res
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('payout_requests').upsert([payout]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('payout_requests').upsert([payout]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
       if (mitra) {
-        await supabase.from('mitras').update({
+        await db.from('mitras').update({
           pendingPayout: mitra.pendingPayout,
           paidPayout: mitra.paidPayout,
         }).eq('id', payout.mitraId);
       }
       for (const commId of paidCommissionIds) {
-        await supabase.from('commissions').update({ status: 'paid' }).eq('id', commId);
+        await db.from('commissions').update({ status: 'paid' }).eq('id', commId);
       }
     } catch (e) {
-      console.warn('Supabase payout approve error', e);
+      console.warn('MySQL payout approve error', e);
     }
   }
 
@@ -7586,11 +7619,11 @@ app.post('/api/commissions/direct-disburse', async (req: Request, res: Response)
 
   saveDatabase();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('payout_requests').upsert([newPayout, ...updatedPendingPayIds]);
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
-      await supabase
+      await db.from('payout_requests').upsert([newPayout, ...updatedPendingPayIds]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
+      await db
         .from('mitras')
         .update({
           pendingPayout: mitra.pendingPayout,
@@ -7598,10 +7631,10 @@ app.post('/api/commissions/direct-disburse', async (req: Request, res: Response)
         })
         .eq('id', mitra.id);
       for (const commId of paidCommissionIds) {
-        await supabase.from('commissions').update({ status: 'paid' }).eq('id', commId);
+        await db.from('commissions').update({ status: 'paid' }).eq('id', commId);
       }
     } catch (e) {
-      console.warn('Supabase direct disburse error', e);
+      console.warn('MySQL direct disburse error', e);
     }
   }
 
@@ -7612,9 +7645,9 @@ app.post('/api/commissions/direct-disburse', async (req: Request, res: Response)
 // 3.8 APPLICATION SETTINGS & LOGS ENDPOINTS
 // ========================================================
 app.get('/api/settings', async (req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
-      const { data: pwRows, error: errPw } = await supabase
+      const { data: pwRows, error: errPw } = await db
         .from('user_passwords')
         .select('*')
         .in('email', ['__sys_config__@ndtaxlaw.internal', '__sys_roles__@ndtaxlaw.internal']);
@@ -7640,7 +7673,7 @@ app.get('/api/settings', async (req: Request, res: Response) => {
         }
       }
 
-      const { data: settingsData, error } = await supabase
+      const { data: settingsData, error } = await db
         .from('app_settings')
         .select('*')
         .eq('id', 'config_primary')
@@ -7653,7 +7686,7 @@ app.get('/api/settings', async (req: Request, res: Response) => {
         }
       }
     } catch (e) {
-      console.warn('Supabase settings query error', e);
+      console.warn('MySQL settings query error', e);
     }
   }
   let settingsMigrated = false;
@@ -7749,7 +7782,7 @@ app.get('/api/settings', async (req: Request, res: Response) => {
   }
   if (logoMigrated) {
     saveDatabase();
-    persistSettingsToSupabase().catch(() => {});
+    persistSettingsToMysql().catch(() => {});
   }
 
   const clientSafeSettings: AppSettings = {
@@ -7784,9 +7817,9 @@ app.put('/api/settings', async (req: Request, res: Response) => {
     appSettings.logoUrl = appSettings.logoVerticalUrl;
   }
 
-  // Jika beralih ke mode production, langsung sinkronkan penuh dari Supabase (tanpa dummy lokal)
-  if (previousEnv !== 'production' && appSettings.appEnvironment === 'production' && supabase) {
-    await syncFromSupabase();
+  // Jika beralih ke mode production, langsung sinkronkan penuh dari MySQL (tanpa dummy lokal)
+  if (previousEnv !== 'production' && appSettings.appEnvironment === 'production' && db) {
+    await syncFromMysql();
     appSettings = { ...appSettings, ...updates };
   }
 
@@ -7813,13 +7846,13 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   notifications.unshift(notif);
 
   saveDatabase();
-  await persistSettingsToSupabase();
+  await persistSettingsToMysql();
 
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('notifications').insert([toSupabaseNotification(notif)]);
+      await db.from('notifications').insert([toDbNotification(notif)]);
     } catch (e) {
-      console.warn('Supabase notification insert error', e);
+      console.warn('MySQL notification insert error', e);
     }
   }
 
@@ -7843,7 +7876,7 @@ app.post('/api/settings/test-email', async (req: Request, res: Response) => {
   if (smtpConfig && typeof smtpConfig === 'object') {
     appSettings = { ...appSettings, ...smtpConfig };
     saveDatabase();
-    await persistSettingsToSupabase();
+    await persistSettingsToMysql();
   }
 
   if (!appSettings.smtpEnabled) {
@@ -7877,14 +7910,14 @@ app.post('/api/settings/test-email', async (req: Request, res: Response) => {
 });
 
 app.get('/api/emails/logs', async (req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
       const { cutoffIso } = getThreeMonthsAgoCutoff();
-      await supabase.from('email_logs').delete().lt('timestamp', cutoffIso);
+      await db.from('email_logs').delete().lt('timestamp', cutoffIso);
 
       const [{ data: tableLogs, error: errTable }, { data: kvRow, error: errKv }] = await Promise.all([
-        supabase.from('email_logs').select('*').order('timestamp', { ascending: false }).limit(300),
-        supabase
+        db.from('email_logs').select('*').order('timestamp', { ascending: false }).limit(300),
+        db
           .from('user_passwords')
           .select('*')
           .eq('email', '__sys_email_logs__@ndtaxlaw.internal')
@@ -7892,7 +7925,7 @@ app.get('/api/emails/logs', async (req: Request, res: Response) => {
       ]);
 
       const fromTable: EmailLogItem[] =
-        !errTable && Array.isArray(tableLogs) ? tableLogs.map(fromSupabaseEmailLogRow) : [];
+        !errTable && Array.isArray(tableLogs) ? tableLogs.map(fromDbEmailLogRow) : [];
       let fromKv: EmailLogItem[] = [];
       if (!errKv && kvRow && kvRow.password) {
         try {
@@ -7917,13 +7950,13 @@ app.get('/api/emails/logs', async (req: Request, res: Response) => {
       // Ensure public.email_logs table has all merged logs
       if (emailLogs.length > fromTable.length) {
         try {
-          await supabase.from('email_logs').upsert(emailLogs.slice(0, 100).map(toSupabaseEmailLogRow));
+          await db.from('email_logs').upsert(emailLogs.slice(0, 100).map(toDbEmailLogRow));
         } catch {}
       }
 
       return res.json({ success: true, data: emailLogs });
     } catch (e) {
-      console.warn('Supabase email logs query error', e);
+      console.warn('MySQL email logs query error', e);
     }
   }
   await pruneOldLogs(false);
@@ -7959,23 +7992,23 @@ app.post('/api/emails/resend/:id', async (req: Request, res: Response) => {
 app.delete('/api/emails/logs', async (req: Request, res: Response) => {
   emailLogs = [];
   saveDatabase();
-  await persistEmailLogsToSupabase();
-  if (supabase) {
+  await persistEmailLogsToMysql();
+  if (db) {
     try {
-      await supabase.from('email_logs').delete().neq('id', '');
+      await db.from('email_logs').delete().neq('id', '');
     } catch {}
   }
-  res.json({ success: true, message: 'Riwayat log pengiriman email berhasil dibersihkan dari lokal dan Supabase.' });
+  res.json({ success: true, message: 'Riwayat log pengiriman email berhasil dibersihkan dari lokal dan MySQL.' });
 });
 
 // 3.10 Activity Logs Endpoints (Admin & Mitra Audit Trail)
 app.get('/api/activity-logs', async (req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
       const { cutoffIso } = getThreeMonthsAgoCutoff();
-      await supabase.from('activity_logs').delete().lt('timestamp', cutoffIso);
+      await db.from('activity_logs').delete().lt('timestamp', cutoffIso);
 
-      const { data: tableLogs, error: errTable } = await supabase
+      const { data: tableLogs, error: errTable } = await db
         .from('activity_logs')
         .select('*')
         .order('timestamp', { ascending: false })
@@ -7986,7 +8019,7 @@ app.get('/api/activity-logs', async (req: Request, res: Response) => {
         saveDatabase();
         return res.json({ success: true, data: activityLogs });
       }
-      const { data: kvRow, error: errKv } = await supabase
+      const { data: kvRow, error: errKv } = await db
         .from('user_passwords')
         .select('*')
         .eq('email', '__sys_activity_logs__@ndtaxlaw.internal')
@@ -8000,7 +8033,7 @@ app.get('/api/activity-logs', async (req: Request, res: Response) => {
         }
       }
     } catch (e) {
-      console.warn('Supabase activity logs query error', e);
+      console.warn('MySQL activity logs query error', e);
     }
   }
   await pruneOldLogs(false);
@@ -8010,33 +8043,33 @@ app.get('/api/activity-logs', async (req: Request, res: Response) => {
 app.delete('/api/activity-logs', async (req: Request, res: Response) => {
   activityLogs = [];
   saveDatabase();
-  await persistActivityLogsToSupabase();
-  if (supabase) {
+  await persistActivityLogsToMysql();
+  if (db) {
     try {
-      await supabase.from('activity_logs').delete().neq('id', '');
+      await db.from('activity_logs').delete().neq('id', '');
     } catch {}
   }
-  res.json({ success: true, message: 'Riwayat log aktivitas berhasil dibersihkan dari lokal dan Supabase.' });
+  res.json({ success: true, message: 'Riwayat log aktivitas berhasil dibersihkan dari lokal dan MySQL.' });
 });
 
 // ========================================================
 // 4. NOTIFICATIONS ENDPOINTS
 // ========================================================
 app.get('/api/notifications', async (req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
-      const { data, error } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
+      const { data, error } = await db.from('notifications').select('*').order('timestamp', { ascending: false });
       if (!error && Array.isArray(data)) {
         notifications = data;
         saveDatabase();
         return res.json({ success: true, data: notifications });
       }
     } catch (e) {
-      console.warn('Supabase notifications query error', e);
+      console.warn('MySQL notifications query error', e);
     }
   }
-  if (isProductionMode() && !supabase) {
-    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database Supabase.' });
+  if (isProductionMode() && !db) {
+    return res.status(503).json({ success: false, message: 'Mode Production hanya membaca dari database MySQL.' });
   }
   res.json({ success: true, data: notifications });
 });
@@ -8046,20 +8079,20 @@ app.post('/api/notifications/read-all', async (req: Request, res: Response) => {
   if (targetIds.length > 0) {
     const idSet = new Set(targetIds);
     notifications = notifications.map((n) => (idSet.has(n.id) ? { ...n, isRead: true } : n));
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').update({ isRead: true }).in('id', targetIds);
+        await db.from('notifications').update({ isRead: true }).in('id', targetIds);
       } catch (e) {
-        console.warn('Supabase mark read notifications error', e);
+        console.warn('MySQL mark read notifications error', e);
       }
     }
   } else {
     notifications = notifications.map((n) => ({ ...n, isRead: true }));
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').update({ isRead: true }).neq('isRead', true);
+        await db.from('notifications').update({ isRead: true }).neq('isRead', true);
       } catch (e) {
-        console.warn('Supabase mark read notifications error', e);
+        console.warn('MySQL mark read notifications error', e);
       }
     }
   }
@@ -8070,11 +8103,11 @@ app.post('/api/notifications/read-all', async (req: Request, res: Response) => {
 app.delete('/api/notifications/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   notifications = notifications.filter((n) => n.id !== id);
-  if (supabase) {
+  if (db) {
     try {
-      await supabase.from('notifications').delete().eq('id', id);
+      await db.from('notifications').delete().eq('id', id);
     } catch (e) {
-      console.warn('Supabase delete notification error', e);
+      console.warn('MySQL delete notification error', e);
     }
   }
   saveDatabase();
@@ -8086,11 +8119,11 @@ app.post('/api/notifications/delete-batch', async (req: Request, res: Response) 
   if (targetIds.length > 0) {
     const idSet = new Set(targetIds);
     notifications = notifications.filter((n) => !idSet.has(n.id));
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').delete().in('id', targetIds);
+        await db.from('notifications').delete().in('id', targetIds);
       } catch (e) {
-        console.warn('Supabase batch delete notifications error', e);
+        console.warn('MySQL batch delete notifications error', e);
       }
     }
     saveDatabase();
@@ -8447,8 +8480,8 @@ app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
 // 5. ANALYTICS & AI ENDPOINTS
 // ========================================================
 app.get('/api/analytics/monthly', async (req: Request, res: Response) => {
-  if (supabase) {
-    await syncFromSupabase();
+  if (db) {
+    await syncFromMysql();
   }
   const activeDeals = clientDeals.filter((d) => d.status === 'active_subscription' || d.status === 'deal_closed');
   const totalSalesFromDeals = activeDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
@@ -8535,7 +8568,7 @@ Gunakan bahasa Indonesia formal, berwibawa, analitis, dan berorientasi hasil. Se
 
     const fallbackReport = `### Executive Performance Summary - NDTAXANDLAW (November 2026)
 
-Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database Supabase pada periode **November 2026**, performa kemitraan mencatat total transaksi aktif mencapai **Rp ${activeDealsValue.toLocaleString('id-ID')}** dari **${activeDealsCount} kontrak aktif** dan **${mitras.length} mitra terdaftar**.
+Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database MySQL pada periode **November 2026**, performa kemitraan mencatat total transaksi aktif mencapai **Rp ${activeDealsValue.toLocaleString('id-ID')}** dari **${activeDealsCount} kontrak aktif** dan **${mitras.length} mitra terdaftar**.
 
 #### 1. Analisis Tren Penjualan & Pertumbuhan Mitra
 - **Jaringan Mitra Terdaftar**: Terdapat ${mitras.filter((m) => m.status === 'verified').length} mitra terverifikasi dan ${mitras.filter((m) => m.status === 'pending').length} calon mitra yang sedang dalam tahap verifikasi.
@@ -8553,34 +8586,61 @@ Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database Supabase pa
       report: fallbackReport,
       isFallback: true,
       generatedAt: new Date().toISOString(),
-      note: 'Menggunakan analisis cerdas berbasis data riil database Supabase NDTAXANDLAW.',
+      note: 'Menggunakan analisis cerdas berbasis data riil database MySQL NDTAXANDLAW.',
     });
   }
 });
 
-// 7. Supabase Database Diagnostics & One-Click Cloud Sync
-app.get('/api/system/supabase-status', async (req: Request, res: Response) => {
-  const config = getSupabaseConfig();
-  const test = await testSupabaseConnection();
+// 7. MySQL Database Diagnostics, Auto-Schema Init & One-Click Sync
+const handleMysqlStatus = async (_req: Request, res: Response) => {
+  const config = getMysqlConfig();
+  const test = await testMysqlConnection();
   res.json({
     success: true,
     data: {
       ...config,
       ...test,
+      url: config.connectionLabel,
       appEnvironment: appSettings.appEnvironment,
-      strictSupabaseOnly: isProductionMode(),
+      strictMysqlOnly: isProductionMode() && isMysqlConfigured(),
       passwordEncryption: 'SCRYPT + AES-256-GCM (ndenc$v2)',
       activeRolesCount: systemRoles.filter((r) => r.isActive).length,
       totalRolesCount: systemRoles.length,
     },
   });
-});
+};
 
-app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
-  if (!supabase) {
+app.get('/api/system/mysql-status', handleMysqlStatus);
+app.get('/api/system/db-status', handleMysqlStatus);
+
+app.post('/api/system/mysql-init-schema', async (_req: Request, res: Response) => {
+  if (!isMysqlConfigured()) {
     return res.status(400).json({
       success: false,
-      message: 'SUPABASE_URL atau SUPABASE_KEY belum terpasang di file .env atau Environment Variable hosting Anda.',
+      message: 'Kredensial MySQL (MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE) belum terpasang di file .env server Anda.',
+    });
+  }
+  const initResult = await ensureMysqlSchema();
+  if (!initResult.success) {
+    return res.status(500).json(initResult);
+  }
+  await syncFromMysql();
+  recordActivity({
+    actorRole: 'admin',
+    actorName: 'Admin Operasional',
+    actionType: 'settings_update',
+    operation: 'UPDATE',
+    targetEntity: 'Skema Database MySQL',
+    description: initResult.message,
+  });
+  return res.json(initResult);
+});
+
+const handleMysqlSync = async (_req: Request, res: Response) => {
+  if (!db) {
+    return res.status(400).json({
+      success: false,
+      message: 'MYSQL_HOST, MYSQL_USER, atau MYSQL_DATABASE belum terpasang di file .env atau Environment Variable hosting Anda.',
     });
   }
 
@@ -8588,9 +8648,11 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
     if (isProductionMode()) {
       return res.status(403).json({
         success: false,
-        message: 'Fitur Sinkronkan Data Awal dinonaktifkan pada Mode Production demi melindungi data operasional di Supabase agar tidak tertimpa.',
+        message: 'Fitur Sinkronkan Data Awal dinonaktifkan pada Mode Production demi melindungi data operasional di MySQL agar tidak tertimpa.',
       });
     }
+
+    await ensureMysqlSchema();
 
     const summary = {
       mitras: 0,
@@ -8603,65 +8665,88 @@ app.post('/api/system/supabase-sync', async (req: Request, res: Response) => {
     };
 
     if (mitras.length > 0) {
-      const cleanMitras = mitras.map(({ gender: _g, ...rest }) => rest);
-      const { error: errM } = await supabase.from('mitras').upsert(cleanMitras);
+      const { error: errM } = await db.from('mitras').upsert(mitras);
       if (!errM) summary.mitras = mitras.length;
-      else console.warn('Supabase sync mitras warning:', errM.message);
+      else console.warn('MySQL sync mitras warning:', errM.message);
     }
 
     if (services.length > 0) {
-      const { error: errS } = await supabase.from('services').upsert(services);
+      const { error: errS } = await db.from('services').upsert(services);
       if (!errS) summary.services = services.length;
-      else console.warn('Supabase sync services warning:', errS.message);
+      else console.warn('MySQL sync services warning:', errS.message);
     }
 
     if (clientDeals.length > 0) {
-      const cleanDeals = clientDeals.map((d) => toSupabaseClientDeal(d));
-      const { error: errD } = await supabase.from('client_deals').upsert(cleanDeals);
+      const cleanDeals = clientDeals.map((d) => toDbClientDeal(d));
+      const { error: errD } = await db.from('client_deals').upsert(cleanDeals);
       if (!errD) summary.clientDeals = clientDeals.length;
-      else console.warn('Supabase sync deals warning:', errD.message);
+      else console.warn('MySQL sync deals warning:', errD.message);
     }
 
     if (marketingTools.length > 0) {
-      const { error: errT } = await supabase.from('marketing_tools').upsert(marketingTools);
+      const { error: errT } = await db.from('marketing_tools').upsert(marketingTools);
       if (!errT) summary.marketingTools = marketingTools.length;
-      else console.warn('Supabase sync tools warning:', errT.message);
+      else console.warn('MySQL sync tools warning:', errT.message);
     }
 
     if (commissions.length > 0) {
-      const { error: errC } = await supabase.from('commissions').upsert(commissions);
+      const { error: errC } = await db.from('commissions').upsert(commissions);
       if (!errC) summary.commissions = commissions.length;
-      else console.warn('Supabase sync commissions warning:', errC.message);
+      else console.warn('MySQL sync commissions warning:', errC.message);
     }
 
-    await persistSettingsToSupabase();
-    await persistActivityLogsToSupabase();
-    await persistEmailLogsToSupabase();
+    await persistSettingsToMysql();
+    await persistActivityLogsToMysql();
+    await persistEmailLogsToMysql();
 
     res.json({
       success: true,
-      message: 'Seluruh data operasional, pengaturan, log aktivitas, dan log email berhasil disinkronkan ke cloud database Supabase!',
+      message: 'Seluruh data operasional, pengaturan, log aktivitas, dan log email berhasil disinkronkan ke database MySQL!',
       summary,
     });
   } catch (err: any) {
     res.status(500).json({
       success: false,
-      message: `Terjadi kendala sinkronisasi ke Supabase: ${err.message || 'Unknown error'}`,
+      message: `Terjadi kendala sinkronisasi ke MySQL: ${err.message || 'Unknown error'}`,
     });
   }
-});
+};
 
-// 8. Admin Supabase Cloud Database Backup & Restore Endpoints (Strictly Supabase Only)
+app.post('/api/system/mysql-sync', handleMysqlSync);
+app.post('/api/system/db-sync', handleMysqlSync);
+
+// 8. Admin MySQL Database Backup (.JSON & .SQL) & Restore (Mendukung Backup MySQL maupun Backup Supabase Lama!)
 app.get('/api/system/database-backup', async (req: Request, res: Response) => {
-  if (!supabase) {
+  if (!db) {
     return res.status(400).json({
       success: false,
-      message: 'Koneksi Database Supabase belum aktif. Fitur Backup khusus untuk mem-backup data dari server Supabase.',
+      message: 'Koneksi Database MySQL belum aktif. Pasang MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, dan MYSQL_DATABASE di file .env server Anda.',
     });
   }
 
   try {
-    // Query 100% langsung dari seluruh tabel di Supabase (tanpa mencampur data lokal)
+    const format = String(req.query.format || 'json').toLowerCase();
+    if (format === 'sql') {
+      const dump = await generateMysqlSqlDump();
+      if (!dump.success) {
+        return res.status(500).json({ success: false, message: dump.error || 'Gagal membuat SQL dump MySQL.' });
+      }
+      recordActivity({
+        actorRole: 'admin',
+        actorName: 'Admin Operasional',
+        actionType: 'settings_update',
+        operation: 'CREATE',
+        targetEntity: 'Backup SQL Database MySQL',
+        description: `Admin mengunduh Backup SQL (.sql) Database MySQL (${dump.counts.mitras || 0} mitra, ${dump.counts.client_deals || 0} klien/deal).`,
+      });
+      res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="mysql-backup-${new Date().toISOString().slice(0, 10)}.sql"`
+      );
+      return res.send(dump.sql);
+    }
+
     const [
       resMitras,
       resServices,
@@ -8675,71 +8760,82 @@ app.get('/api/system/database-backup', async (req: Request, res: Response) => {
       resActLogs,
       resEmailLogs,
       resPasswords,
+      resChatRooms,
+      resChatMessages,
     ] = await Promise.all([
-      supabase.from('mitras').select('*'),
-      supabase.from('services').select('*'),
-      supabase.from('client_deals').select('*'),
-      supabase.from('commissions').select('*'),
-      supabase.from('payout_requests').select('*'),
-      supabase.from('marketing_tools').select('*'),
-      supabase.from('notifications').select('*'),
-      supabase.from('app_settings').select('*'),
-      supabase.from('system_roles').select('*'),
-      supabase.from('activity_logs').select('*').order('timestamp', { ascending: false }),
-      supabase.from('email_logs').select('*').order('timestamp', { ascending: false }),
-      supabase.from('user_passwords').select('*'),
+      db.from('mitras').select('*'),
+      db.from('services').select('*'),
+      db.from('client_deals').select('*'),
+      db.from('commissions').select('*'),
+      db.from('payout_requests').select('*'),
+      db.from('marketing_tools').select('*'),
+      db.from('notifications').select('*'),
+      db.from('app_settings').select('*'),
+      db.from('system_roles').select('*'),
+      db.from('activity_logs').select('*').order('timestamp', { ascending: false }),
+      db.from('email_logs').select('*').order('timestamp', { ascending: false }),
+      db.from('user_passwords').select('*'),
+      db.from('chat_rooms').select('*'),
+      db.from('chat_messages').select('*').order('createdAt', { ascending: true }),
     ]);
 
-    const sbMitras = Array.isArray(resMitras.data) ? resMitras.data : [];
-    const sbServices = Array.isArray(resServices.data) ? resServices.data : [];
-    const sbDeals = Array.isArray(resDeals.data) ? resDeals.data : [];
-    const sbCommissions = Array.isArray(resCommissions.data) ? resCommissions.data : [];
-    const sbPayouts = Array.isArray(resPayouts.data) ? resPayouts.data : [];
-    const sbTools = Array.isArray(resTools.data) ? resTools.data : [];
-    const sbNotifs = Array.isArray(resNotifs.data) ? resNotifs.data : [];
-    const sbSettings = Array.isArray(resSettings.data) ? resSettings.data : [];
-    const sbRoles = Array.isArray(resRoles.data) ? resRoles.data : [];
-    const sbActLogs = Array.isArray(resActLogs.data) ? resActLogs.data : [];
-    const sbEmailLogs = Array.isArray(resEmailLogs.data) ? resEmailLogs.data : [];
-    const sbPasswords = Array.isArray(resPasswords.data) ? resPasswords.data : [];
+    const dbMitras = Array.isArray(resMitras.data) ? resMitras.data : [];
+    const dbServices = Array.isArray(resServices.data) ? resServices.data : [];
+    const dbDeals = Array.isArray(resDeals.data) ? resDeals.data : [];
+    const dbCommissions = Array.isArray(resCommissions.data) ? resCommissions.data : [];
+    const dbPayouts = Array.isArray(resPayouts.data) ? resPayouts.data : [];
+    const dbTools = Array.isArray(resTools.data) ? resTools.data : [];
+    const dbNotifs = Array.isArray(resNotifs.data) ? resNotifs.data : [];
+    const dbSettings = Array.isArray(resSettings.data) ? resSettings.data : [];
+    const dbRoles = Array.isArray(resRoles.data) ? resRoles.data : [];
+    const dbActLogs = Array.isArray(resActLogs.data) ? resActLogs.data : [];
+    const dbEmailLogs = Array.isArray(resEmailLogs.data) ? resEmailLogs.data : [];
+    const dbPasswords = Array.isArray(resPasswords.data) ? resPasswords.data : [];
+    const dbChatRooms = Array.isArray(resChatRooms.data) ? resChatRooms.data : [];
+    const dbChatMessages = Array.isArray(resChatMessages.data) ? resChatMessages.data : [];
 
-    const supabaseConfig = getSupabaseConfig();
+    const mysqlConfig = getMysqlConfig();
 
     const backupPayload = {
       success: true,
-      source: 'SUPABASE_PRODUCTION_DATABASE',
-      supabaseUrl: supabaseConfig.url,
-      backupVersion: '2.4-SUPABASE',
+      source: 'MYSQL_PRODUCTION_DATABASE',
+      mysqlHost: mysqlConfig.host,
+      mysqlDatabase: mysqlConfig.database,
+      backupVersion: '3.0-MYSQL',
       createdAt: new Date().toISOString(),
       firmName: appSettings.firmName || 'NDTAXANDLAW',
       environment: 'production',
       counts: {
-        mitras: sbMitras.length,
-        services: sbServices.length,
-        client_deals: sbDeals.length,
-        commissions: sbCommissions.length,
-        payout_requests: sbPayouts.length,
-        marketing_tools: sbTools.length,
-        notifications: sbNotifs.length,
-        app_settings: sbSettings.length,
-        system_roles: sbRoles.length,
-        activity_logs: sbActLogs.length,
-        email_logs: sbEmailLogs.length,
-        user_passwords: sbPasswords.length,
+        mitras: dbMitras.length,
+        services: dbServices.length,
+        client_deals: dbDeals.length,
+        commissions: dbCommissions.length,
+        payout_requests: dbPayouts.length,
+        marketing_tools: dbTools.length,
+        notifications: dbNotifs.length,
+        app_settings: dbSettings.length,
+        system_roles: dbRoles.length,
+        activity_logs: dbActLogs.length,
+        email_logs: dbEmailLogs.length,
+        user_passwords: dbPasswords.length,
+        chat_rooms: dbChatRooms.length,
+        chat_messages: dbChatMessages.length,
       },
       tables: {
-        mitras: sbMitras,
-        services: sbServices,
-        client_deals: sbDeals,
-        commissions: sbCommissions,
-        payout_requests: sbPayouts,
-        marketing_tools: sbTools,
-        notifications: sbNotifs,
-        app_settings: sbSettings,
-        system_roles: sbRoles,
-        activity_logs: sbActLogs,
-        email_logs: sbEmailLogs,
-        user_passwords: sbPasswords,
+        mitras: dbMitras,
+        services: dbServices,
+        client_deals: dbDeals,
+        commissions: dbCommissions,
+        payout_requests: dbPayouts,
+        marketing_tools: dbTools,
+        notifications: dbNotifs,
+        app_settings: dbSettings,
+        system_roles: dbRoles,
+        activity_logs: dbActLogs,
+        email_logs: dbEmailLogs,
+        user_passwords: dbPasswords,
+        chat_rooms: dbChatRooms,
+        chat_messages: dbChatMessages,
       },
     };
 
@@ -8748,47 +8844,48 @@ app.get('/api/system/database-backup', async (req: Request, res: Response) => {
       actorName: 'Admin Operasional',
       actionType: 'settings_update',
       operation: 'CREATE',
-      targetEntity: 'Backup Database Supabase',
-      description: `Admin mengunduh Backup Database langsung dari Supabase (${sbMitras.length} mitra, ${sbDeals.length} klien/deal, ${sbCommissions.length} komisi, ${sbPayouts.length} payout).`,
+      targetEntity: 'Backup Database MySQL',
+      description: `Admin mengunduh Backup Database langsung dari MySQL (${dbMitras.length} mitra, ${dbDeals.length} klien/deal, ${dbCommissions.length} komisi, ${dbPayouts.length} payout).`,
     });
 
     res.json(backupPayload);
   } catch (err: any) {
     res.status(500).json({
       success: false,
-      message: `Gagal mengambil data backup dari Supabase: ${err.message || 'Unknown error'}`,
+      message: `Gagal mengambil data backup dari MySQL: ${err.message || 'Unknown error'}`,
     });
   }
 });
 
 app.post('/api/system/database-restore', async (req: Request, res: Response) => {
-  if (!supabase) {
+  if (!db) {
     return res.status(400).json({
       success: false,
-      message: 'Koneksi Database Supabase belum aktif. Fitur Restore hanya dapat dijalankan langsung ke database Supabase.',
+      message: 'Koneksi Database MySQL belum aktif. Pastikan variabel MYSQL_* sudah terpasang di .env server Anda.',
     });
   }
 
   try {
     const { backupData, mode = 'merge' } = req.body;
-    // Support both new `tables` format and legacy `data` format
+    // Support MySQL backup format, Supabase backup format (`tables`), and legacy `data` format
     const rawTables = backupData?.tables || backupData?.data || backupData;
 
     if (!rawTables || typeof rawTables !== 'object') {
       return res.status(400).json({
         success: false,
-        message: 'Format file backup Supabase tidak valid atau kosong.',
+        message: 'Format file backup JSON tidak valid atau kosong.',
       });
     }
 
+    await ensureMysqlSchema();
     const isReplace = mode === 'replace';
 
     const tblMitras = Array.isArray(rawTables.mitras) ? rawTables.mitras : [];
     const tblServices = Array.isArray(rawTables.services) ? rawTables.services : [];
     const tblDeals = Array.isArray(rawTables.client_deals)
-      ? rawTables.client_deals
+      ? rawTables.client_deals.map((d: any) => toDbClientDeal(fromDbClientDeal(d)))
       : Array.isArray(rawTables.clientDeals)
-        ? rawTables.clientDeals.map((d: ClientDeal) => toSupabaseClientDeal(d))
+        ? rawTables.clientDeals.map((d: ClientDeal) => toDbClientDeal(fromDbClientDeal(d)))
         : [];
     const tblCommissions = Array.isArray(rawTables.commissions) ? rawTables.commissions : [];
     const tblPayouts = Array.isArray(rawTables.payout_requests)
@@ -8812,82 +8909,72 @@ app.post('/api/system/database-restore', async (req: Request, res: Response) => 
     const tblEmailLogs = Array.isArray(rawTables.email_logs)
       ? rawTables.email_logs
       : Array.isArray(rawTables.emailLogs)
-        ? rawTables.emailLogs.map(toSupabaseEmailLogRow)
+        ? rawTables.emailLogs.map(toDbEmailLogRow)
         : [];
     const tblPasswords = Array.isArray(rawTables.user_passwords)
       ? rawTables.user_passwords
       : rawTables.userPasswords && typeof rawTables.userPasswords === 'object'
         ? Object.entries(rawTables.userPasswords).map(([email, password]) => ({ email, password }))
         : [];
+    const tblChatRooms = Array.isArray(rawTables.chat_rooms)
+      ? rawTables.chat_rooms
+      : Array.isArray(rawTables.chatRooms)
+        ? rawTables.chatRooms
+        : [];
+    const tblChatMessages = Array.isArray(rawTables.chat_messages)
+      ? rawTables.chat_messages
+      : Array.isArray(rawTables.chatMessages)
+        ? rawTables.chatMessages
+        : [];
 
-    // 1. Jika mode Timpa Penuh (Full Replace), kosongkan tabel di Supabase terlebih dahulu
+    // 1. Jika mode Timpa Penuh (Full Replace), kosongkan tabel di MySQL terlebih dahulu
     if (isReplace) {
       await Promise.allSettled([
-        supabase.from('mitras').delete().neq('id', ''),
-        supabase.from('services').delete().neq('id', ''),
-        supabase.from('client_deals').delete().neq('id', ''),
-        supabase.from('commissions').delete().neq('id', ''),
-        supabase.from('payout_requests').delete().neq('id', ''),
-        supabase.from('marketing_tools').delete().neq('id', ''),
-        supabase.from('notifications').delete().neq('id', ''),
-        supabase.from('activity_logs').delete().neq('id', ''),
-        supabase.from('email_logs').delete().neq('id', ''),
+        db.from('mitras').delete().neq('id', ''),
+        db.from('services').delete().neq('id', ''),
+        db.from('client_deals').delete().neq('id', ''),
+        db.from('commissions').delete().neq('id', ''),
+        db.from('payout_requests').delete().neq('id', ''),
+        db.from('marketing_tools').delete().neq('id', ''),
+        db.from('notifications').delete().neq('id', ''),
+        db.from('activity_logs').delete().neq('id', ''),
+        db.from('email_logs').delete().neq('id', ''),
+        db.from('chat_rooms').delete().neq('id', ''),
+        db.from('chat_messages').delete().neq('id', ''),
       ]);
     }
 
-    // 2. Upsert seluruh tabel langsung ke Supabase
-    if (tblMitras.length > 0) {
-      await supabase.from('mitras').upsert(tblMitras);
-    }
-    if (tblServices.length > 0) {
-      await supabase.from('services').upsert(tblServices);
-    }
-    if (tblDeals.length > 0) {
-      await supabase.from('client_deals').upsert(tblDeals);
-    }
-    if (tblCommissions.length > 0) {
-      await supabase.from('commissions').upsert(tblCommissions);
-    }
-    if (tblPayouts.length > 0) {
-      await supabase.from('payout_requests').upsert(tblPayouts);
-    }
-    if (tblTools.length > 0) {
-      await supabase.from('marketing_tools').upsert(tblTools);
-    }
-    if (tblNotifs.length > 0) {
-      await supabase.from('notifications').upsert(tblNotifs);
-    }
-    if (tblSettings.length > 0) {
-      await supabase.from('app_settings').upsert(tblSettings);
-    }
-    if (tblRoles.length > 0) {
-      await supabase.from('system_roles').upsert(tblRoles);
-    }
-    if (tblActLogs.length > 0) {
-      await supabase.from('activity_logs').upsert(tblActLogs);
-    }
-    if (tblEmailLogs.length > 0) {
-      await supabase.from('email_logs').upsert(tblEmailLogs);
-    }
-    if (tblPasswords.length > 0) {
-      await supabase.from('user_passwords').upsert(tblPasswords);
-    }
+    // 2. Upsert seluruh 14 tabel langsung ke MySQL
+    if (tblMitras.length > 0) await db.from('mitras').upsert(tblMitras);
+    if (tblServices.length > 0) await db.from('services').upsert(tblServices);
+    if (tblDeals.length > 0) await db.from('client_deals').upsert(tblDeals);
+    if (tblCommissions.length > 0) await db.from('commissions').upsert(tblCommissions);
+    if (tblPayouts.length > 0) await db.from('payout_requests').upsert(tblPayouts);
+    if (tblTools.length > 0) await db.from('marketing_tools').upsert(tblTools);
+    if (tblNotifs.length > 0) await db.from('notifications').upsert(tblNotifs);
+    if (tblSettings.length > 0) await db.from('app_settings').upsert(tblSettings);
+    if (tblRoles.length > 0) await db.from('system_roles').upsert(tblRoles);
+    if (tblActLogs.length > 0) await db.from('activity_logs').upsert(tblActLogs);
+    if (tblEmailLogs.length > 0) await db.from('email_logs').upsert(tblEmailLogs);
+    if (tblPasswords.length > 0) await db.from('user_passwords').upsert(tblPasswords);
+    if (tblChatRooms.length > 0) await db.from('chat_rooms').upsert(tblChatRooms);
+    if (tblChatMessages.length > 0) await db.from('chat_messages').upsert(tblChatMessages);
 
-    // 3. Sinkronkan state aplikasi langsung dari Supabase yang baru di-restore
-    await syncFromSupabase();
+    // 3. Sinkronkan state aplikasi langsung dari MySQL yang baru di-restore
+    await syncFromMysql();
 
     recordActivity({
       actorRole: 'admin',
       actorName: 'Admin Operasional',
       actionType: 'settings_update',
       operation: 'UPDATE',
-      targetEntity: 'Restore Database Supabase',
-      description: `Admin berhasil melakukan Restore Database langsung ke Supabase (${isReplace ? 'Mode Timpa Penuh' : 'Mode Gabung Data'}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`,
+      targetEntity: 'Restore / Import Database MySQL',
+      description: `Admin berhasil melakukan Restore/Import Database ke MySQL (${isReplace ? 'Mode Timpa Penuh' : 'Mode Gabung Data'}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`,
     });
 
     res.json({
       success: true,
-      message: `Restore ke Database Supabase berhasil (${isReplace ? 'Timpa Penuh' : 'Gabung Data'})! Data di Supabase saat ini: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
+      message: `Restore / Import ke Database MySQL berhasil (${isReplace ? 'Timpa Penuh' : 'Gabung Data'})! Data di MySQL saat ini: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
       counts: {
         mitras: mitras.length,
         services: services.length,
@@ -8897,13 +8984,69 @@ app.post('/api/system/database-restore', async (req: Request, res: Response) => 
         marketing_tools: marketingTools.length,
         activity_logs: activityLogs.length,
         email_logs: emailLogs.length,
+        chat_rooms: chatRooms.length,
+        chat_messages: chatMessages.length,
       },
       settings: appSettings,
     });
   } catch (err: any) {
     res.status(500).json({
       success: false,
-      message: `Gagal memproses restore ke Supabase: ${err.message || 'Unknown error'}`,
+      message: `Gagal memproses restore ke MySQL: ${err.message || 'Unknown error'}`,
+    });
+  }
+});
+
+// 8b. One-Time Production Data Migration Endpoint: Supabase -> MySQL (14 Tabel + Paginasi + Verifikasi)
+app.post('/api/system/migrate-from-supabase', async (req: Request, res: Response) => {
+  try {
+    const {
+      supabaseUrl,
+      supabaseKey,
+      mode = 'merge',
+      dryRun = false,
+    } = req.body || {};
+
+    const cleanUrl = String(supabaseUrl || '').trim();
+    const cleanKey = String(supabaseKey || '').trim();
+    if (!cleanUrl || !cleanKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'URL Project Supabase lama dan Service Role Key / API Key wajib diisi.',
+      });
+    }
+
+    if (!dryRun && !isMysqlConfigured()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Koneksi Database MySQL belum aktif. Silakan pasang MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, dan MYSQL_DATABASE di file .env server Anda terlebih dahulu.',
+      });
+    }
+
+    const result = await migrateFromSupabaseToMysql({
+      supabaseUrl: cleanUrl,
+      supabaseKey: cleanKey,
+      mode: mode === 'replace' ? 'replace' : 'merge',
+      dryRun: Boolean(dryRun),
+    });
+
+    if (!dryRun && result.success) {
+      await syncFromMysql();
+      recordActivity({
+        actorRole: 'admin',
+        actorName: 'Admin Operasional',
+        actionType: 'settings_update',
+        operation: 'UPDATE',
+        targetEntity: 'Migrasi Supabase -> MySQL',
+        description: result.message,
+      });
+    }
+
+    return res.status(result.success ? 200 : 400).json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: `Gagal memproses migrasi Supabase -> MySQL: ${err?.message || 'Unknown error'}`,
     });
   }
 });
@@ -8926,17 +9069,17 @@ const broadcastChatEvent = (payload: Record<string, any>) => {
   }
 };
 
-const syncChatFromSupabase = async () => {
-  if (!supabase) return;
+const syncChatFromMysql = async () => {
+  if (!db) return;
   try {
     const [
       { data: dbRooms, error: errCR },
       { data: dbMsgs, error: errCM },
       { data: kvRows, error: errKV },
     ] = await Promise.all([
-      supabase.from('chat_rooms').select('*'),
-      supabase.from('chat_messages').select('*').order('createdAt', { ascending: true }),
-      supabase
+      db.from('chat_rooms').select('*'),
+      db.from('chat_messages').select('*').order('createdAt', { ascending: true }),
+      db
         .from('user_passwords')
         .select('email, password')
         .in('email', [
@@ -8999,7 +9142,7 @@ const syncChatFromSupabase = async () => {
       (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
     );
   } catch (err) {
-    console.warn('[Supabase Chat Sync Warning]', err);
+    console.warn('[MySQL Chat Sync Warning]', err);
   }
 };
 
@@ -9009,26 +9152,26 @@ const persistChatToCloud = async (specificRoom?: ChatRoom, specificMsg?: ChatMes
     chatMessages = chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id));
   }
   saveDatabase();
-  if (supabase) {
+  if (db) {
     try {
-      // 1. Upsert into dedicated public.chat_rooms & public.chat_messages tables in Supabase
+      // 1. Upsert into dedicated public.chat_rooms & public.chat_messages tables in MySQL
       if (specificRoom) {
-        await supabase.from('chat_rooms').upsert([specificRoom]);
+        await db.from('chat_rooms').upsert([specificRoom]);
       } else if (chatRooms.length > 0) {
-        await supabase.from('chat_rooms').upsert(chatRooms);
+        await db.from('chat_rooms').upsert(chatRooms);
       }
       if (specificMsg) {
-        await supabase.from('chat_messages').upsert([specificMsg]);
+        await db.from('chat_messages').upsert([specificMsg]);
       } else if (chatMessages.length > 0) {
-        await supabase.from('chat_messages').upsert(chatMessages);
+        await db.from('chat_messages').upsert(chatMessages);
       }
     } catch {
       // Fallback to KV below if dedicated chat tables haven't been created in SQL Editor yet
     }
 
     try {
-      // 2. Always persist complete chat history in Supabase user_passwords KV so 0 messages are ever lost
-      await supabase.from('user_passwords').upsert([
+      // 2. Always persist complete chat history in MySQL user_passwords KV so 0 messages are ever lost
+      await db.from('user_passwords').upsert([
         {
           email: '__sys_chat_rooms__@ndtaxlaw.internal',
           password: JSON.stringify(chatRooms),
@@ -9150,8 +9293,8 @@ app.get('/api/chat/state', async (req: Request, res: Response) => {
   const role = String(req.query.role || 'mitra').trim().toLowerCase();
   const isAdmin = role === 'admin';
 
-  if (supabase && (isProductionMode() || chatRooms.length === 0)) {
-    await syncChatFromSupabase();
+  if (db && (isProductionMode() || chatRooms.length === 0)) {
+    await syncChatFromMysql();
   }
 
   const activeRooms = isProductionMode()
@@ -9179,9 +9322,9 @@ app.get('/api/chat/state', async (req: Request, res: Response) => {
 
 // GET Available Group Chat Rooms (Lightweight endpoint for Admin Mitra Approval optional group assignment)
 app.get('/api/chat/groups', async (_req: Request, res: Response) => {
-  if (supabase) {
+  if (db) {
     try {
-      await syncChatFromSupabase();
+      await syncChatFromMysql();
     } catch {}
   }
 
@@ -9324,9 +9467,9 @@ const notifyMembersAddedToGroup = async (
       mitraId: pid,
     };
     notifications.unshift(groupNotif);
-    if (supabase) {
+    if (db) {
       try {
-        await supabase.from('notifications').insert([toSupabaseNotification(groupNotif)]);
+        await db.from('notifications').insert([toDbNotification(groupNotif)]);
       } catch {
         // ignore
       }
@@ -9741,7 +9884,7 @@ app.put('/api/chat/settings', async (req: Request, res: Response) => {
   const { chatEnabled } = req.body;
   appSettings.chatEnabled = Boolean(chatEnabled);
   saveDatabase();
-  await persistSettingsToSupabase();
+  await persistSettingsToMysql();
   broadcastChatEvent({
     type: 'chat:sync',
     chatEnabled: appSettings.chatEnabled,

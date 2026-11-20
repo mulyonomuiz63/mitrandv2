@@ -125,7 +125,8 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
         const isSilentEndpoint =
           urlStr.includes('/api/auth/login') ||
           urlStr.includes('/api/notifications/read-all') ||
-          urlStr.includes('/api/supabase/test') ||
+          urlStr.includes('/api/system/mysql') ||
+          urlStr.includes('/api/system/migrate-from-supabase') ||
           urlStr.includes('/api/marketing-tools/upload') ||
           urlStr.includes('/api/chat/link-preview') ||
           urlStr.includes('/api/chat/rooms/direct') ||

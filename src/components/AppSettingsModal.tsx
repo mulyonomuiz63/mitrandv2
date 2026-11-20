@@ -125,7 +125,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     clientFieldsInitialized: true,
   });
 
-  const [activeTab, setActiveTab] = useState<'general' | 'forms' | 'environment' | 'supabase' | 'smtp' | 'oauth' | 'ai'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai'>('general');
 
   // Registered Mitras & Client Deals for Usage Protection Check
   const [registeredMitras, setRegisteredMitras] = useState<Mitra[]>([]);
@@ -174,34 +174,66 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const [successToast, setSuccessToast] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Supabase State
-  const [supabaseStatus, setSupabaseStatus] = useState<{
+  // MySQL Database State
+  const [mysqlStatus, setMysqlStatus] = useState<{
     isConfigured: boolean;
     success: boolean;
     message: string;
+    host?: string;
+    port?: number;
+    user?: string;
+    database?: string;
+    serverVersion?: string;
     url?: string;
-    hasKey?: boolean;
     error?: string;
     appEnvironment?: 'development' | 'production';
-    strictSupabaseOnly?: boolean;
+    strictMysqlOnly?: boolean;
+    tablesFound?: number;
     tableChecks?: Array<{
       table: string;
       label: string;
       exists: boolean;
       missingColumns: string[];
+      rowCount?: number;
     }>;
     hasPendingMigration?: boolean;
     migrationSql?: string;
     fullSchemaSql?: string;
   } | null>(null);
-  const [isCheckingSupabase, setIsCheckingSupabase] = useState(false);
-  const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
+  const [isCheckingMysql, setIsCheckingMysql] = useState(false);
+  const [isInitializingSchema, setIsInitializingSchema] = useState(false);
+  const [isSyncingMysql, setIsSyncingMysql] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
   const [sqlQueryMode, setSqlQueryMode] = useState<'migration' | 'full'>('migration');
 
+  // Production Data Migration Wizard (Supabase -> MySQL) States
+  const [migrateSourceUrl, setMigrateSourceUrl] = useState('');
+  const [migrateSourceKey, setMigrateSourceKey] = useState('');
+  const [showMigrateKey, setShowMigrateKey] = useState(false);
+  const [migrateMode, setMigrateMode] = useState<'merge' | 'replace'>('merge');
+  const [isRunningMigration, setIsRunningMigration] = useState(false);
+  const [migrationReport, setMigrationReport] = useState<{
+    success: boolean;
+    dryRun: boolean;
+    mode: 'merge' | 'replace';
+    totalSourceRows: number;
+    totalMigratedRows: number;
+    message: string;
+    tables: Array<{
+      table: string;
+      label: string;
+      sourceCount: number;
+      migratedCount: number;
+      mysqlFinalCount: number;
+      status: 'ok' | 'skipped' | 'warning' | 'error';
+      error?: string;
+    }>;
+  } | null>(null);
+
   // Backup & Restore Database States
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+  const [isDownloadingSqlDump, setIsDownloadingSqlDump] = useState(false);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
   const [selectedBackupFileName, setSelectedBackupFileName] = useState<string | null>(null);
@@ -277,7 +309,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
       if (!isStaff) {
         fetchEmailLogs();
-        checkSupabase();
+        checkMysql();
       } else {
         if (canAccessFormsTab) {
           setActiveTab('forms');
@@ -288,59 +320,163 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     }
   }, [isOpen, isStaff, canAccessFormsTab, canAccessGeneralTab]);
 
-  const checkSupabase = async () => {
-    setIsCheckingSupabase(true);
+  const checkMysql = async () => {
+    setIsCheckingMysql(true);
     try {
-      const res = await fetch('/api/system/supabase-status');
+      const res = await fetch('/api/system/mysql-status');
       const data = await res.json();
       if (data.success && data.data) {
-        setSupabaseStatus(data.data);
+        setMysqlStatus(data.data);
       }
-    } catch (err: any) {
-      setSupabaseStatus({
+    } catch {
+      setMysqlStatus({
         isConfigured: false,
         success: false,
-        message: 'Gagal menghubungi endpoint status Supabase di backend server.',
+        message: 'Gagal menghubungi endpoint status MySQL di backend server.',
       });
     } finally {
-      setIsCheckingSupabase(false);
+      setIsCheckingMysql(false);
     }
   };
 
-  const syncDataToSupabase = async () => {
+  const handleInitMysqlSchema = async () => {
+    const ok = await confirm({
+      title: 'Buat / Sinkronkan 14 Tabel & Kolom MySQL',
+      message:
+        'Sistem akan membuat tabel yang belum ada (CREATE TABLE IF NOT EXISTS) serta menambahkan kolom baru yang kurang tanpa menghapus data yang sudah ada di MySQL. Lanjutkan?',
+      confirmText: 'Ya, Sinkronkan Skema MySQL',
+      cancelText: 'Batalkan',
+      variant: 'primary',
+    });
+    if (!ok) return;
+
+    setIsInitializingSchema(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/system/mysql-init-schema', { method: 'POST' });
+      const data = await res.json();
+      setSyncResult({
+        success: Boolean(data.success),
+        message: data.message || 'Skema MySQL selesai diproses.',
+      });
+      await checkMysql();
+    } catch {
+      setSyncResult({
+        success: false,
+        message: 'Gagal menghubungi server untuk inisialisasi skema MySQL.',
+      });
+    } finally {
+      setIsInitializingSchema(false);
+    }
+  };
+
+  const syncDataToMysql = async () => {
     const ok = await confirm({
       title: 'Konfirmasi Sinkronisasi Data Awal (Development)',
-      message: 'Apakah Anda yakin ingin menyinkronkan data sampel awal ke database Supabase?',
+      message: 'Apakah Anda yakin ingin menyinkronkan data sampel awal ke database MySQL?',
       confirmText: 'Ya, Sinkronkan Data',
       cancelText: 'Batalkan',
       variant: 'warning',
     });
     if (!ok) return;
 
-    setIsSyncingSupabase(true);
+    setIsSyncingMysql(true);
     setSyncResult(null);
     try {
-      const res = await fetch('/api/system/supabase-sync', { method: 'POST' });
+      const res = await fetch('/api/system/mysql-sync', { method: 'POST' });
       const data = await res.json();
       setSyncResult(data);
       if (data.success) {
-        checkSupabase();
+        checkMysql();
       }
-    } catch (err: any) {
+    } catch {
       setSyncResult({
         success: false,
         message: 'Gagal mengirim permintaan sinkronisasi ke server.',
       });
     } finally {
-      setIsSyncingSupabase(false);
+      setIsSyncingMysql(false);
+    }
+  };
+
+  const handleRunSupabaseToMysqlMigration = async (dryRun: boolean) => {
+    if (!migrateSourceUrl.trim() || !migrateSourceKey.trim()) {
+      setMigrationReport({
+        success: false,
+        dryRun,
+        mode: migrateMode,
+        totalSourceRows: 0,
+        totalMigratedRows: 0,
+        message: 'Mohon isi URL Project Supabase lama dan Service Role Key terlebih dahulu.',
+        tables: [],
+      });
+      return;
+    }
+
+    if (!dryRun) {
+      const isReplace = migrateMode === 'replace';
+      const ok = await confirm({
+        title: isReplace
+          ? 'Konfirmasi Migrasi Penuh (Replace) Supabase → MySQL'
+          : 'Konfirmasi Migrasi Aman (Merge) Supabase → MySQL',
+        message: isReplace
+          ? 'Seluruh data tabel di MySQL saat ini akan dikosongkan terlebih dahulu lalu diisi penuh dengan seluruh data produksi dari Supabase lama (14 tabel). Lanjutkan?'
+          : 'Seluruh data produksi dari 14 tabel Supabase lama akan ditarik dan digabungkan (upsert) ke MySQL secara otomatis tanpa menghapus data lain. Lanjutkan migrasi?',
+        detail: `Sumber: ${migrateSourceUrl.trim()}\nTarget: ${mysqlStatus?.url || 'MySQL (.env)'}\nMode: ${isReplace ? 'Replace Penuh' : 'Merge Aman (Upsert)'}`,
+        confirmText: 'Ya, Mulai Migrasi ke MySQL',
+        cancelText: 'Batalkan',
+        variant: isReplace ? 'danger' : 'warning',
+      });
+      if (!ok) return;
+    }
+
+    setIsRunningMigration(true);
+    setMigrationReport(null);
+    try {
+      const res = await fetch('/api/system/migrate-from-supabase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supabaseUrl: migrateSourceUrl.trim(),
+          supabaseKey: migrateSourceKey.trim(),
+          mode: migrateMode,
+          dryRun,
+        }),
+      });
+      const data = await res.json();
+      setMigrationReport({
+        success: Boolean(data.success),
+        dryRun,
+        mode: migrateMode,
+        totalSourceRows: data.totalSourceRows ?? 0,
+        totalMigratedRows: data.totalMigratedRows ?? 0,
+        message: data.message || 'Proses selesai.',
+        tables: Array.isArray(data.tables) ? data.tables : [],
+      });
+      if (!dryRun && data.success) {
+        await checkMysql();
+        fetchEmailLogs();
+      }
+    } catch (err: any) {
+      setMigrationReport({
+        success: false,
+        dryRun,
+        mode: migrateMode,
+        totalSourceRows: 0,
+        totalMigratedRows: 0,
+        message: err?.message || 'Gagal menghubungi server untuk proses migrasi.',
+        tables: [],
+      });
+    } finally {
+      setIsRunningMigration(false);
     }
   };
 
   const handleDownloadBackup = async () => {
     const ok = await confirm({
-      title: 'Download Backup Database Supabase (.JSON)',
-      message: 'Apakah Anda yakin ingin mengunduh file backup seluruh tabel database Supabase saat ini?',
-      confirmText: 'Ya, Download Backup',
+      title: 'Download Backup Database MySQL (.JSON)',
+      message: 'Apakah Anda yakin ingin mengunduh file backup seluruh 14 tabel database MySQL saat ini?',
+      confirmText: 'Ya, Download Backup JSON',
       cancelText: 'Batalkan',
       variant: 'primary',
     });
@@ -352,10 +488,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
       const res = await fetch('/api/system/database-backup');
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Gagal mengunduh data backup dari Supabase.');
+        throw new Error(data.message || 'Gagal mengunduh data backup dari MySQL.');
       }
       const dateStr = new Date().toISOString().slice(0, 10);
-      const fileName = `supabase-backup-${(settings.firmName || 'ndtaxandlaw').toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
+      const fileName = `mysql-backup-${(settings.firmName || 'ndtaxandlaw').toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -368,15 +504,51 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
       setBackupRestoreFeedback({
         success: true,
-        message: `Backup Database Supabase "${fileName}" berhasil diunduh (${data.counts?.mitras ?? 0} mitra, ${data.counts?.client_deals ?? data.counts?.clientDeals ?? 0} klien/deal, ${data.counts?.commissions ?? 0} komisi).`,
+        message: `Backup Database MySQL "${fileName}" berhasil diunduh (${data.counts?.mitras ?? 0} mitra, ${data.counts?.client_deals ?? 0} klien/deal, ${data.counts?.commissions ?? 0} komisi).`,
       });
     } catch (err: any) {
       setBackupRestoreFeedback({
         success: false,
-        message: err.message || 'Terjadi kesalahan saat mengunduh backup dari Supabase.',
+        message: err.message || 'Terjadi kesalahan saat mengunduh backup dari MySQL.',
       });
     } finally {
       setIsDownloadingBackup(false);
+    }
+  };
+
+  const handleDownloadSqlDump = async () => {
+    setIsDownloadingSqlDump(true);
+    setBackupRestoreFeedback(null);
+    try {
+      const res = await fetch('/api/system/database-backup?format=sql');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Gagal mengunduh SQL dump MySQL.');
+      }
+      const sqlText = await res.text();
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const fileName = `mysql-backup-${(settings.firmName || 'ndtaxandlaw').toLowerCase().replace(/\s+/g, '-')}-${dateStr}.sql`;
+      const blob = new Blob([sqlText], { type: 'application/sql' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setBackupRestoreFeedback({
+        success: true,
+        message: `Backup SQL "${fileName}" berhasil diunduh dan siap di-import langsung di phpMyAdmin / MySQL CLI.`,
+      });
+    } catch (err: any) {
+      setBackupRestoreFeedback({
+        success: false,
+        message: err.message || 'Gagal mengunduh file SQL dump MySQL.',
+      });
+    } finally {
+      setIsDownloadingSqlDump(false);
     }
   };
 
@@ -391,14 +563,14 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
         const parsed = JSON.parse(String(reader.result || '{}'));
         const payloadData = parsed?.tables || parsed?.data || parsed;
         if (!payloadData || typeof payloadData !== 'object') {
-          throw new Error('Struktur file backup Supabase tidak dikenali.');
+          throw new Error('Struktur file backup JSON tidak dikenali.');
         }
         setParsedBackupPayload(parsed);
-      } catch (err: any) {
+      } catch {
         setParsedBackupPayload(null);
         setBackupRestoreFeedback({
           success: false,
-          message: `File "${file.name}" bukan file backup Supabase yang valid.`,
+          message: `File "${file.name}" bukan file backup JSON yang valid.`,
         });
       }
     };
@@ -409,12 +581,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     if (!parsedBackupPayload) return;
     const isReplace = restoreMode === 'replace';
     const ok = await confirm({
-      title: isReplace ? 'Konfirmasi Timpa Penuh (Replace) Database Supabase' : 'Konfirmasi Gabungkan (Merge) Database Supabase',
+      title: isReplace ? 'Konfirmasi Timpa Penuh (Replace) Database MySQL' : 'Konfirmasi Gabungkan (Merge) ke Database MySQL',
       message: isReplace
-        ? 'PERINGATAN: Seluruh data di tabel Supabase saat ini akan dihapus dan digantikan penuh dengan isi file backup. Apakah Anda yakin ingin melanjutkan?'
-        : 'Data dari file backup akan digabungkan (upsert) ke tabel Supabase tanpa menghapus data lain yang sudah ada. Lanjutkan proses restore?',
+        ? 'PERINGATAN: Seluruh data di tabel MySQL saat ini akan dihapus dan digantikan penuh dengan isi file backup. Apakah Anda yakin ingin melanjutkan?'
+        : 'Data dari file backup (mendukung format Backup MySQL maupun Backup Supabase lama) akan digabungkan (upsert) ke tabel MySQL tanpa menghapus data lain yang sudah ada. Lanjutkan?',
       detail: `File Backup: ${selectedBackupFileName || 'backup.json'}\nMode Restore: ${isReplace ? 'Timpa Penuh (Replace All)' : 'Gabungkan Aman (Merge / Upsert)'}`,
-      confirmText: isReplace ? 'Ya, Timpa & Restore Database' : 'Ya, Gabungkan & Restore',
+      confirmText: isReplace ? 'Ya, Timpa & Restore MySQL' : 'Ya, Gabungkan & Restore ke MySQL',
       cancelText: 'Batalkan',
       variant: isReplace ? 'danger' : 'warning',
     });
@@ -433,7 +605,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Gagal memulihkan database.');
+        throw new Error(data.message || 'Gagal memulihkan database ke MySQL.');
       }
       setBackupRestoreFeedback({
         success: true,
@@ -443,116 +615,25 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
         setSettings(data.settings);
         if (onSettingsSaved) onSettingsSaved(data.settings);
       }
-      checkSupabase();
+      checkMysql();
       fetchEmailLogs();
     } catch (err: any) {
       setBackupRestoreFeedback({
         success: false,
-        message: err.message || 'Terjadi kesalahan saat melakukan restore database.',
+        message: err.message || 'Terjadi kesalahan saat melakukan restore database ke MySQL.',
       });
     } finally {
       setIsRestoringBackup(false);
     }
   };
 
-  const defaultMigrationSql = `-- ====================================================================
--- QUERY UPDATE TABEL & KOLOM BARU SUPABASE NDTAXANDLAW
--- Aman dijalankan berulang kali (CREATE TABLE IF NOT EXISTS & ADD COLUMN IF NOT EXISTS)
--- ====================================================================
-
--- 1. Tambah Kolom Baru pada Tabel Existing (Jika Belum Ada)
-ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS gender TEXT;
-ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "emailVerified" BOOLEAN DEFAULT false;
-ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationToken" TEXT;
-ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationTokenExpiry" TEXT;
-
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "subscriptionStartDate" TEXT;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "billingDayOfMonth" INTEGER;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "nextBillingDate" TEXT;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "lastBilledDate" TEXT;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "isBillingDue" BOOLEAN DEFAULT false;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminatedAt" TEXT;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminationReason" TEXT;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectedAt" TEXT;
-ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT;
-
-ALTER TABLE public.user_passwords ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
-
--- 2. Buat Tabel Pengaturan Sistem (app_settings)
-CREATE TABLE IF NOT EXISTS public.app_settings (
-    id TEXT PRIMARY KEY DEFAULT 'config_primary',
-    settings JSONB NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. Buat Tabel Manajemen Role Dinamis (system_roles)
-CREATE TABLE IF NOT EXISTS public.system_roles (
-    code TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    "portalView" TEXT DEFAULT 'mitra',
-    "defaultTab" TEXT DEFAULT 'idcard',
-    "allowedTabs" JSONB DEFAULT '[]'::jsonb,
-    permissions JSONB DEFAULT '[]'::jsonb,
-    "isSystem" BOOLEAN DEFAULT false,
-    "isActive" BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. Buat Tabel Log Aktivitas Audit (activity_logs)
-CREATE TABLE IF NOT EXISTS public.activity_logs (
-    id TEXT PRIMARY KEY,
-    timestamp TEXT NOT NULL,
-    "actorRole" TEXT NOT NULL,
-    "actorId" TEXT,
-    "actorName" TEXT NOT NULL,
-    "actorEmail" TEXT,
-    "actionType" TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    "targetEntity" TEXT NOT NULL,
-    "targetId" TEXT,
-    description TEXT NOT NULL,
-    metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. Buat Tabel Log Pengiriman Email SMTP (email_logs)
-CREATE TABLE IF NOT EXISTS public.email_logs (
-    id TEXT PRIMARY KEY,
-    recipient TEXT NOT NULL,
-    "recipientName" TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    category TEXT NOT NULL,
-    status TEXT NOT NULL,
-    "smtpResponse" TEXT,
-    timestamp TEXT NOT NULL,
-    "previewSnippet" TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 6. Aktifkan RLS & Kebijakan Akses API
-ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Public Anon Access app_settings" ON public.app_settings;
-CREATE POLICY "Public Anon Access app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Anon Access system_roles" ON public.system_roles;
-CREATE POLICY "Public Anon Access system_roles" ON public.system_roles FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Anon Access activity_logs" ON public.activity_logs;
-CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
-CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`;
+  const defaultMysqlSchemaFallback = `-- Lihat file mysql_schema.sql di root proyek atau klik "Tes Koneksi" untuk memuat skema lengkap 14 tabel MySQL.`;
 
   const getDisplayedSqlQuery = () => {
     if (sqlQueryMode === 'migration') {
-      return supabaseStatus?.migrationSql || defaultMigrationSql;
+      return mysqlStatus?.migrationSql || defaultMysqlSchemaFallback;
     }
-    return supabaseStatus?.fullSchemaSql || defaultMigrationSql;
+    return mysqlStatus?.fullSchemaSql || defaultMysqlSchemaFallback;
   };
 
   const copySqlSchema = (customSql?: string) => {
@@ -584,7 +665,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
     const ok = await confirm({
       title: 'Konfirmasi Simpan Pengaturan Sistem',
       message: 'Apakah Anda yakin ingin menyimpan seluruh perubahan pengaturan aplikasi, profil firma, dan integrasi ke database?',
-      detail: `Nama Firma: ${settings.firmName}\nHotline: ${settings.supportPhone}\nMode Sistem: ${settings.appEnvironment === 'production' ? 'Production (Murni Supabase)' : 'Development'}`,
+      detail: `Nama Firma: ${settings.firmName}\nHotline: ${settings.supportPhone}\nMode Sistem: ${settings.appEnvironment === 'production' ? 'Production (Murni MySQL)' : 'Development'}`,
       confirmText: 'Ya, Simpan Pengaturan',
       cancelText: 'Batalkan',
       variant: 'primary',
@@ -751,18 +832,18 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('supabase');
-                  checkSupabase();
+                  setActiveTab('mysql');
+                  checkMysql();
                 }}
                 className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-                  activeTab === 'supabase'
+                  activeTab === 'mysql'
                     ? 'border-blue-700 bg-white text-blue-900 shadow-2xs'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Server className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Database Supabase</span>
-                {supabaseStatus?.success ? (
+                <span>Database MySQL</span>
+                {mysqlStatus?.success ? (
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                 ) : (
                   <span className="w-2 h-2 rounded-full bg-amber-400"></span>
@@ -2976,137 +3057,364 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
             </div>
           )}
 
-          {/* TAB: DATABASE SUPABASE INTEGRATION & SETUP */}
-          {activeTab === 'supabase' && (
+          {/* TAB: DATABASE MYSQL & MIGRASI PRODUKSI */}
+          {activeTab === 'mysql' && (
             <div className="space-y-5 animate-in fade-in duration-200">
               {/* Header Banner */}
-              <div className="p-4 bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-xl border border-emerald-800/60 shadow-xs flex items-center justify-between gap-4">
+              <div className="p-4 bg-gradient-to-r from-blue-950 via-slate-900 to-emerald-950 text-white rounded-xl border border-blue-800/60 shadow-xs flex items-center justify-between gap-4">
                 <div>
                   <h3 className="text-base font-bold font-display text-white">
-                    Koneksi &amp; Skema Database Supabase
+                    Database MySQL / MariaDB &amp; Pusat Migrasi Produksi
                   </h3>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Seluruh 14 tabel operasional aplikasi kini berjalan 100% di atas MySQL tanpa ketergantungan Supabase.
+                  </p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
                   <Server className="w-6 h-6 text-emerald-400" />
                 </div>
               </div>
 
-              {/* Status Koneksi Card */}
-              <div className={`p-4 rounded-xl border ${
-                supabaseStatus?.success
-                  ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
-                  : 'bg-amber-50/70 border-amber-300 text-amber-950'
-              }`}>
+              {/* Status Koneksi MySQL Card */}
+              <div
+                className={`p-4 rounded-xl border ${
+                  mysqlStatus?.success
+                    ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                    : 'bg-amber-50/70 border-amber-300 text-amber-950'
+                }`}
+              >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                      supabaseStatus?.success
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-amber-500 text-white'
-                    }`}>
-                      {supabaseStatus?.success ? (
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                        mysqlStatus?.success
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-amber-500 text-white'
+                      }`}
+                    >
+                      {mysqlStatus?.success ? (
                         <CheckCheck className="w-5 h-5" />
                       ) : (
                         <AlertTriangle className="w-5 h-5" />
                       )}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-sm font-bold">
-                          {supabaseStatus?.success
-                            ? 'Supabase Terhubung & Siap Digunakan'
-                            : (supabaseStatus?.isConfigured ? 'Kredensial Ada, Menunggu Tabel SQL' : 'Kredensial Supabase Belum Terpasang')}
+                          {mysqlStatus?.success
+                            ? `MySQL Terhubung & Aktif${mysqlStatus.serverVersion ? ` (${mysqlStatus.serverVersion})` : ''}`
+                            : mysqlStatus?.isConfigured
+                              ? 'Kredensial MySQL Terpasang, Menunggu Koneksi / Tabel'
+                              : 'Kredensial MySQL Belum Terpasang di .env'}
                         </h4>
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                          supabaseStatus?.success
-                            ? 'bg-emerald-200 text-emerald-900'
-                            : 'bg-amber-200 text-amber-900'
-                        }`}>
-                          {supabaseStatus?.success ? 'ONLINE' : 'PERLU SETUP'}
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                            mysqlStatus?.success
+                              ? 'bg-emerald-200 text-emerald-900'
+                              : 'bg-amber-200 text-amber-900'
+                          }`}
+                        >
+                          {mysqlStatus?.success ? 'ONLINE' : 'PERLU SETUP'}
                         </span>
                       </div>
-                      {supabaseStatus?.message &&
-                        !supabaseStatus.message.includes('Koneksi ke Supabase berhasil aktif') && (
-                          <p className="text-xs mt-1 text-slate-700 leading-relaxed">
-                            {supabaseStatus.message}
-                          </p>
-                        )}
-                      {supabaseStatus?.url && (
+                      {mysqlStatus?.message && (
+                        <p className="text-xs mt-1 text-slate-700 leading-relaxed">
+                          {mysqlStatus.message}
+                        </p>
+                      )}
+                      {mysqlStatus?.url && (
                         <p className="text-[11px] font-mono text-slate-600 mt-1">
-                          Endpoint: <strong>{supabaseStatus.url}</strong>
+                          Server: <strong>{mysqlStatus.url}</strong>
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 self-end sm:self-center shrink-0">
                     <button
                       type="button"
-                      onClick={checkSupabase}
-                      disabled={isCheckingSupabase}
+                      onClick={checkMysql}
+                      disabled={isCheckingMysql}
                       className="px-3.5 py-2 text-xs font-bold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingSupabase ? 'animate-spin' : ''}`} />
-                      <span>{isCheckingSupabase ? 'Menguji...' : 'Tes Koneksi'}</span>
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingMysql ? 'animate-spin' : ''}`} />
+                      <span>{isCheckingMysql ? 'Menguji...' : 'Tes Koneksi'}</span>
                     </button>
 
-                    {supabaseStatus?.success && settings.appEnvironment === 'development' && !supabaseStatus?.strictSupabaseOnly && (
+                    {mysqlStatus?.isConfigured && (
                       <button
                         type="button"
-                        onClick={syncDataToSupabase}
-                        disabled={isSyncingSupabase}
+                        onClick={handleInitMysqlSchema}
+                        disabled={isInitializingSchema}
+                        className="px-3.5 py-2 text-xs font-bold rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                      >
+                        <Database className={`w-3.5 h-3.5 ${isInitializingSchema ? 'animate-pulse' : ''}`} />
+                        <span>{isInitializingSchema ? 'Membuat Tabel...' : 'Auto-Buat / Update 14 Tabel'}</span>
+                      </button>
+                    )}
+
+                    {mysqlStatus?.success && settings.appEnvironment === 'development' && !mysqlStatus?.strictMysqlOnly && (
+                      <button
+                        type="button"
+                        onClick={syncDataToMysql}
+                        disabled={isSyncingMysql}
                         className="px-3.5 py-2 text-xs font-bold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
                       >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
-                        <span>{isSyncingSupabase ? 'Menyinkronkan...' : 'Sinkronkan Data Awal'}</span>
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingMysql ? 'animate-spin' : ''}`} />
+                        <span>{isSyncingMysql ? 'Menyinkronkan...' : 'Sinkronkan Data Awal'}</span>
                       </button>
                     )}
                   </div>
                 </div>
 
                 {syncResult && (
-                  <div className={`mt-3 p-3 rounded-lg text-xs border ${
-                    syncResult.success 
-                      ? 'bg-emerald-100/70 border-emerald-300 text-emerald-900' 
-                      : 'bg-red-50 border-red-200 text-red-800'
-                  }`}>
+                  <div
+                    className={`mt-3 p-3 rounded-lg text-xs border ${
+                      syncResult.success
+                        ? 'bg-emerald-100/70 border-emerald-300 text-emerald-900'
+                        : 'bg-red-50 border-red-200 text-red-800'
+                    }`}
+                  >
                     {syncResult.message}
                   </div>
                 )}
               </div>
 
-              {/* BACKUP & RESTORE DATABASE SUPABASE (PRODUCTION) */}
+              {/* WIZARD MIGRASI DATA PRODUKSI: SUPABASE -> MYSQL (1-KLIK + DRY RUN + VERIFIKASI) */}
+              <div className="p-5 bg-white border-2 border-indigo-600/30 rounded-xl space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Rocket className="w-4 h-4 text-indigo-700" />
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Migrasi Data Produksi: Supabase Lama &rarr; MySQL (14 Tabel Otomatis)
+                      </h4>
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 rounded">
+                        PAGINASI PENUH &amp; AMAN
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      Tarik seluruh data produksi dari Supabase lama Anda (Mitra, Klien, Komisi, Pencairan, Chat, Akun Staf, Password Terenkripsi, Pengaturan, Log) langsung ke MySQL tanpa kehilangan data.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      URL Project Supabase Lama (Sumber Data)
+                    </label>
+                    <input
+                      type="text"
+                      value={migrateSourceUrl}
+                      onChange={(e) => setMigrateSourceUrl(e.target.value)}
+                      placeholder="https://xxxxxxxxxxxxxxxx.supabase.co"
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Service Role Key Supabase Lama (Hanya Sekali Pakai, Tidak Disimpan)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showMigrateKey ? 'text' : 'password'}
+                        value={migrateSourceKey}
+                        onChange={(e) => setMigrateSourceKey(e.target.value)}
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        className="w-full px-3 py-2 pr-9 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMigrateKey(!showMigrateKey)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                      >
+                        {showMigrateKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="migrateMode"
+                        checked={migrateMode === 'merge'}
+                        onChange={() => setMigrateMode('merge')}
+                        className="text-indigo-700"
+                      />
+                      <span>Mode Merge / Upsert (Aman, Direkomendasikan)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="migrateMode"
+                        checked={migrateMode === 'replace'}
+                        onChange={() => setMigrateMode('replace')}
+                        className="text-amber-600"
+                      />
+                      <span>Mode Replace (Kosongkan Target MySQL Dulu)</span>
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRunSupabaseToMysqlMigration(true)}
+                      disabled={isRunningMigration}
+                      className="px-3.5 py-2 text-xs font-bold rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRunningMigration ? 'animate-spin' : ''}`} />
+                      <span>Cek Jumlah Data (Dry Run)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRunSupabaseToMysqlMigration(false)}
+                      disabled={isRunningMigration || !mysqlStatus?.isConfigured}
+                      className="px-4 py-2 text-xs font-bold rounded-lg bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-300 text-white transition-colors flex items-center gap-1.5 shadow-2xs disabled:cursor-not-allowed"
+                    >
+                      <Rocket className="w-3.5 h-3.5" />
+                      <span>{isRunningMigration ? 'Memigrasi Data...' : 'Migrasi ke MySQL Sekarang'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {migrationReport && (
+                  <div className="space-y-3 pt-2">
+                    <div
+                      className={`p-3 rounded-xl text-xs border flex items-start gap-2 ${
+                        migrationReport.success
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                          : 'bg-amber-50 border-amber-300 text-amber-950'
+                      }`}
+                    >
+                      {migrationReport.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      )}
+                      <div>
+                        <p className="font-bold">{migrationReport.message}</p>
+                        <p className="text-[11px] mt-0.5 text-slate-600">
+                          Total Sumber Supabase: <strong>{migrationReport.totalSourceRows.toLocaleString('id-ID')}</strong> baris
+                          {!migrationReport.dryRun && (
+                            <>
+                              {' '}· Berhasil Masuk MySQL: <strong>{migrationReport.totalMigratedRows.toLocaleString('id-ID')}</strong> baris
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {migrationReport.tables.length > 0 && (
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
+                            <tr>
+                              <th className="px-3 py-2">Tabel</th>
+                              <th className="px-3 py-2 text-right">Sumber Supabase</th>
+                              {!migrationReport.dryRun && <th className="px-3 py-2 text-right">Masuk MySQL</th>}
+                              {!migrationReport.dryRun && <th className="px-3 py-2 text-right">Total Akhir MySQL</th>}
+                              <th className="px-3 py-2 text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {migrationReport.tables.map((t) => (
+                              <tr key={t.table} className="hover:bg-slate-50">
+                                <td className="px-3 py-1.5">
+                                  <span className="font-mono font-bold text-slate-900">{t.table}</span>
+                                  <span className="text-slate-500 ml-1.5">({t.label})</span>
+                                  {t.error && <p className="text-[10px] text-amber-700 mt-0.5">{t.error}</p>}
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-mono font-semibold">{t.sourceCount}</td>
+                                {!migrationReport.dryRun && (
+                                  <td className="px-3 py-1.5 text-right font-mono font-semibold text-emerald-700">
+                                    {t.migratedCount}
+                                  </td>
+                                )}
+                                {!migrationReport.dryRun && (
+                                  <td className="px-3 py-1.5 text-right font-mono font-bold text-slate-900">
+                                    {t.mysqlFinalCount}
+                                  </td>
+                                )}
+                                <td className="px-3 py-1.5 text-right">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded font-bold uppercase text-[9px] ${
+                                      t.status === 'ok'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : t.status === 'skipped'
+                                          ? 'bg-slate-100 text-slate-600'
+                                          : 'bg-red-100 text-red-800'
+                                    }`}
+                                  >
+                                    {t.status === 'ok' ? 'OK' : t.status === 'skipped' ? 'LEWATI' : 'ERROR'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 leading-relaxed">
+                  <strong>Alternatif Migrasi via Terminal VPS (CLI) untuk Data Sangat Besar:</strong>{' '}
+                  Jalankan <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-900">npm run migrate:mysql -- --dry-run</code> lalu{' '}
+                  <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-900">npm run migrate:mysql</code> atau dari file backup JSON:{' '}
+                  <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-900">npm run migrate:mysql -- --from-json=./backup.json</code>.
+                </div>
+              </div>
+
+              {/* BACKUP & RESTORE DATABASE MYSQL (.JSON & .SQL — SUPPORT IMPORT BACKUP SUPABASE LAMA) */}
               <div className="p-5 bg-white border-2 border-blue-600/25 rounded-xl space-y-4 shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Database className="w-4 h-4 text-blue-700" />
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Backup &amp; Restore Database Supabase (Production)
+                        Backup &amp; Restore Database MySQL (Production)
                       </h4>
                       <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 rounded">
-                        MURNI DATA SUPABASE
+                        MURNI DATA MYSQL
                       </span>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleDownloadBackup}
-                    disabled={isDownloadingBackup || !supabaseStatus?.success}
-                    className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs shrink-0 disabled:opacity-50"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>{isDownloadingBackup ? 'Mengambil dari Supabase...' : 'Backup Database Supabase'}</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleDownloadSqlDump}
+                      disabled={isDownloadingSqlDump || !mysqlStatus?.success}
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>{isDownloadingSqlDump ? 'Membuat .SQL...' : 'Export .SQL (phpMyAdmin)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadBackup}
+                      disabled={isDownloadingBackup || !mysqlStatus?.success}
+                      className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>{isDownloadingBackup ? 'Mengambil dari MySQL...' : 'Backup .JSON MySQL'}</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Restore Section */}
+                {/* Restore / Import Section */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <div className="md:col-span-7 space-y-2">
                     <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                       <Upload className="w-3.5 h-3.5 text-blue-700" />
-                      <span>Restore Data ke Tabel Supabase</span>
+                      <span>Restore / Import File Backup (.JSON) ke MySQL</span>
+                    </p>
+                    <p className="text-[11px] text-slate-600">
+                      Mendukung file backup <strong>MySQL (.json)</strong> maupun file backup <strong>Supabase lama (.json)</strong> untuk migrasi offline 1-klik.
                     </p>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -3118,7 +3426,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           onChange={() => setRestoreMode('merge')}
                           className="text-blue-700"
                         />
-                        <span>Gabungkan / Update ke Supabase (Merge)</span>
+                        <span>Gabungkan / Update ke MySQL (Merge)</span>
                       </label>
                       <label className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-300 cursor-pointer">
                         <input
@@ -3128,7 +3436,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           onChange={() => setRestoreMode('replace')}
                           className="text-amber-600"
                         />
-                        <span>Timpa Penuh Tabel Supabase (Full Replace)</span>
+                        <span>Timpa Penuh Tabel MySQL (Full Replace)</span>
                       </label>
                     </div>
                   </div>
@@ -3137,7 +3445,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     <label className="w-full px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-dashed border-slate-300 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-2 transition-colors">
                       <Upload className="w-4 h-4 text-blue-700 shrink-0" />
                       <span className="truncate">
-                        {selectedBackupFileName || 'Pilih File Backup Supabase...'}
+                        {selectedBackupFileName || 'Pilih File Backup .JSON (MySQL / Supabase)...'}
                       </span>
                       <input
                         type="file"
@@ -3150,7 +3458,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     {parsedBackupPayload && (
                       <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg text-[11px] text-blue-950 space-y-1">
                         <p className="font-bold">
-                          Isi File Backup Supabase ({parsedBackupPayload.createdAt ? new Date(parsedBackupPayload.createdAt).toLocaleString('id-ID') : 'Siap Restore'}):
+                          Isi File Backup ({parsedBackupPayload.createdAt ? new Date(parsedBackupPayload.createdAt).toLocaleString('id-ID') : 'Siap Import'}):
                         </p>
                         <p className="text-[10px] text-blue-800">
                           {(parsedBackupPayload.tables?.mitras || parsedBackupPayload.data?.mitras || []).length} Mitra ·{' '}
@@ -3164,11 +3472,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                     <button
                       type="button"
                       onClick={handleExecuteRestore}
-                      disabled={!parsedBackupPayload || isRestoringBackup || !supabaseStatus?.success}
+                      disabled={!parsedBackupPayload || isRestoringBackup || !mysqlStatus?.isConfigured}
                       className="w-full py-2 px-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs disabled:cursor-not-allowed"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isRestoringBackup ? 'animate-spin' : ''}`} />
-                      <span>{isRestoringBackup ? 'Memulihkan ke Supabase...' : 'Restore ke Supabase'}</span>
+                      <span>{isRestoringBackup ? 'Memulihkan ke MySQL...' : 'Restore / Import ke MySQL'}</span>
                     </button>
                   </div>
                 </div>
@@ -3191,22 +3499,22 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                 )}
               </div>
 
-              {/* PUSAT QUERY SQL UPDATE TABEL & KOLOM BARU (COPY-PASTE KE SUPABASE) */}
+              {/* PUSAT SKEMA SQL MYSQL (14 TABEL) */}
               <div className="p-5 bg-white border-2 border-emerald-600/30 rounded-xl space-y-4 shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <FileText className="w-4 h-4 text-emerald-700" />
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Pusat Query SQL Update Tabel &amp; Kolom Baru (Copy-Paste ke Supabase)
+                        Status 14 Tabel &amp; Skema SQL MySQL / MariaDB
                       </h4>
-                      {supabaseStatus?.hasPendingMigration ? (
+                      {mysqlStatus?.hasPendingMigration ? (
                         <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded">
-                          ADA UPDATE TABEL / KOLOM
+                          ADA TABEL / KOLOM BELUM SINKRON
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 rounded">
-                          SKEMA TERBARU SIAP
+                          14 TABEL SINKRON
                         </span>
                       )}
                     </div>
@@ -3219,33 +3527,24 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                       className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
                     >
                       {copiedSql ? <Check className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-                      <span>{copiedSql ? 'Query Tersalin!' : 'Copy Query SQL'}</span>
+                      <span>{copiedSql ? 'Query Tersalin!' : 'Copy Skema SQL MySQL'}</span>
                     </button>
-                    <a
-                      href="https://supabase.com/dashboard/project/wopbuflusryycanyfqop/sql/new"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Buka SQL Editor</span>
-                    </a>
                   </div>
                 </div>
 
-                {/* Status 12 Tabel & Kolom di Supabase Anda */}
-                {supabaseStatus?.tableChecks && supabaseStatus.tableChecks.length > 0 && (
+                {/* Status 14 Tabel MySQL */}
+                {mysqlStatus?.tableChecks && mysqlStatus.tableChecks.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                        Status Deteksi 12 Tabel &amp; Kolom di Database Supabase Anda:
+                        Deteksi 14 Tabel &amp; Kolom di Database MySQL Anda:
                       </span>
                       <span className="text-[11px] text-slate-500">
-                        {supabaseStatus.tableChecks.filter((t) => t.exists).length} dari {supabaseStatus.tableChecks.length} tabel sudah dibuat
+                        {mysqlStatus.tableChecks.filter((t) => t.exists).length} dari {mysqlStatus.tableChecks.length} tabel aktif
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {supabaseStatus.tableChecks.map((tbl) => (
+                      {mysqlStatus.tableChecks.map((tbl) => (
                         <div
                           key={tbl.table}
                           className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2 ${
@@ -3255,8 +3554,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                           }`}
                         >
                           <div className="min-w-0">
-                            <p className="font-mono font-bold text-[11px] truncate">public.{tbl.table}</p>
-                            <p className="text-[10px] text-slate-600 truncate">{tbl.label}</p>
+                            <p className="font-mono font-bold text-[11px] truncate">`{tbl.table}`</p>
+                            <p className="text-[10px] text-slate-600 truncate">
+                              {tbl.label}
+                              {tbl.exists && typeof tbl.rowCount === 'number' ? ` · ${tbl.rowCount} baris` : ''}
+                            </p>
                             {tbl.missingColumns.length > 0 && (
                               <p className="text-[10px] text-amber-800 font-semibold mt-0.5">
                                 + Kolom baru: {tbl.missingColumns.join(', ')}
@@ -3267,16 +3569,14 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                             className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 uppercase ${
                               tbl.exists && tbl.missingColumns.length === 0
                                 ? 'bg-emerald-200 text-emerald-900'
-                                : tbl.exists
-                                ? 'bg-amber-200 text-amber-900'
                                 : 'bg-amber-200 text-amber-900'
                             }`}
                           >
                             {tbl.exists && tbl.missingColumns.length === 0
                               ? 'AKTIF'
                               : tbl.exists
-                              ? 'KURANG KOLOM'
-                              : 'BELUM ADA'}
+                                ? 'KURANG KOLOM'
+                                : 'BELUM ADA'}
                           </span>
                         </div>
                       ))}
@@ -3284,7 +3584,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                   </div>
                 )}
 
-                {/* Pilihan Mode Query: Update Tabel/Kolom Baru vs Skema Lengkap */}
+                {/* Pilihan Mode Query */}
                 <div className="space-y-2 pt-1">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
@@ -3297,7 +3597,7 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        Query Update / Tambah Tabel &amp; Kolom Baru
+                        Query Update / Tabel Belum Ada
                       </button>
                       <button
                         type="button"
@@ -3308,11 +3608,11 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        Skrip Lengkap 12 Tabel (Full Schema)
+                        Skrip Lengkap 14 Tabel (mysql_schema.sql)
                       </button>
                     </div>
                     <span className="text-[10px] text-slate-500 font-mono">
-                      Aman dijalankan berulang kali (IF NOT EXISTS)
+                      MySQL 5.7+ / 8.0+ / MariaDB 10.2+ (UTF8MB4)
                     </span>
                   </div>
 
@@ -3324,100 +3624,70 @@ CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING
                 </div>
               </div>
 
-              {/* PANDUAN 3 LANGKAH MENGHUBUNGKAN SUPABASE */}
+              {/* PANDUAN 3 LANGKAH KONEKSI MYSQL DI HOSTING / VPS */}
               <div className="p-5 bg-white border border-slate-200 rounded-xl space-y-4">
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-emerald-700" />
-                  <span>Panduan Praktis Menghubungkan Supabase ke Hosting / Production</span>
+                  <span>Panduan Setup Database MySQL di VPS / cPanel / Production</span>
                 </h4>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                  {/* Step 1 */}
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between space-y-2">
-                    <div>
-                      <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs mb-2">
-                        1
-                      </span>
-                      <p className="font-bold text-slate-900">Jalankan Skrip SQL di Supabase</p>
-                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                        Buka dashboard Supabase project Anda &rarr; klik menu <strong>SQL Editor</strong> di kiri &rarr; tempelkan skrip tabel &rarr; klik <strong>RUN</strong>.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copySqlSchema()}
-                      className="mt-2 w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      {copiedSql ? <Check className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
-                      <span>{copiedSql ? 'Tersalin ke Clipboard!' : 'Salin Skrip SQL Tabel'}</span>
-                    </button>
-                  </div>
-
-                  {/* Step 2 */}
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between space-y-2">
-                    <div>
-                      <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs mb-2">
-                        2
-                      </span>
-                      <p className="font-bold text-slate-900">Ambil URL &amp; API Key</p>
-                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                        Di dashboard Supabase, klik menu <strong>Project Settings</strong> (ikon gerigi) &rarr; pilih <strong>API</strong>. Salin <strong>Project URL</strong> dan <strong>anon/public Key</strong> (atau <em>service_role</em>).
-                      </p>
-                    </div>
-                    <a
-                      href="https://supabase.com/dashboard"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 w-full py-1.5 px-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 text-center"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Buka Supabase Dashboard</span>
-                    </a>
-                  </div>
-
-                  {/* Step 3 */}
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between space-y-2">
-                    <div>
-                      <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs mb-2">
-                        3
-                      </span>
-                      <p className="font-bold text-slate-900">Pasang di File .env Hosting</p>
-                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                        Di cPanel / Hostinger VPS / file manager server Anda, buka file <code>.env</code> dan masukkan 2 baris variabel Supabase Anda.
-                      </p>
-                    </div>
-                    <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-2 py-1 rounded text-center">
-                      Auto-connect saat server start
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                    <span className="w-6 h-6 rounded-full bg-blue-700 text-white font-bold flex items-center justify-center text-xs">
+                      1
                     </span>
+                    <p className="font-bold text-slate-900">Buat Database MySQL</p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Buat database kosong di cPanel / phpMyAdmin / VPS MySQL (misal: <code>ndtaxlaw_db</code>) beserta user &amp; password-nya.
+                    </p>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                    <span className="w-6 h-6 rounded-full bg-blue-700 text-white font-bold flex items-center justify-center text-xs">
+                      2
+                    </span>
+                    <p className="font-bold text-slate-900">Pasang Kredensial di .env</p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Isi <code>MYSQL_HOST</code>, <code>MYSQL_PORT</code>, <code>MYSQL_USER</code>, <code>MYSQL_PASSWORD</code>, dan <code>MYSQL_DATABASE</code> di file <code>.env</code> server lalu restart Node.js.
+                    </p>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                    <span className="w-6 h-6 rounded-full bg-blue-700 text-white font-bold flex items-center justify-center text-xs">
+                      3
+                    </span>
+                    <p className="font-bold text-slate-900">Migrasi Data Produksi</p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      14 tabel terbuat otomatis saat startup. Jalankan Wizard Migrasi di atas atau <code>npm run migrate:mysql</code> untuk memindahkan data produksi Supabase lama ke MySQL.
+                    </p>
                   </div>
                 </div>
 
-                {/* Environment Template Preview */}
                 <div className="pt-2 border-t border-slate-200">
                   <div className="flex items-center justify-between mb-1.5">
                     <p className="text-xs font-bold text-slate-800">
-                      Contoh Format Variabel di file <code>.env</code> Hosting / VPS:
+                      Contoh Konfigurasi File <code>.env</code> Production (MySQL):
                     </p>
-                    <span className="text-[10px] text-slate-400 font-mono">Ditaruh di root folder server</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Root folder server</span>
                   </div>
                   <div className="bg-slate-900 text-slate-100 p-3 rounded-xl font-mono text-xs overflow-x-auto select-all leading-relaxed">
-                    <span className="text-slate-400"># 1. URL Project Supabase Anda</span><br />
-                    SUPABASE_URL="https://xxxxxxxxxxxxxxxx.supabase.co"<br /><br />
-                    <span className="text-slate-400"># 2. Key Supabase (anon public atau service_role)</span><br />
-                    SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."<br /><br />
-                    <span className="text-slate-400"># 3. Kunci ke mode production</span><br />
+                    <span className="text-slate-400"># Konfigurasi Database MySQL / MariaDB</span><br />
+                    MYSQL_HOST="127.0.0.1"<br />
+                    MYSQL_PORT="3306"<br />
+                    MYSQL_USER="ndtaxlaw_user"<br />
+                    MYSQL_PASSWORD="password_kuat_anda"<br />
+                    MYSQL_DATABASE="ndtaxlaw_db"<br />
+                    MYSQL_SSL="false"<br /><br />
+                    <span className="text-slate-400"># Kunci ke mode production</span><br />
                     APP_ENV="production"<br />
                     NODE_ENV="production"
                   </div>
                 </div>
 
-                {/* Download SQL File Note */}
                 <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
                   <FileText className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold">File Skrip SQL Lengkap Sudah Tersedia di Repository</p>
+                    <p className="font-bold">File Skema &amp; Skrip Migrasi Tersedia di Root Proyek</p>
                     <p className="mt-0.5 text-blue-800 text-[11px] leading-relaxed">
-                      File <strong>supabase_schema.sql</strong> telah kami buatkan langsung di dalam root folder proyek. Anda dapat membukanya langsung, menyalin seluruh isinya, dan menempelkannya di menu <em>SQL Editor</em> Supabase.
+                      File <strong>mysql_schema.sql</strong> (siap import phpMyAdmin) dan skrip migrasi CLI <strong>scripts/migrate-supabase-to-mysql.ts</strong> telah tersedia di repository.
                     </p>
                   </div>
                 </div>
