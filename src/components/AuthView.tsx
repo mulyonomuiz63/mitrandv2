@@ -321,7 +321,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       });
       const data = await res.json();
       if (data.emailTaken) {
-        setRegEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
+        setRegEmailError('Email sudah digunakan');
         return false;
       }
       setRegEmailError(null);
@@ -466,10 +466,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       });
       const checkData = await checkRes.json();
       if (checkData.emailTaken) {
-        setRegEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
-        setLoginError(
-          checkData.emailMessage || 'Email sudah pernah terdaftar pada akun mitra lain.'
-        );
+        setRegEmailError('Email sudah digunakan');
         setIsLoading(false);
         return;
       }
@@ -511,9 +508,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
     } catch (err: any) {
       const msg = err?.message || 'Gagal mengirim pendaftaran.';
       if (msg.toLowerCase().includes('email')) {
-        setRegEmailError(msg);
+        setRegEmailError('Email sudah digunakan');
+      } else {
+        setLoginError(msg);
       }
-      setLoginError(msg);
     } finally {
       setIsLoading(false);
     }

@@ -3581,10 +3581,10 @@ const checkMitraIdentityUniqueness = (params: {
 
     if (isAdminEmail || isStaffEmail) {
       emailTaken = true;
-      emailMessage = `Email "${rawEmail}" sudah terdaftar pada akun sistem. Setiap mitra hanya boleh mendaftar dengan 1 email unik.`;
+      emailMessage = 'Email sudah digunakan';
     } else if (existingMitraByEmail) {
       emailTaken = true;
-      emailMessage = `Email "${rawEmail}" sudah pernah digunakan untuk mendaftar sebagai mitra. Setiap mitra hanya boleh mendaftar dengan 1 email unik. Silakan masuk (login) ke akun Anda atau gunakan email lain.`;
+      emailMessage = 'Email sudah digunakan';
     }
   }
 
@@ -3594,7 +3594,7 @@ const checkMitraIdentityUniqueness = (params: {
     );
     if (existingMitraByNik) {
       nikTaken = true;
-      nikMessage = `NIK / NPWP "${rawNik}" sudah terdaftar pada akun mitra lain. Setiap mitra hanya diperbolehkan menggunakan 1 NIK / NPWP yang unik.`;
+      nikMessage = 'NIK / NPWP sudah digunakan';
     }
   }
 

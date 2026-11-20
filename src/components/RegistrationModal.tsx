@@ -176,7 +176,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
       });
       const data = await res.json();
       if (data.emailTaken) {
-        setEmailError(data.emailMessage || 'Email sudah pernah digunakan.');
+        setEmailError('Email sudah digunakan');
         return false;
       }
       setEmailError(null);
@@ -204,11 +204,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
       });
       const checkData = await checkRes.json();
       if (checkData.emailTaken) {
-        setEmailError(checkData.emailMessage || 'Email sudah pernah digunakan.');
-        setErrorMessage(
-          checkData.emailMessage ||
-            'Email sudah pernah digunakan untuk pendaftaran mitra lain.'
-        );
+        setEmailError('Email sudah digunakan');
         setIsSubmitting(false);
         return;
       }
@@ -239,9 +235,10 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
     } catch (err: any) {
       const msg = err?.message || 'Pendaftaran gagal diproses. Silakan periksa kembali data Anda.';
       if (msg.toLowerCase().includes('email')) {
-        setEmailError(msg);
+        setEmailError('Email sudah digunakan');
+      } else {
+        setErrorMessage(msg);
       }
-      setErrorMessage(msg);
     } finally {
       setIsSubmitting(false);
     }
