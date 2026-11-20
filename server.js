@@ -10,1124 +10,770 @@ import nodemailer from "nodemailer";
 import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI } from "@google/genai";
 
-// src/mysql.ts
-import mysql from "mysql2/promise";
+// src/supabase.ts
+import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 dotenv.config();
-var getMysqlConfig = () => {
-  const host = (process.env.MYSQL_HOST || process.env.DB_HOST || "").trim();
-  const port = Number(process.env.MYSQL_PORT || process.env.DB_PORT || 3306) || 3306;
-  const user = (process.env.MYSQL_USER || process.env.DB_USER || "").trim();
-  const password = process.env.MYSQL_PASSWORD ?? process.env.DB_PASSWORD ?? "";
-  const database = (process.env.MYSQL_DATABASE || process.env.DB_NAME || "").trim();
-  const sslRaw = (process.env.MYSQL_SSL || process.env.DB_SSL || "").trim().toLowerCase();
-  const ssl = sslRaw === "true" || sslRaw === "1" || sslRaw === "required";
-  const isConfigured = Boolean(host && user && database);
+var DEFAULT_SUPABASE_URL = "https://wopbuflusryycanyfqop.supabase.co";
+var DEFAULT_SUPABASE_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvcGJ1Zmx1c3J5eWNhbnlmcW9wIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5NDI3MTk0OCwiZXhwIjoyMTA5ODQ3OTQ4fQ.ENSCRB0h0EysxzjRSJWHWm7KKAk555GRaW20itnd1ko";
+var supabaseUrl = process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
+var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_SERVICE_ROLE;
+var supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false
+  }
+});
+var isSupabaseConfigured = () => {
+  return Boolean(supabaseUrl && supabaseKey);
+};
+var getSupabaseConfig = () => {
   return {
-    isConfigured,
-    host,
-    port,
-    user,
-    database,
-    ssl,
-    hasPassword: Boolean(password),
-    connectionLabel: isConfigured ? `mysql://${user}@${host}:${port}/${database}` : ""
+    isConfigured: isSupabaseConfigured(),
+    url: supabaseUrl,
+    hasKey: Boolean(supabaseKey)
   };
 };
-var isMysqlConfigured = () => getMysqlConfig().isConfigured;
-var _pool = null;
-var _poolSignature = "";
-var getMysqlPool = () => {
-  const cfg = getMysqlConfig();
-  if (!cfg.isConfigured) return null;
-  const password = process.env.MYSQL_PASSWORD ?? process.env.DB_PASSWORD ?? "";
-  const sig = `${cfg.host}|${cfg.port}|${cfg.user}|${cfg.database}|${cfg.ssl}|${password.length}`;
-  if (_pool && _poolSignature === sig) {
-    return _pool;
-  }
-  if (_pool) {
-    _pool.end().catch(() => {
-    });
-    _pool = null;
-  }
-  const options = {
-    host: cfg.host,
-    port: cfg.port,
-    user: cfg.user,
-    password,
-    database: cfg.database,
-    waitForConnections: true,
-    connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10) || 10,
-    queueLimit: 0,
-    charset: "utf8mb4",
-    decimalNumbers: true,
-    supportBigNumbers: true,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 1e4,
-    connectTimeout: 15e3,
-    ...cfg.ssl ? { ssl: { rejectUnauthorized: false } } : {}
-  };
-  _pool = mysql.createPool(options);
-  _poolSignature = sig;
-  return _pool;
-};
+var FULL_IDEMPOTENT_SCHEMA_SQL = `-- ====================================================================
+-- SKEMA LENGKAP & MIGRASI KOLOM OTOMATIS SUPABASE NDTAXANDLAW (12 TABEL)
+-- Aman dijalankan berulang kali (Idempotent: CREATE IF NOT EXISTS & ADD COLUMN IF NOT EXISTS)
+-- ====================================================================
+
+-- 1. TABEL MITRA
+CREATE TABLE IF NOT EXISTS public.mitras (
+    id TEXT PRIMARY KEY,
+    "memberCode" TEXT,
+    "referralCode" TEXT,
+    "fullName" TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    phone TEXT,
+    nik TEXT,
+    specialization TEXT,
+    status TEXT DEFAULT 'pending',
+    "avatarUrl" TEXT,
+    gender TEXT,
+    "joinedDate" TEXT,
+    "bankDetails" JSONB,
+    "totalCommission" NUMERIC DEFAULT 0,
+    "totalBonus" NUMERIC DEFAULT 0,
+    "pendingPayout" NUMERIC DEFAULT 0,
+    "paidPayout" NUMERIC DEFAULT 0,
+    "referredClientsCount" INTEGER DEFAULT 0,
+    "activeSubscribersCount" INTEGER DEFAULT 0,
+    "emailVerified" BOOLEAN DEFAULT false,
+    "verificationToken" TEXT,
+    "verificationTokenExpiry" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "emailVerified" BOOLEAN DEFAULT false;
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationToken" TEXT;
+ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationTokenExpiry" TEXT;
+
+-- 2. TABEL KATALOG LAYANAN (SERVICES)
+CREATE TABLE IF NOT EXISTS public.services (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    "defaultPrice" NUMERIC NOT NULL,
+    "pricingType" TEXT DEFAULT 'case_by_case',
+    "commissionRate" NUMERIC DEFAULT 15,
+    description TEXT,
+    "isActive" BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. TABEL DEAL KLIEN (CLIENT DEALS)
+CREATE TABLE IF NOT EXISTS public.client_deals (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "referralCode" TEXT,
+    "companyName" TEXT NOT NULL,
+    "picName" TEXT NOT NULL,
+    "picPhone" TEXT,
+    "picEmail" TEXT,
+    "serviceId" TEXT,
+    "serviceName" TEXT,
+    "pricingType" TEXT,
+    "dealValue" NUMERIC NOT NULL,
+    "commissionAmount" NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'pending_acc',
+    date TEXT,
+    "recurringPaidMonths" INTEGER,
+    "recurringPaidYears" INTEGER,
+    "periodStart" TEXT,
+    "periodEnd" TEXT,
+    "durationMonths" INTEGER,
+    "paymentTermType" TEXT DEFAULT 'one_time',
+    notes TEXT,
+    "submittedBy" TEXT DEFAULT 'mitra',
+    "subscriptionStartDate" TEXT,
+    "billingDayOfMonth" INTEGER,
+    "nextBillingDate" TEXT,
+    "lastBilledDate" TEXT,
+    "isBillingDue" BOOLEAN DEFAULT false,
+    "terminatedAt" TEXT,
+    "terminationReason" TEXT,
+    "rejectedAt" TEXT,
+    "rejectionReason" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "subscriptionStartDate" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "billingDayOfMonth" INTEGER;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "nextBillingDate" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "lastBilledDate" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "isBillingDue" BOOLEAN DEFAULT false;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminatedAt" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminationReason" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectedAt" TEXT;
+ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT;
+
+-- 4. TABEL TRANSAKSI KOMISI (COMMISSIONS)
+CREATE TABLE IF NOT EXISTS public.commissions (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "serviceName" TEXT,
+    "clientName" TEXT,
+    "dealValue" NUMERIC DEFAULT 0,
+    "commissionAmount" NUMERIC DEFAULT 0,
+    "bonusAmount" NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    date TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. TABEL PENGAJUAN PENCAIRAN KOMISI (PAYOUT REQUESTS)
+CREATE TABLE IF NOT EXISTS public.payout_requests (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "memberCode" TEXT,
+    amount NUMERIC NOT NULL,
+    "bankDetails" JSONB,
+    "requestDate" TEXT,
+    "processedDate" TEXT,
+    status TEXT DEFAULT 'pending',
+    "pph21Deduction" NUMERIC DEFAULT 0,
+    "pph21Rate" NUMERIC DEFAULT 0,
+    "adminFeeDeduction" NUMERIC DEFAULT 0,
+    "netAmountTransferred" NUMERIC DEFAULT 0,
+    "proofFileUrl" TEXT,
+    "proofFileName" TEXT,
+    "transferRefNumber" TEXT,
+    "disbursedBy" TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. TABEL MATERI PROMOSI & PELATIHAN (MARKETING TOOLS)
+CREATE TABLE IF NOT EXISTS public.marketing_tools (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    "fileType" TEXT,
+    "fileSize" TEXT,
+    "downloadUrl" TEXT,
+    "thumbnailUrl" TEXT,
+    description TEXT,
+    "createdAt" TEXT,
+    "targetProduct" TEXT,
+    duration TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. TABEL NOTIFIKASI SISTEM (NOTIFICATIONS)
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT,
+    timestamp TEXT,
+    "isRead" BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. TABEL PENGATURAN SISTEM (APP SETTINGS)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    id TEXT PRIMARY KEY DEFAULT 'config_primary',
+    settings JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. TABEL KATA SANDI PENGGUNA TERENKRIPSI (USER PASSWORDS)
+CREATE TABLE IF NOT EXISTS public.user_passwords (
+    email TEXT PRIMARY KEY,
+    password TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.user_passwords ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- 10. TABEL MANAJEMEN ROLE DINAMIS (SYSTEM ROLES)
+CREATE TABLE IF NOT EXISTS public.system_roles (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    "portalView" TEXT DEFAULT 'mitra',
+    "defaultTab" TEXT DEFAULT 'idcard',
+    "allowedTabs" JSONB DEFAULT '[]'::jsonb,
+    permissions JSONB DEFAULT '[]'::jsonb,
+    "isSystem" BOOLEAN DEFAULT false,
+    "isActive" BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. TABEL LOG AKTIVITAS AUDIT (ACTIVITY LOGS)
+CREATE TABLE IF NOT EXISTS public.activity_logs (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    "actorRole" TEXT NOT NULL,
+    "actorId" TEXT,
+    "actorName" TEXT NOT NULL,
+    "actorEmail" TEXT,
+    "actionType" TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    "targetEntity" TEXT NOT NULL,
+    "targetId" TEXT,
+    description TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. TABEL LOG PENGIRIMAN EMAIL SMTP (EMAIL LOGS)
+CREATE TABLE IF NOT EXISTS public.email_logs (
+    id TEXT PRIMARY KEY,
+    recipient TEXT NOT NULL,
+    "recipientName" TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL,
+    "smtpResponse" TEXT,
+    timestamp TEXT NOT NULL,
+    "previewSnippet" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 13. TABEL RUANG PERCAKAPAN CHAT (CHAT ROOMS: PERSONAL & GRUP)
+CREATE TABLE IF NOT EXISTS public.chat_rooms (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'direct',
+    name TEXT,
+    description TEXT,
+    "avatarUrl" TEXT,
+    "participantIds" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "createdByName" TEXT,
+    "createdAt" TEXT,
+    "updatedAt" TEXT,
+    "lastMessageText" TEXT,
+    "lastMessageAt" TEXT,
+    "lastMessageSenderId" TEXT,
+    "lastMessageSenderName" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. TABEL RIWAYAT PESAN & REAKSI CHAT (CHAT MESSAGES)
+CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id TEXT PRIMARY KEY,
+    "roomId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderName" TEXT NOT NULL,
+    "senderRole" TEXT NOT NULL,
+    "senderAvatar" TEXT,
+    text TEXT DEFAULT '',
+    "imageUrl" TEXT,
+    "imageName" TEXT,
+    "imageOriginalSize" NUMERIC,
+    "imageCompressedSize" NUMERIC,
+    "linkPreview" JSONB,
+    "replyTo" JSONB,
+    "forwardedFrom" TEXT,
+    reactions JSONB DEFAULT '[]'::jsonb,
+    "createdAt" TEXT NOT NULL,
+    "editedAt" TEXT,
+    "isDeleted" BOOLEAN DEFAULT false,
+    "deletedAt" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '[]'::jsonb;
+
+-- AKTIFKAN RLS & KEBIJAKAN AKSES API (AMAN DIJALANKAN ULANG)
+ALTER TABLE public.mitras ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_deals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.commissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payout_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.marketing_tools ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public Anon Access mitras" ON public.mitras;
+CREATE POLICY "Public Anon Access mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access services" ON public.services;
+CREATE POLICY "Public Anon Access services" ON public.services FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access client_deals" ON public.client_deals;
+CREATE POLICY "Public Anon Access client_deals" ON public.client_deals FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access commissions" ON public.commissions;
+CREATE POLICY "Public Anon Access commissions" ON public.commissions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access payout_requests" ON public.payout_requests;
+CREATE POLICY "Public Anon Access payout_requests" ON public.payout_requests FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access marketing_tools" ON public.marketing_tools;
+CREATE POLICY "Public Anon Access marketing_tools" ON public.marketing_tools FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access notifications" ON public.notifications;
+CREATE POLICY "Public Anon Access notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access app_settings" ON public.app_settings;
+CREATE POLICY "Public Anon Access app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access user_passwords" ON public.user_passwords;
+CREATE POLICY "Public Anon Access user_passwords" ON public.user_passwords FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access system_roles" ON public.system_roles;
+CREATE POLICY "Public Anon Access system_roles" ON public.system_roles FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access activity_logs" ON public.activity_logs;
+CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
+CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access chat_rooms" ON public.chat_rooms;
+CREATE POLICY "Public Anon Access chat_rooms" ON public.chat_rooms FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Anon Access chat_messages" ON public.chat_messages;
+CREATE POLICY "Public Anon Access chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);`;
 var TABLE_DEFINITIONS = [
   {
     table: "mitras",
     label: "Data Mitra Konsultan",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "memberCode", sqlType: "VARCHAR(128) NULL", kind: "string" },
-      { name: "referralCode", sqlType: "VARCHAR(128) NULL", kind: "string" },
-      { name: "fullName", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "email", sqlType: "VARCHAR(191) NOT NULL", kind: "string" },
-      { name: "phone", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "nik", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "ktpFileUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "ktpFileName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "specialization", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "status", sqlType: "VARCHAR(64) NULL DEFAULT 'pending'", kind: "string" },
-      { name: "avatarUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "gender", sqlType: "VARCHAR(32) NULL", kind: "string" },
-      { name: "joinedDate", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "bankDetails", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "totalCommission", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "totalBonus", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "pendingPayout", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "paidPayout", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "referredClientsCount", sqlType: "INT NULL DEFAULT 0", kind: "number" },
-      { name: "activeSubscribersCount", sqlType: "INT NULL DEFAULT 0", kind: "number" },
-      { name: "emailVerified", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "verificationToken", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "verificationTokenExpiry", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "rejectionReason", sqlType: "TEXT NULL", kind: "string" },
-      { name: "rejectedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "isActive", sqlType: "TINYINT(1) NULL DEFAULT 1", kind: "boolean" },
-      { name: "deactivatedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "deactivatedBy", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "deactivatedReason", sqlType: "TEXT NULL", kind: "string" },
-      { name: "customFields", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_mitras_email` (`email`)", "INDEX `idx_mitras_nik` (`nik`)"]
+    createSql: `CREATE TABLE IF NOT EXISTS public.mitras (
+    id TEXT PRIMARY KEY,
+    "memberCode" TEXT,
+    "referralCode" TEXT,
+    "fullName" TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    phone TEXT,
+    nik TEXT,
+    specialization TEXT,
+    status TEXT DEFAULT 'pending',
+    "avatarUrl" TEXT,
+    gender TEXT,
+    "joinedDate" TEXT,
+    "bankDetails" JSONB,
+    "totalCommission" NUMERIC DEFAULT 0,
+    "totalBonus" NUMERIC DEFAULT 0,
+    "pendingPayout" NUMERIC DEFAULT 0,
+    "paidPayout" NUMERIC DEFAULT 0,
+    "referredClientsCount" INTEGER DEFAULT 0,
+    "activeSubscribersCount" INTEGER DEFAULT 0,
+    "emailVerified" BOOLEAN DEFAULT false,
+    "verificationToken" TEXT,
+    "verificationTokenExpiry" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.mitras ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access mitras" ON public.mitras;
+CREATE POLICY "Public Anon Access mitras" ON public.mitras FOR ALL USING (true) WITH CHECK (true);`,
+    columnsToVerify: [
+      { name: "gender", alterSql: "ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS gender TEXT;" },
+      { name: "emailVerified", alterSql: 'ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "emailVerified" BOOLEAN DEFAULT false;' },
+      { name: "verificationToken", alterSql: 'ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationToken" TEXT;' },
+      { name: "verificationTokenExpiry", alterSql: 'ALTER TABLE public.mitras ADD COLUMN IF NOT EXISTS "verificationTokenExpiry" TEXT;' }
+    ]
   },
   {
     table: "services",
     label: "Katalog Layanan Firma",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "name", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "category", sqlType: "VARCHAR(191) NOT NULL", kind: "string" },
-      { name: "defaultPrice", sqlType: "DECIMAL(18,2) NOT NULL DEFAULT 0", kind: "number" },
-      { name: "pricingType", sqlType: "VARCHAR(64) NULL DEFAULT 'case_by_case'", kind: "string" },
-      { name: "commissionRate", sqlType: "DECIMAL(8,2) NULL DEFAULT 15", kind: "number" },
-      { name: "description", sqlType: "TEXT NULL", kind: "string" },
-      { name: "isActive", sqlType: "TINYINT(1) NULL DEFAULT 1", kind: "boolean" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ]
+    createSql: `CREATE TABLE IF NOT EXISTS public.services (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    "defaultPrice" NUMERIC NOT NULL,
+    "pricingType" TEXT DEFAULT 'case_by_case',
+    "commissionRate" NUMERIC DEFAULT 15,
+    description TEXT,
+    "isActive" BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access services" ON public.services;
+CREATE POLICY "Public Anon Access services" ON public.services FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "client_deals",
-    label: "Deal Klien & Langganan",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "mitraId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "mitraName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "referralCode", sqlType: "VARCHAR(128) NULL", kind: "string" },
-      { name: "companyName", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "picName", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "picPhone", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "picEmail", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "serviceId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "serviceName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "pricingType", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "dealValue", sqlType: "DECIMAL(18,2) NOT NULL DEFAULT 0", kind: "number" },
-      { name: "commissionAmount", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "appliedCommissionRate", sqlType: "DECIMAL(8,2) NULL", kind: "number" },
-      { name: "lockedRecurringRate", sqlType: "DECIMAL(8,2) NULL", kind: "number" },
-      { name: "recurringCommissionAmount", sqlType: "DECIMAL(18,2) NULL", kind: "number" },
-      { name: "status", sqlType: "VARCHAR(64) NULL DEFAULT 'pending_acc'", kind: "string" },
-      { name: "date", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "recurringPaidMonths", sqlType: "INT NULL", kind: "number" },
-      { name: "recurringPaidYears", sqlType: "INT NULL", kind: "number" },
-      { name: "periodStart", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "periodEnd", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "durationMonths", sqlType: "INT NULL", kind: "number" },
-      { name: "paymentTermType", sqlType: "VARCHAR(64) NULL DEFAULT 'one_time'", kind: "string" },
-      { name: "notes", sqlType: "TEXT NULL", kind: "string" },
-      { name: "submittedBy", sqlType: "VARCHAR(64) NULL DEFAULT 'mitra'", kind: "string" },
-      { name: "subscriptionStartDate", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "billingDayOfMonth", sqlType: "INT NULL", kind: "number" },
-      { name: "nextBillingDate", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "lastBilledDate", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "isBillingDue", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "terminatedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "terminationReason", sqlType: "TEXT NULL", kind: "string" },
-      { name: "rejectedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "rejectionReason", sqlType: "TEXT NULL", kind: "string" },
-      { name: "customFields", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_client_deals_mitra` (`mitraId`)", "INDEX `idx_client_deals_status` (`status`)"]
+    label: "Transaksi & Deal Klien",
+    createSql: `CREATE TABLE IF NOT EXISTS public.client_deals (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "referralCode" TEXT,
+    "companyName" TEXT NOT NULL,
+    "picName" TEXT NOT NULL,
+    "picPhone" TEXT,
+    "picEmail" TEXT,
+    "serviceId" TEXT,
+    "serviceName" TEXT,
+    "pricingType" TEXT,
+    "dealValue" NUMERIC NOT NULL,
+    "commissionAmount" NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'pending_acc',
+    date TEXT,
+    "recurringPaidMonths" INTEGER,
+    "recurringPaidYears" INTEGER,
+    "periodStart" TEXT,
+    "periodEnd" TEXT,
+    "durationMonths" INTEGER,
+    "paymentTermType" TEXT DEFAULT 'one_time',
+    notes TEXT,
+    "submittedBy" TEXT DEFAULT 'mitra',
+    "subscriptionStartDate" TEXT,
+    "billingDayOfMonth" INTEGER,
+    "nextBillingDate" TEXT,
+    "lastBilledDate" TEXT,
+    "isBillingDue" BOOLEAN DEFAULT false,
+    "terminatedAt" TEXT,
+    "terminationReason" TEXT,
+    "rejectedAt" TEXT,
+    "rejectionReason" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.client_deals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access client_deals" ON public.client_deals;
+CREATE POLICY "Public Anon Access client_deals" ON public.client_deals FOR ALL USING (true) WITH CHECK (true);`,
+    columnsToVerify: [
+      { name: "subscriptionStartDate", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "subscriptionStartDate" TEXT;' },
+      { name: "billingDayOfMonth", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "billingDayOfMonth" INTEGER;' },
+      { name: "nextBillingDate", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "nextBillingDate" TEXT;' },
+      { name: "lastBilledDate", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "lastBilledDate" TEXT;' },
+      { name: "isBillingDue", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "isBillingDue" BOOLEAN DEFAULT false;' },
+      { name: "terminatedAt", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminatedAt" TEXT;' },
+      { name: "terminationReason", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "terminationReason" TEXT;' },
+      { name: "rejectedAt", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectedAt" TEXT;' },
+      { name: "rejectionReason", alterSql: 'ALTER TABLE public.client_deals ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT;' }
+    ]
   },
   {
     table: "commissions",
-    label: "Transaksi Komisi & Bonus",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "mitraId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "mitraName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "serviceName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "clientName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "dealValue", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "commissionAmount", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "bonusAmount", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "status", sqlType: "VARCHAR(64) NULL DEFAULT 'pending'", kind: "string" },
-      { name: "date", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_commissions_mitra` (`mitraId`)"]
+    label: "Buku Besar Komisi",
+    createSql: `CREATE TABLE IF NOT EXISTS public.commissions (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "serviceName" TEXT,
+    "clientName" TEXT,
+    "dealValue" NUMERIC DEFAULT 0,
+    "commissionAmount" NUMERIC DEFAULT 0,
+    "bonusAmount" NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    date TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.commissions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access commissions" ON public.commissions;
+CREATE POLICY "Public Anon Access commissions" ON public.commissions FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "payout_requests",
-    label: "Pengajuan Pencairan Komisi",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "mitraId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "mitraName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "memberCode", sqlType: "VARCHAR(128) NULL", kind: "string" },
-      { name: "amount", sqlType: "DECIMAL(18,2) NOT NULL DEFAULT 0", kind: "number" },
-      { name: "bankDetails", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "requestDate", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "processedDate", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "status", sqlType: "VARCHAR(64) NULL DEFAULT 'pending'", kind: "string" },
-      { name: "pph21Deduction", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "pph21Rate", sqlType: "DECIMAL(8,2) NULL DEFAULT 0", kind: "number" },
-      { name: "adminFeeDeduction", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "netAmountTransferred", sqlType: "DECIMAL(18,2) NULL DEFAULT 0", kind: "number" },
-      { name: "proofFileUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "proofFileName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "transferRefNumber", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "disbursedBy", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "notes", sqlType: "TEXT NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_payouts_mitra` (`mitraId`)"]
+    label: "Pencairan Komisi (Payout)",
+    createSql: `CREATE TABLE IF NOT EXISTS public.payout_requests (
+    id TEXT PRIMARY KEY,
+    "mitraId" TEXT,
+    "mitraName" TEXT,
+    "memberCode" TEXT,
+    amount NUMERIC NOT NULL,
+    "bankDetails" JSONB,
+    "requestDate" TEXT,
+    "processedDate" TEXT,
+    status TEXT DEFAULT 'pending',
+    "pph21Deduction" NUMERIC DEFAULT 0,
+    "pph21Rate" NUMERIC DEFAULT 0,
+    "adminFeeDeduction" NUMERIC DEFAULT 0,
+    "netAmountTransferred" NUMERIC DEFAULT 0,
+    "proofFileUrl" TEXT,
+    "proofFileName" TEXT,
+    "transferRefNumber" TEXT,
+    "disbursedBy" TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.payout_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access payout_requests" ON public.payout_requests;
+CREATE POLICY "Public Anon Access payout_requests" ON public.payout_requests FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "marketing_tools",
-    label: "Materi Promosi & Pelatihan",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "title", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "category", sqlType: "VARCHAR(191) NOT NULL", kind: "string" },
-      { name: "fileType", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "fileSize", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "downloadUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "thumbnailUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "description", sqlType: "TEXT NULL", kind: "string" },
-      { name: "createdAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "updatedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "targetProduct", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "duration", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ]
+    label: "Materi Promosi & Tools",
+    createSql: `CREATE TABLE IF NOT EXISTS public.marketing_tools (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    "fileType" TEXT,
+    "fileSize" TEXT,
+    "downloadUrl" TEXT,
+    "thumbnailUrl" TEXT,
+    description TEXT,
+    "createdAt" TEXT,
+    "targetProduct" TEXT,
+    duration TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.marketing_tools ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access marketing_tools" ON public.marketing_tools;
+CREATE POLICY "Public Anon Access marketing_tools" ON public.marketing_tools FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "notifications",
     label: "Notifikasi Sistem",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "title", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "message", sqlType: "TEXT NOT NULL", kind: "string" },
-      { name: "type", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "timestamp", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "isRead", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "targetAudience", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "mitraId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_notifications_ts` (`timestamp`)"]
-  },
-  {
-    table: "app_settings",
-    label: "Pengaturan Aplikasi & SMTP",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY DEFAULT 'config_primary'", kind: "string" },
-      { name: "settings", sqlType: "LONGTEXT NOT NULL", kind: "json" },
-      { name: "updated_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", kind: "string" }
-    ]
+    createSql: `CREATE TABLE IF NOT EXISTS public.notifications (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT,
+    timestamp TEXT,
+    "isRead" BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access notifications" ON public.notifications;
+CREATE POLICY "Public Anon Access notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "user_passwords",
-    label: "Kredensial Terenkripsi & System KV",
-    primaryKey: "email",
-    columns: [
-      { name: "email", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "password", sqlType: "LONGTEXT NOT NULL", kind: "string" },
-      { name: "updated_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", kind: "string" }
-    ]
+    label: "Kredensial & Sistem KV",
+    createSql: `CREATE TABLE IF NOT EXISTS public.user_passwords (
+    email TEXT PRIMARY KEY,
+    password TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.user_passwords ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access user_passwords" ON public.user_passwords;
+CREATE POLICY "Public Anon Access user_passwords" ON public.user_passwords FOR ALL USING (true) WITH CHECK (true);`
+  },
+  {
+    table: "app_settings",
+    label: "Pengaturan Sistem & SMTP",
+    createSql: `CREATE TABLE IF NOT EXISTS public.app_settings (
+    id TEXT PRIMARY KEY DEFAULT 'config_primary',
+    settings JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access app_settings" ON public.app_settings;
+CREATE POLICY "Public Anon Access app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "system_roles",
-    label: "Manajemen Role Dinamis",
-    primaryKey: "code",
-    columns: [
-      { name: "code", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "name", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "description", sqlType: "TEXT NULL", kind: "string" },
-      { name: "portalView", sqlType: "VARCHAR(64) NULL DEFAULT 'mitra'", kind: "string" },
-      { name: "defaultTab", sqlType: "VARCHAR(64) NULL DEFAULT 'idcard'", kind: "string" },
-      { name: "allowedTabs", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "permissions", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "isSystem", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "isActive", sqlType: "TINYINT(1) NULL DEFAULT 1", kind: "boolean" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ]
+    label: "Hak Akses & Role Dinamis",
+    createSql: `CREATE TABLE IF NOT EXISTS public.system_roles (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    "portalView" TEXT DEFAULT 'mitra',
+    "defaultTab" TEXT DEFAULT 'idcard',
+    "allowedTabs" JSONB DEFAULT '[]'::jsonb,
+    permissions JSONB DEFAULT '[]'::jsonb,
+    "isSystem" BOOLEAN DEFAULT false,
+    "isActive" BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.system_roles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access system_roles" ON public.system_roles;
+CREATE POLICY "Public Anon Access system_roles" ON public.system_roles FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "activity_logs",
-    label: "Log Aktivitas Audit",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "timestamp", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "actorRole", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "actorId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "actorName", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "actorEmail", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "actionType", sqlType: "VARCHAR(128) NOT NULL", kind: "string" },
-      { name: "operation", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "targetEntity", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "targetId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "description", sqlType: "TEXT NOT NULL", kind: "string" },
-      { name: "metadata", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_activity_logs_ts` (`timestamp`)"]
+    label: "Log Aktivitas Mitra & Admin",
+    createSql: `CREATE TABLE IF NOT EXISTS public.activity_logs (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    "actorRole" TEXT NOT NULL,
+    "actorId" TEXT,
+    "actorName" TEXT NOT NULL,
+    "actorEmail" TEXT,
+    "actionType" TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    "targetEntity" TEXT NOT NULL,
+    "targetId" TEXT,
+    description TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access activity_logs" ON public.activity_logs;
+CREATE POLICY "Public Anon Access activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "email_logs",
     label: "Log Pengiriman Email SMTP",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "recipient", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "recipientName", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "subject", sqlType: "VARCHAR(500) NOT NULL", kind: "string" },
-      { name: "category", sqlType: "VARCHAR(128) NOT NULL", kind: "string" },
-      { name: "status", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "smtpResponse", sqlType: "TEXT NULL", kind: "string" },
-      { name: "timestamp", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "sentAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "previewSnippet", sqlType: "TEXT NULL", kind: "string" },
-      { name: "errorMessage", sqlType: "TEXT NULL", kind: "string" },
-      { name: "smtpHostUsed", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_email_logs_ts` (`timestamp`)"]
+    createSql: `CREATE TABLE IF NOT EXISTS public.email_logs (
+    id TEXT PRIMARY KEY,
+    recipient TEXT NOT NULL,
+    "recipientName" TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL,
+    "smtpResponse" TEXT,
+    timestamp TEXT NOT NULL,
+    "previewSnippet" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.email_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access email_logs" ON public.email_logs;
+CREATE POLICY "Public Anon Access email_logs" ON public.email_logs FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "chat_rooms",
-    label: "Ruang Chat Personal & Grup",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "type", sqlType: "VARCHAR(32) NOT NULL DEFAULT 'direct'", kind: "string" },
-      { name: "name", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "description", sqlType: "TEXT NULL", kind: "string" },
-      { name: "avatarUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "participantIds", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "createdBy", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "createdByName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "createdAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "updatedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "lastMessageText", sqlType: "TEXT NULL", kind: "string" },
-      { name: "lastMessageAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "lastMessageSenderId", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "lastMessageSenderName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ]
+    label: "Ruang Percakapan Chat (Personal & Grup)",
+    createSql: `CREATE TABLE IF NOT EXISTS public.chat_rooms (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'direct',
+    name TEXT,
+    description TEXT,
+    "avatarUrl" TEXT,
+    "participantIds" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "createdByName" TEXT,
+    "createdAt" TEXT,
+    "updatedAt" TEXT,
+    "lastMessageText" TEXT,
+    "lastMessageAt" TEXT,
+    "lastMessageSenderId" TEXT,
+    "lastMessageSenderName" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access chat_rooms" ON public.chat_rooms;
+CREATE POLICY "Public Anon Access chat_rooms" ON public.chat_rooms FOR ALL USING (true) WITH CHECK (true);`
   },
   {
     table: "chat_messages",
-    label: "Riwayat Pesan, Pin & Reaksi Chat",
-    primaryKey: "id",
-    columns: [
-      { name: "id", sqlType: "VARCHAR(191) NOT NULL PRIMARY KEY", kind: "string" },
-      { name: "roomId", sqlType: "VARCHAR(191) NOT NULL", kind: "string" },
-      { name: "senderId", sqlType: "VARCHAR(191) NOT NULL", kind: "string" },
-      { name: "senderName", sqlType: "VARCHAR(255) NOT NULL", kind: "string" },
-      { name: "senderRole", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "senderAvatar", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "text", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "imageUrl", sqlType: "LONGTEXT NULL", kind: "string" },
-      { name: "imageName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "imageOriginalSize", sqlType: "BIGINT NULL", kind: "number" },
-      { name: "imageCompressedSize", sqlType: "BIGINT NULL", kind: "number" },
-      { name: "linkPreview", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "replyTo", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "forwardedFrom", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "reactions", sqlType: "LONGTEXT NULL", kind: "json" },
-      { name: "createdAt", sqlType: "VARCHAR(64) NOT NULL", kind: "string" },
-      { name: "editedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "isDeleted", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "deletedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "isSystemMessage", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "isPinned", sqlType: "TINYINT(1) NULL DEFAULT 0", kind: "boolean" },
-      { name: "pinnedAt", sqlType: "VARCHAR(64) NULL", kind: "string" },
-      { name: "pinnedBy", sqlType: "VARCHAR(191) NULL", kind: "string" },
-      { name: "pinnedByName", sqlType: "VARCHAR(255) NULL", kind: "string" },
-      { name: "created_at", sqlType: "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP", kind: "string" }
-    ],
-    indexes: ["INDEX `idx_chat_messages_room` (`roomId`)", "INDEX `idx_chat_messages_created` (`createdAt`)"]
+    label: "Riwayat Pesan & Reaksi Chat",
+    createSql: `CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id TEXT PRIMARY KEY,
+    "roomId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderName" TEXT NOT NULL,
+    "senderRole" TEXT NOT NULL,
+    "senderAvatar" TEXT,
+    text TEXT DEFAULT '',
+    "imageUrl" TEXT,
+    "imageName" TEXT,
+    "imageOriginalSize" NUMERIC,
+    "imageCompressedSize" NUMERIC,
+    "linkPreview" JSONB,
+    "replyTo" JSONB,
+    "forwardedFrom" TEXT,
+    reactions JSONB DEFAULT '[]'::jsonb,
+    "createdAt" TEXT NOT NULL,
+    "editedAt" TEXT,
+    "isDeleted" BOOLEAN DEFAULT false,
+    "deletedAt" TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Anon Access chat_messages" ON public.chat_messages;
+CREATE POLICY "Public Anon Access chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);`,
+    columnsToVerify: [
+      { name: "reactions", alterSql: "ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '[]'::jsonb;" }
+    ]
   }
 ];
-var TABLE_DEF_MAP = new Map(TABLE_DEFINITIONS.map((t) => [t.table, t]));
-var buildCreateTableSql = (def) => {
-  const lines = def.columns.map((c) => `  \`${c.name}\` ${c.sqlType}`);
-  if (def.indexes && def.indexes.length > 0) {
-    lines.push(...def.indexes.map((idx) => `  ${idx}`));
-  }
-  return `CREATE TABLE IF NOT EXISTS \`${def.table}\` (
-${lines.join(",\n")}
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`;
-};
-var FULL_MYSQL_SCHEMA_SQL = [
-  "-- ============================================================================",
-  "-- SKEMA DATABASE LENGKAP MYSQL / MARIADB UNTUK NDTAXANDLAW KEMITRAAN (14 TABEL)",
-  "-- Kompatibel dengan MySQL 5.7+, MySQL 8.0+, & MariaDB 10.2+ (cPanel / VPS)",
-  "-- Aman dijalankan berulang kali (IF NOT EXISTS)",
-  "-- ============================================================================",
-  "",
-  "SET NAMES utf8mb4;",
-  "SET FOREIGN_KEY_CHECKS = 0;",
-  "",
-  ...TABLE_DEFINITIONS.map((def, i) => `-- ${i + 1}. TABEL ${def.table.toUpperCase()} (${def.label})
-${buildCreateTableSql(def)}
-`),
-  "SET FOREIGN_KEY_CHECKS = 1;"
-].join("\n");
-var serializeValue = (col, value) => {
-  if (value === void 0 || value === null) return null;
-  if (col.kind === "json") {
-    if (typeof value === "string") return value;
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return null;
-    }
-  }
-  if (col.kind === "boolean") {
-    return value ? 1 : 0;
-  }
-  if (col.kind === "number") {
-    const n = Number(value);
-    return Number.isNaN(n) ? null : n;
-  }
-  if (typeof value === "object") {
-    if (value instanceof Date) return value.toISOString();
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return value;
-};
-var deserializeRow = (def, raw) => {
-  const out = {};
-  for (const col of def.columns) {
-    if (!(col.name in raw)) continue;
-    const val = raw[col.name];
-    if (val === null || val === void 0) {
-      if (col.kind === "boolean") {
-        if (col.name === "emailVerified" || col.name === "isRead" || col.name === "isDeleted" || col.name === "isBillingDue") {
-          out[col.name] = false;
-        } else if (col.name === "isActive") {
-          out[col.name] = true;
-        }
-      } else {
-        out[col.name] = void 0;
-      }
-      continue;
-    }
-    if (col.kind === "json") {
-      if (typeof val === "string") {
-        try {
-          out[col.name] = JSON.parse(val);
-        } catch {
-          out[col.name] = val;
-        }
-      } else {
-        out[col.name] = val;
-      }
-    } else if (col.kind === "boolean") {
-      out[col.name] = Boolean(Number(val));
-    } else if (col.kind === "number") {
-      const n = Number(val);
-      out[col.name] = Number.isNaN(n) ? 0 : n;
-    } else if (val instanceof Date) {
-      out[col.name] = val.toISOString();
-    } else {
-      out[col.name] = val;
-    }
-  }
-  return out;
-};
-var ensureMysqlSchema = async () => {
-  const pool = getMysqlPool();
-  const cfg = getMysqlConfig();
-  if (!pool || !cfg.isConfigured) {
+var testSupabaseConnection = async () => {
+  if (!supabase) {
     return {
       success: false,
-      createdTables: [],
-      addedColumns: [],
-      message: "Kredensial MySQL (MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE) belum dikonfigurasi di file .env."
-    };
-  }
-  const createdTables = [];
-  const addedColumns = [];
-  try {
-    const [existingTablesRows] = await pool.query(
-      `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?`,
-      [cfg.database]
-    );
-    const existingTables = new Set(existingTablesRows.map((r) => String(r.TABLE_NAME).toLowerCase()));
-    for (const def of TABLE_DEFINITIONS) {
-      const alreadyExists = existingTables.has(def.table.toLowerCase());
-      if (!alreadyExists) {
-        await pool.query(buildCreateTableSql(def));
-        createdTables.push(def.table);
-      } else {
-        const [colRows] = await pool.query(
-          `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
-          [cfg.database, def.table]
-        );
-        const existingCols = new Set(colRows.map((c) => String(c.COLUMN_NAME).toLowerCase()));
-        for (const col of def.columns) {
-          if (!existingCols.has(col.name.toLowerCase())) {
-            const alterType = col.sqlType.replace(/\bPRIMARY KEY\b/gi, "").replace(/\bNOT NULL\b/gi, "NULL");
-            await pool.query(`ALTER TABLE \`${def.table}\` ADD COLUMN \`${col.name}\` ${alterType}`);
-            addedColumns.push(`${def.table}.${col.name}`);
-          }
-        }
-      }
-    }
-    return {
-      success: true,
-      createdTables,
-      addedColumns,
-      message: createdTables.length === 0 && addedColumns.length === 0 ? `Seluruh ${TABLE_DEFINITIONS.length} tabel & kolom MySQL sudah lengkap dan sinkron.` : `Skema MySQL berhasil diperbarui (${createdTables.length} tabel baru, ${addedColumns.length} kolom tambahan).`
-    };
-  } catch (err) {
-    return {
-      success: false,
-      createdTables,
-      addedColumns,
-      message: `Gagal menginisialisasi skema MySQL: ${err?.message || "Unknown error"}`
-    };
-  }
-};
-var MysqlTableQueryBuilder = class {
-  constructor(tableName) {
-    this.op = "select";
-    this.selectCols = "*";
-    this.payloadRows = [];
-    this.updateObj = {};
-    this.wheres = [];
-    this.orderBy = null;
-    this.limitCount = null;
-    this.singleMode = "none";
-    const def = TABLE_DEF_MAP.get(tableName);
-    if (!def) {
-      throw new Error(`Tabel MySQL tidak dikenal: ${tableName}`);
-    }
-    this.tableDef = def;
-    this.colMap = new Map(def.columns.map((c) => [c.name, c]));
-  }
-  select(columns = "*") {
-    this.op = "select";
-    this.selectCols = columns;
-    return this;
-  }
-  insert(rows) {
-    this.op = "insert";
-    this.payloadRows = Array.isArray(rows) ? rows : [rows];
-    return this;
-  }
-  upsert(rows, _options) {
-    this.op = "upsert";
-    this.payloadRows = Array.isArray(rows) ? rows : [rows];
-    return this;
-  }
-  update(values) {
-    this.op = "update";
-    this.updateObj = values || {};
-    return this;
-  }
-  delete() {
-    this.op = "delete";
-    return this;
-  }
-  assertColumn(col) {
-    if (!this.colMap.has(col)) {
-      throw new Error(`Kolom "${col}" tidak terdaftar pada tabel "${this.tableDef.table}"`);
-    }
-    return col;
-  }
-  eq(column, value) {
-    this.wheres.push({ column: this.assertColumn(column), op: "=", value });
-    return this;
-  }
-  neq(column, value) {
-    this.wheres.push({ column: this.assertColumn(column), op: "!=", value });
-    return this;
-  }
-  lt(column, value) {
-    this.wheres.push({ column: this.assertColumn(column), op: "<", value });
-    return this;
-  }
-  lte(column, value) {
-    this.wheres.push({ column: this.assertColumn(column), op: "<=", value });
-    return this;
-  }
-  gt(column, value) {
-    this.wheres.push({ column: this.assertColumn(column), op: ">", value });
-    return this;
-  }
-  gte(column, value) {
-    this.wheres.push({ column: this.assertColumn(column), op: ">=", value });
-    return this;
-  }
-  in(column, values) {
-    this.wheres.push({ column: this.assertColumn(column), op: "IN", value: Array.isArray(values) ? values : [] });
-    return this;
-  }
-  order(column, opts) {
-    this.orderBy = {
-      column: this.assertColumn(column),
-      ascending: opts?.ascending !== false
-    };
-    return this;
-  }
-  limit(n) {
-    this.limitCount = Math.max(0, Math.floor(Number(n) || 0));
-    return this;
-  }
-  single() {
-    this.singleMode = "single";
-    this.limitCount = 1;
-    return this;
-  }
-  maybeSingle() {
-    this.singleMode = "maybeSingle";
-    this.limitCount = 1;
-    return this;
-  }
-  buildWhereSql() {
-    if (this.wheres.length === 0) return { sql: "", params: [] };
-    const clauses = [];
-    const params = [];
-    for (const w of this.wheres) {
-      const colDef = this.colMap.get(w.column);
-      if (w.op === "IN") {
-        const arr = Array.isArray(w.value) ? w.value : [];
-        if (arr.length === 0) {
-          clauses.push("1 = 0");
-        } else {
-          clauses.push(`\`${w.column}\` IN (${arr.map(() => "?").join(", ")})`);
-          params.push(...arr.map((v) => serializeValue(colDef, v)));
-        }
-      } else if (w.value === null) {
-        clauses.push(w.op === "=" ? `\`${w.column}\` IS NULL` : `\`${w.column}\` IS NOT NULL`);
-      } else {
-        clauses.push(`\`${w.column}\` ${w.op} ?`);
-        params.push(serializeValue(colDef, w.value));
-      }
-    }
-    return { sql: ` WHERE ${clauses.join(" AND ")}`, params };
-  }
-  async execute() {
-    const pool = getMysqlPool();
-    if (!pool) {
-      return { data: null, error: { message: "MySQL belum dikonfigurasi di file .env." } };
-    }
-    const tbl = `\`${this.tableDef.table}\``;
-    try {
-      if (this.op === "select") {
-        let colsSql = "*";
-        if (this.selectCols && this.selectCols.trim() !== "*") {
-          const requested = this.selectCols.split(",").map((s) => s.trim().replace(/^["'`]|["'`]$/g, "")).filter((s) => this.colMap.has(s));
-          if (requested.length > 0) {
-            colsSql = requested.map((c) => `\`${c}\``).join(", ");
-          }
-        }
-        const { sql: whereSql, params } = this.buildWhereSql();
-        const orderSql = this.orderBy ? ` ORDER BY \`${this.orderBy.column}\` ${this.orderBy.ascending ? "ASC" : "DESC"}` : "";
-        const limitSql = this.limitCount !== null ? ` LIMIT ${this.limitCount}` : "";
-        const [rows] = await pool.query(
-          `SELECT ${colsSql} FROM ${tbl}${whereSql}${orderSql}${limitSql}`,
-          params
-        );
-        const mapped = rows.map((r) => deserializeRow(this.tableDef, r));
-        if (this.singleMode === "maybeSingle") {
-          return { data: mapped.length > 0 ? mapped[0] : null, error: null };
-        }
-        if (this.singleMode === "single") {
-          if (mapped.length === 0) {
-            return { data: null, error: { message: "Row not found", code: "PGRST116" } };
-          }
-          return { data: mapped[0], error: null };
-        }
-        return { data: mapped, error: null };
-      }
-      if (this.op === "insert" || this.op === "upsert") {
-        const cleanRows = this.payloadRows.filter((r) => r && typeof r === "object");
-        if (cleanRows.length === 0) {
-          return { data: [], error: null };
-        }
-        const colNamesSet = /* @__PURE__ */ new Set();
-        for (const row of cleanRows) {
-          for (const key of Object.keys(row)) {
-            if (this.colMap.has(key) && row[key] !== void 0) {
-              colNamesSet.add(key);
-            }
-          }
-        }
-        const colNames = Array.from(colNamesSet);
-        if (colNames.length === 0) {
-          return { data: [], error: null };
-        }
-        const CHUNK_SIZE = 50;
-        const colsHeader = colNames.map((c) => `\`${c}\``).join(", ");
-        const pk = this.tableDef.primaryKey;
-        const updateCols = colNames.filter((c) => c !== pk);
-        const onDupSql = this.op === "upsert" ? updateCols.length > 0 ? ` ON DUPLICATE KEY UPDATE ${updateCols.map((c) => `\`${c}\` = VALUES(\`${c}\`)`).join(", ")}` : ` ON DUPLICATE KEY UPDATE \`${pk}\` = \`${pk}\`` : "";
-        for (let i = 0; i < cleanRows.length; i += CHUNK_SIZE) {
-          const chunk = cleanRows.slice(i, i + CHUNK_SIZE);
-          const valueGroups = [];
-          const params = [];
-          for (const row of chunk) {
-            const placeholders = [];
-            for (const cName of colNames) {
-              const colDef = this.colMap.get(cName);
-              placeholders.push("?");
-              params.push(serializeValue(colDef, row[cName]));
-            }
-            valueGroups.push(`(${placeholders.join(", ")})`);
-          }
-          const sql = `INSERT INTO ${tbl} (${colsHeader}) VALUES ${valueGroups.join(", ")}${onDupSql}`;
-          await pool.query(sql, params);
-        }
-        return { data: cleanRows, error: null };
-      }
-      if (this.op === "update") {
-        const entries = Object.entries(this.updateObj).filter(
-          ([k, v]) => this.colMap.has(k) && v !== void 0 && k !== this.tableDef.primaryKey
-        );
-        if (entries.length === 0) {
-          return { data: [], error: null };
-        }
-        const setClauses = [];
-        const params = [];
-        for (const [colName, val] of entries) {
-          const colDef = this.colMap.get(colName);
-          setClauses.push(`\`${colName}\` = ?`);
-          params.push(serializeValue(colDef, val));
-        }
-        const { sql: whereSql, params: whereParams } = this.buildWhereSql();
-        await pool.query(`UPDATE ${tbl} SET ${setClauses.join(", ")}${whereSql}`, [...params, ...whereParams]);
-        return { data: [this.updateObj], error: null };
-      }
-      if (this.op === "delete") {
-        const { sql: whereSql, params } = this.buildWhereSql();
-        await pool.query(`DELETE FROM ${tbl}${whereSql}`, params);
-        return { data: [], error: null };
-      }
-      return { data: null, error: null };
-    } catch (err) {
-      return {
-        data: null,
-        error: {
-          message: err?.sqlMessage || err?.message || "MySQL query error",
-          code: err?.code
-        }
-      };
-    }
-  }
-  then(onfulfilled, onrejected) {
-    return this.execute().then(onfulfilled, onrejected);
-  }
-};
-var mysqlDb = {
-  from: (table) => new MysqlTableQueryBuilder(table)
-};
-var testMysqlConnection = async () => {
-  const cfg = getMysqlConfig();
-  if (!cfg.isConfigured) {
-    return {
-      success: false,
-      isConfigured: false,
-      message: "Variabel MYSQL_HOST, MYSQL_USER, dan MYSQL_DATABASE belum dikonfigurasi di file .env hosting/server Anda.",
-      tablesFound: 0,
-      tableChecks: TABLE_DEFINITIONS.map((t) => ({
-        table: t.table,
-        label: t.label,
-        exists: false,
-        missingColumns: t.columns.map((c) => c.name)
-      })),
-      hasPendingMigration: true,
-      migrationSql: FULL_MYSQL_SCHEMA_SQL,
-      fullSchemaSql: FULL_MYSQL_SCHEMA_SQL
-    };
-  }
-  const pool = getMysqlPool();
-  if (!pool) {
-    return {
-      success: false,
-      isConfigured: false,
-      message: "Pool koneksi MySQL tidak dapat diinisialisasi.",
-      tablesFound: 0,
-      tableChecks: [],
-      hasPendingMigration: true,
-      migrationSql: FULL_MYSQL_SCHEMA_SQL,
-      fullSchemaSql: FULL_MYSQL_SCHEMA_SQL
+      message: "SUPABASE_URL atau SUPABASE_KEY belum terisi di environment variable server hosting Anda.",
+      fullSchemaSql: FULL_IDEMPOTENT_SCHEMA_SQL
     };
   }
   try {
-    const [verRows] = await pool.query("SELECT VERSION() AS ver");
-    const serverVersion = verRows?.[0]?.ver ? String(verRows[0].ver) : "MySQL";
-    const [tableRows] = await pool.query(
-      `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?`,
-      [cfg.database]
-    );
-    const existingTables = new Set(tableRows.map((r) => String(r.TABLE_NAME).toLowerCase()));
-    const [colRows] = await pool.query(
-      `SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ?`,
-      [cfg.database]
-    );
-    const colsByTable = /* @__PURE__ */ new Map();
-    for (const r of colRows) {
-      const tName = String(r.TABLE_NAME).toLowerCase();
-      if (!colsByTable.has(tName)) colsByTable.set(tName, /* @__PURE__ */ new Set());
-      colsByTable.get(tName).add(String(r.COLUMN_NAME).toLowerCase());
-    }
     const tableChecks = [];
-    const migrationSnippets = [];
-    let tablesFound = 0;
+    const migrationParts = [];
     for (const def of TABLE_DEFINITIONS) {
-      const exists = existingTables.has(def.table.toLowerCase());
-      if (!exists) {
+      const { error } = await supabase.from(def.table).select("*").limit(1);
+      if (error) {
         tableChecks.push({
           table: def.table,
           label: def.label,
           exists: false,
           missingColumns: []
         });
-        migrationSnippets.push(`-- Buat tabel baru: ${def.table}
-${buildCreateTableSql(def)}`);
+        migrationParts.push(`-- Buat Tabel Baru: public.${def.table} (${def.label})
+${def.createSql}`);
       } else {
-        tablesFound++;
-        const existingCols = colsByTable.get(def.table.toLowerCase()) || /* @__PURE__ */ new Set();
-        const missingColumns = [];
-        for (const col of def.columns) {
-          if (!existingCols.has(col.name.toLowerCase())) {
-            missingColumns.push(col.name);
-            const alterType = col.sqlType.replace(/\bPRIMARY KEY\b/gi, "").replace(/\bNOT NULL\b/gi, "NULL");
-            migrationSnippets.push(`ALTER TABLE \`${def.table}\` ADD COLUMN \`${col.name}\` ${alterType};`);
+        const missingCols = [];
+        if (def.columnsToVerify && def.columnsToVerify.length > 0) {
+          for (const col of def.columnsToVerify) {
+            const { error: colErr } = await supabase.from(def.table).select(col.name).limit(1);
+            if (colErr) {
+              missingCols.push(col.name);
+              migrationParts.push(`-- Tambah Kolom Baru "${col.name}" pada Tabel public.${def.table}
+${col.alterSql}`);
+            }
           }
-        }
-        let rowCount = 0;
-        try {
-          const [cntRows] = await pool.query(`SELECT COUNT(*) AS cnt FROM \`${def.table}\``);
-          rowCount = Number(cntRows?.[0]?.cnt || 0);
-        } catch {
         }
         tableChecks.push({
           table: def.table,
           label: def.label,
           exists: true,
-          missingColumns,
-          rowCount
+          missingColumns: missingCols
         });
       }
     }
-    const hasPendingMigration = migrationSnippets.length > 0;
-    const migrationSql = hasPendingMigration ? [
-      "-- ============================================================================",
-      "-- QUERY UPDATE TABEL & KOLOM BARU MYSQL NDTAXANDLAW",
-      "-- Jalankan di phpMyAdmin / MySQL CLI atau klik tombol Auto-Sinkronkan Tabel",
-      "-- ============================================================================",
-      "",
-      ...migrationSnippets
-    ].join("\n\n") : `-- \u2705 Seluruh ${TABLE_DEFINITIONS.length} tabel & kolom di database MySQL "${cfg.database}" sudah lengkap dan up-to-date!`;
+    const existingTables = tableChecks.filter((t) => t.exists).map((t) => t.table);
+    const missingTables = tableChecks.filter((t) => !t.exists).map((t) => t.table);
+    const tablesWithMissingCols = tableChecks.filter((t) => t.missingColumns.length > 0);
+    const hasPendingMigration = missingTables.length > 0 || tablesWithMissingCols.length > 0;
+    const generatedMigrationSql = migrationParts.length > 0 ? `-- ====================================================================
+-- QUERY UPDATE TABEL & KOLOM BARU SUPABASE (OTOMATIS TERDETEKSI)
+-- Salin dan jalankan di menu SQL Editor Supabase Anda
+-- ====================================================================
+
+${migrationParts.join("\n\n")}` : `-- Seluruh 12 tabel dan kolom terbaru sudah lengkap di Supabase Anda!
+-- Jika Anda ingin memastikan ulang struktur kolom terbaru, Anda dapat menjalankan query aman berikut:
+
+${FULL_IDEMPOTENT_SCHEMA_SQL}`;
+    if (existingTables.length === 0) {
+      return {
+        success: false,
+        message: "Terhubung ke Supabase, namun tabel belum dibuat! Silakan salin dan jalankan Query SQL di bawah pada SQL Editor Supabase Anda.",
+        tablesFound: [],
+        tableChecks,
+        hasPendingMigration: true,
+        migrationSql: generatedMigrationSql,
+        fullSchemaSql: FULL_IDEMPOTENT_SCHEMA_SQL
+      };
+    }
     return {
-      success: tablesFound > 0,
-      isConfigured: true,
-      serverVersion,
-      message: tablesFound === TABLE_DEFINITIONS.length && !hasPendingMigration ? `Koneksi ke MySQL (${serverVersion}) berhasil aktif! Seluruh ${tablesFound}/${TABLE_DEFINITIONS.length} tabel & kolom sudah sinkron.` : tablesFound === 0 ? `Terhubung ke server MySQL (${serverVersion}), namun belum ada tabel aplikasi. Klik "Auto-Buat 14 Tabel MySQL" untuk membuat seluruh tabel secara otomatis.` : `Terhubung ke MySQL (${serverVersion}) \u2014 ${tablesFound}/${TABLE_DEFINITIONS.length} tabel aktif, terdapat tabel/kolom baru yang siap disinkronkan.`,
-      tablesFound,
+      success: true,
+      message: hasPendingMigration ? `Supabase Terhubung (${existingTables.length}/${tableChecks.length} tabel aktif). Tersedia query update untuk ${missingTables.length} tabel tambahan & ${tablesWithMissingCols.reduce((a, b) => a + b.missingColumns.length, 0)} kolom baru.` : "",
+      tablesFound: existingTables,
       tableChecks,
       hasPendingMigration,
-      migrationSql,
-      fullSchemaSql: FULL_MYSQL_SCHEMA_SQL
+      migrationSql: generatedMigrationSql,
+      fullSchemaSql: FULL_IDEMPOTENT_SCHEMA_SQL
     };
   } catch (err) {
     return {
       success: false,
-      isConfigured: true,
-      message: `Gagal terhubung ke MySQL (${cfg.host}:${cfg.port}/${cfg.database}): ${err?.message || "Connection refused"}`,
-      tablesFound: 0,
-      tableChecks: [],
-      hasPendingMigration: true,
-      migrationSql: FULL_MYSQL_SCHEMA_SQL,
-      fullSchemaSql: FULL_MYSQL_SCHEMA_SQL
-    };
-  }
-};
-var fetchAllRowsFromSupabaseTable = async (supabaseUrl, supabaseKey, table) => {
-  const baseUrl = supabaseUrl.replace(/\/+$/, "");
-  const PAGE_SIZE = 1e3;
-  const allRows = [];
-  let offset = 0;
-  while (true) {
-    const url = `${baseUrl}/rest/v1/${encodeURIComponent(table)}?select=*`;
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-        Accept: "application/json",
-        Range: `${offset}-${offset + PAGE_SIZE - 1}`,
-        Prefer: "count=exact"
-      }
-    });
-    if (res.status === 404 || res.status === 400) {
-      const txt = await res.text().catch(() => "");
-      if (txt.includes("does not exist") || txt.includes("Could not find the table") || txt.includes("PGRST205")) {
-        return { rows: [], error: "Tabel belum ada di Supabase (dilewati)" };
-      }
-      return { rows: [], error: `HTTP ${res.status}: ${txt.slice(0, 180)}` };
-    }
-    if (res.status === 416) {
-      break;
-    }
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { rows: [], error: `HTTP ${res.status}: ${txt.slice(0, 180)}` };
-    }
-    const batch = await res.json();
-    if (!Array.isArray(batch) || batch.length === 0) {
-      break;
-    }
-    allRows.push(...batch);
-    if (batch.length < PAGE_SIZE) {
-      break;
-    }
-    offset += PAGE_SIZE;
-  }
-  return { rows: allRows };
-};
-var migrateFromSupabaseToMysql = async (params) => {
-  const supabaseUrl = (params.supabaseUrl || "").trim();
-  const supabaseKey = (params.supabaseKey || "").trim();
-  const mode = params.mode === "replace" ? "replace" : "merge";
-  const dryRun = Boolean(params.dryRun);
-  if (!supabaseUrl || !supabaseKey) {
-    return {
-      success: false,
-      dryRun,
-      mode,
-      totalSourceRows: 0,
-      totalMigratedRows: 0,
-      tables: [],
-      message: "URL Supabase dan Service Role Key / API Key wajib diisi untuk menarik data produksi.",
-      completedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-  }
-  const pool = getMysqlPool();
-  if (!dryRun) {
-    if (!pool || !isMysqlConfigured()) {
-      return {
-        success: false,
-        dryRun,
-        mode,
-        totalSourceRows: 0,
-        totalMigratedRows: 0,
-        tables: [],
-        message: "Koneksi MySQL belum aktif. Pastikan MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, dan MYSQL_DATABASE sudah terpasang di .env.",
-        completedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-    }
-    const schemaInit = await ensureMysqlSchema();
-    if (!schemaInit.success) {
-      return {
-        success: false,
-        dryRun,
-        mode,
-        totalSourceRows: 0,
-        totalMigratedRows: 0,
-        tables: [],
-        message: schemaInit.message,
-        completedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-    }
-  }
-  const reports = [];
-  let totalSourceRows = 0;
-  let totalMigratedRows = 0;
-  let hardErrors = 0;
-  for (const def of TABLE_DEFINITIONS) {
-    try {
-      const { rows, error: fetchErr } = await fetchAllRowsFromSupabaseTable(
-        supabaseUrl,
-        supabaseKey,
-        def.table
-      );
-      if (fetchErr) {
-        const isMissingTable = fetchErr.includes("dilewati");
-        reports.push({
-          table: def.table,
-          label: def.label,
-          sourceCount: 0,
-          migratedCount: 0,
-          mysqlFinalCount: 0,
-          status: isMissingTable ? "skipped" : "error",
-          error: fetchErr
-        });
-        if (!isMissingTable) hardErrors++;
-        continue;
-      }
-      totalSourceRows += rows.length;
-      if (dryRun) {
-        reports.push({
-          table: def.table,
-          label: def.label,
-          sourceCount: rows.length,
-          migratedCount: 0,
-          mysqlFinalCount: 0,
-          status: "ok"
-        });
-        continue;
-      }
-      if (mode === "replace") {
-        await pool.query(`DELETE FROM \`${def.table}\``);
-      }
-      let migratedCount = 0;
-      if (rows.length > 0) {
-        const { error: upErr } = await mysqlDb.from(def.table).upsert(rows);
-        if (upErr) {
-          hardErrors++;
-          reports.push({
-            table: def.table,
-            label: def.label,
-            sourceCount: rows.length,
-            migratedCount: 0,
-            mysqlFinalCount: 0,
-            status: "error",
-            error: upErr.message
-          });
-          continue;
-        }
-        migratedCount = rows.length;
-        totalMigratedRows += migratedCount;
-      }
-      const [cntRows] = await pool.query(`SELECT COUNT(*) AS cnt FROM \`${def.table}\``);
-      const mysqlFinalCount = Number(cntRows?.[0]?.cnt || 0);
-      reports.push({
-        table: def.table,
-        label: def.label,
-        sourceCount: rows.length,
-        migratedCount,
-        mysqlFinalCount,
-        status: "ok"
-      });
-    } catch (err) {
-      hardErrors++;
-      reports.push({
-        table: def.table,
-        label: def.label,
-        sourceCount: 0,
-        migratedCount: 0,
-        mysqlFinalCount: 0,
-        status: "error",
-        error: err?.message || "Gagal membaca/menulis tabel"
-      });
-    }
-  }
-  return {
-    success: hardErrors === 0,
-    dryRun,
-    mode,
-    totalSourceRows,
-    totalMigratedRows,
-    tables: reports,
-    message: dryRun ? hardErrors === 0 ? `Cek data Supabase berhasil! Ditemukan total ${totalSourceRows.toLocaleString("id-ID")} baris data di ${TABLE_DEFINITIONS.length} tabel yang siap dimigrasikan ke MySQL.` : `Pengecekan selesai dengan ${hardErrors} error tabel. Periksa URL & Service Role Key Supabase Anda.` : hardErrors === 0 ? `Migrasi Supabase -> MySQL SUKSES 100%! Total ${totalMigratedRows.toLocaleString("id-ID")} baris data dari ${TABLE_DEFINITIONS.length} tabel berhasil dipindahkan ke MySQL (${mode === "replace" ? "Mode Replace" : "Mode Merge Aman"}).` : `Migrasi selesai dengan ${hardErrors} kendala pada beberapa tabel (${totalMigratedRows.toLocaleString("id-ID")} baris berhasil masuk MySQL).`,
-    completedAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-};
-var escapeSqlValue = (val) => {
-  if (val === null || val === void 0) return "NULL";
-  if (typeof val === "boolean") return val ? "1" : "0";
-  if (typeof val === "number") return Number.isFinite(val) ? String(val) : "NULL";
-  const str = typeof val === "object" ? JSON.stringify(val) : String(val);
-  return `'${str.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\0/g, "")}'`;
-};
-var generateMysqlSqlDump = async () => {
-  const pool = getMysqlPool();
-  if (!pool || !isMysqlConfigured()) {
-    return {
-      success: false,
-      sql: "",
-      counts: {},
-      error: "Koneksi MySQL belum aktif."
-    };
-  }
-  const lines = [
-    "-- ============================================================================",
-    `-- BACKUP FULL SQL DATABASE MYSQL NDTAXANDLAW (${(/* @__PURE__ */ new Date()).toISOString()})`,
-    "-- ============================================================================",
-    "",
-    FULL_MYSQL_SCHEMA_SQL,
-    "",
-    "SET FOREIGN_KEY_CHECKS = 0;",
-    ""
-  ];
-  const counts = {};
-  try {
-    for (const def of TABLE_DEFINITIONS) {
-      const [rows] = await pool.query(`SELECT * FROM \`${def.table}\``);
-      counts[def.table] = rows.length;
-      if (rows.length === 0) continue;
-      lines.push(`-- Data tabel \`${def.table}\` (${rows.length} baris)`);
-      const colNames = def.columns.map((c) => c.name).filter((c) => c in rows[0]);
-      const colsHeader = colNames.map((c) => `\`${c}\``).join(", ");
-      const pk = def.primaryKey;
-      const updateCols = colNames.filter((c) => c !== pk);
-      const onDup = updateCols.length > 0 ? ` ON DUPLICATE KEY UPDATE ${updateCols.map((c) => `\`${c}\` = VALUES(\`${c}\`)`).join(", ")}` : "";
-      for (const row of rows) {
-        const vals = colNames.map((c) => escapeSqlValue(row[c])).join(", ");
-        lines.push(`INSERT INTO \`${def.table}\` (${colsHeader}) VALUES (${vals})${onDup};`);
-      }
-      lines.push("");
-    }
-    lines.push("SET FOREIGN_KEY_CHECKS = 1;");
-    return { success: true, sql: lines.join("\n"), counts };
-  } catch (err) {
-    return {
-      success: false,
-      sql: "",
-      counts,
-      error: err?.message || "Gagal membuat SQL dump MySQL"
+      message: `Gagal menghubungi Supabase: ${err.message || "Koneksi timeout / jaringan"}`,
+      error: err.message,
+      fullSchemaSql: FULL_IDEMPOTENT_SCHEMA_SQL
     };
   }
 };
@@ -1424,7 +1070,6 @@ var OFFICIAL_ND_SERVICES = [
 ];
 
 // server.ts
-var db = isMysqlConfigured() ? mysqlDb : null;
 dotenv2.config();
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
@@ -1799,15 +1444,13 @@ var DEFAULT_STAFF_ALLOWED_MENUS = [
   "settings-general",
   "settings-forms"
 ];
-var toDbNotification = (n) => ({
+var toSupabaseNotification = (n) => ({
   id: n.id,
   title: n.title,
   message: n.message,
   type: n.type,
   timestamp: n.timestamp,
-  isRead: Boolean(n.isRead),
-  targetAudience: n.targetAudience ?? null,
-  mitraId: n.mitraId ?? null
+  isRead: Boolean(n.isRead)
 });
 var mitras = [
   {
@@ -2268,7 +1911,7 @@ var appSettings = {
   googleClientId: "",
   geminiApiEnabled: true,
   geminiModel: "gemini-3.8-flash",
-  appEnvironment: process.env.APP_ENV === "production" ? "production" : process.env.APP_ENV === "development" ? "development" : isMysqlConfigured() ? "production" : "development",
+  appEnvironment: process.env.APP_ENV === "development" ? "development" : "production",
   smtpEnabled: true,
   smtpHost: process.env.SMTP_HOST || "mail.ndtaxandlaw.com",
   smtpPort: Number(process.env.SMTP_PORT) || 465,
@@ -2330,18 +1973,18 @@ var activityLogs = [
     timestamp: "2026-11-05T14:20:00Z"
   }
 ];
-var persistSettingsToMysql = async () => {
-  if (!db) return;
+var persistSettingsToSupabase = async () => {
+  if (!supabase) return;
   try {
-    await db.from("user_passwords").upsert([
+    await supabase.from("user_passwords").upsert([
       { email: "__sys_config__@ndtaxlaw.internal", password: JSON.stringify(appSettings) },
       { email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) }
     ]);
   } catch (e) {
-    console.warn("[MySQL Settings KV Warning]", e);
+    console.warn("[Supabase Settings KV Warning]", e);
   }
   try {
-    await db.from("app_settings").upsert([
+    await supabase.from("app_settings").upsert([
       { id: "config_primary", settings: { ...appSettings, roles: systemRoles }, updated_at: (/* @__PURE__ */ new Date()).toISOString() }
     ]);
   } catch {
@@ -2355,7 +1998,7 @@ var getThreeMonthsAgoCutoff = () => {
     cutoffIso: d.toISOString()
   };
 };
-var pruneOldLogs = async (syncDb = false) => {
+var pruneOldLogs = async (syncSupabase = false) => {
   const { cutoffMs, cutoffIso } = getThreeMonthsAgoCutoff();
   const prevActLen = activityLogs.length;
   const prevEmLen = emailLogs.length;
@@ -2371,14 +2014,14 @@ var pruneOldLogs = async (syncDb = false) => {
   if (changed) {
     saveDatabase();
   }
-  if (db && (syncDb || changed)) {
+  if (supabase && (syncSupabase || changed)) {
     try {
       await Promise.all([
-        db.from("activity_logs").delete().lt("timestamp", cutoffIso),
-        db.from("email_logs").delete().lt("timestamp", cutoffIso)
+        supabase.from("activity_logs").delete().lt("timestamp", cutoffIso),
+        supabase.from("email_logs").delete().lt("timestamp", cutoffIso)
       ]);
       if (changed) {
-        await db.from("user_passwords").upsert([
+        await supabase.from("user_passwords").upsert([
           { email: "__sys_activity_logs__@ndtaxlaw.internal", password: JSON.stringify(activityLogs.slice(0, 250)) },
           {
             email: "__sys_email_logs__@ndtaxlaw.internal",
@@ -2390,23 +2033,23 @@ var pruneOldLogs = async (syncDb = false) => {
     }
   }
 };
-var persistActivityLogsToMysql = async (latestItem) => {
-  if (!db) return;
+var persistActivityLogsToSupabase = async (latestItem) => {
+  if (!supabase) return;
   try {
-    await db.from("user_passwords").upsert([
+    await supabase.from("user_passwords").upsert([
       { email: "__sys_activity_logs__@ndtaxlaw.internal", password: JSON.stringify(activityLogs.slice(0, 250)) }
     ]);
   } catch (e) {
-    console.warn("[MySQL Activity Logs KV Warning]", e);
+    console.warn("[Supabase Activity Logs KV Warning]", e);
   }
   if (latestItem) {
     try {
-      await db.from("activity_logs").upsert([latestItem]);
+      await supabase.from("activity_logs").upsert([latestItem]);
     } catch {
     }
   }
 };
-var toDbEmailLogRow = (item) => ({
+var toSupabaseEmailLogRow = (item) => ({
   id: item.id,
   recipient: item.recipient,
   recipientName: item.recipientName || item.recipient,
@@ -2417,7 +2060,7 @@ var toDbEmailLogRow = (item) => ({
   timestamp: item.sentAt || (/* @__PURE__ */ new Date()).toISOString(),
   previewSnippet: item.previewSnippet || ""
 });
-var fromDbEmailLogRow = (row) => {
+var fromSupabaseEmailLogRow = (row) => {
   const rawResp = String(row.smtpResponse || "");
   const hostMatch = rawResp.match(/\[(.*?)\]/);
   const extractedHost = row.smtpHostUsed || (hostMatch ? hostMatch[1] : void 0);
@@ -2435,26 +2078,26 @@ var fromDbEmailLogRow = (row) => {
     smtpHostUsed: extractedHost
   };
 };
-var persistEmailLogsToMysql = async (latestItem) => {
+var persistEmailLogsToSupabase = async (latestItem) => {
   await pruneOldLogs(false);
-  if (!db) return;
+  if (!supabase) return;
   try {
     const compactLogs = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
-    await db.from("user_passwords").upsert([
+    await supabase.from("user_passwords").upsert([
       { email: "__sys_email_logs__@ndtaxlaw.internal", password: JSON.stringify(compactLogs) }
     ]);
   } catch (e) {
-    console.warn("[MySQL Email Logs KV Warning]", e);
+    console.warn("[Supabase Email Logs KV Warning]", e);
   }
   try {
     if (latestItem) {
-      await db.from("email_logs").upsert([toDbEmailLogRow(latestItem)]);
+      await supabase.from("email_logs").upsert([toSupabaseEmailLogRow(latestItem)]);
     } else if (emailLogs.length > 0) {
-      const rows = emailLogs.slice(0, 100).map(toDbEmailLogRow);
-      await db.from("email_logs").upsert(rows);
+      const rows = emailLogs.slice(0, 100).map(toSupabaseEmailLogRow);
+      await supabase.from("email_logs").upsert(rows);
     }
   } catch (e) {
-    console.warn("[MySQL email_logs Table Warning]", e);
+    console.warn("[Supabase email_logs Table Warning]", e);
   }
 };
 var recordActivity = (params) => {
@@ -2476,7 +2119,7 @@ var recordActivity = (params) => {
     activityLogs = activityLogs.slice(0, 500);
   }
   saveDatabase();
-  void persistActivityLogsToMysql(newItem);
+  void persistActivityLogsToSupabase(newItem);
   return newItem;
 };
 var buildEmailHtml = (subject, recipientName, snippet) => {
@@ -2513,9 +2156,9 @@ var buildEmailHtml = (subject, recipientName, snippet) => {
   `;
 };
 var sendSystemEmail = async (params) => {
-  if (db && (!appSettings.smtpPassword || appSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022")) {
+  if (supabase && (!appSettings.smtpPassword || appSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022")) {
     try {
-      const { data: kvCfg } = await db.from("user_passwords").select("*").eq("email", "__sys_config__@ndtaxlaw.internal").maybeSingle();
+      const { data: kvCfg } = await supabase.from("user_passwords").select("*").eq("email", "__sys_config__@ndtaxlaw.internal").maybeSingle();
       if (kvCfg && kvCfg.password) {
         const parsed = JSON.parse(kvCfg.password);
         if (parsed && typeof parsed === "object") {
@@ -2546,7 +2189,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
-    await persistEmailLogsToMysql(failedLog);
+    await persistEmailLogsToSupabase(failedLog);
     return { success: false, logId: failedLog.id, message: failedLog.errorMessage };
   }
   if (!host || !user || !pass || pass === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
@@ -2565,7 +2208,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
-    await persistEmailLogsToMysql(failedLog);
+    await persistEmailLogsToSupabase(failedLog);
     console.warn(`[SMTP Gagal] ${errMsg}`);
     return { success: false, logId: failedLog.id, message: errMsg, error: errMsg };
   }
@@ -2614,7 +2257,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(sentLog);
     saveDatabase();
-    await persistEmailLogsToMysql(sentLog);
+    await persistEmailLogsToSupabase(sentLog);
     console.log(`[SMTP Terkirim] [${params.category}] Ke: ${params.recipient} | MessageID: ${info.messageId} via ${smtpHostUsed}`);
     return {
       success: true,
@@ -2637,7 +2280,7 @@ var sendSystemEmail = async (params) => {
     };
     emailLogs.unshift(failedLog);
     saveDatabase();
-    await persistEmailLogsToMysql(failedLog);
+    await persistEmailLogsToSupabase(failedLog);
     console.error(`[SMTP Error] Gagal mengirim email ke ${params.recipient} via ${smtpHostUsed}:`, errMsg);
     return {
       success: false,
@@ -2737,7 +2380,7 @@ var monthlySalesHistory = [
   { month: "Nov 2026 (M-T-D)", totalSales: 43e7, totalCommission: 645e5, mitraCount: 48, dealsClosed: 21 }
 ];
 var computeDynamicSalesHistory = () => {
-  if (!isProductionMode() && !db) {
+  if (!isProductionMode() && !supabase) {
     return monthlySalesHistory;
   }
   const monthNamesId = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -2805,7 +2448,7 @@ var systemRoles = [
   {
     code: "staff",
     name: "Staf Operasional",
-    description: "Role Staf di bawah Admin: akses operasional sesuai menu yang diaktifkan Admin (kecuali Log Aktivitas/Email dan pengaturan sensitif Mode Sistem, MySQL, SMTP, Google OAuth, & Gemini AI).",
+    description: "Role Staf di bawah Admin: akses operasional sesuai menu yang diaktifkan Admin (kecuali Log Aktivitas/Email dan pengaturan sensitif Mode Sistem, Supabase, SMTP, Google OAuth, & Gemini AI).",
     portalView: "admin",
     defaultTab: "dashboard",
     allowedTabs: ["dashboard", "admin-operations", "verification", "marketing-tools", "commissions", "ai-reports", "idcard"],
@@ -3013,7 +2656,6 @@ var chatMessages = [
 ];
 var passwordResetTokens = /* @__PURE__ */ new Map();
 var isProductionMode = () => {
-  if (!isMysqlConfigured()) return false;
   return appSettings.appEnvironment === "production" || process.env.NODE_ENV === "production" || process.env.APP_ENV === "production";
 };
 var formatMitraMemberCode = (rawCode, fallbackId) => {
@@ -3051,10 +2693,6 @@ var normalizeMitraAvatars = (list) => {
       }
     }
     const resolvedKtpName = m.ktpFileName || bankMeta.__ktpFileName || resolvedCustomFields?.["__ktpFileName"] || void 0;
-    const isActive = typeof m.isActive === "boolean" ? m.isActive : typeof bankMeta.__isActive === "boolean" ? bankMeta.__isActive : true;
-    const deactivatedAt = m.deactivatedAt || bankMeta.__deactivatedAt || void 0;
-    const deactivatedBy = m.deactivatedBy || bankMeta.__deactivatedBy || void 0;
-    const deactivatedReason = m.deactivatedReason || bankMeta.__deactivatedReason || void 0;
     return {
       ...m,
       memberCode: formatMitraMemberCode(m.memberCode, m.id),
@@ -3065,10 +2703,6 @@ var normalizeMitraAvatars = (list) => {
       verificationTokenExpiry,
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || void 0,
       rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || void 0,
-      isActive,
-      deactivatedAt,
-      deactivatedBy,
-      deactivatedReason,
       customFields: resolvedCustomFields,
       ktpFileUrl: resolvedKtpUrl,
       ktpFileName: resolvedKtpName
@@ -3094,8 +2728,24 @@ var computeNextBillingDate = (baseDateStr, billingDay, pricingType) => {
   return `${year}-${mm}-${dd}`;
 };
 var ND_META_REGEX = /\s*<!--ND_META:(.*?)-->\s*$/s;
-var toDbClientDeal = (deal) => {
+var toSupabaseClientDeal = (deal) => {
   const cleanNotes = (deal.notes || "").replace(ND_META_REGEX, "").trim();
+  const metaObj = {
+    subscriptionStartDate: deal.subscriptionStartDate,
+    billingDayOfMonth: deal.billingDayOfMonth,
+    nextBillingDate: deal.nextBillingDate,
+    lastBilledDate: deal.lastBilledDate,
+    isBillingDue: deal.isBillingDue,
+    terminatedAt: deal.terminatedAt,
+    terminationReason: deal.terminationReason,
+    rejectedAt: deal.rejectedAt,
+    rejectionReason: deal.rejectionReason,
+    customFields: deal.customFields,
+    appliedCommissionRate: deal.appliedCommissionRate,
+    lockedRecurringRate: deal.lockedRecurringRate,
+    recurringCommissionAmount: deal.recurringCommissionAmount
+  };
+  const encodedNotes = `${cleanNotes}${cleanNotes ? " " : ""}<!--ND_META:${JSON.stringify(metaObj)}-->`;
   return {
     id: deal.id,
     mitraId: deal.mitraId,
@@ -3110,9 +2760,6 @@ var toDbClientDeal = (deal) => {
     pricingType: deal.pricingType,
     dealValue: deal.dealValue,
     commissionAmount: deal.commissionAmount,
-    appliedCommissionRate: deal.appliedCommissionRate ?? null,
-    lockedRecurringRate: deal.lockedRecurringRate ?? null,
-    recurringCommissionAmount: deal.recurringCommissionAmount ?? null,
     status: deal.status,
     date: deal.date,
     recurringPaidMonths: deal.recurringPaidMonths ?? null,
@@ -3121,21 +2768,11 @@ var toDbClientDeal = (deal) => {
     periodEnd: deal.periodEnd ?? null,
     durationMonths: deal.durationMonths ?? null,
     paymentTermType: deal.paymentTermType ?? "one_time",
-    notes: cleanNotes,
-    submittedBy: deal.submittedBy ?? "mitra",
-    subscriptionStartDate: deal.subscriptionStartDate ?? null,
-    billingDayOfMonth: deal.billingDayOfMonth ?? null,
-    nextBillingDate: deal.nextBillingDate ?? null,
-    lastBilledDate: deal.lastBilledDate ?? null,
-    isBillingDue: Boolean(deal.isBillingDue),
-    terminatedAt: deal.terminatedAt ?? null,
-    terminationReason: deal.terminationReason ?? null,
-    rejectedAt: deal.rejectedAt ?? null,
-    rejectionReason: deal.rejectionReason ?? null,
-    customFields: deal.customFields ?? null
+    notes: encodedNotes,
+    submittedBy: deal.submittedBy ?? "mitra"
   };
 };
-var fromDbClientDeal = (row) => {
+var fromSupabaseClientDeal = (row) => {
   const rawNotes = typeof row.notes === "string" ? row.notes : "";
   const match = rawNotes.match(ND_META_REGEX);
   let meta = {};
@@ -3173,7 +2810,7 @@ var fromDbClientDeal = (row) => {
 var normalizeClientDeals = (list) => {
   const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   return list.map((rawDeal) => {
-    const d = fromDbClientDeal(rawDeal);
+    const d = fromSupabaseClientDeal(rawDeal);
     if (d.pricingType === "monthly_subscription" || d.pricingType === "annual_subscription") {
       const startDate = d.subscriptionStartDate || d.date || todayStr;
       const dayFromDate = Number(startDate.split("-")[2]) || 1;
@@ -3208,11 +2845,11 @@ var normalizeClientDeals = (list) => {
 var DATA_DIR = path.join(process.cwd(), "data");
 var DB_FILE = path.join(DATA_DIR, "database.json");
 var cleanupLocalDatabaseFileInProduction = () => {
-  if (!isProductionMode() || !db) return;
+  if (!isProductionMode() || !supabase) return;
   try {
     if (fs.existsSync(DB_FILE)) {
       fs.unlinkSync(DB_FILE);
-      console.log("[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan MySQL).");
+      console.log("[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan Supabase).");
     }
     if (fs.existsSync(DATA_DIR)) {
       const remaining = fs.readdirSync(DATA_DIR);
@@ -3225,7 +2862,7 @@ var cleanupLocalDatabaseFileInProduction = () => {
 };
 var saveDatabase = () => {
   try {
-    if (isProductionMode() && db) {
+    if (isProductionMode() && supabase) {
       cleanupLocalDatabaseFileInProduction();
       return;
     }
@@ -3273,7 +2910,7 @@ var LEGACY_SEEDED_CHAT_MSG_IDS = /* @__PURE__ */ new Set([
 ]);
 var loadDatabase = () => {
   try {
-    if (isProductionMode() && db) {
+    if (isProductionMode() && supabase) {
       mitras = [];
       services = [];
       clientDeals = [];
@@ -3286,7 +2923,7 @@ var loadDatabase = () => {
       chatRooms = [];
       chatMessages = [];
       cleanupLocalDatabaseFileInProduction();
-      console.log("[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Database MySQL 100%.");
+      console.log("[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Cloud Supabase 100%.");
       return;
     }
     if (!fs.existsSync(DATA_DIR)) {
@@ -3300,10 +2937,8 @@ var loadDatabase = () => {
         if (appSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
           appSettings.smtpPassword = process.env.SMTP_PASS || "";
         }
-        if (isMysqlConfigured() && (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production")) {
+        if (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production") {
           appSettings.appEnvironment = "production";
-        } else if (!isMysqlConfigured()) {
-          appSettings.appEnvironment = "development";
         }
       }
       if (Array.isArray(data.roles) && data.roles.length > 0) {
@@ -3353,7 +2988,7 @@ var loadDatabase = () => {
         chatRooms = [];
         chatMessages = [];
         cleanupLocalDatabaseFileInProduction();
-        console.log("[Production Mode] Hanya terhubung ke Database MySQL (penyimpanan lokal dinonaktifkan).");
+        console.log("[Production Mode] Hanya terhubung ke Database Supabase (penyimpanan lokal dinonaktifkan).");
       } else {
         if (Array.isArray(data.mitras)) mitras = normalizeMitraAvatars(data.mitras);
         if (Array.isArray(data.services)) {
@@ -3384,59 +3019,59 @@ var loadDatabase = () => {
     console.error("[Storage Error] Gagal memuat konfigurasi disk:", err);
   }
 };
-var syncFromMysql = async () => {
-  if (!db) return;
+var syncFromSupabase = async () => {
+  if (!supabase) return;
   try {
-    const { data: dbMitras, error: errM } = await db.from("mitras").select("*");
+    const { data: dbMitras, error: errM } = await supabase.from("mitras").select("*");
     if (!errM && Array.isArray(dbMitras)) {
       mitras = normalizeMitraAvatars(dbMitras);
-      console.log(`[MySQL Database] Sinkronisasi ${mitras.length} mitra dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${mitras.length} mitra dari Supabase`);
     }
-    const { data: dbServices, error: errS } = await db.from("services").select("*");
+    const { data: dbServices, error: errS } = await supabase.from("services").select("*");
     if (!errS && Array.isArray(dbServices)) {
       const normSrv = normalizeServicesCatalog(dbServices);
       services = normSrv.list;
       if (normSrv.migrated) {
         try {
-          await db.from("services").delete().in("id", Array.from(LEGACY_SEEDED_SERVICE_IDS));
-          await db.from("services").upsert(services);
+          await supabase.from("services").delete().in("id", Array.from(LEGACY_SEEDED_SERVICE_IDS));
+          await supabase.from("services").upsert(services);
         } catch (e) {
-          console.warn("[MySQL Services Catalog Sync Warning]", e);
+          console.warn("[Supabase Services Catalog Sync Warning]", e);
         }
       }
-      console.log(`[MySQL Database] Sinkronisasi ${services.length} layanan dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${services.length} layanan dari Supabase`);
     }
-    const { data: dbDeals, error: errD } = await db.from("client_deals").select("*");
+    const { data: dbDeals, error: errD } = await supabase.from("client_deals").select("*");
     if (!errD && Array.isArray(dbDeals)) {
       clientDeals = normalizeClientDeals(dbDeals);
-      console.log(`[MySQL Database] Sinkronisasi ${clientDeals.length} deal klien dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${clientDeals.length} deal klien dari Supabase`);
     }
-    const { data: dbCommissions, error: errC } = await db.from("commissions").select("*");
+    const { data: dbCommissions, error: errC } = await supabase.from("commissions").select("*");
     if (!errC && Array.isArray(dbCommissions)) {
       commissions = dbCommissions;
-      console.log(`[MySQL Database] Sinkronisasi ${commissions.length} komisi dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${commissions.length} komisi dari Supabase`);
     }
-    const { data: dbPayouts, error: errPay } = await db.from("payout_requests").select("*");
+    const { data: dbPayouts, error: errPay } = await supabase.from("payout_requests").select("*");
     if (!errPay && Array.isArray(dbPayouts)) {
       payoutRequests = dbPayouts;
-      console.log(`[MySQL Database] Sinkronisasi ${payoutRequests.length} pengajuan pencairan dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${payoutRequests.length} pengajuan pencairan dari Supabase`);
     }
-    const { data: dbTools, error: errT } = await db.from("marketing_tools").select("*");
+    const { data: dbTools, error: errT } = await supabase.from("marketing_tools").select("*");
     if (!errT && Array.isArray(dbTools) && dbTools.length > 0) {
       marketingTools = dbTools;
-      console.log(`[MySQL Database] Sinkronisasi ${marketingTools.length} tools marketing dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${marketingTools.length} tools marketing dari Supabase`);
     }
-    const { data: dbNotifs, error: errN } = await db.from("notifications").select("*").order("timestamp", { ascending: false });
+    const { data: dbNotifs, error: errN } = await supabase.from("notifications").select("*").order("timestamp", { ascending: false });
     if (!errN && Array.isArray(dbNotifs)) {
       notifications = dbNotifs;
-      console.log(`[MySQL Database] Sinkronisasi ${notifications.length} notifikasi dari MySQL`);
+      console.log(`[Supabase Cloud] Sinkronisasi ${notifications.length} notifikasi dari Supabase`);
     }
     let tableChatRooms = [];
     let tableChatMessages = [];
     try {
       const [{ data: dbRooms, error: errCR }, { data: dbMsgs, error: errCM }] = await Promise.all([
-        db.from("chat_rooms").select("*"),
-        db.from("chat_messages").select("*").order("createdAt", { ascending: true })
+        supabase.from("chat_rooms").select("*"),
+        supabase.from("chat_messages").select("*").order("createdAt", { ascending: true })
       ]);
       if (!errCR && Array.isArray(dbRooms)) {
         tableChatRooms = dbRooms;
@@ -3448,9 +3083,9 @@ var syncFromMysql = async () => {
     }
     let kvChatRooms = [];
     let kvChatMessages = [];
-    const { data: dbPasswords, error: errP } = await db.from("user_passwords").select("*");
+    const { data: dbPasswords, error: errP } = await supabase.from("user_passwords").select("*");
     if (!errP && Array.isArray(dbPasswords)) {
-      const toUpgradeInMysql = [];
+      const toUpgradeInSupabase = [];
       let hasSysConfig = false;
       let hasSysRoles = false;
       let hasSysAdminProfile = false;
@@ -3608,30 +3243,30 @@ var syncFromMysql = async () => {
         if (!isEncryptedPassword(row.password)) {
           const encrypted = encryptUserPassword(row.password, defaultRole);
           userPasswords.set(emailLower, encrypted);
-          toUpgradeInMysql.push({ email: emailLower, password: encrypted });
+          toUpgradeInSupabase.push({ email: emailLower, password: encrypted });
         } else {
           userPasswords.set(emailLower, row.password);
         }
       }
       if (!hasSysConfig) {
-        toUpgradeInMysql.push({ email: "__sys_config__@ndtaxlaw.internal", password: JSON.stringify(appSettings) });
+        toUpgradeInSupabase.push({ email: "__sys_config__@ndtaxlaw.internal", password: JSON.stringify(appSettings) });
       }
       if (!hasSysRoles) {
-        toUpgradeInMysql.push({ email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) });
+        toUpgradeInSupabase.push({ email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) });
       }
       if (!hasSysAdminProfile) {
         const { password: _ap, ...safeAdmin } = adminAccount;
-        toUpgradeInMysql.push({ email: "__sys_admin_profile__@ndtaxlaw.internal", password: JSON.stringify(safeAdmin) });
+        toUpgradeInSupabase.push({ email: "__sys_admin_profile__@ndtaxlaw.internal", password: JSON.stringify(safeAdmin) });
       }
       if (!hasSysStaffAccounts) {
-        toUpgradeInMysql.push({ email: "__sys_staff_accounts__@ndtaxlaw.internal", password: JSON.stringify(staffAccounts) });
+        toUpgradeInSupabase.push({ email: "__sys_staff_accounts__@ndtaxlaw.internal", password: JSON.stringify(staffAccounts) });
       }
       if (!hasSysActivityLogs) {
-        toUpgradeInMysql.push({ email: "__sys_activity_logs__@ndtaxlaw.internal", password: JSON.stringify(activityLogs.slice(0, 250)) });
+        toUpgradeInSupabase.push({ email: "__sys_activity_logs__@ndtaxlaw.internal", password: JSON.stringify(activityLogs.slice(0, 250)) });
       }
       if (!hasSysEmailLogs) {
         const compactEmails = emailLogs.slice(0, 200).map(({ htmlContent: _h, ...rest }) => rest);
-        toUpgradeInMysql.push({ email: "__sys_email_logs__@ndtaxlaw.internal", password: JSON.stringify(compactEmails) });
+        toUpgradeInSupabase.push({ email: "__sys_email_logs__@ndtaxlaw.internal", password: JSON.stringify(compactEmails) });
       }
       for (const m of mitras) {
         const mEmail = m.email.toLowerCase();
@@ -3639,7 +3274,7 @@ var syncFromMysql = async () => {
         if (!existingInCloud) {
           const localEnc = userPasswords.get(mEmail) || encryptUserPassword("mitraND2026!", "mitra");
           userPasswords.set(mEmail, localEnc);
-          toUpgradeInMysql.push({ email: mEmail, password: localEnc });
+          toUpgradeInSupabase.push({ email: mEmail, password: localEnc });
         }
       }
       for (const s of staffAccounts) {
@@ -3648,14 +3283,14 @@ var syncFromMysql = async () => {
         if (!existingInCloud) {
           const localEnc = userPasswords.get(sEmail) || encryptUserPassword("stafND2026!", "staff");
           userPasswords.set(sEmail, localEnc);
-          toUpgradeInMysql.push({ email: sEmail, password: localEnc });
+          toUpgradeInSupabase.push({ email: sEmail, password: localEnc });
         }
       }
       const adminEmail = adminAccount.email.toLowerCase();
       if (!dbPasswords.some((r) => r.email && r.email.toLowerCase() === adminEmail)) {
         const adminEnc = userPasswords.get(adminEmail) || encryptUserPassword(adminAccount.password, "admin");
         userPasswords.set(adminEmail, adminEnc);
-        toUpgradeInMysql.push({ email: adminEmail, password: adminEnc });
+        toUpgradeInSupabase.push({ email: adminEmail, password: adminEnc });
       }
       const mergedRoomsMap = /* @__PURE__ */ new Map();
       for (const r of [...tableChatRooms, ...kvChatRooms]) {
@@ -3693,15 +3328,15 @@ var syncFromMysql = async () => {
         );
       }
       console.log(
-        `[MySQL Database] Sinkronisasi ${chatRooms.length} ruang chat & ${chatMessages.length} pesan chat dari MySQL`
+        `[Supabase Cloud] Sinkronisasi ${chatRooms.length} ruang chat & ${chatMessages.length} pesan chat dari Supabase`
       );
-      if (toUpgradeInMysql.length > 0) {
-        await db.from("user_passwords").upsert(toUpgradeInMysql);
-        console.log(`[MySQL Database] Sinkronisasi pengaturan, profil admin, akun staf, log aktivitas, log email & kredensial terenkripsi ke MySQL selesai.`);
+      if (toUpgradeInSupabase.length > 0) {
+        await supabase.from("user_passwords").upsert(toUpgradeInSupabase);
+        console.log(`[Supabase Cloud] Sinkronisasi pengaturan, profil admin, akun staf, log aktivitas, log email & kredensial terenkripsi ke Supabase selesai.`);
       }
     }
     try {
-      const { data: dbSettings, error: errSet } = await db.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
+      const { data: dbSettings, error: errSet } = await supabase.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
       if (!errSet && dbSettings && dbSettings.settings) {
         const cloudSettings = dbSettings.settings;
         if (cloudSettings.smtpPassword === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") {
@@ -3712,16 +3347,16 @@ var syncFromMysql = async () => {
     } catch {
     }
     try {
-      const { data: dbActLogs, error: errAct } = await db.from("activity_logs").select("*").order("timestamp", { ascending: false }).limit(250);
+      const { data: dbActLogs, error: errAct } = await supabase.from("activity_logs").select("*").order("timestamp", { ascending: false }).limit(250);
       if (!errAct && Array.isArray(dbActLogs) && dbActLogs.length > 0) {
         activityLogs = dbActLogs;
       }
     } catch {
     }
     try {
-      const { data: dbEmLogs, error: errEm } = await db.from("email_logs").select("*").order("timestamp", { ascending: false }).limit(200);
+      const { data: dbEmLogs, error: errEm } = await supabase.from("email_logs").select("*").order("timestamp", { ascending: false }).limit(200);
       if (!errEm && Array.isArray(dbEmLogs)) {
-        const mappedFromTable = dbEmLogs.map(fromDbEmailLogRow);
+        const mappedFromTable = dbEmLogs.map(fromSupabaseEmailLogRow);
         const mergedMap = /* @__PURE__ */ new Map();
         for (const item of [...mappedFromTable, ...emailLogs]) {
           if (item && item.id && !mergedMap.has(item.id)) {
@@ -3732,33 +3367,22 @@ var syncFromMysql = async () => {
           (a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime()
         );
         if (emailLogs.length > dbEmLogs.length) {
-          const rowsToSync = emailLogs.slice(0, 100).map(toDbEmailLogRow);
-          await db.from("email_logs").upsert(rowsToSync);
+          const rowsToSync = emailLogs.slice(0, 100).map(toSupabaseEmailLogRow);
+          await supabase.from("email_logs").upsert(rowsToSync);
         }
       }
     } catch {
     }
     saveDatabase();
   } catch (err) {
-    console.warn("[MySQL Database Warning] Gagal sinkronisasi data dari MySQL saat startup:", err);
+    console.warn("[Supabase Cloud Warning] Gagal sinkronisasi data dari Supabase saat startup:", err);
   }
 };
 loadDatabase();
 if (!process.env.APP_ENV) {
-  appSettings.appEnvironment = isMysqlConfigured() ? "production" : "development";
+  appSettings.appEnvironment = "production";
 }
-if (db) {
-  ensureMysqlSchema().then((res) => {
-    if (res.success) {
-      console.log(`[MySQL Database] ${res.message}`);
-    } else {
-      console.warn(`[MySQL Schema Warning] ${res.message}`);
-    }
-    return syncFromMysql();
-  }).catch((err) => {
-    console.warn("[MySQL Startup Warning]", err);
-  });
-}
+syncFromSupabase();
 app.get("/api/roles", (req, res) => {
   res.json({
     success: true,
@@ -3787,9 +3411,9 @@ app.post("/api/roles", async (req, res) => {
   };
   systemRoles.push(newRole);
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").upsert([
+      await supabase.from("user_passwords").upsert([
         { email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) }
       ]);
     } catch {
@@ -3812,9 +3436,9 @@ app.put("/api/roles/:code", async (req, res) => {
   if (Array.isArray(permissions)) target.permissions = permissions;
   if (isActive !== void 0 && !target.isSystem) target.isActive = Boolean(isActive);
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").upsert([
+      await supabase.from("user_passwords").upsert([
         { email: "__sys_roles__@ndtaxlaw.internal", password: JSON.stringify(systemRoles) }
       ]);
     } catch {
@@ -3841,9 +3465,9 @@ app.post("/api/auth/login", async (req, res) => {
       message: `Terlalu banyak percobaan login yang gagal. Akun dikunci sementara selama ${loginRate.retryAfterSec} detik demi keamanan.`
     });
   }
-  if (db) {
+  if (supabase) {
     try {
-      const { data: sysRows } = await db.from("user_passwords").select("*").in("email", [
+      const { data: sysRows } = await supabase.from("user_passwords").select("*").in("email", [
         "__sys_admin_profile__@ndtaxlaw.internal",
         "__sys_staff_accounts__@ndtaxlaw.internal",
         normalizedEmail
@@ -3879,7 +3503,7 @@ app.post("/api/auth/login", async (req, res) => {
           if (!isEncryptedPassword(pwRow.password)) {
             const enc = encryptUserPassword(pwRow.password, defaultRole);
             userPasswords.set(normalizedEmail, enc);
-            await db.from("user_passwords").upsert([{ email: normalizedEmail, password: enc }]);
+            await supabase.from("user_passwords").upsert([{ email: normalizedEmail, password: enc }]);
           } else {
             userPasswords.set(normalizedEmail, pwRow.password);
           }
@@ -3957,9 +3581,9 @@ app.post("/api/auth/login", async (req, res) => {
       if (verifyRes.needsUpgrade) {
         const upgraded = encryptUserPassword(password, "staff");
         userPasswords.set(normalizedEmail, upgraded);
-        if (db) {
+        if (supabase) {
           try {
-            await db.from("user_passwords").upsert([{ email: normalizedEmail, password: upgraded }]);
+            await supabase.from("user_passwords").upsert([{ email: normalizedEmail, password: upgraded }]);
           } catch {
           }
         }
@@ -4017,9 +3641,9 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(401).json({ success: false, message: "Kata sandi akun Staf tidak valid." });
   }
   let mitra;
-  if (db) {
+  if (supabase) {
     try {
-      const { data: dbMitras, error: errM } = await db.from("mitras").select("*");
+      const { data: dbMitras, error: errM } = await supabase.from("mitras").select("*");
       if (!errM && Array.isArray(dbMitras)) {
         mitras = normalizeMitraAvatars(dbMitras);
         mitra = mitras.find(
@@ -4030,7 +3654,7 @@ app.post("/api/auth/login", async (req, res) => {
       if (isProd) {
         return res.status(503).json({
           success: false,
-          message: "Gagal terhubung ke Database MySQL pada mode Production."
+          message: "Gagal terhubung ke Database Supabase pada mode Production."
         });
       }
     }
@@ -4041,13 +3665,6 @@ app.post("/api/auth/login", async (req, res) => {
     );
   }
   if (mitra) {
-    if (mitra.isActive === false) {
-      return res.status(403).json({
-        success: false,
-        code: "MITRA_INACTIVE",
-        message: "Akun Mitra Anda sedang dinonaktifkan oleh Admin / Staf sehingga tidak dapat login. Silakan hubungi Administrator untuk informasi lebih lanjut."
-      });
-    }
     if (mitra.emailVerified === false) {
       return res.status(403).json({
         success: false,
@@ -4064,9 +3681,9 @@ app.post("/api/auth/login", async (req, res) => {
       if (verifyRes.needsUpgrade) {
         const upgraded = encryptUserPassword(password, verifyRes.role || "mitra");
         userPasswords.set(mitraEmailLower, upgraded);
-        if (db) {
+        if (supabase) {
           try {
-            await db.from("user_passwords").upsert([{ email: mitraEmailLower, password: upgraded }]);
+            await supabase.from("user_passwords").upsert([{ email: mitraEmailLower, password: upgraded }]);
           } catch {
           }
         }
@@ -4115,98 +3732,9 @@ app.post("/api/auth/login", async (req, res) => {
     message: "Akun tidak ditemukan atau belum terdaftar"
   });
 });
-var normalizeMitraEmail = (raw) => String(raw || "").trim().toLowerCase();
-var normalizeNikNpwp = (raw) => {
-  const cleaned = String(raw || "").replace(/[\s.\-/]/g, "").trim().toLowerCase();
-  if (!cleaned || cleaned === "-" || cleaned === "0" || cleaned === "3201000000000000") {
-    return "";
-  }
-  return cleaned;
-};
-var syncMitrasFromMysqlForValidation = async () => {
-  if (!db) return;
-  try {
-    const { data: dbMitras, error: errM } = await db.from("mitras").select("*");
-    if (!errM && Array.isArray(dbMitras)) {
-      mitras = normalizeMitraAvatars(dbMitras);
-    }
-  } catch {
-  }
-};
-var checkMitraIdentityUniqueness = (params) => {
-  const rawEmail = String(params.email || "").trim();
-  const normalizedEmail = normalizeMitraEmail(rawEmail);
-  const rawNik = String(params.nik || "").trim();
-  const normalizedNik = normalizeNikNpwp(rawNik);
-  const excludeId = params.excludeMitraId || "";
-  let emailTaken = false;
-  let emailMessage = null;
-  let nikTaken = false;
-  let nikMessage = null;
-  if (normalizedEmail) {
-    const isAdminEmail = normalizedEmail === adminAccount.email.toLowerCase() || normalizedEmail === "admin@ndtaxandlaw.com" || normalizedEmail === "admin@ndtaxlaw.com";
-    const altStaffEmail = normalizedEmail.endsWith("@ndtaxandlaw.com") ? normalizedEmail.replace("@ndtaxandlaw.com", "@ndtaxlaw.com") : normalizedEmail.endsWith("@ndtaxlaw.com") ? normalizedEmail.replace("@ndtaxlaw.com", "@ndtaxandlaw.com") : normalizedEmail;
-    const isStaffEmail = staffAccounts.some(
-      (s) => s.email.toLowerCase() === normalizedEmail || s.email.toLowerCase() === altStaffEmail
-    );
-    const existingMitraByEmail = mitras.find(
-      (m) => m.id !== excludeId && normalizeMitraEmail(m.email) === normalizedEmail
-    );
-    if (isAdminEmail || isStaffEmail) {
-      emailTaken = true;
-      emailMessage = `Email "${rawEmail}" sudah terdaftar pada akun sistem. Setiap mitra hanya boleh mendaftar dengan 1 email unik.`;
-    } else if (existingMitraByEmail) {
-      emailTaken = true;
-      emailMessage = `Email "${rawEmail}" sudah pernah digunakan untuk mendaftar sebagai mitra. Setiap mitra hanya boleh mendaftar dengan 1 email unik. Silakan masuk (login) ke akun Anda atau gunakan email lain.`;
-    }
-  }
-  if (normalizedNik) {
-    const existingMitraByNik = mitras.find(
-      (m) => m.id !== excludeId && normalizeNikNpwp(m.nik) === normalizedNik
-    );
-    if (existingMitraByNik) {
-      nikTaken = true;
-      nikMessage = `NIK / NPWP "${rawNik}" sudah terdaftar pada akun mitra lain. Setiap mitra hanya diperbolehkan menggunakan 1 NIK / NPWP yang unik.`;
-    }
-  }
-  return {
-    available: !emailTaken && !nikTaken,
-    emailTaken,
-    emailMessage,
-    nikTaken,
-    nikMessage,
-    conflictField: emailTaken ? "email" : nikTaken ? "nik" : null,
-    message: emailMessage || nikMessage || null
-  };
-};
-app.post("/api/mitra/check-unique", async (req, res) => {
-  try {
-    const { email, nik, excludeMitraId } = req.body || {};
-    await syncMitrasFromMysqlForValidation();
-    const result = checkMitraIdentityUniqueness({ email, nik, excludeMitraId });
-    return res.json({
-      success: true,
-      ...result
-    });
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: err?.message || "Gagal memvalidasi keunikan data mitra."
-    });
-  }
-});
 app.post("/api/auth/google", async (req, res) => {
   try {
-    const {
-      credential,
-      idToken,
-      accessToken,
-      email: directEmail,
-      name: directName,
-      picture: directPicture,
-      mode
-    } = req.body;
-    const isRegisterMode = mode === "register";
+    const { credential, idToken, accessToken, email: directEmail, name: directName, picture: directPicture } = req.body;
     let googleEmail = directEmail || "";
     let googleName = directName || "";
     let googlePicture = directPicture || "";
@@ -4245,18 +3773,6 @@ app.post("/api/auth/google", async (req, res) => {
         success: false,
         message: "Kredensial akun Google tidak valid atau email tidak terdeteksi."
       });
-    }
-    await syncMitrasFromMysqlForValidation();
-    if (isRegisterMode) {
-      const uniqueness = checkMitraIdentityUniqueness({ email: normalizedEmail });
-      if (uniqueness.emailTaken) {
-        return res.status(400).json({
-          success: false,
-          field: "email",
-          code: "EMAIL_ALREADY_REGISTERED",
-          message: `Email Google "${normalizedEmail}" sudah pernah terdaftar di sistem. Setiap mitra hanya boleh mendaftar dengan 1 email unik. Silakan masuk melalui tab Masuk Akun.`
-        });
-      }
     }
     const isAdminMatch = normalizedEmail === adminAccount.email.toLowerCase() || normalizedEmail === "admin@ndtaxandlaw.com" || normalizedEmail === "admin@ndtaxlaw.com";
     if (isAdminMatch) {
@@ -4361,7 +3877,16 @@ app.post("/api/auth/google", async (req, res) => {
         environment: appSettings.appEnvironment
       });
     }
-    let mitra = mitras.find((m) => normalizeMitraEmail(m.email) === normalizedEmail);
+    if (supabase) {
+      try {
+        const { data: dbMitras, error: errM } = await supabase.from("mitras").select("*");
+        if (!errM && Array.isArray(dbMitras)) {
+          mitras = normalizeMitraAvatars(dbMitras);
+        }
+      } catch {
+      }
+    }
+    let mitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
     if (!mitra) {
       const newMitraId = `mitra-${Date.now()}`;
       const memberCode = formatMitraMemberCode("", newMitraId);
@@ -4383,9 +3908,7 @@ app.post("/api/auth/google", async (req, res) => {
         bankDetails: {
           bankName: "Bank Central Asia (BCA)",
           accountNumber: "",
-          accountHolder: googleName || "Mitra",
-          __gender: resolvedGender2,
-          __emailVerified: true
+          accountHolder: googleName || "Mitra"
         },
         totalCommission: 0,
         totalBonus: 0,
@@ -4397,30 +3920,11 @@ app.post("/api/auth/google", async (req, res) => {
         emailVerified: true
       };
       mitras.unshift(mitra);
-      if (db) {
+      if (supabase) {
         try {
-          const {
-            gender: _g,
-            customFields: _cf,
-            ktpFileUrl: _kfu,
-            ktpFileName: _kfn,
-            ...dbMitraPayload
-          } = mitra;
-          const { error: insertErr } = await db.from("mitras").insert([dbMitraPayload]);
-          if (insertErr) {
-            const {
-              emailVerified: _ev,
-              verificationToken: _vt,
-              verificationTokenExpiry: _vte,
-              ...minimalPayload
-            } = dbMitraPayload;
-            const { error: retryErr } = await db.from("mitras").insert([minimalPayload]);
-            if (retryErr) {
-              console.warn("[MySQL Mitra Google Register Warning]", retryErr.message);
-            }
-          }
+          await supabase.from("mitras").insert([mitra]);
         } catch (supaErr) {
-          console.warn("[MySQL Mitra Google Register Warning]", supaErr);
+          console.warn("[Supabase Mitra Google Register Warning]", supaErr);
         }
       }
       saveDatabase();
@@ -4435,18 +3939,11 @@ app.post("/api/auth/google", async (req, res) => {
         description: `Mitra baru "${mitra.fullName}" (${mitra.memberCode}) berhasil terdaftar via Google OAuth.`
       });
     }
-    if (mitra.isActive === false) {
-      return res.status(403).json({
-        success: false,
-        code: "MITRA_INACTIVE",
-        message: "Akun Mitra Anda sedang dinonaktifkan oleh Admin / Staf sehingga tidak dapat login menggunakan Google. Silakan hubungi Administrator."
-      });
-    }
     if (mitra.emailVerified === false) {
       mitra.emailVerified = true;
-      if (db) {
+      if (supabase) {
         try {
-          await db.from("mitras").update({ emailVerified: true }).eq("id", mitra.id);
+          await supabase.from("mitras").update({ emailVerified: true }).eq("id", mitra.id);
         } catch {
         }
       }
@@ -4496,15 +3993,15 @@ app.post("/api/auth/google", async (req, res) => {
 });
 var persistAdminAndStaffToCloud = async () => {
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
       const { password: _ap, ...safeAdmin } = adminAccount;
-      await db.from("user_passwords").upsert([
+      await supabase.from("user_passwords").upsert([
         { email: "__sys_admin_profile__@ndtaxlaw.internal", password: JSON.stringify(safeAdmin) },
         { email: "__sys_staff_accounts__@ndtaxlaw.internal", password: JSON.stringify(staffAccounts) }
       ]);
     } catch (e) {
-      console.warn("MySQL admin/staff sync warning:", e);
+      console.warn("Supabase admin/staff sync warning:", e);
     }
   }
 };
@@ -4550,9 +4047,9 @@ app.put("/api/admin/profile", async (req, res) => {
   if (nextEmailLower !== oldEmailLower) {
     userPasswords.delete(oldEmailLower);
     adminAccount.email = nextEmailLower;
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").delete().eq("email", oldEmailLower);
+        await supabase.from("user_passwords").delete().eq("email", oldEmailLower);
       } catch {
       }
     }
@@ -4562,18 +4059,18 @@ app.put("/api/admin/profile", async (req, res) => {
     adminAccount.password = cleanNewPass;
     const encryptedPass = encryptUserPassword(cleanNewPass, "admin");
     userPasswords.set(nextEmailLower, encryptedPass);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").upsert([{ email: nextEmailLower, password: encryptedPass }]);
+        await supabase.from("user_passwords").upsert([{ email: nextEmailLower, password: encryptedPass }]);
       } catch {
       }
     }
   } else {
     const reEncrypted = encryptUserPassword(prevStoredEnc, "admin");
     userPasswords.set(nextEmailLower, reEncrypted);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").upsert([{ email: nextEmailLower, password: reEncrypted }]);
+        await supabase.from("user_passwords").upsert([{ email: nextEmailLower, password: reEncrypted }]);
       } catch {
       }
     }
@@ -4645,9 +4142,9 @@ app.post("/api/staff", async (req, res) => {
     "staff"
   );
   userPasswords.set(cleanEmail, encryptedPass);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").upsert([{ email: cleanEmail, password: encryptedPass }]);
+      await supabase.from("user_passwords").upsert([{ email: cleanEmail, password: encryptedPass }]);
     } catch {
     }
   }
@@ -4706,9 +4203,9 @@ app.put("/api/staff/:id", async (req, res) => {
   if (nextEmailLower !== oldEmailLower) {
     userPasswords.delete(oldEmailLower);
     staff.email = nextEmailLower;
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").delete().eq("email", oldEmailLower);
+        await supabase.from("user_passwords").delete().eq("email", oldEmailLower);
       } catch {
       }
     }
@@ -4716,18 +4213,18 @@ app.put("/api/staff/:id", async (req, res) => {
   if (newPassword && String(newPassword).trim().length >= 6) {
     const encryptedPass = encryptUserPassword(String(newPassword).trim(), "staff");
     userPasswords.set(nextEmailLower, encryptedPass);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").upsert([{ email: nextEmailLower, password: encryptedPass }]);
+        await supabase.from("user_passwords").upsert([{ email: nextEmailLower, password: encryptedPass }]);
       } catch {
       }
     }
   } else {
     const reEncrypted = encryptUserPassword(prevStoredEnc, "staff");
     userPasswords.set(nextEmailLower, reEncrypted);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").upsert([{ email: nextEmailLower, password: reEncrypted }]);
+        await supabase.from("user_passwords").upsert([{ email: nextEmailLower, password: reEncrypted }]);
       } catch {
       }
     }
@@ -4761,9 +4258,9 @@ app.delete("/api/staff/:id", async (req, res) => {
   const emailLower = target.email.toLowerCase();
   staffAccounts = staffAccounts.filter((s) => s.id !== id);
   userPasswords.delete(emailLower);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").delete().eq("email", emailLower);
+      await supabase.from("user_passwords").delete().eq("email", emailLower);
     } catch {
     }
   }
@@ -4798,9 +4295,9 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       message: `Terlalu banyak permintaan kode OTP. Silakan tunggu ${otpReqRate.retryAfterSec} detik.`
     });
   }
-  if (db) {
+  if (supabase) {
     try {
-      const { data: dbMitras } = await db.from("mitras").select("*");
+      const { data: dbMitras } = await supabase.from("mitras").select("*");
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {
     }
@@ -4821,9 +4318,9 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     attempts: 0
   };
   passwordResetTokens.set(normalizedEmail, tokenPayload);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").upsert([{ email: `__otp__:${normalizedEmail}`, password: JSON.stringify(tokenPayload) }]);
+      await supabase.from("user_passwords").upsert([{ email: `__otp__:${normalizedEmail}`, password: JSON.stringify(tokenPayload) }]);
     } catch {
     }
   }
@@ -4865,9 +4362,9 @@ app.post("/api/auth/reset-password", async (req, res) => {
     });
   }
   let storedToken = passwordResetTokens.get(normalizedEmail);
-  if (!storedToken && db) {
+  if (!storedToken && supabase) {
     try {
-      const { data: kvOtp } = await db.from("user_passwords").select("password").eq("email", `__otp__:${normalizedEmail}`).maybeSingle();
+      const { data: kvOtp } = await supabase.from("user_passwords").select("password").eq("email", `__otp__:${normalizedEmail}`).maybeSingle();
       if (kvOtp?.password) {
         const parsed = JSON.parse(kvOtp.password);
         if (parsed && parsed.otp) {
@@ -4916,9 +4413,9 @@ app.post("/api/auth/reset-password", async (req, res) => {
     });
   }
   passwordResetTokens.delete(normalizedEmail);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").delete().eq("email", `__otp__:${normalizedEmail}`);
+      await supabase.from("user_passwords").delete().eq("email", `__otp__:${normalizedEmail}`);
     } catch {
     }
   }
@@ -4939,11 +4436,11 @@ app.post("/api/auth/reset-password", async (req, res) => {
     description: `Kata sandi untuk akun ${normalizedEmail} berhasil diperbarui dan dienkripsi (scrypt + AES-256-GCM).`
   });
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("user_passwords").upsert([{ email: normalizedEmail, password: encryptedPassword }]);
+      await supabase.from("user_passwords").upsert([{ email: normalizedEmail, password: encryptedPassword }]);
     } catch (e) {
-      console.warn("MySQL password reset update error", e);
+      console.warn("Supabase password reset update error", e);
     }
   }
   res.json({
@@ -4967,9 +4464,9 @@ app.post("/api/auth/verify-email", async (req, res) => {
       message: `Terlalu banyak percobaan verifikasi. Silakan tunggu ${verifyRate.retryAfterSec} detik.`
     });
   }
-  if (db) {
+  if (supabase) {
     try {
-      const { data: dbMitras } = await db.from("mitras").select("*");
+      const { data: dbMitras } = await supabase.from("mitras").select("*");
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {
     }
@@ -5017,20 +4514,20 @@ app.post("/api/auth/verify-email", async (req, res) => {
     description: `Mitra ${mitra.fullName} (${mitra.email}) berhasil memverifikasi alamat email menggunakan kode OTP 6-digit.`
   });
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      const { error: upErr } = await db.from("mitras").update({
+      const { error: upErr } = await supabase.from("mitras").update({
         emailVerified: true,
         verificationToken: null,
         bankDetails: mitra.bankDetails
       }).eq("id", mitra.id);
       if (upErr) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           bankDetails: mitra.bankDetails
         }).eq("id", mitra.id);
       }
     } catch (e) {
-      console.warn("MySQL verify-email update error", e);
+      console.warn("Supabase verify-email update error", e);
     }
   }
   res.json({
@@ -5041,9 +4538,9 @@ app.post("/api/auth/verify-email", async (req, res) => {
 app.post("/api/auth/resend-verification", async (req, res) => {
   const { email } = req.body;
   const normalizedEmail = (email || "").trim().toLowerCase();
-  if (db) {
+  if (supabase) {
     try {
-      const { data: dbMitras } = await db.from("mitras").select("*");
+      const { data: dbMitras } = await supabase.from("mitras").select("*");
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {
     }
@@ -5066,20 +4563,20 @@ app.post("/api/auth/resend-verification", async (req, res) => {
     __verificationTokenExpiry: expiryIso
   };
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      const { error: upErr } = await db.from("mitras").update({
+      const { error: upErr } = await supabase.from("mitras").update({
         verificationToken: newToken,
         verificationTokenExpiry: expiryIso,
         bankDetails: mitra.bankDetails
       }).eq("id", mitra.id);
       if (upErr) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           bankDetails: mitra.bankDetails
         }).eq("id", mitra.id);
       }
     } catch (e) {
-      console.warn("MySQL resend-verification update error", e);
+      console.warn("Supabase resend-verification update error", e);
     }
   }
   const emailResult = await sendSystemEmail({
@@ -5116,25 +4613,25 @@ Silakan masukkan kode tersebut pada halaman verifikasi untuk mengaktifkan akun k
 });
 var toPublicSafeMitraList = (list) => list.map(({ verificationToken: _vt, verificationTokenExpiry: _vte, ...safeMitra }) => safeMitra);
 app.get("/api/mitra", async (req, res) => {
-  if (db) {
+  if (supabase) {
     try {
-      const { data, error } = await db.from("mitras").select("*");
+      const { data, error } = await supabase.from("mitras").select("*");
       if (!error && Array.isArray(data)) {
         mitras = normalizeMitraAvatars(data);
         saveDatabase();
         return res.json({ success: true, data: toPublicSafeMitraList(mitras) });
       }
       if (isProductionMode() && error) {
-        return res.status(503).json({ success: false, message: `MySQL Error: ${error.message}`, data: [] });
+        return res.status(503).json({ success: false, message: `Supabase Error: ${error.message}`, data: [] });
       }
     } catch (e) {
       if (isProductionMode()) {
-        return res.status(503).json({ success: false, message: "Gagal memuat data mitra dari MySQL.", data: [] });
+        return res.status(503).json({ success: false, message: "Gagal memuat data mitra dari Supabase.", data: [] });
       }
-      console.warn("MySQL query error for mitras, using dev fallback", e);
+      console.warn("Supabase query error for mitras, using dev fallback", e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: "Database MySQL wajib terhubung pada mode Production.", data: [] });
+    return res.status(503).json({ success: false, message: "Supabase wajib terhubung pada mode Production.", data: [] });
   }
   mitras = normalizeMitraAvatars(mitras);
   res.json({ success: true, data: toPublicSafeMitraList(mitras) });
@@ -5148,9 +4645,9 @@ app.get("/api/mitra/public-verify/:code", async (req, res) => {
       message: "Informasi data mitra tidak ditemukan."
     });
   }
-  if (db) {
+  if (supabase) {
     try {
-      const { data } = await db.from("mitras").select("*");
+      const { data } = await supabase.from("mitras").select("*");
       if (Array.isArray(data)) {
         mitras = normalizeMitraAvatars(data);
       }
@@ -5210,20 +4707,20 @@ app.post("/api/mitra/register", async (req, res) => {
   const safeFullName = (fullName || "").trim() || email.split("@")[0];
   const safePhone = (phone || "").trim() || "-";
   const normalizedEmail = (email || "").trim().toLowerCase();
-  await syncMitrasFromMysqlForValidation();
-  const uniqueness = checkMitraIdentityUniqueness({ email, nik });
-  if (uniqueness.emailTaken) {
-    return res.status(400).json({
-      success: false,
-      field: "email",
-      message: uniqueness.emailMessage
-    });
+  if (supabase) {
+    try {
+      const { data: dbMitras, error: errM } = await supabase.from("mitras").select("*");
+      if (!errM && Array.isArray(dbMitras)) {
+        mitras = normalizeMitraAvatars(dbMitras);
+      }
+    } catch {
+    }
   }
-  if (uniqueness.nikTaken) {
+  const existingMitra = mitras.find((m) => m.email.toLowerCase() === normalizedEmail);
+  if (existingMitra) {
     return res.status(400).json({
       success: false,
-      field: "nik",
-      message: uniqueness.nikMessage
+      message: `Email "${email}" sudah terdaftar sebagai mitra. Silakan masuk (login) ke akun Anda atau gunakan email lain.`
     });
   }
   const verificationToken = Math.floor(1e5 + Math.random() * 9e5).toString();
@@ -5304,31 +4801,31 @@ app.post("/api/mitra/register", async (req, res) => {
     targetEntity: "Pendaftaran Mitra",
     description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`
   });
-  if (db) {
+  if (supabase) {
     try {
       const {
         gender: _g,
         customFields: _cf,
         ktpFileUrl: _kfu,
         ktpFileName: _kfn,
-        ...dbMitraPayload
+        ...supabaseMitraPayload
       } = newMitra;
-      const { error: insertErr } = await db.from("mitras").insert([dbMitraPayload]);
+      const { error: insertErr } = await supabase.from("mitras").insert([supabaseMitraPayload]);
       if (insertErr) {
         const {
           emailVerified: _ev,
           verificationToken: _vt,
           verificationTokenExpiry: _vte,
           ...minimalPayload
-        } = dbMitraPayload;
-        const { error: retryErr } = await db.from("mitras").insert([minimalPayload]);
+        } = supabaseMitraPayload;
+        const { error: retryErr } = await supabase.from("mitras").insert([minimalPayload]);
         if (retryErr) {
-          console.warn("MySQL mitra insert warning:", retryErr.message);
+          console.warn("Supabase mitra insert warning:", retryErr.message);
         }
       }
-      await db.from("user_passwords").upsert([{ email: normalizedEmail, password: encryptedPass }]);
+      await supabase.from("user_passwords").upsert([{ email: normalizedEmail, password: encryptedPass }]);
     } catch (e) {
-      console.warn("MySQL insert error for new mitra", e);
+      console.warn("Supabase insert error for new mitra", e);
     }
   }
   saveDatabase();
@@ -5357,9 +4854,9 @@ Silakan masukkan 6 digit kode di atas pada halaman Verifikasi Email untuk mengak
     targetAudience: "admin_staff"
   };
   notifications.unshift(newNotif);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("notifications").insert([toDbNotification(newNotif)]);
+      await supabase.from("notifications").insert([toSupabaseNotification(newNotif)]);
     } catch {
     }
   }
@@ -5378,9 +4875,9 @@ Silakan masukkan 6 digit kode di atas pada halaman Verifikasi Email untuk mengak
 app.put("/api/mitra/:id/verify", async (req, res) => {
   const { id } = req.params;
   const { status, rejectionReason, groupChatIds } = req.body;
-  if (db) {
+  if (supabase) {
     try {
-      const { data: dbMitras } = await db.from("mitras").select("*");
+      const { data: dbMitras } = await supabase.from("mitras").select("*");
       if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
     } catch {
     }
@@ -5404,9 +4901,9 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
     }
     const requestedGroupIds = Array.isArray(groupChatIds) ? Array.from(new Set(groupChatIds.map((gid) => String(gid || "").trim()).filter(Boolean))) : [];
     if (requestedGroupIds.length > 0) {
-      if (db) {
+      if (supabase) {
         try {
-          await syncChatFromMysql();
+          await syncChatFromSupabase();
         } catch {
         }
       }
@@ -5419,13 +4916,8 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
         if (!room.participantIds.includes(mitra.id)) {
           room.participantIds = Array.from(/* @__PURE__ */ new Set([...room.participantIds, mitra.id]));
           room.updatedAt = nowIso;
-          await notifyMembersAddedToGroup(
-            room,
-            [mitra.id],
-            "system-admin",
-            "Admin Operasional",
-            false
-          );
+          await persistChatToCloud(room, void 0);
+          broadcastChatEvent({ type: "chat:room_updated", room });
         }
         joinedGroupNames.push(room.name || "Grup Chat");
       }
@@ -5456,11 +4948,11 @@ Kode Referral Resmi: ${mitra.referralCode}
 Sekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta mengunduh Kartu Identitas Eksklusif Mitra di portal.${groupSummaryText}`
       });
     }
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("notifications").insert([toDbNotification(notif)]);
+        await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       } catch (e) {
-        console.warn("MySQL insert error", e);
+        console.warn("Supabase insert error", e);
       }
     }
   } else if (status === "rejected") {
@@ -5496,11 +4988,11 @@ Sekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta
 Silakan masuk ke Portal Mitra, perbaiki data diri / rekening bank Anda, lalu klik tombol "Ajukan Ulang Verifikasi" agar dapat diperiksa kembali oleh Admin.`
       });
     }
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("notifications").insert([toDbNotification(notif)]);
+        await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       } catch (e) {
-        console.warn("MySQL insert error", e);
+        console.warn("Supabase insert error", e);
       }
     }
   }
@@ -5514,162 +5006,19 @@ Silakan masuk ke Portal Mitra, perbaiki data diri / rekening bank Anda, lalu kli
     targetEntity: "Verifikasi Mitra",
     description: status === "verified" ? `Admin menyetujui (Approve) verifikasi Mitra "${mitra.fullName}" menjadi TERVERIFIKASI (${mitra.memberCode})${joinedGroupNames.length > 0 ? ` dan memasukkan ke group chat: ${joinedGroupNames.join(", ")}.` : "."}` : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`
   });
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("mitras").update({
+      await supabase.from("mitras").update({
         status,
         memberCode: mitra.memberCode,
         bankDetails: mitra.bankDetails
       }).eq("id", id);
     } catch (e) {
-      console.warn("MySQL update verify error", e);
+      console.warn("Supabase update verify error", e);
     }
   }
   saveDatabase();
   res.json({ success: true, data: mitra, addedGroups: joinedGroupNames });
-});
-app.put("/api/mitra/:id/active-status", async (req, res) => {
-  const { id } = req.params;
-  const { isActive, reason, actorName, actorRole, actorId, actorEmail } = req.body || {};
-  if (typeof isActive !== "boolean") {
-    return res.status(400).json({
-      success: false,
-      message: "Parameter isActive (boolean) wajib diisi."
-    });
-  }
-  await syncMitrasFromMysqlForValidation();
-  const mitra = mitras.find((m) => m.id === id);
-  if (!mitra) {
-    return res.status(404).json({ success: false, message: "Data Mitra tidak ditemukan." });
-  }
-  const resolvedRole = actorRole === "staff" ? "staff" : "admin";
-  const resolvedActorName = String(actorName || "").trim() || (resolvedRole === "staff" ? "Staf Operasional" : adminAccount.name);
-  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  const trimmedReason = typeof reason === "string" ? reason.trim() : "";
-  mitra.isActive = isActive;
-  const updatedBank = { ...mitra.bankDetails || {} };
-  updatedBank.__isActive = isActive;
-  if (!isActive) {
-    mitra.deactivatedAt = nowIso;
-    mitra.deactivatedBy = resolvedActorName;
-    mitra.deactivatedReason = trimmedReason || void 0;
-    updatedBank.__deactivatedAt = nowIso;
-    updatedBank.__deactivatedBy = resolvedActorName;
-    if (trimmedReason) {
-      updatedBank.__deactivatedReason = trimmedReason;
-    } else {
-      delete updatedBank.__deactivatedReason;
-    }
-  } else {
-    mitra.deactivatedAt = void 0;
-    mitra.deactivatedBy = void 0;
-    mitra.deactivatedReason = void 0;
-    delete updatedBank.__deactivatedAt;
-    delete updatedBank.__deactivatedBy;
-    delete updatedBank.__deactivatedReason;
-  }
-  mitra.bankDetails = updatedBank;
-  if (db) {
-    try {
-      await db.from("mitras").update({ bankDetails: mitra.bankDetails }).eq("id", id);
-    } catch (e) {
-      console.warn("MySQL update mitra active-status error", e);
-    }
-  }
-  recordActivity({
-    actorRole: resolvedRole,
-    actorId: actorId || (resolvedRole === "staff" ? "staff-01" : adminAccount.id),
-    actorName: resolvedActorName,
-    actorEmail: actorEmail || adminAccount.email,
-    actionType: "mitra_status",
-    operation: "UPDATE",
-    targetEntity: "Status Aktif Mitra",
-    description: isActive ? `${resolvedActorName} mengaktifkan kembali akun Mitra "${mitra.fullName}" (${mitra.memberCode}). Mitra kini dapat login kembali.` : `${resolvedActorName} menonaktifkan akun Mitra "${mitra.fullName}" (${mitra.memberCode}) sehingga tidak dapat login.${trimmedReason ? ` Alasan: "${trimmedReason}".` : ""}`
-  });
-  saveDatabase();
-  return res.json({
-    success: true,
-    data: mitra,
-    message: isActive ? `Akun Mitra "${mitra.fullName}" berhasil diaktifkan kembali.` : `Akun Mitra "${mitra.fullName}" berhasil dinonaktifkan dan tidak dapat login.`
-  });
-});
-app.delete("/api/mitra/:id", async (req, res) => {
-  const { id } = req.params;
-  const { actorName, actorRole, actorId, actorEmail } = req.body || {};
-  await syncMitrasFromMysqlForValidation();
-  if (db) {
-    try {
-      const { data: dbDeals, error: errD } = await db.from("client_deals").select("*");
-      if (!errD && Array.isArray(dbDeals)) {
-        clientDeals = dbDeals;
-      }
-    } catch {
-    }
-  }
-  const mitraIndex = mitras.findIndex((m) => m.id === id);
-  if (mitraIndex === -1) {
-    return res.status(404).json({ success: false, message: "Data Mitra tidak ditemukan." });
-  }
-  const targetMitra = mitras[mitraIndex];
-  const linkedClients = clientDeals.filter((c) => c.mitraId === id);
-  const effectiveClientCount = Math.max(
-    linkedClients.length,
-    Number(targetMitra.referredClientsCount || 0)
-  );
-  if (effectiveClientCount > 0) {
-    return res.status(400).json({
-      success: false,
-      code: "MITRA_HAS_CLIENTS",
-      clientCount: effectiveClientCount,
-      message: `Data Mitra "${targetMitra.fullName}" tidak dapat dihapus karena sudah memiliki ${effectiveClientCount} klien terdaftar. Anda hanya dapat menonaktifkan akun mitra ini agar tidak bisa login.`
-    });
-  }
-  mitras.splice(mitraIndex, 1);
-  const normalizedEmail = normalizeMitraEmail(targetMitra.email);
-  if (normalizedEmail) {
-    userPasswords.delete(normalizedEmail);
-  }
-  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  for (const room of chatRooms) {
-    if (Array.isArray(room.participantIds) && room.participantIds.includes(id)) {
-      room.participantIds = room.participantIds.filter((pid) => pid !== id);
-      room.updatedAt = nowIso;
-      try {
-        await persistChatToCloud(room, void 0);
-        broadcastChatEvent({ type: "chat:room_updated", room });
-      } catch {
-      }
-    }
-  }
-  notifications = notifications.filter((n) => n.mitraId !== id);
-  if (db) {
-    try {
-      await db.from("mitras").delete().eq("id", id);
-      if (normalizedEmail) {
-        await db.from("user_passwords").delete().eq("email", normalizedEmail);
-      }
-    } catch (e) {
-      console.warn("MySQL delete mitra error", e);
-    }
-  }
-  const resolvedRole = actorRole === "staff" ? "staff" : "admin";
-  const resolvedActorName = String(actorName || "").trim() || (resolvedRole === "staff" ? "Staf Operasional" : adminAccount.name);
-  recordActivity({
-    actorRole: resolvedRole,
-    actorId: actorId || (resolvedRole === "staff" ? "staff-01" : adminAccount.id),
-    actorName: resolvedActorName,
-    actorEmail: actorEmail || adminAccount.email,
-    actionType: "mitra_delete",
-    operation: "DELETE",
-    targetEntity: "Hapus Data Mitra",
-    description: `${resolvedActorName} menghapus permanen data Mitra "${targetMitra.fullName}" (${targetMitra.memberCode}, ${targetMitra.email}) yang belum memiliki klien.`
-  });
-  saveDatabase();
-  return res.json({
-    success: true,
-    deletedId: id,
-    message: `Data Mitra "${targetMitra.fullName}" berhasil dihapus secara permanen.`
-  });
 });
 app.put("/api/mitra/:id/profile", async (req, res) => {
   const { id } = req.params;
@@ -5687,28 +5036,21 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
     resubmitVerification,
     customFields
   } = req.body;
-  await syncMitrasFromMysqlForValidation();
+  if (supabase) {
+    try {
+      const { data: dbMitras } = await supabase.from("mitras").select("*");
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {
+    }
+  }
   const mitra = mitras.find((m) => m.id === id);
   if (!mitra) {
     return res.status(404).json({ success: false, message: "Mitra tidak ditemukan" });
   }
-  if (typeof nik === "string" && normalizeNikNpwp(nik)) {
-    const uniqueness = checkMitraIdentityUniqueness({
-      nik,
-      excludeMitraId: id
-    });
-    if (uniqueness.nikTaken) {
-      return res.status(400).json({
-        success: false,
-        field: "nik",
-        message: uniqueness.nikMessage
-      });
-    }
-  }
   const wasRejected = mitra.status === "rejected";
   if (fullName) mitra.fullName = fullName;
   if (phone) mitra.phone = phone;
-  if (nik) mitra.nik = String(nik).trim();
+  if (nik) mitra.nik = nik;
   if (specialization) mitra.specialization = specialization;
   if (typeof ktpFileUrl === "string" && ktpFileUrl.trim()) {
     let cleanKtpUrl = ktpFileUrl.trim();
@@ -5798,9 +5140,9 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
       mitraId: mitra.id
     };
     notifications.unshift(notif);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("notifications").insert([toDbNotification(notif)]);
+        await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       } catch {
       }
     }
@@ -5808,9 +5150,9 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
   if (newPassword && newPassword.length >= 6) {
     const encryptedPwd = encryptUserPassword(newPassword, "mitra");
     userPasswords.set(mitra.email.toLowerCase(), encryptedPwd);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").upsert([{ email: mitra.email.toLowerCase(), password: encryptedPwd }]);
+        await supabase.from("user_passwords").upsert([{ email: mitra.email.toLowerCase(), password: encryptedPwd }]);
       } catch {
       }
     }
@@ -5825,9 +5167,9 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
     targetEntity: wasRejected || resubmitVerification ? "Pengajuan Ulang Verifikasi Mitra" : "Profil & Rekening Mitra",
     description: wasRejected || resubmitVerification ? `Mitra "${mitra.fullName}" memperbarui data diri/rekening dan mengajukan ulang verifikasi pendaftaran ke Admin.` : `Mitra "${mitra.fullName}" memperbarui data profil dan rekening bank (${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber}).`
   });
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("mitras").update({
+      await supabase.from("mitras").update({
         fullName: mitra.fullName,
         phone: mitra.phone,
         nik: mitra.nik,
@@ -5837,7 +5179,7 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
         status: mitra.status
       }).eq("id", id);
     } catch (e) {
-      console.warn("MySQL update profile error", e);
+      console.warn("Supabase update profile error", e);
     }
   }
   saveDatabase();
@@ -5929,10 +5271,10 @@ app.get("/uploads/marketing-tools/:filename", async (req, res) => {
       }
     }
   }
-  if (db) {
+  if (supabase) {
     try {
       const cloudKey = `__sys_file_${safeName.toLowerCase()}__@ndtaxlaw.internal`;
-      const { data } = await db.from("user_passwords").select("password").eq("email", cloudKey).maybeSingle();
+      const { data } = await supabase.from("user_passwords").select("password").eq("email", cloudKey).maybeSingle();
       if (data?.password) {
         const parsed = JSON.parse(data.password);
         if (parsed?.base64) {
@@ -5976,16 +5318,16 @@ var compressBinaryBuffer = (buf, ext) => {
   return buf;
 };
 var persistMarketingToolsToCloud = async () => {
-  if (!db) return;
+  if (!supabase) return;
   try {
-    await db.from("user_passwords").upsert([
+    await supabase.from("user_passwords").upsert([
       {
         email: "__sys_marketing_tools__@ndtaxlaw.internal",
         password: JSON.stringify(marketingTools)
       }
     ]);
   } catch (e) {
-    console.warn("MySQL KV marketing_tools backup warning:", e);
+    console.warn("Supabase KV marketing_tools backup warning:", e);
   }
 };
 var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
@@ -6020,7 +5362,7 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
     }
   }
   let cloudSyncPromise;
-  if (db && optimizedBuffer.length <= 18 * 1024 * 1024) {
+  if (supabase && optimizedBuffer.length <= 18 * 1024 * 1024) {
     const cloudKey = `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`;
     const cloudPayload = JSON.stringify({
       fileName,
@@ -6029,7 +5371,7 @@ var saveDataUrlToHostingServer = (dataUrl, originalName, fallbackExt) => {
       savedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
     cloudSyncPromise = Promise.resolve(
-      db.from("user_passwords").upsert([{ email: cloudKey, password: cloudPayload }])
+      supabase.from("user_passwords").upsert([{ email: cloudKey, password: cloudPayload }])
     ).catch(() => {
     });
   }
@@ -6071,11 +5413,11 @@ app.post("/api/marketing-tools/upload", async (req, res) => {
   }
 });
 app.get("/api/marketing-tools", async (req, res) => {
-  if (db) {
+  if (supabase) {
     try {
       const [{ data: tableData, error: tableErr }, { data: kvData }] = await Promise.all([
-        db.from("marketing_tools").select("*"),
-        db.from("user_passwords").select("password").eq("email", "__sys_marketing_tools__@ndtaxlaw.internal").maybeSingle()
+        supabase.from("marketing_tools").select("*"),
+        supabase.from("user_passwords").select("password").eq("email", "__sys_marketing_tools__@ndtaxlaw.internal").maybeSingle()
       ]);
       let kvTools = [];
       if (kvData?.password) {
@@ -6097,11 +5439,11 @@ app.get("/api/marketing-tools", async (req, res) => {
         return res.json({ success: true, data: marketingTools });
       }
     } catch (e) {
-      console.warn("MySQL tools error", e);
+      console.warn("Supabase tools error", e);
     }
   }
-  if (isProductionMode() && !db) {
-    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database MySQL." });
+  if (isProductionMode() && !supabase) {
+    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database Supabase." });
   }
   res.json({ success: true, data: marketingTools });
 });
@@ -6152,14 +5494,14 @@ app.post("/api/marketing-tools", async (req, res) => {
     targetEntity: "Tools Marketing",
     description: `Admin mengunggah materi marketing baru: "${title}" (${category}) [${finalFileSize}].`
   });
-  if (db) {
+  if (supabase) {
     try {
-      const { error: insErr } = await db.from("marketing_tools").upsert([newTool]);
+      const { error: insErr } = await supabase.from("marketing_tools").upsert([newTool]);
       if (insErr) {
-        console.warn("MySQL marketing_tools table insert warning (using KV backup):", insErr.message);
+        console.warn("Supabase marketing_tools table insert warning (using KV backup):", insErr.message);
       }
     } catch (e) {
-      console.warn("MySQL insert tool error", e);
+      console.warn("Supabase insert tool error", e);
     }
     await persistMarketingToolsToCloud();
   }
@@ -6173,11 +5515,11 @@ app.post("/api/marketing-tools", async (req, res) => {
     targetAudience: "admin_only"
   };
   notifications.unshift(notif);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
     } catch (e) {
-      console.warn("MySQL insert notif error", e);
+      console.warn("Supabase insert notif error", e);
     }
   }
   saveDatabase();
@@ -6247,14 +5589,14 @@ app.put("/api/marketing-tools/:id", async (req, res) => {
     targetEntity: "Tools Marketing",
     description: `Admin memperbarui materi marketing: "${updatedTool.title}" (${updatedTool.category}) [${updatedTool.fileSize}].`
   });
-  if (db) {
+  if (supabase) {
     try {
-      const { error: upErr } = await db.from("marketing_tools").upsert([updatedTool]);
+      const { error: upErr } = await supabase.from("marketing_tools").upsert([updatedTool]);
       if (upErr) {
-        console.warn("MySQL marketing_tools table update warning (using KV backup):", upErr.message);
+        console.warn("Supabase marketing_tools table update warning (using KV backup):", upErr.message);
       }
     } catch (e) {
-      console.warn("MySQL update tool error", e);
+      console.warn("Supabase update tool error", e);
     }
     await persistMarketingToolsToCloud();
   }
@@ -6276,9 +5618,9 @@ app.delete("/api/marketing-tools/:id", async (req, res) => {
         }
       }
     }
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("user_passwords").delete().eq("email", `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`);
+        await supabase.from("user_passwords").delete().eq("email", `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`);
       } catch {
       }
     }
@@ -6293,11 +5635,11 @@ app.delete("/api/marketing-tools/:id", async (req, res) => {
     targetEntity: "Tools Marketing",
     description: `Admin menghapus materi marketing: "${target?.title || id}".`
   });
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("marketing_tools").delete().eq("id", id);
+      await supabase.from("marketing_tools").delete().eq("id", id);
     } catch (e) {
-      console.warn("MySQL delete tool error", e);
+      console.warn("Supabase delete tool error", e);
     }
     await persistMarketingToolsToCloud();
   }
@@ -6306,9 +5648,9 @@ app.delete("/api/marketing-tools/:id", async (req, res) => {
 });
 app.get("/api/commissions", async (req, res) => {
   const { mitraId } = req.query;
-  if (db) {
+  if (supabase) {
     try {
-      const { data, error } = await db.from("commissions").select("*");
+      const { data, error } = await supabase.from("commissions").select("*");
       if (!error && Array.isArray(data)) {
         commissions = data;
         saveDatabase();
@@ -6318,11 +5660,11 @@ app.get("/api/commissions", async (req, res) => {
         return res.json({ success: true, data: commissions });
       }
     } catch (e) {
-      console.warn("MySQL commissions query error", e);
+      console.warn("Supabase commissions query error", e);
     }
   }
-  if (isProductionMode() && !db) {
-    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database MySQL." });
+  if (isProductionMode() && !supabase) {
+    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database Supabase." });
   }
   if (mitraId) {
     return res.json({ success: true, data: commissions.filter((c) => c.mitraId === mitraId) });
@@ -6389,12 +5731,12 @@ app.post("/api/commissions/payout", async (req, res) => {
     mitraId: mitra.id
   };
   notifications.unshift(notif);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("payout_requests").insert([newPayout]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("payout_requests").insert([newPayout]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
     } catch (e) {
-      console.warn("MySQL insert payout error", e);
+      console.warn("Supabase insert payout error", e);
     }
   }
   saveDatabase();
@@ -6402,23 +5744,23 @@ app.post("/api/commissions/payout", async (req, res) => {
 });
 app.get("/api/services", async (req, res) => {
   const { all } = req.query;
-  if (db) {
+  if (supabase) {
     try {
-      const { data, error } = await db.from("services").select("*");
+      const { data, error } = await supabase.from("services").select("*");
       if (!error && Array.isArray(data)) {
         const normSrv = normalizeServicesCatalog(data);
         services = normSrv.list;
         if (normSrv.migrated) {
-          await db.from("services").delete().in("id", Array.from(LEGACY_SEEDED_SERVICE_IDS));
-          await db.from("services").upsert(services);
+          await supabase.from("services").delete().in("id", Array.from(LEGACY_SEEDED_SERVICE_IDS));
+          await supabase.from("services").upsert(services);
         }
         saveDatabase();
       }
     } catch (e) {
-      console.warn("MySQL services query error", e);
+      console.warn("Supabase services query error", e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database MySQL." });
+    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database Supabase." });
   } else {
     services = normalizeServicesCatalog(services).list;
   }
@@ -6468,12 +5810,12 @@ app.post("/api/services", async (req, res) => {
   };
   notifications.unshift(notif);
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("services").insert([newService]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("services").insert([newService]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
     } catch (e) {
-      console.warn("MySQL insert service error", e);
+      console.warn("Supabase insert service error", e);
     }
   }
   res.status(201).json({ success: true, data: newService });
@@ -6504,11 +5846,11 @@ app.put("/api/services/:id", async (req, res) => {
     description: `Admin memperbarui paket layanan: "${service.name}" (Rp ${service.defaultPrice.toLocaleString("id-ID")}, Status: ${service.isActive ? "Aktif" : "Nonaktif"}).`
   });
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("services").upsert([service]);
+      await supabase.from("services").upsert([service]);
     } catch (e) {
-      console.warn("MySQL upsert service error", e);
+      console.warn("Supabase upsert service error", e);
     }
   }
   res.json({ success: true, data: service });
@@ -6528,29 +5870,29 @@ app.delete("/api/services/:id", async (req, res) => {
     description: `Admin menghapus layanan pajak: "${target?.name || id}".`
   });
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("services").delete().eq("id", id);
+      await supabase.from("services").delete().eq("id", id);
     } catch (e) {
-      console.warn("MySQL delete service error", e);
+      console.warn("Supabase delete service error", e);
     }
   }
   res.json({ success: true, message: "Layanan berhasil dihapus" });
 });
 app.get("/api/clients", async (req, res) => {
   const { mitraId, referralCode } = req.query;
-  if (db) {
+  if (supabase) {
     try {
-      const { data, error } = await db.from("client_deals").select("*");
+      const { data, error } = await supabase.from("client_deals").select("*");
       if (!error && Array.isArray(data)) {
-        clientDeals = data.map((row) => fromDbClientDeal(row));
+        clientDeals = data.map((row) => fromSupabaseClientDeal(row));
         saveDatabase();
       }
     } catch (e) {
-      console.warn("MySQL client_deals query error", e);
+      console.warn("Supabase client_deals query error", e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database MySQL." });
+    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database Supabase." });
   }
   let filtered = [...clientDeals];
   if (mitraId) {
@@ -6585,16 +5927,16 @@ app.post("/api/clients", async (req, res) => {
   }
   const safeCompanyName = (companyName || "").trim() || (picName || "").trim() || "Klien Referral NDTAXANDLAW";
   const safePicName = (picName || "").trim() || safeCompanyName;
-  if (db) {
+  if (supabase) {
     try {
-      const { data: supaSettings } = await db.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
+      const { data: supaSettings } = await supabase.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
       if (supaSettings?.settings) {
         appSettings = { ...appSettings, ...supaSettings.settings };
       }
     } catch {
     }
     try {
-      const { data: supaMitras } = await db.from("mitras").select("*");
+      const { data: supaMitras } = await supabase.from("mitras").select("*");
       if (Array.isArray(supaMitras)) {
         mitras = normalizeMitraAvatars(supaMitras);
       }
@@ -6680,12 +6022,12 @@ app.post("/api/clients", async (req, res) => {
   };
   notifications.unshift(notif);
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").insert([toDbClientDeal(newDeal)]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("client_deals").insert([toSupabaseClientDeal(newDeal)]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
     } catch (e) {
-      console.warn("MySQL client deal insert error", e);
+      console.warn("Supabase client deal insert error", e);
     }
   }
   res.status(201).json({ success: true, data: newDeal });
@@ -6798,13 +6140,13 @@ Komisi sebesar Rp ${deal.commissionAmount.toLocaleString("id-ID")} telah masuk k
     });
   }
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
-      await db.from("commissions").insert([newCommTrx]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from("commissions").insert([newCommTrx]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       if (mitra) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           referredClientsCount: mitra.referredClientsCount,
           activeSubscribersCount: mitra.activeSubscribersCount,
           totalCommission: mitra.totalCommission,
@@ -6812,7 +6154,7 @@ Komisi sebesar Rp ${deal.commissionAmount.toLocaleString("id-ID")} telah masuk k
         }).eq("id", deal.mitraId);
       }
     } catch (e) {
-      console.warn("MySQL client ACC update error", e);
+      console.warn("Supabase client ACC update error", e);
     }
   }
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
@@ -6852,12 +6194,12 @@ app.put("/api/clients/:id/reject", async (req, res) => {
   };
   notifications.unshift(notif);
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
     } catch (e) {
-      console.warn("MySQL reject client error", e);
+      console.warn("Supabase reject client error", e);
     }
   }
   res.json({
@@ -6877,11 +6219,11 @@ app.put("/api/clients/:id/trigger-billing-due", async (req, res) => {
   }
   deal.isBillingDue = true;
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
     } catch (e) {
-      console.warn("MySQL trigger-billing-due error", e);
+      console.warn("Supabase trigger-billing-due error", e);
     }
   }
   res.json({
@@ -6974,19 +6316,19 @@ Komisi berulang Anda (${lockedRecurringRate}% sesuai kesepakatan deal) sebesar R
     });
   }
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
-      await db.from("commissions").insert([newCommTrx]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from("commissions").insert([newCommTrx]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       if (mitra) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           totalCommission: mitra.totalCommission,
           pendingPayout: mitra.pendingPayout
         }).eq("id", mitra.id);
       }
     } catch (e) {
-      console.warn("MySQL bill-cycle error", e);
+      console.warn("Supabase bill-cycle error", e);
     }
   }
   res.json({ success: true, data: deal, commissionTransaction: newCommTrx });
@@ -7039,7 +6381,7 @@ app.put("/api/admin/commission-scheme", async (req, res) => {
     description: `Admin memperbarui skema komisi per klien (Langganan: ${appSettings.commissionScheme?.subLowRate}%/${appSettings.commissionScheme?.subMidRate}%/${appSettings.commissionScheme?.subHighRate}% + Berulang ${appSettings.commissionScheme?.subRecurringRate}%, Case-by-Case: ${appSettings.commissionScheme?.caseLowRate}%/${appSettings.commissionScheme?.caseMidRate}%/${appSettings.commissionScheme?.caseHighRate}%) serta Target Bonus (${appSettings.bonusTargetConfig?.periodType === "yearly" ? "Tahunan" : "Bulanan"}). Klien yang sudah aktif langganan tetap menggunakan tarif komisi saat waktu deal.`
   });
   saveDatabase();
-  await persistSettingsToMysql();
+  await persistSettingsToSupabase();
   res.json({
     success: true,
     message: "Skema komisi per klien dan pengaturan target bonus berhasil disimpan. Klien yang sudah berstatus langganan aktif tetap memperoleh komisi sesuai kesepakatan waktu deal.",
@@ -7078,9 +6420,9 @@ app.put("/api/admin/clients/:id/commission", async (req, res) => {
     description: `Admin menyesuaikan komisi deal klien "${deal.companyName}" (Mitra: ${deal.mitraName}) menjadi ${deal.appliedCommissionRate}% (Rp ${deal.commissionAmount.toLocaleString("id-ID")})${deal.pricingType !== "case_by_case" ? ` & Komisi Berulang ${deal.lockedRecurringRate}% (Rp ${(deal.recurringCommissionAmount || 0).toLocaleString("id-ID")})` : ""}.`
   });
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
     } catch {
     }
   }
@@ -7157,17 +6499,17 @@ Dana bonus telah ditambahkan langsung ke dompet saldo siap cair Anda.`
     });
   }
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("commissions").insert([bonusTrx]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
-      await db.from("mitras").update({
+      await supabase.from("commissions").insert([bonusTrx]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
+      await supabase.from("mitras").update({
         totalBonus: mitra.totalBonus,
         totalCommission: mitra.totalCommission,
         pendingPayout: mitra.pendingPayout
       }).eq("id", mitra.id);
     } catch (e) {
-      console.warn("MySQL bonus grant update error", e);
+      console.warn("Supabase bonus grant update error", e);
     }
   }
   res.status(201).json({
@@ -7216,17 +6558,17 @@ app.put("/api/clients/:id/terminate", async (req, res) => {
   };
   notifications.unshift(notif);
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       if (mitra) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           activeSubscribersCount: mitra.activeSubscribersCount
         }).eq("id", mitra.id);
       }
     } catch (e) {
-      console.warn("MySQL terminate client subscription error", e);
+      console.warn("Supabase terminate client subscription error", e);
     }
   }
   res.json({
@@ -7267,34 +6609,34 @@ app.put("/api/clients/:id/status", async (req, res) => {
     description: `Admin memperbarui status deal klien "${deal.companyName}" menjadi "${deal.status}".`
   });
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("client_deals").upsert([toDbClientDeal(deal)]);
+      await supabase.from("client_deals").upsert([toSupabaseClientDeal(deal)]);
       if (mitra) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           activeSubscribersCount: mitra.activeSubscribersCount
         }).eq("id", mitra.id);
       }
     } catch (e) {
-      console.warn("MySQL update client status error", e);
+      console.warn("Supabase update client status error", e);
     }
   }
   res.json({ success: true, data: deal });
 });
 app.get("/api/commissions/payout-requests", async (req, res) => {
   const { mitraId } = req.query;
-  if (db) {
+  if (supabase) {
     try {
-      const { data, error } = await db.from("payout_requests").select("*");
+      const { data, error } = await supabase.from("payout_requests").select("*");
       if (!error && Array.isArray(data)) {
         payoutRequests = data;
         saveDatabase();
       }
     } catch (e) {
-      console.warn("MySQL payout_requests query error", e);
+      console.warn("Supabase payout_requests query error", e);
     }
   } else if (isProductionMode()) {
-    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database MySQL." });
+    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database Supabase." });
   }
   if (mitraId) {
     return res.json({ success: true, data: payoutRequests.filter((p) => p.mitraId === mitraId) });
@@ -7386,21 +6728,21 @@ No. Referensi: #${payout.transferRefNumber}`
     });
   }
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("payout_requests").upsert([payout]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("payout_requests").upsert([payout]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
       if (mitra) {
-        await db.from("mitras").update({
+        await supabase.from("mitras").update({
           pendingPayout: mitra.pendingPayout,
           paidPayout: mitra.paidPayout
         }).eq("id", payout.mitraId);
       }
       for (const commId of paidCommissionIds) {
-        await db.from("commissions").update({ status: "paid" }).eq("id", commId);
+        await supabase.from("commissions").update({ status: "paid" }).eq("id", commId);
       }
     } catch (e) {
-      console.warn("MySQL payout approve error", e);
+      console.warn("Supabase payout approve error", e);
     }
   }
   res.json({ success: true, data: payout });
@@ -7515,27 +6857,27 @@ No. Referensi: #${newPayout.transferRefNumber}`
     });
   }
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("payout_requests").upsert([newPayout, ...updatedPendingPayIds]);
-      await db.from("notifications").insert([toDbNotification(notif)]);
-      await db.from("mitras").update({
+      await supabase.from("payout_requests").upsert([newPayout, ...updatedPendingPayIds]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
+      await supabase.from("mitras").update({
         pendingPayout: mitra.pendingPayout,
         paidPayout: mitra.paidPayout
       }).eq("id", mitra.id);
       for (const commId of paidCommissionIds) {
-        await db.from("commissions").update({ status: "paid" }).eq("id", commId);
+        await supabase.from("commissions").update({ status: "paid" }).eq("id", commId);
       }
     } catch (e) {
-      console.warn("MySQL direct disburse error", e);
+      console.warn("Supabase direct disburse error", e);
     }
   }
   return res.json({ success: true, data: newPayout });
 });
 app.get("/api/settings", async (req, res) => {
-  if (db) {
+  if (supabase) {
     try {
-      const { data: pwRows, error: errPw } = await db.from("user_passwords").select("*").in("email", ["__sys_config__@ndtaxlaw.internal", "__sys_roles__@ndtaxlaw.internal"]);
+      const { data: pwRows, error: errPw } = await supabase.from("user_passwords").select("*").in("email", ["__sys_config__@ndtaxlaw.internal", "__sys_roles__@ndtaxlaw.internal"]);
       if (!errPw && Array.isArray(pwRows)) {
         for (const row of pwRows) {
           if (row.email === "__sys_config__@ndtaxlaw.internal" && row.password) {
@@ -7559,7 +6901,7 @@ app.get("/api/settings", async (req, res) => {
           }
         }
       }
-      const { data: settingsData, error } = await db.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
+      const { data: settingsData, error } = await supabase.from("app_settings").select("*").eq("id", "config_primary").maybeSingle();
       if (!error && settingsData && settingsData.settings) {
         const { roles: storedRoles, ...restSettings } = settingsData.settings;
         appSettings = { ...appSettings, ...restSettings };
@@ -7568,7 +6910,7 @@ app.get("/api/settings", async (req, res) => {
         }
       }
     } catch (e) {
-      console.warn("MySQL settings query error", e);
+      console.warn("Supabase settings query error", e);
     }
   }
   let settingsMigrated = false;
@@ -7649,7 +6991,7 @@ app.get("/api/settings", async (req, res) => {
   }
   if (logoMigrated) {
     saveDatabase();
-    persistSettingsToMysql().catch(() => {
+    persistSettingsToSupabase().catch(() => {
     });
   }
   const clientSafeSettings = {
@@ -7682,8 +7024,8 @@ app.put("/api/settings", async (req, res) => {
   } else if (appSettings.activeLogoType === "vertical" && appSettings.logoVerticalUrl) {
     appSettings.logoUrl = appSettings.logoVerticalUrl;
   }
-  if (previousEnv !== "production" && appSettings.appEnvironment === "production" && db) {
-    await syncFromMysql();
+  if (previousEnv !== "production" && appSettings.appEnvironment === "production" && supabase) {
+    await syncFromSupabase();
     appSettings = { ...appSettings, ...updates };
   }
   recordActivity({
@@ -7707,12 +7049,12 @@ app.put("/api/settings", async (req, res) => {
   };
   notifications.unshift(notif);
   saveDatabase();
-  await persistSettingsToMysql();
-  if (db) {
+  await persistSettingsToSupabase();
+  if (supabase) {
     try {
-      await db.from("notifications").insert([toDbNotification(notif)]);
+      await supabase.from("notifications").insert([toSupabaseNotification(notif)]);
     } catch (e) {
-      console.warn("MySQL notification insert error", e);
+      console.warn("Supabase notification insert error", e);
     }
   }
   const clientSafeSettings = {
@@ -7730,7 +7072,7 @@ app.post("/api/settings/test-email", async (req, res) => {
   if (smtpConfig && typeof smtpConfig === "object") {
     appSettings = { ...appSettings, ...smtpConfig };
     saveDatabase();
-    await persistSettingsToMysql();
+    await persistSettingsToSupabase();
   }
   if (!appSettings.smtpEnabled) {
     return res.status(400).json({
@@ -7759,15 +7101,15 @@ app.post("/api/settings/test-email", async (req, res) => {
   });
 });
 app.get("/api/emails/logs", async (req, res) => {
-  if (db) {
+  if (supabase) {
     try {
       const { cutoffIso } = getThreeMonthsAgoCutoff();
-      await db.from("email_logs").delete().lt("timestamp", cutoffIso);
+      await supabase.from("email_logs").delete().lt("timestamp", cutoffIso);
       const [{ data: tableLogs, error: errTable }, { data: kvRow, error: errKv }] = await Promise.all([
-        db.from("email_logs").select("*").order("timestamp", { ascending: false }).limit(300),
-        db.from("user_passwords").select("*").eq("email", "__sys_email_logs__@ndtaxlaw.internal").maybeSingle()
+        supabase.from("email_logs").select("*").order("timestamp", { ascending: false }).limit(300),
+        supabase.from("user_passwords").select("*").eq("email", "__sys_email_logs__@ndtaxlaw.internal").maybeSingle()
       ]);
-      const fromTable = !errTable && Array.isArray(tableLogs) ? tableLogs.map(fromDbEmailLogRow) : [];
+      const fromTable = !errTable && Array.isArray(tableLogs) ? tableLogs.map(fromSupabaseEmailLogRow) : [];
       let fromKv = [];
       if (!errKv && kvRow && kvRow.password) {
         try {
@@ -7789,13 +7131,13 @@ app.get("/api/emails/logs", async (req, res) => {
       saveDatabase();
       if (emailLogs.length > fromTable.length) {
         try {
-          await db.from("email_logs").upsert(emailLogs.slice(0, 100).map(toDbEmailLogRow));
+          await supabase.from("email_logs").upsert(emailLogs.slice(0, 100).map(toSupabaseEmailLogRow));
         } catch {
         }
       }
       return res.json({ success: true, data: emailLogs });
     } catch (e) {
-      console.warn("MySQL email logs query error", e);
+      console.warn("Supabase email logs query error", e);
     }
   }
   await pruneOldLogs(false);
@@ -7826,28 +7168,28 @@ app.post("/api/emails/resend/:id", async (req, res) => {
 app.delete("/api/emails/logs", async (req, res) => {
   emailLogs = [];
   saveDatabase();
-  await persistEmailLogsToMysql();
-  if (db) {
+  await persistEmailLogsToSupabase();
+  if (supabase) {
     try {
-      await db.from("email_logs").delete().neq("id", "");
+      await supabase.from("email_logs").delete().neq("id", "");
     } catch {
     }
   }
-  res.json({ success: true, message: "Riwayat log pengiriman email berhasil dibersihkan dari lokal dan MySQL." });
+  res.json({ success: true, message: "Riwayat log pengiriman email berhasil dibersihkan dari lokal dan Supabase." });
 });
 app.get("/api/activity-logs", async (req, res) => {
-  if (db) {
+  if (supabase) {
     try {
       const { cutoffIso } = getThreeMonthsAgoCutoff();
-      await db.from("activity_logs").delete().lt("timestamp", cutoffIso);
-      const { data: tableLogs, error: errTable } = await db.from("activity_logs").select("*").order("timestamp", { ascending: false }).limit(500);
+      await supabase.from("activity_logs").delete().lt("timestamp", cutoffIso);
+      const { data: tableLogs, error: errTable } = await supabase.from("activity_logs").select("*").order("timestamp", { ascending: false }).limit(500);
       if (!errTable && Array.isArray(tableLogs) && tableLogs.length > 0) {
         activityLogs = tableLogs;
         await pruneOldLogs(false);
         saveDatabase();
         return res.json({ success: true, data: activityLogs });
       }
-      const { data: kvRow, error: errKv } = await db.from("user_passwords").select("*").eq("email", "__sys_activity_logs__@ndtaxlaw.internal").maybeSingle();
+      const { data: kvRow, error: errKv } = await supabase.from("user_passwords").select("*").eq("email", "__sys_activity_logs__@ndtaxlaw.internal").maybeSingle();
       if (!errKv && kvRow && kvRow.password) {
         const parsed = JSON.parse(kvRow.password);
         if (Array.isArray(parsed)) {
@@ -7857,7 +7199,7 @@ app.get("/api/activity-logs", async (req, res) => {
         }
       }
     } catch (e) {
-      console.warn("MySQL activity logs query error", e);
+      console.warn("Supabase activity logs query error", e);
     }
   }
   await pruneOldLogs(false);
@@ -7866,30 +7208,30 @@ app.get("/api/activity-logs", async (req, res) => {
 app.delete("/api/activity-logs", async (req, res) => {
   activityLogs = [];
   saveDatabase();
-  await persistActivityLogsToMysql();
-  if (db) {
+  await persistActivityLogsToSupabase();
+  if (supabase) {
     try {
-      await db.from("activity_logs").delete().neq("id", "");
+      await supabase.from("activity_logs").delete().neq("id", "");
     } catch {
     }
   }
-  res.json({ success: true, message: "Riwayat log aktivitas berhasil dibersihkan dari lokal dan MySQL." });
+  res.json({ success: true, message: "Riwayat log aktivitas berhasil dibersihkan dari lokal dan Supabase." });
 });
 app.get("/api/notifications", async (req, res) => {
-  if (db) {
+  if (supabase) {
     try {
-      const { data, error } = await db.from("notifications").select("*").order("timestamp", { ascending: false });
+      const { data, error } = await supabase.from("notifications").select("*").order("timestamp", { ascending: false });
       if (!error && Array.isArray(data)) {
         notifications = data;
         saveDatabase();
         return res.json({ success: true, data: notifications });
       }
     } catch (e) {
-      console.warn("MySQL notifications query error", e);
+      console.warn("Supabase notifications query error", e);
     }
   }
-  if (isProductionMode() && !db) {
-    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database MySQL." });
+  if (isProductionMode() && !supabase) {
+    return res.status(503).json({ success: false, message: "Mode Production hanya membaca dari database Supabase." });
   }
   res.json({ success: true, data: notifications });
 });
@@ -7898,20 +7240,20 @@ app.post("/api/notifications/read-all", async (req, res) => {
   if (targetIds.length > 0) {
     const idSet = new Set(targetIds);
     notifications = notifications.map((n) => idSet.has(n.id) ? { ...n, isRead: true } : n);
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("notifications").update({ isRead: true }).in("id", targetIds);
+        await supabase.from("notifications").update({ isRead: true }).in("id", targetIds);
       } catch (e) {
-        console.warn("MySQL mark read notifications error", e);
+        console.warn("Supabase mark read notifications error", e);
       }
     }
   } else {
     notifications = notifications.map((n) => ({ ...n, isRead: true }));
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("notifications").update({ isRead: true }).neq("isRead", true);
+        await supabase.from("notifications").update({ isRead: true }).neq("isRead", true);
       } catch (e) {
-        console.warn("MySQL mark read notifications error", e);
+        console.warn("Supabase mark read notifications error", e);
       }
     }
   }
@@ -7921,11 +7263,11 @@ app.post("/api/notifications/read-all", async (req, res) => {
 app.delete("/api/notifications/:id", async (req, res) => {
   const { id } = req.params;
   notifications = notifications.filter((n) => n.id !== id);
-  if (db) {
+  if (supabase) {
     try {
-      await db.from("notifications").delete().eq("id", id);
+      await supabase.from("notifications").delete().eq("id", id);
     } catch (e) {
-      console.warn("MySQL delete notification error", e);
+      console.warn("Supabase delete notification error", e);
     }
   }
   saveDatabase();
@@ -7936,11 +7278,11 @@ app.post("/api/notifications/delete-batch", async (req, res) => {
   if (targetIds.length > 0) {
     const idSet = new Set(targetIds);
     notifications = notifications.filter((n) => !idSet.has(n.id));
-    if (db) {
+    if (supabase) {
       try {
-        await db.from("notifications").delete().in("id", targetIds);
+        await supabase.from("notifications").delete().in("id", targetIds);
       } catch (e) {
-        console.warn("MySQL batch delete notifications error", e);
+        console.warn("Supabase batch delete notifications error", e);
       }
     }
     saveDatabase();
@@ -8050,7 +7392,7 @@ app.get("/api/datatables/:resource", async (req, res) => {
     }));
     allItems.sort((a, b) => b._ts - a._ts);
     filteredItems = allItems.filter((m) => {
-      const matchStatus = status === "all" || !status || (status === "inactive" ? m.isActive === false : m.status === status);
+      const matchStatus = status === "all" || !status || m.status === status;
       const matchSearch = !search || (m.fullName || "").toLowerCase().includes(search) || (m.memberCode || "").toLowerCase().includes(search) || (m.specialization || "").toLowerCase().includes(search) || (m.email || "").toLowerCase().includes(search) || (m.phone || "").toLowerCase().includes(search) || (m.nik || "").toLowerCase().includes(search);
       return matchStatus && matchSearch;
     });
@@ -8202,8 +7544,8 @@ app.get("/api/datatables/:resource", async (req, res) => {
   });
 });
 app.get("/api/analytics/monthly", async (req, res) => {
-  if (db) {
-    await syncFromMysql();
+  if (supabase) {
+    await syncFromSupabase();
   }
   const activeDeals = clientDeals.filter((d) => d.status === "active_subscription" || d.status === "deal_closed");
   const totalSalesFromDeals = activeDeals.reduce((sum, d) => sum + (Number(d.dealValue) || 0), 0);
@@ -8279,7 +7621,7 @@ Gunakan bahasa Indonesia formal, berwibawa, analitis, dan berorientasi hasil. Se
     const totalMitraCommissions = mitras.reduce((sum, m) => sum + (Number(m.totalCommission) || 0), 0);
     const fallbackReport = `### Executive Performance Summary - NDTAXANDLAW (November 2026)
 
-Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database MySQL pada periode **November 2026**, performa kemitraan mencatat total transaksi aktif mencapai **Rp ${activeDealsValue.toLocaleString("id-ID")}** dari **${activeDealsCount} kontrak aktif** dan **${mitras.length} mitra terdaftar**.
+Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database Supabase pada periode **November 2026**, performa kemitraan mencatat total transaksi aktif mencapai **Rp ${activeDealsValue.toLocaleString("id-ID")}** dari **${activeDealsCount} kontrak aktif** dan **${mitras.length} mitra terdaftar**.
 
 #### 1. Analisis Tren Penjualan & Pertumbuhan Mitra
 - **Jaringan Mitra Terdaftar**: Terdapat ${mitras.filter((m) => m.status === "verified").length} mitra terverifikasi dan ${mitras.filter((m) => m.status === "pending").length} calon mitra yang sedang dalam tahap verifikasi.
@@ -8296,66 +7638,40 @@ Berdasarkan konsolidasi metrik operasional NDTAXANDLAW dari database MySQL pada 
       report: fallbackReport,
       isFallback: true,
       generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      note: "Menggunakan analisis cerdas berbasis data riil database MySQL NDTAXANDLAW."
+      note: "Menggunakan analisis cerdas berbasis data riil database Supabase NDTAXANDLAW."
     });
   }
 });
-var handleMysqlStatus = async (_req, res) => {
-  const config = getMysqlConfig();
-  const test = await testMysqlConnection();
+app.get("/api/system/supabase-status", async (req, res) => {
+  const config = getSupabaseConfig();
+  const test = await testSupabaseConnection();
   res.json({
     success: true,
     data: {
       ...config,
       ...test,
-      url: config.connectionLabel,
       appEnvironment: appSettings.appEnvironment,
-      strictMysqlOnly: isProductionMode() && isMysqlConfigured(),
+      strictSupabaseOnly: isProductionMode(),
       passwordEncryption: "SCRYPT + AES-256-GCM (ndenc$v2)",
       activeRolesCount: systemRoles.filter((r) => r.isActive).length,
       totalRolesCount: systemRoles.length
     }
   });
-};
-app.get("/api/system/mysql-status", handleMysqlStatus);
-app.get("/api/system/db-status", handleMysqlStatus);
-app.post("/api/system/mysql-init-schema", async (_req, res) => {
-  if (!isMysqlConfigured()) {
-    return res.status(400).json({
-      success: false,
-      message: "Kredensial MySQL (MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE) belum terpasang di file .env server Anda."
-    });
-  }
-  const initResult = await ensureMysqlSchema();
-  if (!initResult.success) {
-    return res.status(500).json(initResult);
-  }
-  await syncFromMysql();
-  recordActivity({
-    actorRole: "admin",
-    actorName: "Admin Operasional",
-    actionType: "settings_update",
-    operation: "UPDATE",
-    targetEntity: "Skema Database MySQL",
-    description: initResult.message
-  });
-  return res.json(initResult);
 });
-var handleMysqlSync = async (_req, res) => {
-  if (!db) {
+app.post("/api/system/supabase-sync", async (req, res) => {
+  if (!supabase) {
     return res.status(400).json({
       success: false,
-      message: "MYSQL_HOST, MYSQL_USER, atau MYSQL_DATABASE belum terpasang di file .env atau Environment Variable hosting Anda."
+      message: "SUPABASE_URL atau SUPABASE_KEY belum terpasang di file .env atau Environment Variable hosting Anda."
     });
   }
   try {
     if (isProductionMode()) {
       return res.status(403).json({
         success: false,
-        message: "Fitur Sinkronkan Data Awal dinonaktifkan pada Mode Production demi melindungi data operasional di MySQL agar tidak tertimpa."
+        message: "Fitur Sinkronkan Data Awal dinonaktifkan pada Mode Production demi melindungi data operasional di Supabase agar tidak tertimpa."
       });
     }
-    await ensureMysqlSchema();
     const summary = {
       mitras: 0,
       services: 0,
@@ -8366,77 +7682,55 @@ var handleMysqlSync = async (_req, res) => {
       emailLogs: emailLogs.length
     };
     if (mitras.length > 0) {
-      const { error: errM } = await db.from("mitras").upsert(mitras);
+      const cleanMitras = mitras.map(({ gender: _g, ...rest }) => rest);
+      const { error: errM } = await supabase.from("mitras").upsert(cleanMitras);
       if (!errM) summary.mitras = mitras.length;
-      else console.warn("MySQL sync mitras warning:", errM.message);
+      else console.warn("Supabase sync mitras warning:", errM.message);
     }
     if (services.length > 0) {
-      const { error: errS } = await db.from("services").upsert(services);
+      const { error: errS } = await supabase.from("services").upsert(services);
       if (!errS) summary.services = services.length;
-      else console.warn("MySQL sync services warning:", errS.message);
+      else console.warn("Supabase sync services warning:", errS.message);
     }
     if (clientDeals.length > 0) {
-      const cleanDeals = clientDeals.map((d) => toDbClientDeal(d));
-      const { error: errD } = await db.from("client_deals").upsert(cleanDeals);
+      const cleanDeals = clientDeals.map((d) => toSupabaseClientDeal(d));
+      const { error: errD } = await supabase.from("client_deals").upsert(cleanDeals);
       if (!errD) summary.clientDeals = clientDeals.length;
-      else console.warn("MySQL sync deals warning:", errD.message);
+      else console.warn("Supabase sync deals warning:", errD.message);
     }
     if (marketingTools.length > 0) {
-      const { error: errT } = await db.from("marketing_tools").upsert(marketingTools);
+      const { error: errT } = await supabase.from("marketing_tools").upsert(marketingTools);
       if (!errT) summary.marketingTools = marketingTools.length;
-      else console.warn("MySQL sync tools warning:", errT.message);
+      else console.warn("Supabase sync tools warning:", errT.message);
     }
     if (commissions.length > 0) {
-      const { error: errC } = await db.from("commissions").upsert(commissions);
+      const { error: errC } = await supabase.from("commissions").upsert(commissions);
       if (!errC) summary.commissions = commissions.length;
-      else console.warn("MySQL sync commissions warning:", errC.message);
+      else console.warn("Supabase sync commissions warning:", errC.message);
     }
-    await persistSettingsToMysql();
-    await persistActivityLogsToMysql();
-    await persistEmailLogsToMysql();
+    await persistSettingsToSupabase();
+    await persistActivityLogsToSupabase();
+    await persistEmailLogsToSupabase();
     res.json({
       success: true,
-      message: "Seluruh data operasional, pengaturan, log aktivitas, dan log email berhasil disinkronkan ke database MySQL!",
+      message: "Seluruh data operasional, pengaturan, log aktivitas, dan log email berhasil disinkronkan ke cloud database Supabase!",
       summary
     });
   } catch (err) {
     res.status(500).json({
       success: false,
-      message: `Terjadi kendala sinkronisasi ke MySQL: ${err.message || "Unknown error"}`
+      message: `Terjadi kendala sinkronisasi ke Supabase: ${err.message || "Unknown error"}`
     });
   }
-};
-app.post("/api/system/mysql-sync", handleMysqlSync);
-app.post("/api/system/db-sync", handleMysqlSync);
+});
 app.get("/api/system/database-backup", async (req, res) => {
-  if (!db) {
+  if (!supabase) {
     return res.status(400).json({
       success: false,
-      message: "Koneksi Database MySQL belum aktif. Pasang MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, dan MYSQL_DATABASE di file .env server Anda."
+      message: "Koneksi Database Supabase belum aktif. Fitur Backup khusus untuk mem-backup data dari server Supabase."
     });
   }
   try {
-    const format = String(req.query.format || "json").toLowerCase();
-    if (format === "sql") {
-      const dump = await generateMysqlSqlDump();
-      if (!dump.success) {
-        return res.status(500).json({ success: false, message: dump.error || "Gagal membuat SQL dump MySQL." });
-      }
-      recordActivity({
-        actorRole: "admin",
-        actorName: "Admin Operasional",
-        actionType: "settings_update",
-        operation: "CREATE",
-        targetEntity: "Backup SQL Database MySQL",
-        description: `Admin mengunduh Backup SQL (.sql) Database MySQL (${dump.counts.mitras || 0} mitra, ${dump.counts.client_deals || 0} klien/deal).`
-      });
-      res.setHeader("Content-Type", "application/sql; charset=utf-8");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="mysql-backup-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.sql"`
-      );
-      return res.send(dump.sql);
-    }
     const [
       resMitras,
       resServices,
@@ -8449,80 +7743,69 @@ app.get("/api/system/database-backup", async (req, res) => {
       resRoles,
       resActLogs,
       resEmailLogs,
-      resPasswords,
-      resChatRooms,
-      resChatMessages
+      resPasswords
     ] = await Promise.all([
-      db.from("mitras").select("*"),
-      db.from("services").select("*"),
-      db.from("client_deals").select("*"),
-      db.from("commissions").select("*"),
-      db.from("payout_requests").select("*"),
-      db.from("marketing_tools").select("*"),
-      db.from("notifications").select("*"),
-      db.from("app_settings").select("*"),
-      db.from("system_roles").select("*"),
-      db.from("activity_logs").select("*").order("timestamp", { ascending: false }),
-      db.from("email_logs").select("*").order("timestamp", { ascending: false }),
-      db.from("user_passwords").select("*"),
-      db.from("chat_rooms").select("*"),
-      db.from("chat_messages").select("*").order("createdAt", { ascending: true })
+      supabase.from("mitras").select("*"),
+      supabase.from("services").select("*"),
+      supabase.from("client_deals").select("*"),
+      supabase.from("commissions").select("*"),
+      supabase.from("payout_requests").select("*"),
+      supabase.from("marketing_tools").select("*"),
+      supabase.from("notifications").select("*"),
+      supabase.from("app_settings").select("*"),
+      supabase.from("system_roles").select("*"),
+      supabase.from("activity_logs").select("*").order("timestamp", { ascending: false }),
+      supabase.from("email_logs").select("*").order("timestamp", { ascending: false }),
+      supabase.from("user_passwords").select("*")
     ]);
-    const dbMitras = Array.isArray(resMitras.data) ? resMitras.data : [];
-    const dbServices = Array.isArray(resServices.data) ? resServices.data : [];
-    const dbDeals = Array.isArray(resDeals.data) ? resDeals.data : [];
-    const dbCommissions = Array.isArray(resCommissions.data) ? resCommissions.data : [];
-    const dbPayouts = Array.isArray(resPayouts.data) ? resPayouts.data : [];
-    const dbTools = Array.isArray(resTools.data) ? resTools.data : [];
-    const dbNotifs = Array.isArray(resNotifs.data) ? resNotifs.data : [];
-    const dbSettings = Array.isArray(resSettings.data) ? resSettings.data : [];
-    const dbRoles = Array.isArray(resRoles.data) ? resRoles.data : [];
-    const dbActLogs = Array.isArray(resActLogs.data) ? resActLogs.data : [];
-    const dbEmailLogs = Array.isArray(resEmailLogs.data) ? resEmailLogs.data : [];
-    const dbPasswords = Array.isArray(resPasswords.data) ? resPasswords.data : [];
-    const dbChatRooms = Array.isArray(resChatRooms.data) ? resChatRooms.data : [];
-    const dbChatMessages = Array.isArray(resChatMessages.data) ? resChatMessages.data : [];
-    const mysqlConfig = getMysqlConfig();
+    const sbMitras = Array.isArray(resMitras.data) ? resMitras.data : [];
+    const sbServices = Array.isArray(resServices.data) ? resServices.data : [];
+    const sbDeals = Array.isArray(resDeals.data) ? resDeals.data : [];
+    const sbCommissions = Array.isArray(resCommissions.data) ? resCommissions.data : [];
+    const sbPayouts = Array.isArray(resPayouts.data) ? resPayouts.data : [];
+    const sbTools = Array.isArray(resTools.data) ? resTools.data : [];
+    const sbNotifs = Array.isArray(resNotifs.data) ? resNotifs.data : [];
+    const sbSettings = Array.isArray(resSettings.data) ? resSettings.data : [];
+    const sbRoles = Array.isArray(resRoles.data) ? resRoles.data : [];
+    const sbActLogs = Array.isArray(resActLogs.data) ? resActLogs.data : [];
+    const sbEmailLogs = Array.isArray(resEmailLogs.data) ? resEmailLogs.data : [];
+    const sbPasswords = Array.isArray(resPasswords.data) ? resPasswords.data : [];
+    const supabaseConfig = getSupabaseConfig();
     const backupPayload = {
       success: true,
-      source: "MYSQL_PRODUCTION_DATABASE",
-      mysqlHost: mysqlConfig.host,
-      mysqlDatabase: mysqlConfig.database,
-      backupVersion: "3.0-MYSQL",
+      source: "SUPABASE_PRODUCTION_DATABASE",
+      supabaseUrl: supabaseConfig.url,
+      backupVersion: "2.4-SUPABASE",
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       firmName: appSettings.firmName || "NDTAXANDLAW",
       environment: "production",
       counts: {
-        mitras: dbMitras.length,
-        services: dbServices.length,
-        client_deals: dbDeals.length,
-        commissions: dbCommissions.length,
-        payout_requests: dbPayouts.length,
-        marketing_tools: dbTools.length,
-        notifications: dbNotifs.length,
-        app_settings: dbSettings.length,
-        system_roles: dbRoles.length,
-        activity_logs: dbActLogs.length,
-        email_logs: dbEmailLogs.length,
-        user_passwords: dbPasswords.length,
-        chat_rooms: dbChatRooms.length,
-        chat_messages: dbChatMessages.length
+        mitras: sbMitras.length,
+        services: sbServices.length,
+        client_deals: sbDeals.length,
+        commissions: sbCommissions.length,
+        payout_requests: sbPayouts.length,
+        marketing_tools: sbTools.length,
+        notifications: sbNotifs.length,
+        app_settings: sbSettings.length,
+        system_roles: sbRoles.length,
+        activity_logs: sbActLogs.length,
+        email_logs: sbEmailLogs.length,
+        user_passwords: sbPasswords.length
       },
       tables: {
-        mitras: dbMitras,
-        services: dbServices,
-        client_deals: dbDeals,
-        commissions: dbCommissions,
-        payout_requests: dbPayouts,
-        marketing_tools: dbTools,
-        notifications: dbNotifs,
-        app_settings: dbSettings,
-        system_roles: dbRoles,
-        activity_logs: dbActLogs,
-        email_logs: dbEmailLogs,
-        user_passwords: dbPasswords,
-        chat_rooms: dbChatRooms,
-        chat_messages: dbChatMessages
+        mitras: sbMitras,
+        services: sbServices,
+        client_deals: sbDeals,
+        commissions: sbCommissions,
+        payout_requests: sbPayouts,
+        marketing_tools: sbTools,
+        notifications: sbNotifs,
+        app_settings: sbSettings,
+        system_roles: sbRoles,
+        activity_logs: sbActLogs,
+        email_logs: sbEmailLogs,
+        user_passwords: sbPasswords
       }
     };
     recordActivity({
@@ -8530,22 +7813,22 @@ app.get("/api/system/database-backup", async (req, res) => {
       actorName: "Admin Operasional",
       actionType: "settings_update",
       operation: "CREATE",
-      targetEntity: "Backup Database MySQL",
-      description: `Admin mengunduh Backup Database langsung dari MySQL (${dbMitras.length} mitra, ${dbDeals.length} klien/deal, ${dbCommissions.length} komisi, ${dbPayouts.length} payout).`
+      targetEntity: "Backup Database Supabase",
+      description: `Admin mengunduh Backup Database langsung dari Supabase (${sbMitras.length} mitra, ${sbDeals.length} klien/deal, ${sbCommissions.length} komisi, ${sbPayouts.length} payout).`
     });
     res.json(backupPayload);
   } catch (err) {
     res.status(500).json({
       success: false,
-      message: `Gagal mengambil data backup dari MySQL: ${err.message || "Unknown error"}`
+      message: `Gagal mengambil data backup dari Supabase: ${err.message || "Unknown error"}`
     });
   }
 });
 app.post("/api/system/database-restore", async (req, res) => {
-  if (!db) {
+  if (!supabase) {
     return res.status(400).json({
       success: false,
-      message: "Koneksi Database MySQL belum aktif. Pastikan variabel MYSQL_* sudah terpasang di .env server Anda."
+      message: "Koneksi Database Supabase belum aktif. Fitur Restore hanya dapat dijalankan langsung ke database Supabase."
     });
   }
   try {
@@ -8554,14 +7837,13 @@ app.post("/api/system/database-restore", async (req, res) => {
     if (!rawTables || typeof rawTables !== "object") {
       return res.status(400).json({
         success: false,
-        message: "Format file backup JSON tidak valid atau kosong."
+        message: "Format file backup Supabase tidak valid atau kosong."
       });
     }
-    await ensureMysqlSchema();
     const isReplace = mode === "replace";
     const tblMitras = Array.isArray(rawTables.mitras) ? rawTables.mitras : [];
     const tblServices = Array.isArray(rawTables.services) ? rawTables.services : [];
-    const tblDeals = Array.isArray(rawTables.client_deals) ? rawTables.client_deals.map((d) => toDbClientDeal(fromDbClientDeal(d))) : Array.isArray(rawTables.clientDeals) ? rawTables.clientDeals.map((d) => toDbClientDeal(fromDbClientDeal(d))) : [];
+    const tblDeals = Array.isArray(rawTables.client_deals) ? rawTables.client_deals : Array.isArray(rawTables.clientDeals) ? rawTables.clientDeals.map((d) => toSupabaseClientDeal(d)) : [];
     const tblCommissions = Array.isArray(rawTables.commissions) ? rawTables.commissions : [];
     const tblPayouts = Array.isArray(rawTables.payout_requests) ? rawTables.payout_requests : Array.isArray(rawTables.payoutRequests) ? rawTables.payoutRequests : [];
     const tblTools = Array.isArray(rawTables.marketing_tools) ? rawTables.marketing_tools : Array.isArray(rawTables.marketingTools) ? rawTables.marketingTools : [];
@@ -8569,51 +7851,69 @@ app.post("/api/system/database-restore", async (req, res) => {
     const tblSettings = Array.isArray(rawTables.app_settings) ? rawTables.app_settings : [];
     const tblRoles = Array.isArray(rawTables.system_roles) ? rawTables.system_roles : [];
     const tblActLogs = Array.isArray(rawTables.activity_logs) ? rawTables.activity_logs : Array.isArray(rawTables.activityLogs) ? rawTables.activityLogs : [];
-    const tblEmailLogs = Array.isArray(rawTables.email_logs) ? rawTables.email_logs : Array.isArray(rawTables.emailLogs) ? rawTables.emailLogs.map(toDbEmailLogRow) : [];
+    const tblEmailLogs = Array.isArray(rawTables.email_logs) ? rawTables.email_logs : Array.isArray(rawTables.emailLogs) ? rawTables.emailLogs.map(toSupabaseEmailLogRow) : [];
     const tblPasswords = Array.isArray(rawTables.user_passwords) ? rawTables.user_passwords : rawTables.userPasswords && typeof rawTables.userPasswords === "object" ? Object.entries(rawTables.userPasswords).map(([email, password]) => ({ email, password })) : [];
-    const tblChatRooms = Array.isArray(rawTables.chat_rooms) ? rawTables.chat_rooms : Array.isArray(rawTables.chatRooms) ? rawTables.chatRooms : [];
-    const tblChatMessages = Array.isArray(rawTables.chat_messages) ? rawTables.chat_messages : Array.isArray(rawTables.chatMessages) ? rawTables.chatMessages : [];
     if (isReplace) {
       await Promise.allSettled([
-        db.from("mitras").delete().neq("id", ""),
-        db.from("services").delete().neq("id", ""),
-        db.from("client_deals").delete().neq("id", ""),
-        db.from("commissions").delete().neq("id", ""),
-        db.from("payout_requests").delete().neq("id", ""),
-        db.from("marketing_tools").delete().neq("id", ""),
-        db.from("notifications").delete().neq("id", ""),
-        db.from("activity_logs").delete().neq("id", ""),
-        db.from("email_logs").delete().neq("id", ""),
-        db.from("chat_rooms").delete().neq("id", ""),
-        db.from("chat_messages").delete().neq("id", "")
+        supabase.from("mitras").delete().neq("id", ""),
+        supabase.from("services").delete().neq("id", ""),
+        supabase.from("client_deals").delete().neq("id", ""),
+        supabase.from("commissions").delete().neq("id", ""),
+        supabase.from("payout_requests").delete().neq("id", ""),
+        supabase.from("marketing_tools").delete().neq("id", ""),
+        supabase.from("notifications").delete().neq("id", ""),
+        supabase.from("activity_logs").delete().neq("id", ""),
+        supabase.from("email_logs").delete().neq("id", "")
       ]);
     }
-    if (tblMitras.length > 0) await db.from("mitras").upsert(tblMitras);
-    if (tblServices.length > 0) await db.from("services").upsert(tblServices);
-    if (tblDeals.length > 0) await db.from("client_deals").upsert(tblDeals);
-    if (tblCommissions.length > 0) await db.from("commissions").upsert(tblCommissions);
-    if (tblPayouts.length > 0) await db.from("payout_requests").upsert(tblPayouts);
-    if (tblTools.length > 0) await db.from("marketing_tools").upsert(tblTools);
-    if (tblNotifs.length > 0) await db.from("notifications").upsert(tblNotifs);
-    if (tblSettings.length > 0) await db.from("app_settings").upsert(tblSettings);
-    if (tblRoles.length > 0) await db.from("system_roles").upsert(tblRoles);
-    if (tblActLogs.length > 0) await db.from("activity_logs").upsert(tblActLogs);
-    if (tblEmailLogs.length > 0) await db.from("email_logs").upsert(tblEmailLogs);
-    if (tblPasswords.length > 0) await db.from("user_passwords").upsert(tblPasswords);
-    if (tblChatRooms.length > 0) await db.from("chat_rooms").upsert(tblChatRooms);
-    if (tblChatMessages.length > 0) await db.from("chat_messages").upsert(tblChatMessages);
-    await syncFromMysql();
+    if (tblMitras.length > 0) {
+      await supabase.from("mitras").upsert(tblMitras);
+    }
+    if (tblServices.length > 0) {
+      await supabase.from("services").upsert(tblServices);
+    }
+    if (tblDeals.length > 0) {
+      await supabase.from("client_deals").upsert(tblDeals);
+    }
+    if (tblCommissions.length > 0) {
+      await supabase.from("commissions").upsert(tblCommissions);
+    }
+    if (tblPayouts.length > 0) {
+      await supabase.from("payout_requests").upsert(tblPayouts);
+    }
+    if (tblTools.length > 0) {
+      await supabase.from("marketing_tools").upsert(tblTools);
+    }
+    if (tblNotifs.length > 0) {
+      await supabase.from("notifications").upsert(tblNotifs);
+    }
+    if (tblSettings.length > 0) {
+      await supabase.from("app_settings").upsert(tblSettings);
+    }
+    if (tblRoles.length > 0) {
+      await supabase.from("system_roles").upsert(tblRoles);
+    }
+    if (tblActLogs.length > 0) {
+      await supabase.from("activity_logs").upsert(tblActLogs);
+    }
+    if (tblEmailLogs.length > 0) {
+      await supabase.from("email_logs").upsert(tblEmailLogs);
+    }
+    if (tblPasswords.length > 0) {
+      await supabase.from("user_passwords").upsert(tblPasswords);
+    }
+    await syncFromSupabase();
     recordActivity({
       actorRole: "admin",
       actorName: "Admin Operasional",
       actionType: "settings_update",
       operation: "UPDATE",
-      targetEntity: "Restore / Import Database MySQL",
-      description: `Admin berhasil melakukan Restore/Import Database ke MySQL (${isReplace ? "Mode Timpa Penuh" : "Mode Gabung Data"}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`
+      targetEntity: "Restore Database Supabase",
+      description: `Admin berhasil melakukan Restore Database langsung ke Supabase (${isReplace ? "Mode Timpa Penuh" : "Mode Gabung Data"}): ${mitras.length} mitra, ${clientDeals.length} klien/deal, ${commissions.length} komisi.`
     });
     res.json({
       success: true,
-      message: `Restore / Import ke Database MySQL berhasil (${isReplace ? "Timpa Penuh" : "Gabung Data"})! Data di MySQL saat ini: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
+      message: `Restore ke Database Supabase berhasil (${isReplace ? "Timpa Penuh" : "Gabung Data"})! Data di Supabase saat ini: ${mitras.length} Mitra, ${clientDeals.length} Klien/Deal, ${commissions.length} Komisi.`,
       counts: {
         mitras: mitras.length,
         services: services.length,
@@ -8622,63 +7922,14 @@ app.post("/api/system/database-restore", async (req, res) => {
         payout_requests: payoutRequests.length,
         marketing_tools: marketingTools.length,
         activity_logs: activityLogs.length,
-        email_logs: emailLogs.length,
-        chat_rooms: chatRooms.length,
-        chat_messages: chatMessages.length
+        email_logs: emailLogs.length
       },
       settings: appSettings
     });
   } catch (err) {
     res.status(500).json({
       success: false,
-      message: `Gagal memproses restore ke MySQL: ${err.message || "Unknown error"}`
-    });
-  }
-});
-app.post("/api/system/migrate-from-supabase", async (req, res) => {
-  try {
-    const {
-      supabaseUrl,
-      supabaseKey,
-      mode = "merge",
-      dryRun = false
-    } = req.body || {};
-    const cleanUrl = String(supabaseUrl || "").trim();
-    const cleanKey = String(supabaseKey || "").trim();
-    if (!cleanUrl || !cleanKey) {
-      return res.status(400).json({
-        success: false,
-        message: "URL Project Supabase lama dan Service Role Key / API Key wajib diisi."
-      });
-    }
-    if (!dryRun && !isMysqlConfigured()) {
-      return res.status(400).json({
-        success: false,
-        message: "Koneksi Database MySQL belum aktif. Silakan pasang MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, dan MYSQL_DATABASE di file .env server Anda terlebih dahulu."
-      });
-    }
-    const result = await migrateFromSupabaseToMysql({
-      supabaseUrl: cleanUrl,
-      supabaseKey: cleanKey,
-      mode: mode === "replace" ? "replace" : "merge",
-      dryRun: Boolean(dryRun)
-    });
-    if (!dryRun && result.success) {
-      await syncFromMysql();
-      recordActivity({
-        actorRole: "admin",
-        actorName: "Admin Operasional",
-        actionType: "settings_update",
-        operation: "UPDATE",
-        targetEntity: "Migrasi Supabase -> MySQL",
-        description: result.message
-      });
-    }
-    return res.status(result.success ? 200 : 400).json(result);
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: `Gagal memproses migrasi Supabase -> MySQL: ${err?.message || "Unknown error"}`
+      message: `Gagal memproses restore ke Supabase: ${err.message || "Unknown error"}`
     });
   }
 });
@@ -8694,17 +7945,17 @@ var broadcastChatEvent = (payload) => {
     }
   }
 };
-var syncChatFromMysql = async () => {
-  if (!db) return;
+var syncChatFromSupabase = async () => {
+  if (!supabase) return;
   try {
     const [
       { data: dbRooms, error: errCR },
       { data: dbMsgs, error: errCM },
       { data: kvRows, error: errKV }
     ] = await Promise.all([
-      db.from("chat_rooms").select("*"),
-      db.from("chat_messages").select("*").order("createdAt", { ascending: true }),
-      db.from("user_passwords").select("email, password").in("email", [
+      supabase.from("chat_rooms").select("*"),
+      supabase.from("chat_messages").select("*").order("createdAt", { ascending: true }),
+      supabase.from("user_passwords").select("email, password").in("email", [
         "__sys_chat_rooms__@ndtaxlaw.internal",
         "__sys_chat_messages__@ndtaxlaw.internal"
       ])
@@ -8762,7 +8013,7 @@ var syncChatFromMysql = async () => {
       (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
     );
   } catch (err) {
-    console.warn("[MySQL Chat Sync Warning]", err);
+    console.warn("[Supabase Chat Sync Warning]", err);
   }
 };
 var persistChatToCloud = async (specificRoom, specificMsg) => {
@@ -8771,22 +8022,22 @@ var persistChatToCloud = async (specificRoom, specificMsg) => {
     chatMessages = chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id));
   }
   saveDatabase();
-  if (db) {
+  if (supabase) {
     try {
       if (specificRoom) {
-        await db.from("chat_rooms").upsert([specificRoom]);
+        await supabase.from("chat_rooms").upsert([specificRoom]);
       } else if (chatRooms.length > 0) {
-        await db.from("chat_rooms").upsert(chatRooms);
+        await supabase.from("chat_rooms").upsert(chatRooms);
       }
       if (specificMsg) {
-        await db.from("chat_messages").upsert([specificMsg]);
+        await supabase.from("chat_messages").upsert([specificMsg]);
       } else if (chatMessages.length > 0) {
-        await db.from("chat_messages").upsert(chatMessages);
+        await supabase.from("chat_messages").upsert(chatMessages);
       }
     } catch {
     }
     try {
-      await db.from("user_passwords").upsert([
+      await supabase.from("user_passwords").upsert([
         {
           email: "__sys_chat_rooms__@ndtaxlaw.internal",
           password: JSON.stringify(chatRooms)
@@ -8885,24 +8136,17 @@ var extractServerLinkMetadata = async (rawUrl) => {
     return null;
   }
 };
-var hasDirectRoomHistory = (room, allMessages) => {
-  if (room.type !== "direct") return true;
-  if (room.lastMessageAt) return true;
-  return allMessages.some((m) => m.roomId === room.id);
-};
 app.get("/api/chat/state", async (req, res) => {
   const userId = String(req.query.userId || "").trim();
   const role = String(req.query.role || "mitra").trim().toLowerCase();
   const isAdmin = role === "admin";
-  if (db && (isProductionMode() || chatRooms.length === 0)) {
-    await syncChatFromMysql();
+  if (supabase && (isProductionMode() || chatRooms.length === 0)) {
+    await syncChatFromSupabase();
   }
   const activeRooms = isProductionMode() ? chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) : chatRooms;
   const activeMessages = isProductionMode() ? chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) : chatMessages;
   const participants = buildChatParticipantsList();
-  const visibleRooms = activeRooms.filter(
-    (r) => (isAdmin || r.participantIds.includes(userId)) && hasDirectRoomHistory(r, activeMessages)
-  ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const visibleRooms = activeRooms.filter((r) => isAdmin || r.participantIds.includes(userId)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const visibleRoomIds = new Set(visibleRooms.map((r) => r.id));
   const visibleMessages = activeMessages.filter((m) => visibleRoomIds.has(m.roomId));
   res.json({
@@ -8913,9 +8157,9 @@ app.get("/api/chat/state", async (req, res) => {
   });
 });
 app.get("/api/chat/groups", async (_req, res) => {
-  if (db) {
+  if (supabase) {
     try {
-      await syncChatFromMysql();
+      await syncChatFromSupabase();
     } catch {
     }
   }
@@ -8947,124 +8191,52 @@ app.post("/api/chat/rooms/direct", async (req, res) => {
   const existing = chatRooms.find(
     (r) => r.type === "direct" && r.participantIds.length === 2 && r.participantIds.includes(sorted[0]) && r.participantIds.includes(sorted[1]) && (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
   );
-  if (existing && hasDirectRoomHistory(existing, chatMessages)) {
+  if (existing) {
     return res.json(existing);
   }
   const participants = buildChatParticipantsList();
   const pA = participants.find((p) => p.id === sorted[0]);
   const pB = participants.find((p) => p.id === sorted[1]);
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  const draftRoom = {
-    id: existing?.id || `room-direct-${sorted[0]}__${sorted[1]}`,
+  const newRoom = {
+    id: `room-direct-${sorted[0]}__${sorted[1]}`,
     type: "direct",
     name: `${pA?.name || sorted[0]} & ${pB?.name || sorted[1]}`,
     participantIds: sorted,
     createdBy: String(userAId),
-    createdAt: existing?.createdAt || nowIso,
-    updatedAt: existing?.updatedAt || nowIso,
-    isDraft: true
-  };
-  res.status(200).json(draftRoom);
-});
-var notifyMembersAddedToGroup = async (room, addedMemberIds, actorId, actorName, isNewGroup = false) => {
-  const uniqueAdded = Array.from(new Set(addedMemberIds.map(String).filter(Boolean)));
-  const participants = buildChatParticipantsList();
-  const addedNames = uniqueAdded.map((pid) => {
-    const found = participants.find((p) => p.id === pid);
-    return found?.name || pid;
-  });
-  const safeActorName = String(actorName || "Tim Operasional").trim() || "Tim Operasional";
-  const groupTitle = room.name || "Grup Chat";
-  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  const text = isNewGroup ? addedNames.length > 0 ? `\u{1F389} ${safeActorName} membuat grup "${groupTitle}" dan menambahkan ${addedNames.join(", ")} ke dalam grup.` : `\u{1F389} ${safeActorName} membuat grup "${groupTitle}".` : `\u{1F44B} ${safeActorName} menambahkan ${addedNames.join(", ")} ke dalam grup "${groupTitle}".`;
-  const sysMsg = {
-    id: `msg-sys-${Date.now()}-${Math.floor(Math.random() * 1e4)}`,
-    roomId: room.id,
-    senderId: String(actorId || "system"),
-    senderName: safeActorName,
-    senderRole: "staff",
-    senderAvatar: MALE_AVATAR_URL,
-    text,
-    reactions: [],
     createdAt: nowIso,
-    isSystemMessage: true
+    updatedAt: nowIso
   };
-  chatMessages.push(sysMsg);
-  room.updatedAt = nowIso;
-  room.lastMessageAt = nowIso;
-  room.lastMessageSenderId = sysMsg.senderId;
-  room.lastMessageSenderName = safeActorName;
-  room.lastMessageText = text;
-  await persistChatToCloud(room, sysMsg);
-  broadcastChatEvent({
-    type: "chat:message_created",
-    message: sysMsg,
-    room
-  });
-  for (const pid of uniqueAdded) {
-    if (pid === String(actorId)) continue;
-    const isMitra = mitras.some((m) => m.id === pid);
-    if (!isMitra) continue;
-    const groupNotif = {
-      id: `notif-mtr-${pid}-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
-      title: `Anda Ditambahkan ke Grup "${groupTitle}"`,
-      message: `${safeActorName} menambahkan Anda ke dalam grup chat "${groupTitle}". Buka menu Chat untuk mulai berdiskusi dengan tim.`,
-      type: "chat",
-      timestamp: nowIso,
-      isRead: false,
-      targetAudience: "mitra",
-      mitraId: pid
-    };
-    notifications.unshift(groupNotif);
-    if (db) {
-      try {
-        await db.from("notifications").insert([toDbNotification(groupNotif)]);
-      } catch {
-      }
-    }
-  }
-  saveDatabase();
-};
+  chatRooms.unshift(newRoom);
+  await persistChatToCloud(newRoom, void 0);
+  broadcastChatEvent({ type: "chat:room_updated", room: newRoom });
+  res.status(201).json(newRoom);
+});
 app.post("/api/chat/rooms/group", async (req, res) => {
-  const { name, description, avatarUrl, participantIds, createdBy, createdByName } = req.body;
+  const { name, description, participantIds, createdBy, createdByName } = req.body;
   if (!name || !Array.isArray(participantIds) || participantIds.length < 2) {
     return res.status(400).json({
       message: "Nama grup dan minimal 2 peserta wajib dipilih."
     });
   }
-  let finalAvatarUrl = avatarUrl ? String(avatarUrl).trim() : void 0;
-  if (finalAvatarUrl && finalAvatarUrl.startsWith("data:")) {
-    const saved = saveDataUrlToHostingServer(
-      finalAvatarUrl,
-      `group-avatar-${Date.now()}`,
-      "jpg"
-    );
-    if (saved) {
-      finalAvatarUrl = saved.hostedUrl;
-    }
-  }
   const uniqueIds = Array.from(new Set(participantIds.map(String)));
-  const creatorId = String(createdBy || uniqueIds[0]);
-  const creatorName = String(createdByName || "Anggota");
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const newRoom = {
     id: `room-group-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
     type: "group",
     name: String(name).trim(),
     description: String(description || "Grup Diskusi Mitra & Staf").trim(),
-    avatarUrl: finalAvatarUrl,
     participantIds: uniqueIds,
-    createdBy: creatorId,
-    createdByName: creatorName,
+    createdBy: String(createdBy || uniqueIds[0]),
     createdAt: nowIso,
     updatedAt: nowIso,
-    lastMessageText: `Grup "${String(name).trim()}" dibuat oleh ${creatorName}`,
+    lastMessageText: `Grup "${String(name).trim()}" dibuat oleh ${createdByName || "Anggota"}`,
     lastMessageAt: nowIso,
-    lastMessageSenderName: creatorName
+    lastMessageSenderName: String(createdByName || "Sistem")
   };
   chatRooms.unshift(newRoom);
-  const addedOtherIds = uniqueIds.filter((pid) => pid !== creatorId);
-  await notifyMembersAddedToGroup(newRoom, addedOtherIds, creatorId, creatorName, true);
+  await persistChatToCloud(newRoom, void 0);
+  broadcastChatEvent({ type: "chat:room_updated", room: newRoom });
   res.status(201).json(newRoom);
 });
 app.put("/api/chat/rooms/:id", async (req, res) => {
@@ -9073,57 +8245,15 @@ app.put("/api/chat/rooms/:id", async (req, res) => {
   if (!room) {
     return res.status(404).json({ message: "Ruang grup tidak ditemukan." });
   }
-  const {
-    name,
-    description,
-    avatarUrl,
-    removeAvatar,
-    participantIds,
-    actorId,
-    actorName
-  } = req.body;
-  if (name !== void 0 && String(name).trim()) {
-    room.name = String(name).trim();
-  }
-  if (description !== void 0) {
-    room.description = String(description).trim();
-  }
-  if (removeAvatar === true) {
-    room.avatarUrl = void 0;
-  } else if (avatarUrl !== void 0 && String(avatarUrl).trim()) {
-    let nextAvatar = String(avatarUrl).trim();
-    if (nextAvatar.startsWith("data:")) {
-      const saved = saveDataUrlToHostingServer(
-        nextAvatar,
-        `group-avatar-${room.id}-${Date.now()}`,
-        "jpg"
-      );
-      if (saved) {
-        nextAvatar = saved.hostedUrl;
-      }
-    }
-    room.avatarUrl = nextAvatar;
-  }
-  const prevIds = Array.isArray(room.participantIds) ? [...room.participantIds] : [];
-  let newlyAddedIds = [];
+  const { name, description, participantIds } = req.body;
+  if (name) room.name = String(name).trim();
+  if (description !== void 0) room.description = String(description).trim();
   if (Array.isArray(participantIds) && participantIds.length >= 2) {
-    const nextIds = Array.from(new Set(participantIds.map(String)));
-    newlyAddedIds = nextIds.filter((pid) => !prevIds.includes(pid));
-    room.participantIds = nextIds;
+    room.participantIds = Array.from(new Set(participantIds.map(String)));
   }
   room.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  if (newlyAddedIds.length > 0) {
-    await notifyMembersAddedToGroup(
-      room,
-      newlyAddedIds,
-      String(actorId || "system"),
-      String(actorName || "Staf Operasional"),
-      false
-    );
-  } else {
-    await persistChatToCloud(room, void 0);
-    broadcastChatEvent({ type: "chat:room_updated", room });
-  }
+  await persistChatToCloud(room, void 0);
+  broadcastChatEvent({ type: "chat:room_updated", room });
   res.json(room);
 });
 app.post("/api/chat/messages", async (req, res) => {
@@ -9140,47 +8270,14 @@ app.post("/api/chat/messages", async (req, res) => {
     imageCompressedSize,
     replyTo,
     linkPreview,
-    forwardedFrom,
-    participantIds
+    forwardedFrom
   } = req.body;
   if (senderRole === "admin") {
     return res.status(403).json({
       message: "Admin berada dalam Mode Monitoring dan tidak mengirim pesan di ruang chat Mitra/Staf."
     });
   }
-  const cleanText = String(text || "").trim();
-  if (!cleanText && !imageUrl) {
-    return res.status(400).json({ message: "Isi pesan atau gambar tidak boleh kosong." });
-  }
-  let room = chatRooms.find((r) => r.id === roomId);
-  if (!room && typeof roomId === "string" && roomId.startsWith("room-direct-")) {
-    const rawPair = Array.isArray(participantIds) && participantIds.length === 2 ? participantIds.map((pid) => String(pid).trim()).filter(Boolean) : roomId.slice("room-direct-".length).split("__").map((pid) => pid.trim()).filter(Boolean);
-    if (rawPair.length === 2 && rawPair[0] !== rawPair[1] && rawPair.includes(String(senderId))) {
-      const sorted = [rawPair[0], rawPair[1]].sort();
-      const existingByPair = chatRooms.find(
-        (r) => r.type === "direct" && r.participantIds.length === 2 && r.participantIds.includes(sorted[0]) && r.participantIds.includes(sorted[1]) && (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
-      );
-      if (existingByPair) {
-        room = existingByPair;
-      } else {
-        const participants = buildChatParticipantsList();
-        const pA = participants.find((p) => p.id === sorted[0]);
-        const pB = participants.find((p) => p.id === sorted[1]);
-        const createdNow = (/* @__PURE__ */ new Date()).toISOString();
-        const createdDirectRoom = {
-          id: `room-direct-${sorted[0]}__${sorted[1]}`,
-          type: "direct",
-          name: `${pA?.name || sorted[0]} & ${pB?.name || sorted[1]}`,
-          participantIds: sorted,
-          createdBy: String(senderId),
-          createdAt: createdNow,
-          updatedAt: createdNow
-        };
-        chatRooms.unshift(createdDirectRoom);
-        room = createdDirectRoom;
-      }
-    }
-  }
+  const room = chatRooms.find((r) => r.id === roomId);
   if (!room) {
     return res.status(404).json({ message: "Ruang percakapan tidak ditemukan." });
   }
@@ -9188,6 +8285,10 @@ app.post("/api/chat/messages", async (req, res) => {
     return res.status(403).json({
       message: "Anda bukan anggota dari ruang percakapan atau grup ini."
     });
+  }
+  const cleanText = String(text || "").trim();
+  if (!cleanText && !imageUrl) {
+    return res.status(400).json({ message: "Isi pesan atau gambar tidak boleh kosong." });
   }
   let finalImageUrl = imageUrl ? String(imageUrl) : void 0;
   if (finalImageUrl && finalImageUrl.startsWith("data:")) {
@@ -9341,56 +8442,11 @@ app.delete("/api/chat/messages/:id", async (req, res) => {
   msg.imageUrl = void 0;
   msg.linkPreview = void 0;
   msg.reactions = [];
-  msg.isPinned = false;
-  msg.pinnedAt = void 0;
-  msg.pinnedBy = void 0;
-  msg.pinnedByName = void 0;
   const room = chatRooms.find((r) => r.id === msg.roomId);
   if (room) {
     room.lastMessageText = "\u{1F6AB} Pesan telah ditarik";
   }
   await persistChatToCloud(room, msg);
-  broadcastChatEvent({ type: "chat:message_updated", message: msg, room });
-  res.json(msg);
-});
-app.post("/api/chat/messages/:id/pin", async (req, res) => {
-  const { id } = req.params;
-  const { userId, userName, userRole, pinned } = req.body;
-  if (!userId) {
-    return res.status(400).json({ message: "Identitas pengguna wajib diisi." });
-  }
-  if (userRole === "admin") {
-    return res.status(403).json({
-      message: "Admin berada dalam Mode Monitoring dan tidak menyematkan pesan."
-    });
-  }
-  const msg = chatMessages.find((m) => m.id === id);
-  if (!msg) {
-    return res.status(404).json({ message: "Pesan tidak ditemukan." });
-  }
-  if (msg.isDeleted || msg.isSystemMessage) {
-    return res.status(400).json({
-      message: "Pesan sistem atau pesan yang sudah ditarik tidak dapat disematkan."
-    });
-  }
-  const room = chatRooms.find((r) => r.id === msg.roomId);
-  if (!room || !room.participantIds.includes(String(userId))) {
-    return res.status(403).json({
-      message: "Anda bukan anggota dari ruang percakapan ini."
-    });
-  }
-  const nextPinned = typeof pinned === "boolean" ? pinned : !Boolean(msg.isPinned);
-  msg.isPinned = nextPinned;
-  if (nextPinned) {
-    msg.pinnedAt = (/* @__PURE__ */ new Date()).toISOString();
-    msg.pinnedBy = String(userId);
-    msg.pinnedByName = String(userName || "Peserta");
-  } else {
-    msg.pinnedAt = void 0;
-    msg.pinnedBy = void 0;
-    msg.pinnedByName = void 0;
-  }
-  await persistChatToCloud(void 0, msg);
   broadcastChatEvent({ type: "chat:message_updated", message: msg });
   res.json(msg);
 });
@@ -9398,7 +8454,7 @@ app.put("/api/chat/settings", async (req, res) => {
   const { chatEnabled } = req.body;
   appSettings.chatEnabled = Boolean(chatEnabled);
   saveDatabase();
-  await persistSettingsToMysql();
+  await persistSettingsToSupabase();
   broadcastChatEvent({
     type: "chat:sync",
     chatEnabled: appSettings.chatEnabled
@@ -9497,8 +8553,8 @@ export {
   escapeHtml,
   extractUserRole,
   formatMitraMemberCode,
-  fromDbClientDeal,
-  fromDbEmailLogRow,
+  fromSupabaseClientDeal,
+  fromSupabaseEmailLogRow,
   getRoleDefinition,
   getThreeMonthsAgoCutoff,
   isEncryptedPassword,
@@ -9507,17 +8563,17 @@ export {
   normalizeFirmTagline,
   normalizeServicesCatalog,
   normalizeSpecializationOptions,
-  persistActivityLogsToMysql,
-  persistEmailLogsToMysql,
-  persistSettingsToMysql,
+  persistActivityLogsToSupabase,
+  persistEmailLogsToSupabase,
+  persistSettingsToSupabase,
   pruneOldLogs,
   recordActivity,
   safeTimingCompare,
   sanitizeSqlIdentifier,
   saveDatabase,
   sendSystemEmail,
-  syncFromMysql,
-  toDbClientDeal,
-  toDbEmailLogRow,
+  syncFromSupabase,
+  toSupabaseClientDeal,
+  toSupabaseEmailLogRow,
   verifyUserPassword
 };

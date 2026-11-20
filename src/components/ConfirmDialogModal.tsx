@@ -124,6 +124,8 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
         // Skip silent background endpoints or real-time chat message send
         const isSilentEndpoint =
           urlStr.includes('/api/auth/login') ||
+          urlStr.includes('/api/auth/google') ||
+          urlStr.includes('/api/mitra/check-unique') ||
           urlStr.includes('/api/notifications/read-all') ||
           urlStr.includes('/api/system/mysql') ||
           urlStr.includes('/api/system/migrate-from-supabase') ||

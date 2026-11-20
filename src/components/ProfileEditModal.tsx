@@ -320,7 +320,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     try {
       const res = await fetch('/api/mitra/check-unique', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-skip-crud-alert': 'true' },
         body: JSON.stringify({ nik: trimmed, excludeMitraId: mitra.id }),
       });
       const data = await res.json();

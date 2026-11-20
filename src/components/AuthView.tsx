@@ -316,7 +316,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
     try {
       const res = await fetch('/api/mitra/check-unique', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-skip-crud-alert': 'true' },
         body: JSON.stringify({ email: trimmed }),
       });
       const data = await res.json();
@@ -459,7 +459,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       // Validasi keunikan Email ke server sebelum submit pendaftaran
       const checkRes = await fetch('/api/mitra/check-unique', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-skip-crud-alert': 'true' },
         body: JSON.stringify({
           email: regEmail,
         }),

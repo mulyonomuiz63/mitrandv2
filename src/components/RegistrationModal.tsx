@@ -171,7 +171,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
     try {
       const res = await fetch('/api/mitra/check-unique', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-skip-crud-alert': 'true' },
         body: JSON.stringify({ email: trimmed }),
       });
       const data = await res.json();
@@ -197,7 +197,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
       // Validasi keunikan Email ke server sebelum mendaftar
       const checkRes = await fetch('/api/mitra/check-unique', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-skip-crud-alert': 'true' },
         body: JSON.stringify({
           email,
         }),
