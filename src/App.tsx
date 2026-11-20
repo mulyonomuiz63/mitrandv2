@@ -504,12 +504,17 @@ export default function App() {
     return data;
   };
 
-  const handleVerifyMitra = async (id: string, status: 'verified' | 'rejected', rejectionReason?: string) => {
+  const handleVerifyMitra = async (
+    id: string,
+    status: 'verified' | 'rejected',
+    rejectionReason?: string,
+    groupChatIds?: string[]
+  ) => {
     try {
       const res = await fetch(`/api/mitra/${id}/verify`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, rejectionReason }),
+        body: JSON.stringify({ status, rejectionReason, groupChatIds }),
       });
       const data = await res.json();
       if (data.success && data.data) {

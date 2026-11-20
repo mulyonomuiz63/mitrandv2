@@ -4805,7 +4805,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
 app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { status, rejectionReason } = req.body; // 'verified' | 'rejected'
+  const { status, rejectionReason, groupChatIds } = req.body; // 'verified' | 'rejected', optional groupChatIds: string[]
 
   if (supabase) {
     try {
@@ -4822,6 +4822,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
 
   mitra.status = status;
   const todayStr = new Date().toISOString().split('T')[0];
+  const joinedGroupNames: string[] = [];
 
   if (status === 'verified') {
     mitra.memberCode = formatMitraMemberCode(mitra.memberCode, mitra.id);
@@ -4834,10 +4835,47 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
       mitra.bankDetails = cleanedBank;
     }
 
+    // Optional: Add approved Mitra into selected group chat rooms
+    const requestedGroupIds = Array.isArray(groupChatIds)
+      ? Array.from(new Set(groupChatIds.map((gid: any) => String(gid || '').trim()).filter(Boolean)))
+      : [];
+
+    if (requestedGroupIds.length > 0) {
+      if (supabase) {
+        try {
+          await syncChatFromSupabase();
+        } catch {}
+      }
+
+      const nowIso = new Date().toISOString();
+      for (const roomId of requestedGroupIds) {
+        const room = chatRooms.find(
+          (r) =>
+            r.id === roomId &&
+            r.type === 'group' &&
+            (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
+        );
+        if (!room) continue;
+
+        if (!room.participantIds.includes(mitra.id)) {
+          room.participantIds = Array.from(new Set([...room.participantIds, mitra.id]));
+          room.updatedAt = nowIso;
+          await persistChatToCloud(room, undefined);
+          broadcastChatEvent({ type: 'chat:room_updated', room });
+        }
+        joinedGroupNames.push(room.name || 'Grup Chat');
+      }
+    }
+
+    const groupSummaryText =
+      joinedGroupNames.length > 0
+        ? ` Anda juga telah ditambahkan ke group chat: ${joinedGroupNames.join(', ')}.`
+        : '';
+
     const notif: NotificationItem = {
       id: `notif-mtr-${mitra.id}-${Date.now()}`,
       title: 'Status Kemitraan Disetujui (Lulus Verifikasi)',
-      message: `Selamat! Pendaftaran Mitra ${mitra.fullName} telah disetujui oleh Admin. Kartu Identitas Eksklusif (${mitra.memberCode}), Kode Referral (${mitra.referralCode}), dan fitur Input Klien kini telah aktif penuh.`,
+      message: `Selamat! Pendaftaran Mitra ${mitra.fullName} telah disetujui oleh Admin. Kartu Identitas Eksklusif (${mitra.memberCode}), Kode Referral (${mitra.referralCode}), dan fitur Input Klien kini telah aktif penuh.${groupSummaryText}`,
       type: 'verification',
       timestamp: new Date().toISOString(),
       isRead: false,
@@ -4852,7 +4890,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
         recipientName: mitra.fullName,
         subject: `Selamat! Akun Mitra NDTAXANDLAW Anda Lulus Verifikasi (${mitra.memberCode})`,
         category: 'registration_verify',
-        previewSnippet: `Pendaftaran kemitraan Anda atas nama ${mitra.fullName} telah diperiksa dan DISETUJUI (Lulus Verifikasi) oleh Admin NDTAXANDLAW.\n\nNomor Anggota Resmi: ${mitra.memberCode}\nKode Referral Resmi: ${mitra.referralCode}\n\nSekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta mengunduh Kartu Identitas Eksklusif Mitra di portal.`,
+        previewSnippet: `Pendaftaran kemitraan Anda atas nama ${mitra.fullName} telah diperiksa dan DISETUJUI (Lulus Verifikasi) oleh Admin NDTAXANDLAW.\n\nNomor Anggota Resmi: ${mitra.memberCode}\nKode Referral Resmi: ${mitra.referralCode}\n\nSekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta mengunduh Kartu Identitas Eksklusif Mitra di portal.${groupSummaryText}`,
       });
     }
 
@@ -4916,7 +4954,11 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
     targetEntity: 'Verifikasi Mitra',
     description:
       status === 'verified'
-        ? `Admin menyetujui (Approve) verifikasi Mitra "${mitra.fullName}" menjadi TERVERIFIKASI (${mitra.memberCode}).`
+        ? `Admin menyetujui (Approve) verifikasi Mitra "${mitra.fullName}" menjadi TERVERIFIKASI (${mitra.memberCode})${
+            joinedGroupNames.length > 0
+              ? ` dan memasukkan ke group chat: ${joinedGroupNames.join(', ')}.`
+              : '.'
+          }`
         : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`,
   });
 
@@ -4937,7 +4979,7 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  res.json({ success: true, data: mitra });
+  res.json({ success: true, data: mitra, addedGroups: joinedGroupNames });
 });
 
 app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
@@ -8740,6 +8782,29 @@ app.get('/api/chat/state', async (req: Request, res: Response) => {
     participants,
     rooms: visibleRooms,
     messages: visibleMessages,
+  });
+});
+
+// GET Available Group Chat Rooms (Lightweight endpoint for Admin Mitra Approval optional group assignment)
+app.get('/api/chat/groups', async (_req: Request, res: Response) => {
+  if (supabase) {
+    try {
+      await syncChatFromSupabase();
+    } catch {}
+  }
+
+  const activeRooms = isProductionMode()
+    ? chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
+    : chatRooms;
+
+  const groupRooms = activeRooms
+    .filter((r) => r.type === 'group')
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  res.json({
+    success: true,
+    chatEnabled: appSettings.chatEnabled !== false,
+    data: groupRooms,
   });
 });
 

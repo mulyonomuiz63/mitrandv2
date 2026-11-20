@@ -10,9 +10,12 @@ import {
   X,
   FileText,
   Upload,
-  ExternalLink
+  ExternalLink,
+  Users,
+  MessageSquare,
+  Check
 } from 'lucide-react';
-import { Mitra, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
+import { Mitra, ChatRoom, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 import {
@@ -26,7 +29,12 @@ import { ImageWithSkeleton } from './SkeletonLoader';
 
 interface MitraVerificationPanelProps {
   mitras: Mitra[];
-  onVerifyMitra: (id: string, status: 'verified' | 'rejected', rejectionReason?: string) => Promise<void>;
+  onVerifyMitra: (
+    id: string,
+    status: 'verified' | 'rejected',
+    rejectionReason?: string,
+    groupChatIds?: string[]
+  ) => Promise<void>;
   onSelectMitraPreview: (mitra: Mitra) => void;
   onUpdateMitraProfile?: (id: string, data: Partial<Mitra>) => Promise<void>;
 }
@@ -52,6 +60,13 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [isAdminUploadingKtp, setIsAdminUploadingKtp] = useState(false);
   const [adminUploadMsg, setAdminUploadMsg] = useState<string | null>(null);
+
+  // Approve Modal + Optional Group Chat Selection State
+  const [mitraToApprove, setMitraToApprove] = useState<Mitra | null>(null);
+  const [availableGroups, setAvailableGroups] = useState<ChatRoom[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [groupSearchQuery, setGroupSearchQuery] = useState('');
 
   // Rejection Reason Modal State
   const [mitraToReject, setMitraToReject] = useState<Mitra | null>(null);
@@ -94,25 +109,53 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const filteredMitras = mitraDt.rows;
 
   const handleApproveAction = async (id: string) => {
-    const targetMitra = mitras.find((m) => m.id === id);
-    const ok = await confirm({
-      title: 'Setujui (Approve) Verifikasi Data Mitra',
-      message: `Apakah Anda yakin ingin menyetujui pendaftaran Mitra "${targetMitra?.fullName || ''}"? Setelah disetujui, status Mitra menjadi Lulus Verifikasi dan Kode Referral, Input Klien, serta Kartu Identitas Mitra langsung aktif.`,
-      detail: targetMitra
-        ? `Nama Mitra: ${targetMitra.fullName}\nNIK KTP: ${targetMitra.nik}\nEmail: ${targetMitra.email}\nRekening Bank: ${targetMitra.bankDetails.bankName} - ${targetMitra.bankDetails.accountNumber} (a.n. ${targetMitra.bankDetails.accountHolder})`
-        : undefined,
-      confirmText: 'Ya, Setujui & Lulus Verifikasi',
-      cancelText: 'Batalkan',
-      variant: 'success',
-    });
-    if (!ok) return;
+    const targetMitra = mitras.find((m) => m.id === id) || selectedMitraDetail;
+    if (!targetMitra) return;
 
-    setActionLoadingId(id);
+    setMitraToApprove(targetMitra);
+    setSelectedGroupIds([]);
+    setGroupSearchQuery('');
+    setLoadingGroups(true);
     try {
-      await onVerifyMitra(id, 'verified');
-      if (selectedMitraDetail && selectedMitraDetail.id === id) {
+      const res = await fetch('/api/chat/groups');
+      const json = await res.json();
+      if (json?.success && Array.isArray(json.data)) {
+        setAvailableGroups(json.data);
+      } else {
+        setAvailableGroups([]);
+      }
+    } catch {
+      setAvailableGroups([]);
+    } finally {
+      setLoadingGroups(false);
+    }
+  };
+
+  const toggleGroupSelection = (groupId: string) => {
+    setSelectedGroupIds((prev) =>
+      prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId]
+    );
+  };
+
+  const handleConfirmApproveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mitraToApprove) return;
+
+    const targetId = mitraToApprove.id;
+    setActionLoadingId(targetId);
+    try {
+      await onVerifyMitra(
+        targetId,
+        'verified',
+        undefined,
+        selectedGroupIds.length > 0 ? selectedGroupIds : undefined
+      );
+      if (selectedMitraDetail && selectedMitraDetail.id === targetId) {
         setSelectedMitraDetail(null);
       }
+      setMitraToApprove(null);
+      setSelectedGroupIds([]);
+      mitraDt.refresh();
     } finally {
       setActionLoadingId(null);
     }
@@ -782,6 +825,242 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Approve Verifikasi Mitra + Pilih Group Chat (Opsional) */}
+      {mitraToApprove && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between p-5 border-b border-slate-200 shrink-0 bg-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    APPROVE VERIFIKASI MITRA
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900 font-display mt-1">
+                    Setujui (Approve) Verifikasi Data Mitra
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMitraToApprove(null)}
+                disabled={actionLoadingId === mitraToApprove.id}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+                title="Tutup"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmApproveSubmit} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Setelah disetujui, status Mitra <strong>{mitraToApprove.fullName}</strong> akan menjadi{' '}
+                  <strong className="text-emerald-700">Lulus Verifikasi</strong> dan Kode Referral, Input Klien, Tools Marketing, serta Kartu Identitas Mitra langsung aktif.
+                </p>
+
+                {/* Ringkasan Data Mitra */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                  <div className="flex items-center gap-2.5 pb-2 mb-1.5 border-b border-slate-200/80">
+                    <ImageWithSkeleton
+                      src={mitraToApprove.avatarUrl}
+                      alt={mitraToApprove.fullName}
+                      className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200"
+                      containerClassName="w-9 h-9 shrink-0"
+                      rounded="rounded-full"
+                    />
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 truncate">{mitraToApprove.fullName}</p>
+                      <p className="text-[11px] font-mono text-slate-500 truncate">
+                        {mitraToApprove.memberCode} · {mitraToApprove.email}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">NIK KTP:</span>{' '}
+                    <strong className="font-mono text-slate-800">{mitraToApprove.nik}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Rekening Bank:</span>{' '}
+                    <strong className="text-slate-800">
+                      {mitraToApprove.bankDetails.bankName} - {mitraToApprove.bankDetails.accountNumber} (a.n. {mitraToApprove.bankDetails.accountHolder})
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Pilihan Group Chat (Opsional) */}
+                <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <label className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                        <span>Masukkan ke Group Chat</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-blue-700 border border-blue-200">
+                          Opsional
+                        </span>
+                      </label>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                        Pilih satu atau beberapa group chat jika ingin langsung memasukkan mitra ini, atau biarkan kosong untuk approve tanpa masuk group.
+                      </p>
+                    </div>
+                    {selectedGroupIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGroupIds([])}
+                        className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline shrink-0 cursor-pointer"
+                      >
+                        Kosongkan ({selectedGroupIds.length})
+                      </button>
+                    )}
+                  </div>
+
+                  {loadingGroups ? (
+                    <div className="space-y-2 py-2">
+                      <div className="h-11 rounded-lg bg-white/80 border border-blue-100 animate-pulse" />
+                      <div className="h-11 rounded-lg bg-white/80 border border-blue-100 animate-pulse" />
+                    </div>
+                  ) : availableGroups.length === 0 ? (
+                    <div className="p-3 rounded-lg bg-white border border-blue-100 text-[11px] text-slate-500 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Belum ada group chat yang tersedia saat ini. Anda tetap dapat langsung menyetujui mitra ini.</span>
+                    </div>
+                  ) : (
+                    <>
+                      {availableGroups.length > 4 && (
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={groupSearchQuery}
+                            onChange={(e) => setGroupSearchQuery(e.target.value)}
+                            placeholder="Cari nama group chat..."
+                            className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-blue-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      )}
+
+                      <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
+                        {(() => {
+                          const q = groupSearchQuery.trim().toLowerCase();
+                          const filteredGroups = availableGroups.filter((g) => {
+                            if (!q) return true;
+                            return (
+                              (g.name || '').toLowerCase().includes(q) ||
+                              (g.description || '').toLowerCase().includes(q)
+                            );
+                          });
+                          if (filteredGroups.length === 0) {
+                            return (
+                              <div className="p-3 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-500 text-center">
+                                Tidak ada group chat yang cocok dengan pencarian "{groupSearchQuery}".
+                              </div>
+                            );
+                          }
+                          return filteredGroups.map((group) => {
+                            const alreadyMember = group.participantIds.includes(mitraToApprove.id);
+                            const isChecked = selectedGroupIds.includes(group.id);
+                            return (
+                              <button
+                                key={group.id}
+                                type="button"
+                                disabled={alreadyMember}
+                                onClick={() => toggleGroupSelection(group.id)}
+                                className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                                  alreadyMember
+                                    ? 'bg-slate-100 border-slate-200 opacity-70 cursor-not-allowed'
+                                    : isChecked
+                                    ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-300 shadow-2xs cursor-pointer'
+                                    : 'bg-white border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 cursor-pointer'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border transition-colors ${
+                                      alreadyMember
+                                        ? 'bg-slate-300 border-slate-300 text-white'
+                                        : isChecked
+                                        ? 'bg-emerald-600 border-emerald-600 text-white'
+                                        : 'bg-white border-slate-300 text-transparent'
+                                    }`}
+                                  >
+                                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-slate-900 truncate">
+                                      {group.name || 'Grup Chat'}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500 truncate">
+                                      {group.description || 'Grup Diskusi Mitra & Staf'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 text-right">
+                                  {alreadyMember ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
+                                      Sudah Anggota
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                      <Users className="w-3 h-3" />
+                                      <span>{group.participantIds.length}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+
+                      <div className="text-[11px] font-medium text-slate-600 pt-1 border-t border-blue-200/70 flex items-center justify-between">
+                        <span>
+                          {selectedGroupIds.length > 0 ? (
+                            <span className="text-emerald-700 font-bold">
+                              ✓ Mitra akan otomatis dimasukkan ke {selectedGroupIds.length} group chat terpilih
+                            </span>
+                          ) : (
+                            <span>Tidak memilih group chat (mitra hanya di-approve saja)</span>
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 p-4 sm:px-6 border-t border-slate-200 shrink-0 bg-slate-50 rounded-b-2xl">
+                <button
+                  type="button"
+                  onClick={() => setMitraToApprove(null)}
+                  disabled={actionLoadingId === mitraToApprove.id}
+                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
+                >
+                  Batalkan
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoadingId === mitraToApprove.id}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>
+                    {actionLoadingId === mitraToApprove.id
+                      ? 'Memproses Approve...'
+                      : selectedGroupIds.length > 0
+                      ? `Setujui & Masukkan ke ${selectedGroupIds.length} Grup`
+                      : 'Ya, Setujui & Lulus Verifikasi'}
+                  </span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

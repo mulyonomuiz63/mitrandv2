@@ -4874,7 +4874,7 @@ Silakan masukkan 6 digit kode di atas pada halaman Verifikasi Email untuk mengak
 });
 app.put("/api/mitra/:id/verify", async (req, res) => {
   const { id } = req.params;
-  const { status, rejectionReason } = req.body;
+  const { status, rejectionReason, groupChatIds } = req.body;
   if (supabase) {
     try {
       const { data: dbMitras } = await supabase.from("mitras").select("*");
@@ -4888,6 +4888,7 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
   }
   mitra.status = status;
   const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const joinedGroupNames = [];
   if (status === "verified") {
     mitra.memberCode = formatMitraMemberCode(mitra.memberCode, mitra.id);
     mitra.rejectionReason = void 0;
@@ -4898,10 +4899,34 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
       delete cleanedBank.__rejectedAt;
       mitra.bankDetails = cleanedBank;
     }
+    const requestedGroupIds = Array.isArray(groupChatIds) ? Array.from(new Set(groupChatIds.map((gid) => String(gid || "").trim()).filter(Boolean))) : [];
+    if (requestedGroupIds.length > 0) {
+      if (supabase) {
+        try {
+          await syncChatFromSupabase();
+        } catch {
+        }
+      }
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      for (const roomId of requestedGroupIds) {
+        const room = chatRooms.find(
+          (r) => r.id === roomId && r.type === "group" && (!isProductionMode() || !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id))
+        );
+        if (!room) continue;
+        if (!room.participantIds.includes(mitra.id)) {
+          room.participantIds = Array.from(/* @__PURE__ */ new Set([...room.participantIds, mitra.id]));
+          room.updatedAt = nowIso;
+          await persistChatToCloud(room, void 0);
+          broadcastChatEvent({ type: "chat:room_updated", room });
+        }
+        joinedGroupNames.push(room.name || "Grup Chat");
+      }
+    }
+    const groupSummaryText = joinedGroupNames.length > 0 ? ` Anda juga telah ditambahkan ke group chat: ${joinedGroupNames.join(", ")}.` : "";
     const notif = {
       id: `notif-mtr-${mitra.id}-${Date.now()}`,
       title: "Status Kemitraan Disetujui (Lulus Verifikasi)",
-      message: `Selamat! Pendaftaran Mitra ${mitra.fullName} telah disetujui oleh Admin. Kartu Identitas Eksklusif (${mitra.memberCode}), Kode Referral (${mitra.referralCode}), dan fitur Input Klien kini telah aktif penuh.`,
+      message: `Selamat! Pendaftaran Mitra ${mitra.fullName} telah disetujui oleh Admin. Kartu Identitas Eksklusif (${mitra.memberCode}), Kode Referral (${mitra.referralCode}), dan fitur Input Klien kini telah aktif penuh.${groupSummaryText}`,
       type: "verification",
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       isRead: false,
@@ -4920,7 +4945,7 @@ app.put("/api/mitra/:id/verify", async (req, res) => {
 Nomor Anggota Resmi: ${mitra.memberCode}
 Kode Referral Resmi: ${mitra.referralCode}
 
-Sekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta mengunduh Kartu Identitas Eksklusif Mitra di portal.`
+Sekarang Anda sudah dapat menggunakan Kode Referral, menginput data klien, serta mengunduh Kartu Identitas Eksklusif Mitra di portal.${groupSummaryText}`
       });
     }
     if (supabase) {
@@ -4979,7 +5004,7 @@ Silakan masuk ke Portal Mitra, perbaiki data diri / rekening bank Anda, lalu kli
     actionType: "mitra_verify",
     operation: "UPDATE",
     targetEntity: "Verifikasi Mitra",
-    description: status === "verified" ? `Admin menyetujui (Approve) verifikasi Mitra "${mitra.fullName}" menjadi TERVERIFIKASI (${mitra.memberCode}).` : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`
+    description: status === "verified" ? `Admin menyetujui (Approve) verifikasi Mitra "${mitra.fullName}" menjadi TERVERIFIKASI (${mitra.memberCode})${joinedGroupNames.length > 0 ? ` dan memasukkan ke group chat: ${joinedGroupNames.join(", ")}.` : "."}` : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`
   });
   if (supabase) {
     try {
@@ -4993,7 +5018,7 @@ Silakan masuk ke Portal Mitra, perbaiki data diri / rekening bank Anda, lalu kli
     }
   }
   saveDatabase();
-  res.json({ success: true, data: mitra });
+  res.json({ success: true, data: mitra, addedGroups: joinedGroupNames });
 });
 app.put("/api/mitra/:id/profile", async (req, res) => {
   const { id } = req.params;
@@ -8129,6 +8154,21 @@ app.get("/api/chat/state", async (req, res) => {
     participants,
     rooms: visibleRooms,
     messages: visibleMessages
+  });
+});
+app.get("/api/chat/groups", async (_req, res) => {
+  if (supabase) {
+    try {
+      await syncChatFromSupabase();
+    } catch {
+    }
+  }
+  const activeRooms = isProductionMode() ? chatRooms.filter((r) => !LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) : chatRooms;
+  const groupRooms = activeRooms.filter((r) => r.type === "group").sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  res.json({
+    success: true,
+    chatEnabled: appSettings.chatEnabled !== false,
+    data: groupRooms
   });
 });
 app.get("/api/chat/link-preview", async (req, res) => {
