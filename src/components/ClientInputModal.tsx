@@ -685,73 +685,9 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                   </div>
 
                   <div className="md:col-span-2">
-                    <div className="flex flex-wrap items-center justify-between gap-1 mb-1.5">
-                      <label className="block text-xs font-semibold text-slate-700">
-                        Model Pembayaran &amp; Skema Komisi Klien
-                      </label>
-                      <span className="text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
-                        Otomatis mengikuti jenis layanan ({effectivePricingType === 'monthly_subscription' ? 'Langganan Bulanan' : effectivePricingType === 'annual_subscription' ? 'Langganan Tahunan' : 'Case-by-Case / Per Projek'})
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <button
-                        type="button"
-                        disabled={effectivePricingType !== 'case_by_case'}
-                        onClick={() => {
-                          if (effectivePricingType === 'case_by_case') setPricingType('case_by_case');
-                        }}
-                        className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                          effectivePricingType === 'case_by_case'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
-                            : 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
-                        }`}
-                      >
-                        <span className="font-bold text-sm block">⚡ Case-by-Case (Per Projek)</span>
-                        <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'case_by_case' ? 'text-blue-100' : 'text-slate-400'}`}>
-                          1x Bayar (Per Projek / Multi-Bulan)
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={effectivePricingType !== 'monthly_subscription'}
-                        onClick={() => {
-                          if (effectivePricingType === 'monthly_subscription') setPricingType('monthly_subscription');
-                        }}
-                        className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                          effectivePricingType === 'monthly_subscription'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
-                            : 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
-                        }`}
-                      >
-                        <span className="font-bold text-sm block">🔄 Langganan Bulanan</span>
-                        <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'monthly_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
-                          Komisi tiap siklus bulanan
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={effectivePricingType !== 'annual_subscription'}
-                        onClick={() => {
-                          if (effectivePricingType === 'annual_subscription') setPricingType('annual_subscription');
-                        }}
-                        className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                          effectivePricingType === 'annual_subscription'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
-                            : 'bg-slate-100 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed'
-                        }`}
-                      >
-                        <span className="font-bold text-sm block">📅 Langganan Tahunan</span>
-                        <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'annual_subscription' ? 'text-blue-100' : 'text-slate-400'}`}>
-                          Annual Retainer Perikatan
-                        </span>
-                      </button>
-                    </div>
-
                     {/* Subscription Start Date & Recurring Billing Day */}
                     {(effectivePricingType === 'monthly_subscription' || effectivePricingType === 'annual_subscription') && (
-                      <div className="mt-3 p-3.5 bg-white rounded-xl border border-blue-200 shadow-2xs grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-3.5 bg-white rounded-xl border border-blue-200 shadow-2xs grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
                             Tanggal Mulai Langganan
@@ -790,7 +726,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
 
                     {/* Case by case custom multi-month period section */}
                     {effectivePricingType === 'case_by_case' && (
-                      <div className="mt-3 p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                      <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800">
                           <input
                             type="checkbox"
