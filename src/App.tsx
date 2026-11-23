@@ -30,7 +30,6 @@ import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHis
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import { 
   ShieldCheck, 
-  Sparkles, 
   ArrowRight, 
   UserCheck, 
   Layers, 

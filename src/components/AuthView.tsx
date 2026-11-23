@@ -12,7 +12,6 @@ import {
   Phone, 
   CreditCard, 
   Building2, 
-  Sparkles,
   Eye,
   EyeOff,
   UserCheck,
@@ -808,7 +807,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <input
                         type="text"
                         required
-                        placeholder="contoh: admin@ndtaxandlaw.com atau mitra@example.com"
+                        placeholder="Email atau ID Mitra"
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
                         className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -838,7 +837,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <input
                         type={showPassword ? 'text' : 'password'}
                         required
-                        placeholder="Masukkan kata sandi akun"
+                        placeholder="Kata sandi"
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
                         className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -1069,8 +1068,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       type="text"
                       required={getSysField('fullName')?.required !== false}
                       placeholder={
-                        getSysField('fullName')?.placeholder ||
-                        'Contoh: Adv. Hendra Wijaya, S.H., M.H.'
+                        getSysField('fullName')?.placeholder || 'Nama lengkap'
                       }
                       value={regFullName}
                       onChange={(e) => {
@@ -1130,7 +1128,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         <input
                           type="tel"
                           required={getSysField('phone')?.required !== false}
-                          placeholder={getSysField('phone')?.placeholder || '0812-xxxx-xxxx'}
+                          placeholder={getSysField('phone')?.placeholder || '0812xxxx'}
                           value={regPhone}
                           onChange={(e) => setRegPhone(e.target.value)}
                           className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300"
@@ -1307,7 +1305,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     <input
                       type={showRegPassword ? 'text' : 'password'}
                       required
-                      placeholder="Minimal 6 karakter aman"
+                      placeholder="Min. 6 karakter"
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
                       className="w-full pl-3 pr-10 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -1361,7 +1359,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       <input
                         type="email"
                         required
-                        placeholder="Masukkan email Anda"
+                        placeholder="Email terdaftar"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
                         className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-[#113872]"
@@ -1388,7 +1386,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         type="text"
                         required
                         maxLength={6}
-                        placeholder="6 Digit OTP dari Email"
+                        placeholder="6 digit OTP"
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                         className="w-full px-3 py-2 text-xs font-mono font-bold text-center tracking-widest rounded-xl border border-slate-300"
@@ -1401,7 +1399,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         <input
                           type={showNewPassword ? 'text' : 'password'}
                           required
-                          placeholder="Minimal 6 karakter baru"
+                          placeholder="Min. 6 karakter"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           className="w-full pl-3 pr-10 py-2 text-xs rounded-xl border border-slate-300"
@@ -1422,7 +1420,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                         <input
                           type={showConfirmNewPassword ? 'text' : 'password'}
                           required
-                          placeholder="Konfirmasi sandi baru"
+                          placeholder="Ulangi sandi"
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
                           className="w-full pl-3 pr-10 py-2 text-xs rounded-xl border border-slate-300"
@@ -1510,7 +1508,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       type="text"
                       required
                       maxLength={6}
-                      placeholder="Contoh: 123456"
+                      placeholder="123456"
                       value={verifyToken}
                       onChange={(e) => setVerifyToken(e.target.value.replace(/\D/g, ''))}
                       className="w-full px-4 py-3 text-lg font-mono font-bold text-center tracking-[0.5em] rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-slate-50 focus:bg-white transition-colors"

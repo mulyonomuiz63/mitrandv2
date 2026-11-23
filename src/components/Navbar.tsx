@@ -247,7 +247,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title={
                     isStaff
                       ? 'Pengaturan Layanan Firma & Form Dinamis'
-                      : 'Pengaturan Sistem & Integrasi (SMTP Email, Google Login, Gemini AI)'
+                      : 'Pengaturan Sistem & Integrasi (SMTP Email & Google Login)'
                   }
                   aria-label="Buka Pengaturan"
                 >

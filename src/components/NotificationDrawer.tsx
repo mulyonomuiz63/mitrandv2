@@ -5,7 +5,6 @@ import {
   Video, 
   CheckCircle2, 
   X, 
-  Sparkles,
   Building2,
   Settings,
   Trash2,
@@ -49,7 +48,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       case 'commission':
         return <CheckCircle2 className="w-4 h-4 text-emerald-700" />;
       case 'verification':
-        return <Sparkles className="w-4 h-4 text-amber-700" />;
+        return <Bell className="w-4 h-4 text-amber-700" />;
       case 'chat':
         return <MessageSquare className="w-4 h-4 text-teal-700" />;
       default:

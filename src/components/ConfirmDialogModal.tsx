@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { AlertTriangle, CheckCircle2, HelpCircle, ShieldAlert, Sparkles, Trash2, Edit3, PlusCircle, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, HelpCircle, ShieldAlert, Trash2, Edit3, PlusCircle, X } from 'lucide-react';
 
 export interface ConfirmOptions {
   title: string;
@@ -439,7 +439,7 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
                     ) : alertCfg.category === 'error' ? (
                       <ShieldAlert className="w-5 h-5 text-white shrink-0" />
                     ) : (
-                      <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                      <HelpCircle className="w-4 h-4 text-amber-300 shrink-0" />
                     )}
                     <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-md border ${alertCfg.badgeClass}`}>
                       {alertCfg.badgeText}

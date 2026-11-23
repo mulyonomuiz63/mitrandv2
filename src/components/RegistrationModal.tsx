@@ -310,7 +310,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                         type="text"
                         required={getSysField('fullName')?.required !== false}
                         placeholder={
-                          getSysField('fullName')?.placeholder || 'Contoh: Muhammad Reza, S.H., M.H.'
+                          getSysField('fullName')?.placeholder || 'Nama lengkap'
                         }
                         value={fullName}
                         onChange={(e) => {
@@ -432,7 +432,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                           <input
                             type="tel"
                             required={getSysField('phone')?.required !== false}
-                            placeholder={getSysField('phone')?.placeholder || '0812-xxxx-xxxx'}
+                            placeholder={getSysField('phone')?.placeholder || '0812xxxx'}
                             value={phone}
                             onChange={(e) => setPhone(e.target.value)}
                             className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -465,7 +465,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                                     ✓ File sudah diunggah
                                   </span>
                                 ) : (
-                                  <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                                  <span>{field.placeholder || 'JPG, PNG, atau PDF'}</span>
                                 )}
                               </div>
                               <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
@@ -551,7 +551,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Minimal 6 karakter aman"
+                    placeholder="Min. 6 karakter"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full pl-3 pr-10 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"

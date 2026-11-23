@@ -632,7 +632,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
-                        placeholder={getSysField('phone')?.placeholder || 'Contoh: 081234567890'}
+                        placeholder={getSysField('phone')?.placeholder || '0812xxxx'}
                         required={getSysField('phone')?.required !== false}
                         value={phone}
                         onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
@@ -978,13 +978,10 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             isSysActive('accountHolder') ||
             activeMitraBankCustomFields.length > 0) && (
             <div className="pt-3 border-t border-slate-200">
-              <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+              <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
                 <CreditCard className="w-3.5 h-3.5 text-blue-700" />
                 <span>Data Rekening Bank Pencairan Komisi</span>
               </h4>
-              <p className="text-[11px] text-slate-500 mb-2">
-                Pastikan nomor rekening tepat agar transfer pencairan komisi tidak tertunda.
-              </p>
 
               <div className="space-y-3">
                 {isSysActive('bankName') && (
@@ -1026,7 +1023,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                           type="text"
                           inputMode="numeric"
                           pattern="[0-9]*"
-                          placeholder={getSysField('accountNumber')?.placeholder || 'Contoh: 8830192837'}
+                          placeholder={getSysField('accountNumber')?.placeholder || 'Nomor rekening'}
                           required={getSysField('accountNumber')?.required !== false}
                           value={accountNumber}
                           onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
@@ -1081,7 +1078,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                                   <span>File sudah diunggah (Klik untuk lihat)</span>
                                 </a>
                               ) : (
-                                <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                                <span>{field.placeholder || 'JPG, PNG, atau PDF'}</span>
                               )}
                             </div>
                             <label className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
@@ -1174,7 +1171,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 <div className="relative">
                   <input
                     type={showNewPassword ? 'text' : 'password'}
-                    placeholder="Minimal 6 karakter"
+                    placeholder="Min. 6 karakter"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-slate-300"
@@ -1195,7 +1192,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 <div className="relative">
                   <input
                     type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Ulangi sandi baru"
+                    placeholder="Ulangi sandi"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-slate-300"

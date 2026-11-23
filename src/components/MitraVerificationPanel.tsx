@@ -407,7 +407,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Cari nama mitra, kode ID, atau email..."
+            placeholder="Cari mitra..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
@@ -1357,7 +1357,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                             type="text"
                             value={groupSearchQuery}
                             onChange={(e) => setGroupSearchQuery(e.target.value)}
-                            placeholder="Cari nama group chat..."
+                            placeholder="Cari grup..."
                             className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-blue-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
@@ -1546,7 +1546,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                     required
                     value={rejectionReasonInput}
                     onChange={(e) => setRejectionReasonInput(e.target.value)}
-                    placeholder="Tuliskan alasan mengapa data mitra ditolak dan bagian mana yang harus diperbaiki..."
+                    placeholder="Alasan penolakan..."
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">

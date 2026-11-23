@@ -95,7 +95,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nama Lengkap & Gelar',
     type: 'text',
-    placeholder: 'Contoh: Muhammad Reza, S.H., M.H.',
+    placeholder: 'Nama lengkap',
     required: true,
     isActive: true,
   },
@@ -117,7 +117,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'No. WhatsApp Aktif',
     type: 'text',
-    placeholder: '0812-xxxx-xxxx',
+    placeholder: '0812xxxx',
     required: true,
     isActive: true,
   },
@@ -128,7 +128,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nomor KTP / NIK',
     type: 'text',
-    placeholder: '16 digit NIK resmi',
+    placeholder: '16 digit NIK',
     required: true,
     isActive: true,
   },
@@ -139,7 +139,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Upload File KTP / NPWP',
     type: 'file',
-    placeholder: 'Unggah dokumen KTP atau NPWP (Format: JPG, JPEG, PNG, atau PDF)',
+    placeholder: 'JPG, PNG, atau PDF',
     required: true,
     isActive: true,
   },
@@ -150,7 +150,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: DEFAULT_SPECIALIZATION_LABEL,
     type: 'select',
-    placeholder: 'Pilih Bidang Keahlian / Profesi Mitra',
+    placeholder: 'Pilih keahlian',
     required: true,
     isActive: true,
   },
@@ -172,7 +172,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nomor Rekening Bank',
     type: 'number',
-    placeholder: 'Contoh: 8830192837',
+    placeholder: 'Nomor rekening',
     required: true,
     isActive: true,
   },
@@ -183,7 +183,7 @@ export const DEFAULT_MITRA_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nama Pemilik Rekening',
     type: 'text',
-    placeholder: 'Harus sesuai buku tabungan',
+    placeholder: 'Nama pemilik rekening',
     required: true,
     isActive: true,
   },
@@ -196,7 +196,7 @@ export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nama Perusahaan / Entitas Klien',
     type: 'text',
-    placeholder: 'Contoh: PT Surya Kencana Abadi',
+    placeholder: 'Nama perusahaan',
     required: true,
     isActive: true,
   },
@@ -206,7 +206,7 @@ export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nama PIC / Direktur Penanggung Jawab',
     type: 'text',
-    placeholder: 'Contoh: Bpk. Bambang Gunawan (Direktur Keuangan)',
+    placeholder: 'Nama PIC',
     required: true,
     isActive: true,
   },
@@ -216,7 +216,7 @@ export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Nomor WhatsApp / HP PIC',
     type: 'text',
-    placeholder: '0812-XXXX-XXXX',
+    placeholder: '0812xxxx',
     required: true,
     isActive: true,
   },
@@ -226,7 +226,7 @@ export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Email PIC / Kantor Klien',
     type: 'text',
-    placeholder: 'finance@suryakencana.co.id',
+    placeholder: 'email@perusahaan.com',
     required: false,
     isActive: true,
   },
@@ -236,8 +236,7 @@ export const DEFAULT_CLIENT_FORM_FIELDS: DynamicFormField[] = [
     isDefault: true,
     label: 'Catatan Tambahan & Kebutuhan Spesifik Klien',
     type: 'textarea',
-    placeholder:
-      'Contoh: Klien membutuhkan pendampingan segera karena jatuh tempo SPT Badan tanggal 30 atau sedang menerima surat panggilan klarifikasi SP2DK dari KPP.',
+    placeholder: 'Catatan kebutuhan...',
     required: false,
     isActive: true,
   },
@@ -1230,6 +1229,32 @@ export function getBankOptionUsageCount(bankLabel: string, mitras: Mitra[]): num
   ).length;
 }
 
+const LEGACY_PLACEHOLDER_UPGRADES: Record<string, string> = {
+  'Contoh: Muhammad Reza, S.H., M.H.': 'Nama lengkap',
+  '0812-xxxx-xxxx': '0812xxxx',
+  '0812-XXXX-XXXX': '0812xxxx',
+  '16 digit NIK resmi': '16 digit NIK',
+  'Unggah dokumen KTP atau NPWP (Format: JPG, JPEG, PNG, atau PDF)': 'JPG, PNG, atau PDF',
+  'Pilih Bidang Keahlian / Profesi Mitra': 'Pilih keahlian',
+  'Contoh: 8830192837': 'Nomor rekening',
+  'Harus sesuai buku tabungan': 'Nama pemilik rekening',
+  'Contoh: PT Surya Kencana Abadi': 'Nama perusahaan',
+  'Contoh: PT Sumber Pangan Makmur': 'Nama perusahaan',
+  'Contoh: Bpk. Bambang Gunawan (Direktur Keuangan)': 'Nama PIC',
+  'Contoh: Budi Santoso (Direktur)': 'Nama PIC',
+  'finance@suryakencana.co.id': 'email@perusahaan.com',
+  'finance@sumberpangan.com': 'email@perusahaan.com',
+  'Contoh: Klien membutuhkan pendampingan segera karena jatuh tempo SPT Badan tanggal 30 atau sedang menerima surat panggilan klarifikasi SP2DK dari KPP.':
+    'Catatan kebutuhan...',
+  'Contoh: Perlu pendampingan untuk membalas surat SP2DK atau persiapan audit laporan keuangan akhir tahun.':
+    'Catatan kebutuhan...',
+};
+
+function normalizeShortPlaceholder(placeholder?: string): string | undefined {
+  if (!placeholder) return placeholder;
+  return LEGACY_PLACEHOLDER_UPGRADES[placeholder.trim()] || placeholder;
+}
+
 export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFormField[] {
   const existing = Array.isArray(settings?.mitraCustomFields) ? settings!.mitraCustomFields! : [];
   const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
@@ -1243,10 +1268,12 @@ export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFo
       f.systemKey === 'accountHolder'
         ? 'bank'
         : 'profile');
+    const nextPlaceholder = normalizeShortPlaceholder(f.placeholder);
 
     if (f.systemKey === 'specialization') {
       return {
         ...f,
+        placeholder: nextPlaceholder,
         section: inferredSection,
         label: f.label || specLabel,
         isActive: settings?.specializationEnabled !== undefined ? specEnabled : f.isActive,
@@ -1255,12 +1282,14 @@ export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFo
     if (f.systemKey === 'accountNumber') {
       return {
         ...f,
+        placeholder: nextPlaceholder,
         type: f.type === 'text' ? 'number' : (f.type || 'number'),
         section: inferredSection,
       };
     }
     return {
       ...f,
+      placeholder: nextPlaceholder,
       section: inferredSection,
     };
   };
@@ -1302,14 +1331,18 @@ export function resolveMitraFormFields(settings?: AppSettings | null): DynamicFo
 
 export function resolveClientFormFields(settings?: AppSettings | null): DynamicFormField[] {
   const existing = Array.isArray(settings?.clientCustomFields) ? settings!.clientCustomFields! : [];
+  const normalizeClientField = (f: DynamicFormField): DynamicFormField => ({
+    ...f,
+    placeholder: normalizeShortPlaceholder(f.placeholder),
+  });
   if (settings?.clientFieldsInitialized) {
-    return existing;
+    return existing.map(normalizeClientField);
   }
   const hasAnyDefault = existing.some((f) => Boolean(f.systemKey || f.isDefault));
   if (hasAnyDefault) {
-    return existing;
+    return existing.map(normalizeClientField);
   }
-  return [...DEFAULT_CLIENT_FORM_FIELDS.map((df) => ({ ...df })), ...existing];
+  return [...DEFAULT_CLIENT_FORM_FIELDS.map((df) => ({ ...df })), ...existing.map(normalizeClientField)];
 }
 
 export function getSpecializationOptionUsageCount(optionLabel: string, mitras: Mitra[]): number {

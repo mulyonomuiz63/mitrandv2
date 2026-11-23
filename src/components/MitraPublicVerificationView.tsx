@@ -9,7 +9,6 @@ import {
   Phone,
   Mail,
   ChevronLeft,
-  Sparkles,
   UserCheck
 } from 'lucide-react';
 import { resolveAvatarUrl, MALE_AVATAR_URL } from '../avatars';
@@ -132,8 +131,7 @@ export const MitraPublicVerificationView: React.FC<MitraPublicVerificationViewPr
                   </h1>
                 </div>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-xs text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-amber-200" />
+              <span className="px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-xs text-[10px] font-bold uppercase tracking-wider">
                 Aktif
               </span>
             </div>

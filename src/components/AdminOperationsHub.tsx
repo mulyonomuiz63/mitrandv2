@@ -17,7 +17,6 @@ import {
   Check,
   X,
   ShieldCheck,
-  Sparkles,
   Phone,
   Mail,
   ChevronRight,
@@ -1235,7 +1234,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="Cari perusahaan klien, PIC, paket layanan pajak, mitra, atau kode referral..."
+                placeholder="Cari klien, layanan, atau mitra..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
@@ -3065,7 +3064,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Cari nama pelaku, email, modul, atau deskripsi aktivitas..."
+                  placeholder="Cari aktivitas..."
                   value={activitySearch}
                   onChange={(e) => {
                     setActivitySearch(e.target.value);
@@ -3307,7 +3306,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Cari alamat email tujuan, nama penerima, atau subjek email..."
+                  placeholder="Cari email atau subjek..."
                   value={emailSearch}
                   onChange={(e) => {
                     setEmailSearch(e.target.value);
@@ -3636,7 +3635,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                       setPphNominal(Number(e.target.value));
                       setPphRate('');
                     }}
-                    placeholder="Masukkan nominal potongan PPh 21 jika ada..."
+                    placeholder="Potongan PPh 21"
                     className="w-full pl-9 pr-3 py-2 text-xs font-mono font-bold text-rose-700 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
                   />
                 </div>
@@ -3782,7 +3781,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                     type="text"
                     value={approvalNotes}
                     onChange={(e) => setApprovalNotes(e.target.value)}
-                    placeholder="Catatan pelengkap pencairan..."
+                    placeholder="Catatan pencairan..."
                     className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
@@ -3996,7 +3995,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   type="text"
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Contoh: Klien telah konfirmasi pembayaran kontrak / Batal karena belum sepakat harga"
+                  placeholder="Catatan konfirmasi..."
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>
@@ -4125,7 +4124,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   required
                   value={bonusTitleInput}
                   onChange={(e) => setBonusTitleInput(e.target.value)}
-                  placeholder="Contoh: Hadiah / Bonus Tier 1: Jalan-Jalan LN"
+                  placeholder="Nama bonus / reward"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                 />
               </div>
@@ -4182,7 +4181,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   rows={2}
                   value={bonusNotesInput}
                   onChange={(e) => setBonusNotesInput(e.target.value)}
-                  placeholder="Catatan apresiasi pencapaian target..."
+                  placeholder="Catatan apresiasi..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                 />
               </div>
@@ -4264,7 +4263,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
                   type="text"
                   value={terminationReason}
                   onChange={(e) => setTerminationReason(e.target.value)}
-                  placeholder="Contoh: Klien menghentikan kontrak retainer per bulan ini"
+                  placeholder="Alasan berhenti..."
                   required
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-600 outline-none"
                 />

@@ -30,7 +30,7 @@ import {
   calculateClientDealCommission,
   isMitraDataIncomplete,
 } from '../types';
-import { UserCheck, Sparkles, Plus, Repeat, Award, Target, Gift } from 'lucide-react';
+import { UserCheck, Plus, Repeat, Award, Target, Gift } from 'lucide-react';
 import { PayoutReceiptModal } from './PayoutReceiptModal';
 import {
   useServerDataTable,

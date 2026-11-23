@@ -862,7 +862,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                   required
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Contoh: Rina Wijaya, S.E."
+                  placeholder="Nama staf"
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>
@@ -876,7 +876,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                   required
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="Contoh: rina.staf@ndtaxandlaw.com"
+                  placeholder="email@ndtaxandlaw.com"
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>
@@ -889,7 +889,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                   type="text"
                   value={newPhone}
                   onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder="Contoh: 0813-xxxx-xxxx"
+                  placeholder="0812xxxx"
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>
@@ -902,7 +902,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                   type="text"
                   value={newPosition}
                   onChange={(e) => setNewPosition(e.target.value)}
-                  placeholder="Contoh: Staf Operasional & Administrasi"
+                  placeholder="Jabatan staf"
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>
@@ -917,7 +917,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Masukkan password login staf..."
+                    placeholder="Password staf"
                     className="w-full pl-3.5 pr-10 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                   <button
@@ -1189,7 +1189,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                       type={showAdminPass ? 'text' : 'password'}
                       value={adminNewPassword}
                       onChange={(e) => setAdminNewPassword(e.target.value)}
-                      placeholder="Masukkan password baru Admin..."
+                      placeholder="Password baru"
                       className="w-full pl-3.5 pr-10 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                     />
                     <button
@@ -1210,7 +1210,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                     type={showAdminPass ? 'text' : 'password'}
                     value={adminConfirmPassword}
                     onChange={(e) => setAdminConfirmPassword(e.target.value)}
-                    placeholder="Ketik ulang password baru Admin..."
+                    placeholder="Ulangi password"
                     className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
@@ -1326,7 +1326,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                       type={showEditPass ? 'text' : 'password'}
                       value={editNewPassword}
                       onChange={(e) => setEditNewPassword(e.target.value)}
-                      placeholder="Masukkan password baru untuk Staf ini (min. 6 karakter)..."
+                      placeholder="Password baru (min. 6 karakter)"
                       className="w-full pl-3 pr-9 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                     />
                     <button

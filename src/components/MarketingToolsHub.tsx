@@ -8,7 +8,6 @@ import {
   Plus, 
   Trash2, 
   Eye, 
-  Sparkles, 
   CheckCircle, 
   BookOpen,
   Share2,
@@ -653,7 +652,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Cari brosur, proposal penawaran, company profile, video pitching, atau panduan closing..."
+                placeholder="Cari materi marketing..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-transparent"
@@ -1189,7 +1188,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Proposal Penawaran & Company Profile NDTAXANDLAW 2026"
+                  placeholder="Judul materi"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -1347,7 +1346,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: 4.2 MB"
+                    placeholder="4.2 MB"
                     value={newFileSize}
                     onChange={(e) => setNewFileSize(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-slate-50 font-mono"
@@ -1360,7 +1359,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: Jasa Perpajakan & Hukum"
+                    placeholder="Layanan target"
                     value={newTargetProduct}
                     onChange={(e) => setNewTargetProduct(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
@@ -1375,7 +1374,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="04:20 min"
+                    placeholder="04:20"
                     value={newDuration}
                     onChange={(e) => setNewDuration(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
@@ -1389,7 +1388,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </label>
                 <textarea
                   rows={3}
-                  placeholder="Jelaskan cara mitra menggunakan file ini untuk memasarkan layanan kepada calon klien."
+                  placeholder="Deskripsi materi..."
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -1397,8 +1396,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               </div>
 
               <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-900 border border-blue-200">
-                <p className="font-semibold flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <p className="font-semibold">
                   Notifikasi Otomatis Real-Time:
                 </p>
                 <p className="mt-0.5 text-blue-800 text-[11px]">

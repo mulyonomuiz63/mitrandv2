@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Sparkles, Upload } from 'lucide-react';
+import { X, Building2, User, Phone, Mail, FileText, CheckCircle2, DollarSign, Calendar, Copy, Check, ArrowRight, ShieldCheck, Upload } from 'lucide-react';
 import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
 import {
   Mitra,
@@ -482,8 +482,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                         value={companyName}
                         onChange={(e) => setCompanyName(e.target.value)}
                         placeholder={
-                          getSysField('companyName')?.placeholder ||
-                          'Contoh: PT Surya Kencana Abadi'
+                          getSysField('companyName')?.placeholder || 'Nama perusahaan'
                         }
                         className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                       />
@@ -507,8 +506,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                         value={picName}
                         onChange={(e) => setPicName(e.target.value)}
                         placeholder={
-                          getSysField('picName')?.placeholder ||
-                          'Contoh: Bpk. Bambang Gunawan (Direktur Keuangan)'
+                          getSysField('picName')?.placeholder || 'Nama PIC'
                         }
                         className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                       />
@@ -531,7 +529,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                         required={getSysField('picPhone')?.required !== false}
                         value={picPhone}
                         onChange={(e) => setPicPhone(e.target.value)}
-                        placeholder={getSysField('picPhone')?.placeholder || '0812-XXXX-XXXX'}
+                        placeholder={getSysField('picPhone')?.placeholder || '0812xxxx'}
                         className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                       />
                     </div>
@@ -554,7 +552,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                         value={picEmail}
                         onChange={(e) => setPicEmail(e.target.value)}
                         placeholder={
-                          getSysField('picEmail')?.placeholder || 'finance@suryakencana.co.id'
+                          getSysField('picEmail')?.placeholder || 'email@perusahaan.com'
                         }
                         className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                       />
@@ -928,8 +926,7 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder={
-                      getSysField('notes')?.placeholder ||
-                      'Contoh: Klien membutuhkan pendampingan segera karena jatuh tempo SPT Badan tanggal 30 atau sedang menerima surat panggilan klarifikasi SP2DK dari KPP.'
+                      getSysField('notes')?.placeholder || 'Catatan kebutuhan...'
                     }
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                   />

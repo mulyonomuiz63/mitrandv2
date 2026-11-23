@@ -16,7 +16,6 @@ import {
   ExternalLink,
   Shield,
   Lock,
-  Sparkles,
   Copy,
   Share2,
   UserPlus,
@@ -1929,7 +1928,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   type="text"
                   value={sidebarSearch}
                   onChange={(e) => setSidebarSearch(e.target.value)}
-                  placeholder="Cari nama Mitra, Staf, kode, atau grup..."
+                  placeholder="Cari kontak atau grup..."
                   className="w-full pl-9 pr-8 py-2 text-xs bg-slate-100 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
                 />
                 {sidebarSearch && (
@@ -2331,7 +2330,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     type="text"
                     value={messageSearch}
                     onChange={(e) => setMessageSearch(e.target.value)}
-                    placeholder="Ketik kata kunci untuk mencari isi pesan di ruang ini..."
+                    placeholder="Cari pesan..."
                     className="flex-1 text-xs bg-transparent outline-none text-slate-800"
                     autoFocus
                   />
@@ -3262,7 +3261,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   required
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="Contoh: Tim Koordinasi Pajak PT Areta"
+                  placeholder="Nama grup"
                   className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
               </div>
@@ -3275,7 +3274,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   rows={2}
                   value={newGroupDescription}
                   onChange={(e) => setNewGroupDescription(e.target.value)}
-                  placeholder="Tulis deskripsi, tujuan koordinasi, atau info penting grup ini..."
+                  placeholder="Deskripsi grup..."
                   className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
                 />
               </div>
@@ -3291,7 +3290,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   type="text"
                   value={groupMemberSearch}
                   onChange={(e) => setGroupMemberSearch(e.target.value)}
-                  placeholder="Cari nama Mitra atau Staf..."
+                  placeholder="Cari Mitra / Staf..."
                   className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
                 />
 
@@ -3510,7 +3509,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       rows={3}
                       value={editGroupDescription}
                       onChange={(e) => setEditGroupDescription(e.target.value)}
-                      placeholder="Tambahkan deskripsi grup, panduan koordinasi, atau informasi penting untuk seluruh anggota..."
+                      placeholder="Deskripsi grup..."
                       className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none resize-none"
                     />
                   </div>
@@ -3550,7 +3549,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     type="text"
                     value={groupInfoMemberSearch}
                     onChange={(e) => setGroupInfoMemberSearch(e.target.value)}
-                    placeholder="Cari nama Mitra atau Staf untuk ditambahkan..."
+                    placeholder="Cari Mitra / Staf..."
                     className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
                   />
                 )}
@@ -4030,7 +4029,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       type="text"
                       value={forwardRoomSearch}
                       onChange={(e) => setForwardRoomSearch(e.target.value)}
-                      placeholder="Cari kontak, ruang chat, atau grup tujuan..."
+                      placeholder="Cari tujuan..."
                       className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
                     />
                     <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">

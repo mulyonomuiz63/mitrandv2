@@ -3,7 +3,6 @@ import {
   X,
   Settings,
   ShieldCheck,
-  Sparkles,
   Key,
   Globe,
   Sliders,
@@ -1044,7 +1043,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                                   : { logoVerticalUrl: val }),
                               });
                             }}
-                            placeholder="Atau masukkan URL logo..."
+                            placeholder="URL logo"
                             className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"
                           />
                         </div>
@@ -1059,7 +1058,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                             type="text"
                             value={settings.appVersion ?? 'v2.5.0'}
                             onChange={(e) => setSettings({ ...settings, appVersion: e.target.value })}
-                            placeholder="Contoh: v2.5.0"
+                            placeholder="v2.5.0"
                             className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"
                           />
                         </div>
@@ -1071,7 +1070,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                             type="text"
                             value={settings.copyrightText ?? 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.'}
                             onChange={(e) => setSettings({ ...settings, copyrightText: e.target.value })}
-                            placeholder="Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi."
+                            placeholder="Teks hak cipta"
                             className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"
                           />
                         </div>
@@ -1194,7 +1193,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                               mitraFieldsInitialized: true,
                             });
                           }}
-                          placeholder="Contoh: Bidang Keahlian / Profesi Mitra"
+                          placeholder="Label bidang keahlian"
                           className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                         />
                       </div>
@@ -1228,7 +1227,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newSpecLabel}
                         onChange={(e) => setNewSpecLabel(e.target.value)}
-                        placeholder="Tambah pilihan bidang keahlian / spesialisasi baru..."
+                        placeholder="Tambah keahlian baru..."
                         className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                       />
                       <button
@@ -1484,7 +1483,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newMitraFieldLabel}
                         onChange={(e) => setNewMitraFieldLabel(e.target.value)}
-                        placeholder="Contoh: Nomor NPWP / Kota Domisili"
+                        placeholder="Nama kolom"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1512,7 +1511,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newMitraFieldPlaceholder}
                         onChange={(e) => setNewMitraFieldPlaceholder(e.target.value)}
-                        placeholder="Contoh: Masukkan 15/16 digit NPWP"
+                        placeholder="Teks bantuan"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1527,7 +1526,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newMitraFieldOptions}
                         onChange={(e) => setNewMitraFieldOptions(e.target.value)}
-                        placeholder="Contoh: Perorangan, Firma Hukum, Kantor Akuntan Publik"
+                        placeholder="Opsi1, Opsi2, Opsi3"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1947,7 +1946,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           type="text"
                           value={newBankOptionName}
                           onChange={(e) => setNewBankOptionName(e.target.value)}
-                          placeholder="Tambah pilihan Nama Bank / E-Wallet baru (Contoh: Bank Permata, Bank Danamon, SeaBank)..."
+                          placeholder="Tambah bank / e-wallet..."
                           className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
                         />
                         <button
@@ -2071,7 +2070,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newBankFieldLabel}
                         onChange={(e) => setNewBankFieldLabel(e.target.value)}
-                        placeholder="Contoh: Cabang Bank (KCP) / Kode Swift"
+                        placeholder="Nama kolom"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2099,7 +2098,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newBankFieldPlaceholder}
                         onChange={(e) => setNewBankFieldPlaceholder(e.target.value)}
-                        placeholder="Contoh: KCP Sudirman Jakarta"
+                        placeholder="Teks bantuan"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2114,7 +2113,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newBankFieldOptions}
                         onChange={(e) => setNewBankFieldOptions(e.target.value)}
-                        placeholder="Contoh: Rekening Pribadi, Rekening Perusahaan / Firma"
+                        placeholder="Opsi1, Opsi2"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2501,7 +2500,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newClientFieldLabel}
                         onChange={(e) => setNewClientFieldLabel(e.target.value)}
-                        placeholder="Contoh: NPWP Badan / KPP Terdaftar"
+                        placeholder="Nama kolom"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2529,7 +2528,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newClientFieldPlaceholder}
                         onChange={(e) => setNewClientFieldPlaceholder(e.target.value)}
-                        placeholder="Contoh: KPP Pratama Jakarta Setiabudi"
+                        placeholder="Teks bantuan"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2544,7 +2543,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         type="text"
                         value={newClientFieldOptions}
                         onChange={(e) => setNewClientFieldOptions(e.target.value)}
-                        placeholder="Contoh: PKP, Non-PKP, UMKM Final"
+                        placeholder="Opsi1, Opsi2, Opsi3"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -3532,7 +3531,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           type="text"
                           value={settings.smtpHost}
                           onChange={(e) => setSettings({ ...settings, smtpHost: e.target.value })}
-                          placeholder="smtp.gmail.com atau mail.ndtaxandlaw.com"
+                          placeholder="smtp.domain.com"
                           className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 bg-white"
                         />
                       </div>
@@ -3586,7 +3585,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                             type={showPassword ? 'text' : 'password'}
                             value={settings.smtpPassword || ''}
                             onChange={(e) => setSettings({ ...settings, smtpPassword: e.target.value })}
-                            placeholder="Kata sandi aplikasi SMTP"
+                            placeholder="Password SMTP"
                             className="w-full pl-3 pr-8 py-2 text-xs font-mono border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 bg-white"
                           />
                           <button
@@ -3733,7 +3732,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           type="email"
                           value={testEmailTarget}
                           onChange={(e) => setTestEmailTarget(e.target.value)}
-                          placeholder="Masukkan email tujuan tes (contoh: email-anda@gmail.com)"
+                          placeholder="Email tujuan tes"
                           className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-emerald-600 bg-white"
                         />
                       </div>
@@ -3880,7 +3879,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                     type="text"
                     value={settings.googleClientId}
                     onChange={(e) => setSettings({ ...settings, googleClientId: e.target.value })}
-                    placeholder="Contoh: 123456789-abcdef.apps.googleusercontent.com"
+                    placeholder="Google Client ID"
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg outline-none font-mono bg-white"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">

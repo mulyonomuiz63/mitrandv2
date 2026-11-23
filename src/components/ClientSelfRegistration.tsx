@@ -7,7 +7,6 @@ import {
   FileText,
   CheckCircle2,
   ShieldCheck,
-  Sparkles,
   ArrowRight,
   Check,
   ChevronLeft,
@@ -330,7 +329,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 Pendaftaran Klien Berhasil Diterima!
               </h2>
               <p className="text-xs sm:text-sm text-blue-100 max-w-lg mx-auto leading-relaxed">
-                Terima kasih, data perusahaan <strong>{companyName || picName || 'Klien'}</strong> telah berhasil didaftarkan dan terhubung secara resmi melalui kode referral <span className="font-mono font-bold text-amber-300">{referralCode}</span>.
+                Terima kasih, data perusahaan <strong>{companyName || picName || 'Klien'}</strong> telah berhasil didaftarkan ke tim konsultan NDTAXANDLAW.
               </p>
             </div>
 
@@ -375,15 +374,11 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                   REF
                 </div>
                 <div>
-                  <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
                     Tautan Rekomendasi Resmi
                   </div>
                   <div className="text-sm font-bold text-white mt-0.5">
                     {mitra ? mitra.fullName : 'Mitra Terdaftar NDTAXANDLAW'}
-                  </div>
-                  <div className="text-xs text-blue-200 font-mono">
-                    Kode Referral: <strong className="text-amber-300">{referralCode || 'ND-REF-0042'}</strong>
                   </div>
                 </div>
               </div>
@@ -426,8 +421,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         value={companyName}
                         onChange={(e) => setCompanyName(e.target.value)}
                         placeholder={
-                          getSysField('companyName')?.placeholder ||
-                          'Contoh: PT Sumber Pangan Makmur'
+                          getSysField('companyName')?.placeholder || 'Nama perusahaan'
                         }
                         className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
@@ -451,7 +445,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         value={picName}
                         onChange={(e) => setPicName(e.target.value)}
                         placeholder={
-                          getSysField('picName')?.placeholder || 'Contoh: Budi Santoso (Direktur)'
+                          getSysField('picName')?.placeholder || 'Nama PIC'
                         }
                         className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
@@ -474,7 +468,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         required={getSysField('picPhone')?.required !== false}
                         value={picPhone}
                         onChange={(e) => setPicPhone(e.target.value)}
-                        placeholder={getSysField('picPhone')?.placeholder || '0812-XXXX-XXXX'}
+                        placeholder={getSysField('picPhone')?.placeholder || '0812xxxx'}
                         className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     </div>
@@ -495,7 +489,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         value={picEmail}
                         onChange={(e) => setPicEmail(e.target.value)}
                         placeholder={
-                          getSysField('picEmail')?.placeholder || 'finance@sumberpangan.com'
+                          getSysField('picEmail')?.placeholder || 'email@perusahaan.com'
                         }
                         className="w-full pl-9 pr-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
@@ -522,7 +516,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                               ✓ File sudah diunggah
                             </span>
                           ) : (
-                            <span>{field.placeholder || 'Format: JPG, JPEG, PNG, atau PDF'}</span>
+                            <span>{field.placeholder || 'JPG, PNG, atau PDF'}</span>
                           )}
                         </div>
                         <label className="px-3 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
@@ -579,7 +573,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         onChange={(e) =>
                           setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
                         }
-                        placeholder={field.placeholder || `Masukkan ${field.label}`}
+                        placeholder={field.placeholder || `Isi ${field.label}`}
                         className="w-full px-3 py-2 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     ) : (
@@ -590,7 +584,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                         onChange={(e) =>
                           setCustomFields((prev) => ({ ...prev, [field.label]: e.target.value }))
                         }
-                        placeholder={field.placeholder || `Masukkan ${field.label}`}
+                        placeholder={field.placeholder || `Isi ${field.label}`}
                         className="w-full px-3 py-2.5 text-sm bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                       />
                     )}
@@ -622,72 +616,6 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-1 mb-1.5">
-                    <label className="block text-xs font-semibold text-amber-200">
-                      Model Pembayaran &amp; Skema Komisi Klien
-                    </label>
-                    <span className="text-[11px] font-medium text-amber-300 bg-amber-400/15 border border-amber-400/30 px-2 py-0.5 rounded-md">
-                      Otomatis mengikuti layanan ({effectivePricingType === 'monthly_subscription' ? 'Langganan Bulanan' : effectivePricingType === 'annual_subscription' ? 'Langganan Tahunan' : 'Case-by-Case / Per Projek'})
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <button
-                      type="button"
-                      disabled={effectivePricingType !== 'case_by_case'}
-                      onClick={() => {
-                        if (effectivePricingType === 'case_by_case') setPricingType('case_by_case');
-                      }}
-                      className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                        effectivePricingType === 'case_by_case'
-                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30'
-                          : 'bg-[#092147]/50 text-blue-300/40 border-amber-400/10 opacity-45 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className="font-bold text-sm block">⚡ Case-by-Case (Per Projek)</span>
-                      <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'case_by_case' ? 'text-slate-800 font-semibold' : 'text-blue-200/40'}`}>
-                        1x Bayar (Per Projek / Multi-Bulan)
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={effectivePricingType !== 'monthly_subscription'}
-                      onClick={() => {
-                        if (effectivePricingType === 'monthly_subscription') setPricingType('monthly_subscription');
-                      }}
-                      className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                        effectivePricingType === 'monthly_subscription'
-                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30'
-                          : 'bg-[#092147]/50 text-blue-300/40 border-amber-400/10 opacity-45 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className="font-bold text-sm block">🔄 Langganan Bulanan</span>
-                      <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'monthly_subscription' ? 'text-slate-800 font-semibold' : 'text-blue-200/40'}`}>
-                        Komisi tiap siklus bulanan
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={effectivePricingType !== 'annual_subscription'}
-                      onClick={() => {
-                        if (effectivePricingType === 'annual_subscription') setPricingType('annual_subscription');
-                      }}
-                      className={`p-3 text-xs font-medium rounded-xl border text-left transition-all ${
-                        effectivePricingType === 'annual_subscription'
-                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30'
-                          : 'bg-[#092147]/50 text-blue-300/40 border-amber-400/10 opacity-45 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className="font-bold text-sm block">📅 Langganan Tahunan</span>
-                      <span className={`block text-[11px] mt-0.5 ${effectivePricingType === 'annual_subscription' ? 'text-slate-800 font-semibold' : 'text-blue-200/40'}`}>
-                        Annual Retainer Perikatan
-                      </span>
-                    </button>
-                  </div>
                 </div>
 
                 {/* Case by case custom multi-month period */}
@@ -790,8 +718,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder={
-                      getSysField('notes')?.placeholder ||
-                      'Contoh: Perlu pendampingan untuk membalas surat SP2DK atau persiapan audit laporan keuangan akhir tahun.'
+                      getSysField('notes')?.placeholder || 'Catatan kebutuhan...'
                     }
                     className="w-full px-3 py-2 text-xs bg-[#061835] border border-amber-400/30 rounded-xl text-white placeholder-blue-300/50 focus:ring-2 focus:ring-amber-400 outline-none"
                   />

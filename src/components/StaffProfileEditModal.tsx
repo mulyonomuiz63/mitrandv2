@@ -405,7 +405,7 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Masukkan nama lengkap..."
+                  placeholder="Nama lengkap"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                 />
               </div>
@@ -437,7 +437,7 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
                     type="text"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="0812-xxxx-xxxx"
+                    placeholder="0812xxxx"
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
@@ -453,7 +453,7 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
                     type="text"
                     value={position}
                     onChange={(e) => setPosition(e.target.value)}
-                    placeholder="Contoh: Staf Operasional & Administrasi"
+                    placeholder="Jabatan / posisi"
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>
@@ -484,7 +484,7 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
                       type={showPassword ? 'text' : 'password'}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Masukkan password baru..."
+                      placeholder="Password baru"
                       className="w-full pl-3 pr-9 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                     />
                     <button
@@ -505,7 +505,7 @@ export const StaffProfileEditModal: React.FC<StaffProfileEditModalProps> = ({
                     type={showPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Ulangi password baru..."
+                    placeholder="Ulangi password"
                     className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                   />
                 </div>

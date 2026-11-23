@@ -325,7 +325,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                         setPricingType('annual_subscription');
                       }
                     }}
-                    placeholder="Contoh: Jasa Perpajakan (Bulanan) atau Jasa Perpajakan (Per Projek)"
+                    placeholder="Nama paket layanan"
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#113872] outline-none"
                   />
                 </div>
@@ -390,7 +390,7 @@ export const ServicesManagementModal: React.FC<ServicesManagementModalProps> = (
                     rows={2}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Ringkasan cakupan pekerjaan dan deliverables..."
+                    placeholder="Deskripsi layanan..."
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg outline-none"
                   />
                 </div>

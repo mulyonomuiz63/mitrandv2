@@ -21,7 +21,6 @@ import {
   Download,
   QrCode,
   Wallet,
-  Sparkles,
   ChevronRight,
   Users,
   FileText,
@@ -1407,7 +1406,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 : 'text-slate-600 hover:text-slate-900 font-semibold'
             }`}
           >
-            <Sparkles className="w-4 h-4 mb-0.5" />
+            <CheckCircle2 className="w-4 h-4 mb-0.5" />
             <span className="text-[10px] leading-tight">Alur</span>
           </a>
         </div>
