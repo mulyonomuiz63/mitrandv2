@@ -28,6 +28,7 @@ interface RegistrationModalProps {
   isOpen: boolean;
   onClose: () => void;
   settings?: AppSettings | null;
+  isAdminOrStaffMode?: boolean;
   onRegister: (data: {
     fullName: string;
     email: string;
@@ -57,6 +58,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
   isOpen,
   onClose,
   settings,
+  isAdminOrStaffMode = false,
   onRegister,
 }) => {
   const allMitraFields = React.useMemo(() => resolveMitraFormFields(settings), [settings]);
@@ -119,6 +121,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  const [wasAutoApproved, setWasAutoApproved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
@@ -213,7 +216,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
         ...customFieldValues,
         ...bankCustomFieldValues,
       };
-      await onRegister({
+      const regResult = await onRegister({
         fullName: fullName || (email ? email.split('@')[0] : 'Mitra NDTAXANDLAW'),
         email,
         phone: isSysActive('phone') ? phone : '-',
@@ -231,6 +234,7 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
         password: password || 'mitraND2026!',
         customFields: Object.keys(mergedCustomFields).length > 0 ? mergedCustomFields : undefined,
       });
+      setWasAutoApproved(Boolean(isAdminOrStaffMode || regResult?.autoApproved));
       setIsDone(true);
     } catch (err: any) {
       const msg = err?.message || 'Pendaftaran gagal diproses. Silakan periksa kembali data Anda.';
@@ -589,29 +593,50 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <h3 className="text-lg font-bold text-slate-900 font-display">
-              Pendaftaran Kemitraan Berhasil!
+              {wasAutoApproved
+                ? 'Mitra Berhasil Ditambahkan & Langsung Disetujui!'
+                : 'Pendaftaran Kemitraan Berhasil!'}
             </h3>
-            <div className="mt-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-left max-w-md mx-auto text-xs text-blue-950 space-y-2">
-              <div className="flex items-start gap-2">
-                <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                <p className="font-semibold text-blue-900">Langkah Berikutnya: Verifikasi Email Anda</p>
+            {wasAutoApproved ? (
+              <div className="mt-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-left max-w-md mx-auto text-xs text-emerald-950 space-y-2">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                  <p className="font-semibold text-emerald-900">Akun Langsung Aktif &amp; Terverifikasi</p>
+                </div>
+                <p className="text-[11px] text-slate-700 leading-relaxed">
+                  Mitra dengan email <strong className="font-mono text-emerald-950">{email}</strong> sudah otomatis ter-approve dan dapat langsung masuk (login) ke portal untuk melengkapi Data Diri, NIK/NPWP, berkas KTP/NPWP, serta rekening bank.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Kode verifikasi 6-digit telah dikirimkan secara otomatis ke alamat email: <strong className="font-mono text-blue-950">{email}</strong>.
-              </p>
-              <p className="text-[11px] text-amber-800 font-medium bg-amber-50 p-2 rounded-lg border border-amber-200">
-                Penting: Akun Anda belum dapat digunakan untuk masuk (login) sebelum melakukan verifikasi email. Silakan masukkan kode verifikasi 6-digit saat masuk ke portal.
-              </p>
-            </div>
+            ) : (
+              <div className="mt-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-left max-w-md mx-auto text-xs text-blue-950 space-y-2">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                  <p className="font-semibold text-blue-900">Langkah Berikutnya: Verifikasi Email Anda</p>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Kode verifikasi 6-digit telah dikirimkan secara otomatis ke alamat email: <strong className="font-mono text-blue-950">{email}</strong>.
+                </p>
+                <p className="text-[11px] text-amber-800 font-medium bg-amber-50 p-2 rounded-lg border border-amber-200">
+                  Penting: Akun Anda belum dapat digunakan untuk masuk (login) sebelum melakukan verifikasi email. Silakan masukkan kode verifikasi 6-digit saat masuk ke portal.
+                </p>
+              </div>
+            )}
 
             <button
               onClick={() => {
                 setIsDone(false);
+                setWasAutoApproved(false);
+                setFullName('');
+                setEmail('');
+                setPhone('');
+                setPassword('');
+                setEmailError(null);
+                setErrorMessage(null);
                 onClose();
               }}
               className="mt-6 px-6 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors"
             >
-              Selesai &amp; Buka Halaman Masuk
+              {wasAutoApproved ? 'Selesai & Tutup' : 'Selesai & Buka Halaman Masuk'}
             </button>
           </div>
         )}

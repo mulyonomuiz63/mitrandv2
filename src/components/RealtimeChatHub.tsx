@@ -364,6 +364,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const contextMenuOpenedAtRef = useRef<number>(0);
+  const suppressNextBackdropClickUntilRef = useRef<number>(0);
   const isChatPageOpenRef = useRef<boolean>(isChatPageOpen);
   const roomsRef = useRef<ChatRoom[]>(rooms);
   const participantsRef = useRef<ChatParticipant[]>(participants);
@@ -1423,8 +1425,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       const pad = 12;
       const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
       const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
-      const x = Math.max(pad, Math.min(clientX, vw - menuWidth - pad));
-      const y = Math.max(pad, Math.min(clientY, vh - estimatedHeight - pad));
+      const isSmallScreen = vw < 640;
+      const rawX = isSmallScreen ? (vw - menuWidth) / 2 : clientX;
+      const rawY = isSmallScreen ? clientY - 40 : clientY;
+      const x = Math.max(pad, Math.min(rawX, vw - menuWidth - pad));
+      const y = Math.max(pad, Math.min(rawY, vh - estimatedHeight - pad));
+      contextMenuOpenedAtRef.current = Date.now();
       setContextMenu({ message: msg, x, y });
     },
     []
@@ -2560,20 +2566,37 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                 if (msg.isDeleted || isForwardSelectMode) return;
                                 e.preventDefault();
                                 e.stopPropagation();
+                                // Ignore Android Chrome's delayed native contextmenu right after our long-press already opened the menu
+                                if (
+                                  longPressTriggeredRef.current &&
+                                  Date.now() - contextMenuOpenedAtRef.current < 800
+                                ) {
+                                  return;
+                                }
                                 openMessageContextMenu(msg, e.clientX, e.clientY);
+                              }}
+                              onClickCapture={(e) => {
+                                if (longPressTriggeredRef.current) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  longPressTriggeredRef.current = false;
+                                }
                               }}
                               onTouchStart={(e) => {
                                 if (msg.isDeleted || isForwardSelectMode) return;
                                 const touch = e.touches[0];
                                 if (!touch) return;
+                                const startX = touch.clientX;
+                                const startY = touch.clientY;
                                 longPressTriggeredRef.current = false;
                                 clearLongPressTimer();
                                 longPressOriginRef.current = {
-                                  x: touch.clientX,
-                                  y: touch.clientY,
+                                  x: startX,
+                                  y: startY,
                                 };
                                 longPressTimerRef.current = setTimeout(() => {
                                   longPressTriggeredRef.current = true;
+                                  suppressNextBackdropClickUntilRef.current = Date.now() + 700;
                                   if (typeof navigator !== 'undefined' && navigator.vibrate) {
                                     try {
                                       navigator.vibrate(15);
@@ -2581,8 +2604,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                       // ignore
                                     }
                                   }
-                                  openMessageContextMenu(msg, touch.clientX, touch.clientY);
-                                }, 450);
+                                  openMessageContextMenu(msg, startX, startY);
+                                }, 400);
                               }}
                               onTouchMove={(e) => {
                                 if (!longPressOriginRef.current) return;
@@ -2590,13 +2613,21 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                 if (!touch) return;
                                 const dx = Math.abs(touch.clientX - longPressOriginRef.current.x);
                                 const dy = Math.abs(touch.clientY - longPressOriginRef.current.y);
-                                if (dx > 10 || dy > 10) {
+                                if (dx > 18 || dy > 18) {
                                   clearLongPressTimer();
                                 }
                               }}
-                              onTouchEnd={() => clearLongPressTimer()}
+                              onTouchEnd={(e) => {
+                                clearLongPressTimer();
+                                if (longPressTriggeredRef.current) {
+                                  suppressNextBackdropClickUntilRef.current = Date.now() + 550;
+                                  if (e.cancelable) {
+                                    e.preventDefault();
+                                  }
+                                }
+                              }}
                               onTouchCancel={() => clearLongPressTimer()}
-                              className={`group relative max-w-[88%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 shadow-xs select-none md:select-text ${
+                              className={`chat-touch-bubble group relative max-w-[88%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 shadow-xs ${
                                 isForwardSelectMode && !msg.isDeleted ? 'pointer-events-none' : ''
                               } ${
                                 msg.isDeleted
@@ -3618,15 +3649,32 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
         return (
           <div
-            className="fixed inset-0 z-50"
-            onClick={() => setContextMenu(null)}
+            className="fixed inset-0 z-50 bg-slate-950/35 sm:bg-transparent"
+            onClick={() => {
+              const now = Date.now();
+              if (
+                now - contextMenuOpenedAtRef.current < 550 ||
+                now < suppressNextBackdropClickUntilRef.current
+              ) {
+                return;
+              }
+              setContextMenu(null);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
+              const now = Date.now();
+              if (
+                now - contextMenuOpenedAtRef.current < 800 ||
+                now < suppressNextBackdropClickUntilRef.current
+              ) {
+                return;
+              }
               setContextMenu(null);
             }}
           >
             <div
               onClick={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
               style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
               className="fixed w-60 rounded-2xl bg-[#182229] text-slate-100 border border-white/10 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
             >

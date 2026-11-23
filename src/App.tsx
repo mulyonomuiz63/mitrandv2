@@ -508,10 +508,28 @@ export default function App() {
     avatarUrl?: string;
     customFields?: Record<string, string>;
   }) => {
+    const isPortalAdminOrStaff =
+      viewMode === 'portal' &&
+      Boolean(currentUser) &&
+      (currentUser?.portalView === 'admin' ||
+        currentUser?.role === 'admin' ||
+        currentUser?.roleCode === 'staff');
+
+    const payload = isPortalAdminOrStaff
+      ? {
+          ...formData,
+          autoApprove: true,
+          actorRole: currentUser?.roleCode === 'staff' ? 'staff' : 'admin',
+          actorName: currentUser?.name,
+          actorId: currentUser?.id,
+          actorEmail: currentUser?.email,
+        }
+      : formData;
+
     const res = await fetch('/api/mitra/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
@@ -969,14 +987,9 @@ export default function App() {
         {currentRole === 'mitra' && isMitraProfileIncomplete && (
           <div className="bg-amber-50 border-b border-amber-300 py-3 px-3 sm:px-6 lg:px-8">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-2.5 text-xs text-amber-950">
-                <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold">Data Diri &amp; Berkas Verifikasi Anda Belum Lengkap: </span>
-                  <span>
-                    Silakan lengkapi Data Diri (NIK KTP, Upload File KTP/NPWP, No. WhatsApp, dan Rekening Bank) terlebih dahulu. Fitur penambahan klien serta salin &amp; bagikan tautan registrasi klien akan aktif setelah Data Diri dan Upload File KTP/NPWP dilengkapi.
-                  </span>
-                </div>
+              <div className="flex items-center gap-2.5 text-xs text-amber-950">
+                <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="font-bold">Data Diri &amp; Berkas Verifikasi Anda Belum Lengkap.</span>
               </div>
               <button
                 type="button"
@@ -1274,6 +1287,7 @@ export default function App() {
         onClose={() => setIsRegisterOpen(false)}
         onRegister={handleRegisterMitra}
         settings={settings}
+        isAdminOrStaffMode={currentRole === 'admin'}
       />
 
       {currentRole === 'mitra' ? (

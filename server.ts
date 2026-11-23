@@ -4837,12 +4837,19 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     gender,
     role,
     customFields,
+    autoApprove,
+    actorRole,
+    actorName,
+    actorId,
+    actorEmail,
   } = req.body;
   if (!email) {
     return res.status(400).json({ success: false, message: 'Email wajib diisi untuk kredensial akun.' });
   }
   const safeFullName = (fullName || '').trim() || email.split('@')[0];
   const safePhone = (phone || '').trim() || '-';
+  const isAdminOrStaffCreated =
+    Boolean(autoApprove) && (actorRole === 'admin' || actorRole === 'staff');
 
   const normalizedEmail = (email || '').trim().toLowerCase();
 
@@ -4902,9 +4909,15 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     accountHolder: safeFullName,
   };
 
+  const newMitraId = `mitra-${Date.now()}`;
+  const rawMemberCode = `ND-TAX-LAW-${Math.floor(1000 + Math.random() * 9000)}`;
+  const resolvedMemberCode = isAdminOrStaffCreated
+    ? formatMitraMemberCode(rawMemberCode, newMitraId)
+    : rawMemberCode;
+
   const newMitra: Mitra = {
-    id: `mitra-${Date.now()}`,
-    memberCode: `ND-TAX-LAW-${Math.floor(1000 + Math.random() * 9000)}`,
+    id: newMitraId,
+    memberCode: resolvedMemberCode,
     referralCode: generatedReferralCode,
     fullName: safeFullName,
     email: normalizedEmail,
@@ -4913,16 +4926,21 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     ktpFileUrl: resolvedKtpUrl,
     ktpFileName: resolvedKtpName,
     specialization: specialization || 'Business Partner',
-    status: 'pending',
+    status: isAdminOrStaffCreated ? 'verified' : 'pending',
+    isActive: true,
     gender: resolvedGender,
     avatarUrl: req.body.avatarUrl || getDefaultAvatar(resolvedGender, safeFullName),
     joinedDate: new Date().toISOString().split('T')[0],
     bankDetails: {
       ...baseBank,
       __gender: resolvedGender,
-      __emailVerified: false,
-      __verificationToken: verificationToken,
-      __verificationTokenExpiry: verificationExpiryIso,
+      __emailVerified: isAdminOrStaffCreated,
+      ...(isAdminOrStaffCreated
+        ? {}
+        : {
+            __verificationToken: verificationToken,
+            __verificationTokenExpiry: verificationExpiryIso,
+          }),
       ...(resolvedKtpUrl ? { __ktpFileUrl: resolvedKtpUrl } : {}),
       ...(resolvedKtpName ? { __ktpFileName: resolvedKtpName } : {}),
       ...(cleanCustomFields ? { __customFields: cleanCustomFields } : {}),
@@ -4934,9 +4952,13 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     paidPayout: 0,
     referredClientsCount: 0,
     activeSubscribersCount: 0,
-    emailVerified: false,
-    verificationToken,
-    verificationTokenExpiry: verificationExpiryIso,
+    emailVerified: isAdminOrStaffCreated,
+    ...(isAdminOrStaffCreated
+      ? {}
+      : {
+          verificationToken,
+          verificationTokenExpiry: verificationExpiryIso,
+        }),
   };
 
   mitras.unshift(newMitra);
@@ -4945,14 +4967,16 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   userPasswords.set(normalizedEmail, encryptedPass);
 
   recordActivity({
-    actorRole: 'mitra',
-    actorId: newMitra.id,
-    actorName: newMitra.fullName,
-    actorEmail: newMitra.email,
+    actorRole: isAdminOrStaffCreated ? (actorRole === 'staff' ? 'staff' : 'admin') : 'mitra',
+    actorId: isAdminOrStaffCreated ? (actorId || 'admin-1') : newMitra.id,
+    actorName: isAdminOrStaffCreated ? (actorName || (actorRole === 'staff' ? 'Staf' : 'Administrator')) : newMitra.fullName,
+    actorEmail: isAdminOrStaffCreated ? (actorEmail || '') : newMitra.email,
     actionType: 'register',
     operation: 'CREATE',
     targetEntity: 'Pendaftaran Mitra',
-    description: `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`,
+    description: isAdminOrStaffCreated
+      ? `Mitra baru "${newMitra.fullName}" (${newMitra.email}, ${newMitra.memberCode}) ditambahkan langsung oleh ${actorName || (actorRole === 'staff' ? 'Staf' : 'Admin')} dan otomatis disetujui (Verified).`
+      : `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`,
   });
 
   if (db) {
@@ -4985,18 +5009,28 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  const emailResult = await sendSystemEmail({
-    recipient: normalizedEmail,
-    recipientName: safeFullName,
-    subject: `[Kode OTP: ${verificationToken}] Verifikasi Email Akun Kemitraan NDTAXANDLAW`,
-    category: 'registration_verify',
-    previewSnippet: `Halo ${safeFullName},\n\nTerima kasih telah mendaftar di jaringan Kemitraan Resmi NDTAXANDLAW (${newMitra.memberCode}).\n\nBerikut adalah Kode Verifikasi (OTP) 6-Digit Anda untuk memvalidasi email aktif:\n\nKODE VERIFIKASI: ${verificationToken}\n\nSilakan masukkan 6 digit kode di atas pada halaman Verifikasi Email untuk mengaktifkan akun kemitraan Anda. Kode ini berlaku selama 24 jam.`,
-  });
+  const emailResult = isAdminOrStaffCreated
+    ? await sendSystemEmail({
+        recipient: normalizedEmail,
+        recipientName: safeFullName,
+        subject: `Akun Mitra NDTAXANDLAW Anda Aktif & Terverifikasi (${newMitra.memberCode})`,
+        category: 'registration_verify',
+        previewSnippet: `Halo ${safeFullName},\n\nAkun Kemitraan Resmi NDTAXANDLAW Anda (${newMitra.memberCode}) telah didaftarkan dan langsung disetujui.\n\nAnda sudah dapat langsung masuk (login) menggunakan email ${normalizedEmail} untuk melengkapi Data Diri, NIK/NPWP, berkas KTP/NPWP, dan informasi rekening bank Anda.`,
+      })
+    : await sendSystemEmail({
+        recipient: normalizedEmail,
+        recipientName: safeFullName,
+        subject: `[Kode OTP: ${verificationToken}] Verifikasi Email Akun Kemitraan NDTAXANDLAW`,
+        category: 'registration_verify',
+        previewSnippet: `Halo ${safeFullName},\n\nTerima kasih telah mendaftar di jaringan Kemitraan Resmi NDTAXANDLAW (${newMitra.memberCode}).\n\nBerikut adalah Kode Verifikasi (OTP) 6-Digit Anda untuk memvalidasi email aktif:\n\nKODE VERIFIKASI: ${verificationToken}\n\nSilakan masukkan 6 digit kode di atas pada halaman Verifikasi Email untuk mengaktifkan akun kemitraan Anda. Kode ini berlaku selama 24 jam.`,
+      });
 
   const newNotif: NotificationItem = {
     id: `notif-ops-${Date.now()}`,
-    title: 'Pendaftaran Mitra Baru',
-    message: `${safeFullName} (${newMitra.memberCode}) baru saja mendaftar kemitraan (Menunggu validasi Admin).`,
+    title: isAdminOrStaffCreated ? 'Mitra Baru Ditambahkan & Disetujui' : 'Pendaftaran Mitra Baru',
+    message: isAdminOrStaffCreated
+      ? `${safeFullName} (${newMitra.memberCode}) ditambahkan oleh ${actorName || (actorRole === 'staff' ? 'Staf' : 'Admin')} dan langsung berstatus Terverifikasi.`
+      : `${safeFullName} (${newMitra.memberCode}) baru saja mendaftar kemitraan (Menunggu validasi Admin).`,
     type: 'verification',
     timestamp: new Date().toISOString(),
     isRead: false,
@@ -5017,11 +5051,14 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
   res.status(201).json({
     success: true,
     data: safeMitraData,
-    needsEmailVerification: true,
+    autoApproved: isAdminOrStaffCreated,
+    needsEmailVerification: !isAdminOrStaffCreated,
     email: normalizedEmail,
     emailSent: emailResult.success,
     emailError: emailResult.error,
-    message: `Pendaftaran berhasil disimpan! Kami telah mengirimkan kode OTP 6-digit ke alamat email ${normalizedEmail}. Silakan masukkan kode tersebut untuk mengaktifkan akun Anda.`,
+    message: isAdminOrStaffCreated
+      ? `Mitra "${safeFullName}" berhasil ditambahkan dan langsung disetujui (Terverifikasi). Mitra sudah dapat langsung login dan melengkapi data diri.`
+      : `Pendaftaran berhasil disimpan! Kami telah mengirimkan kode OTP 6-digit ke alamat email ${normalizedEmail}. Silakan masukkan kode tersebut untuk mengaktifkan akun Anda.`,
   });
 });
 

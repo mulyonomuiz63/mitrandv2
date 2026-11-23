@@ -78,11 +78,93 @@ html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
   color: #0f172a !important;
 }
 
+/* Prevent native iOS/Android callout & text selection from hijacking chat long-press on mobile */
+.chat-touch-bubble {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y;
+}
+@media (min-width: 768px) {
+  .chat-touch-bubble {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Hidden on screen, shown cleanly as top-level document body child when printing Mitra ID Card */
+#nd-id-card-print-root {
+  display: none;
+}
+
 @media print {
+  @page {
+    size: auto;
+    margin: 10mm;
+  }
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   html.dark-portal body,
   html.dark-portal .portal-root {
     background-color: #ffffff !important;
     color: #0f172a !important;
+  }
+  body.nd-printing-id-card > *:not(#nd-id-card-print-root) {
+    display: none !important;
+  }
+  body.nd-printing-id-card #nd-id-card-print-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 4mm 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body.nd-printing-id-card #nd-id-card-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .nd-print-card-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 18px !important;
+    width: 100% !important;
+  }
+  .nd-print-card-slot {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+}
+
+@media print and (orientation: landscape) {
+  .nd-print-card-grid {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    gap: 14px !important;
+  }
+  .nd-print-card-face-wrap {
+    transform: scale(0.92);
+    transform-origin: top center;
   }
 }
 

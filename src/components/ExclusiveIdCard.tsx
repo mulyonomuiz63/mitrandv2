@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import QRCode from 'qrcode';
 import { 
   Download, 
@@ -188,6 +189,44 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
     };
   }, [mitraVerificationLink]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (showDualSidedModal) {
+      document.body.classList.add('nd-printing-id-card');
+    } else {
+      document.body.classList.remove('nd-printing-id-card');
+    }
+    return () => {
+      document.body.classList.remove('nd-printing-id-card');
+    };
+  }, [showDualSidedModal]);
+
+  const handlePrintIdCard = async () => {
+    if (typeof document !== 'undefined') {
+      document.body.classList.add('nd-printing-id-card');
+      const printRoot = document.getElementById('nd-id-card-print-root');
+      if (printRoot) {
+        const imgs = Array.from(printRoot.querySelectorAll('img'));
+        await Promise.all(
+          imgs.map((img) => {
+            if (img.complete && img.naturalWidth > 0) {
+              return typeof img.decode === 'function' ? img.decode().catch(() => {}) : Promise.resolve();
+            }
+            return new Promise<void>((resolve) => {
+              const done = () => resolve();
+              img.addEventListener('load', done, { once: true });
+              img.addEventListener('error', done, { once: true });
+              setTimeout(done, 1500);
+            });
+          })
+        );
+      }
+    }
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  };
+
   const isDataIncomplete = isMitraDataIncomplete(mitra);
 
   const handleCopyClientLink = () => {
@@ -240,7 +279,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
    * Renders the exact 500x315 CR80 Front or Back ID Card face so that Desktop, Mobile,
    * Print Preview, and Physical/PDF Print are 100% identical without text wrapping or clipping.
    */
-  const renderCardFace = (side: 'front' | 'back', isInteractive = true) => {
+  const renderCardFace = (side: 'front' | 'back', isInteractive = true, forDirectPrint = false) => {
     const isBack = side === 'back';
     return (
       <div
@@ -276,6 +315,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 <img
                   src={logoUrl || '/assets/aistudio/logo_nd_vertikal.svg'}
                   alt="NDTAXANDLAW"
+                  loading="eager"
                   className="h-10 w-auto object-contain filter brightness-110 drop-shadow"
                 />
               </div>
@@ -296,13 +336,23 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                 {/* Avatar Frame with Gold Rim */}
                 <div className="relative shrink-0">
                   <div className="w-20 h-20 rounded-xl p-0.5 bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 shadow-lg">
-                    <ImageWithSkeleton
-                      src={mitra.avatarUrl}
-                      alt={mitra.fullName}
-                      className="w-full h-full object-cover rounded-[10px]"
-                      containerClassName="w-full h-full"
-                      rounded="rounded-[10px]"
-                    />
+                    {forDirectPrint ? (
+                      <img
+                        src={mitra.avatarUrl}
+                        alt={mitra.fullName}
+                        loading="eager"
+                        decoding="sync"
+                        className="w-full h-full object-cover rounded-[10px] block"
+                      />
+                    ) : (
+                      <ImageWithSkeleton
+                        src={mitra.avatarUrl}
+                        alt={mitra.fullName}
+                        className="w-full h-full object-cover rounded-[10px]"
+                        containerClassName="w-full h-full"
+                        rounded="rounded-[10px]"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -353,13 +403,23 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               ) : (
                 <div className="qr-light-box shrink-0 bg-white p-1.5 rounded-xl shadow-lg border-2 border-amber-300/80 flex flex-col items-center">
                   {qrDataUrl ? (
-                    <ImageWithSkeleton
-                      src={qrDataUrl}
-                      alt={`QR Code Verifikasi ${mitra.fullName}`}
-                      className="w-20 h-20 object-contain"
-                      containerClassName="w-20 h-20"
-                      rounded="rounded-none"
-                    />
+                    forDirectPrint ? (
+                      <img
+                        src={qrDataUrl}
+                        alt={`QR Code Verifikasi ${mitra.fullName}`}
+                        loading="eager"
+                        decoding="sync"
+                        className="w-20 h-20 object-contain block"
+                      />
+                    ) : (
+                      <ImageWithSkeleton
+                        src={qrDataUrl}
+                        alt={`QR Code Verifikasi ${mitra.fullName}`}
+                        className="w-20 h-20 object-contain"
+                        containerClassName="w-20 h-20"
+                        rounded="rounded-none"
+                      />
+                    )
                   ) : (
                     <div className="w-20 h-20 flex items-center justify-center">
                       <QrCode className="w-12 h-12 text-slate-900" />
@@ -566,16 +626,11 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
           {allowClientSelfRegister !== false ? (
             isDataIncomplete ? (
               <div className="p-3.5 bg-amber-500/15 border border-amber-400/40 rounded-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="text-xs min-w-0 flex items-start gap-2.5">
-                  <Lock className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-amber-300 block">
-                      Tautan Registrasi Klien Terkunci Sementara (Data Diri Belum Lengkap)
-                    </span>
-                    <span className="text-slate-200 text-[11px] leading-relaxed block mt-0.5">
-                      Silakan lengkapi Data Diri (NIK KTP, Upload File KTP/NPWP, No. WhatsApp, dan Rekening Bank) terlebih dahulu agar Anda dapat menyalin dan membagikan tautan registrasi klien maupun menginput klien baru.
-                    </span>
-                  </div>
+                <div className="text-xs min-w-0 flex items-center gap-2.5">
+                  <Lock className="w-4 h-4 text-amber-300 shrink-0" />
+                  <span className="font-bold text-amber-300 block">
+                    Tautan Registrasi Klien Terkunci Sementara (Data Diri Belum Lengkap)
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -863,49 +918,10 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
       {/* DUAL-SIDED PRINTABLE MODAL (Kartu Tampil & Kartu Cetak 100% Sama Persis di Mobile, Desktop, & Print) */}
       {showDualSidedModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-start sm:items-center justify-center p-2.5 sm:p-4 overflow-y-auto print:static print:bg-white print:p-0 print:block">
-          <style>{`
-            @media print {
-              @page {
-                size: auto;
-                margin: 10mm;
-              }
-              body * {
-                visibility: hidden !important;
-              }
-              #mitra-id-card-print-area,
-              #mitra-id-card-print-area * {
-                visibility: visible !important;
-              }
-              #mitra-id-card-print-area {
-                position: absolute !important;
-                left: 0 !important;
-                top: 0 !important;
-                width: 100% !important;
-                background: #ffffff !important;
-                border: none !important;
-                padding: 8px !important;
-                box-shadow: none !important;
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: center !important;
-                gap: 20px !important;
-              }
-              #mitra-id-card-print-area .print-card-outer-wrapper {
-                width: 500px !important;
-                max-width: 500px !important;
-                height: 315px !important;
-              }
-              #mitra-id-card-print-area .print-card-inner-scaler {
-                width: 500px !important;
-                height: 315px !important;
-                transform: none !important;
-              }
-            }
-          `}</style>
-          <div className="bg-white rounded-2xl sm:rounded-3xl max-w-6xl w-full p-4 sm:p-8 shadow-2xl space-y-4 sm:space-y-6 my-auto animate-in fade-in zoom-in-95 print:shadow-none print:p-0">
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-start sm:items-center justify-center p-2.5 sm:p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl sm:rounded-3xl max-w-6xl w-full p-4 sm:p-8 shadow-2xl space-y-4 sm:space-y-6 my-auto animate-in fade-in zoom-in-95">
             {/* Modal Header — Responsive on Mobile & Desktop */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 print:hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded uppercase tracking-wider">
@@ -914,9 +930,6 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
                   <h3 className="text-base sm:text-xl font-bold text-slate-900 mt-1">
                     Format Cetak Kartu Mitra (Depan &amp; Belakang)
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Tampilan cetak 100% identik dengan kartu digital resmi (Standar ISO/IEC 7810 ID-1).
-                  </p>
                 </div>
                 <button
                   type="button"
@@ -931,7 +944,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={handlePrintIdCard}
                   className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-md transition-all cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
@@ -950,11 +963,11 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             {/* Print Sheet Canvas — Tampilan Depan & Belakang Sama Persis di Mobile, Desktop, & Hasil Cetak */}
             <div
               id="mitra-id-card-print-area"
-              className="bg-slate-100 p-3 sm:p-8 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col xl:flex-row items-center justify-center gap-6 sm:gap-8 print:bg-white print:border-none print:p-0"
+              className="bg-slate-100 p-3 sm:p-8 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col xl:flex-row items-center justify-center gap-6 sm:gap-8"
             >
               {/* SIDE 1: FRONT */}
               <div className="space-y-2 text-center w-full max-w-[500px]">
-                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider print:mb-1">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                   [ SISI DEPAN (FRONT) ]
                 </div>
                 <ResponsiveIdCardScaler forPrintSheet>
@@ -964,7 +977,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
               {/* SIDE 2: BACK */}
               <div className="space-y-2 text-center w-full max-w-[500px]">
-                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider print:mb-1">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                   [ SISI BELAKANG (BACK) ]
                 </div>
                 <ResponsiveIdCardScaler forPrintSheet>
@@ -974,7 +987,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
             </div>
 
             {/* Print Guide Tips */}
-            <div className="p-3.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-slate-600 print:hidden">
+            <div className="p-3.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-slate-600">
               <div className="flex items-start sm:items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />
                 <span>
@@ -992,6 +1005,33 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
           </div>
         </div>
       )}
+
+      {/* DEDICATED BODY-LEVEL PRINT PORTAL — Zero blank pages across Desktop & Mobile (Chrome, Safari, Edge, Android, iOS) */}
+      {showDualSidedModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div id="nd-id-card-print-root" aria-hidden="true">
+            <div className="nd-print-card-grid">
+              <div className="nd-print-card-slot">
+                <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2 text-center">
+                  [ SISI DEPAN (FRONT) ]
+                </div>
+                <div className="nd-print-card-face-wrap">
+                  {renderCardFace('front', false, true)}
+                </div>
+              </div>
+              <div className="nd-print-card-slot">
+                <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2 text-center">
+                  [ SISI BELAKANG (BACK) ]
+                </div>
+                <div className="nd-print-card-face-wrap">
+                  {renderCardFace('back', false, true)}
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };
