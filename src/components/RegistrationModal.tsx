@@ -601,10 +601,10 @@ export const RegistrationModal: React.FC<RegistrationModalProps> = ({
               <div className="mt-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-left max-w-md mx-auto text-xs text-emerald-950 space-y-2">
                 <div className="flex items-start gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
-                  <p className="font-semibold text-emerald-900">Akun Langsung Aktif &amp; Terverifikasi</p>
+                  <p className="font-semibold text-emerald-900">Status Mitra Otomatis Ter-Approve</p>
                 </div>
                 <p className="text-[11px] text-slate-700 leading-relaxed">
-                  Mitra dengan email <strong className="font-mono text-emerald-950">{email}</strong> sudah otomatis ter-approve dan dapat langsung masuk (login) ke portal untuk melengkapi Data Diri, NIK/NPWP, berkas KTP/NPWP, serta rekening bank.
+                  Mitra dengan email <strong className="font-mono text-emerald-950">{email}</strong> sudah otomatis disetujui (Approved). Saat mitra login pertama kali, sistem akan otomatis mengirimkan kode verifikasi OTP 6-digit ke email tersebut. Setelah verifikasi OTP berhasil, mitra dapat langsung masuk dan melengkapi Data Diri.
                 </p>
               </div>
             ) : (

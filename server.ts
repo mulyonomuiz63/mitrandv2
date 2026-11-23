@@ -3438,15 +3438,6 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       });
     }
 
-    if (mitra.emailVerified === false) {
-      return res.status(403).json({
-        success: false,
-        needsEmailVerification: true,
-        email: mitra.email,
-        message: 'Akun Anda belum melakukan verifikasi email. Silakan periksa inbox (atau folder spam) email Anda dan masukkan kode verifikasi 6-digit untuk mengaktifkan akun sebelum masuk.',
-      });
-    }
-
     const mitraEmailLower = mitra.email.toLowerCase();
     const storedCred = userPasswords.get(mitraEmailLower) || encryptUserPassword('mitraND2026!', 'mitra');
     const verifyRes = verifyUserPassword(password, storedCred, 'mitra');
@@ -3455,6 +3446,68 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       : (verifyRes.valid || password === 'mitraND2026!');
 
     if (isPasswordValid) {
+      if (mitra.emailVerified === false) {
+        const freshOtp = Math.floor(100000 + Math.random() * 900000).toString();
+        const freshExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        mitra.verificationToken = freshOtp;
+        mitra.verificationTokenExpiry = freshExpiry;
+        mitra.bankDetails = {
+          ...(mitra.bankDetails || {
+            bankName: '-',
+            accountNumber: '-',
+            accountHolder: mitra.fullName,
+          }),
+          __emailVerified: false,
+          __verificationToken: freshOtp,
+          __verificationTokenExpiry: freshExpiry,
+        } as any;
+
+        const memIdx = mitras.findIndex((m) => m.id === mitra!.id);
+        if (memIdx >= 0) {
+          mitras[memIdx] = mitra;
+        }
+        saveDatabase();
+
+        if (db) {
+          try {
+            const { error: upErr } = await db
+              .from('mitras')
+              .update({
+                emailVerified: false,
+                verificationToken: freshOtp,
+                verificationTokenExpiry: freshExpiry,
+                bankDetails: mitra.bankDetails,
+              })
+              .eq('id', mitra.id);
+            if (upErr) {
+              await db
+                .from('mitras')
+                .update({ bankDetails: mitra.bankDetails })
+                .eq('id', mitra.id);
+            }
+          } catch (e) {
+            console.warn('MySQL auto-OTP login update error:', e);
+          }
+        }
+
+        const otpMail = await sendSystemEmail({
+          recipient: mitra.email,
+          recipientName: mitra.fullName,
+          subject: `[Kode OTP: ${freshOtp}] Verifikasi Akun Login Kemitraan NDTAXANDLAW`,
+          category: 'registration_verify',
+          previewSnippet: `Halo ${mitra.fullName},\n\nAkun kemitraan Anda (${mitra.memberCode}) belum terverifikasi. Berikut adalah Kode Verifikasi (OTP) 6-Digit untuk mengaktifkan akun Anda:\n\nKODE VERIFIKASI: ${freshOtp}\n\nMasukkan 6 digit kode di atas pada halaman Verifikasi Akun agar Anda dapat login ke portal NDTAXANDLAW. Kode ini berlaku selama 24 jam.`,
+        });
+
+        return res.status(403).json({
+          success: false,
+          needsEmailVerification: true,
+          otpSent: true,
+          emailSent: otpMail.success,
+          email: mitra.email,
+          message: `Akun Anda belum terverifikasi. Kode verifikasi OTP 6-digit telah otomatis dikirimkan ke email ${mitra.email}. Silakan masukkan kode OTP tersebut untuk mengaktifkan akun sebelum login.`,
+        });
+      }
+
       if (verifyRes.needsUpgrade) {
         const upgraded = encryptUserPassword(password, verifyRes.role || 'mitra');
         userPasswords.set(mitraEmailLower, upgraded);
@@ -4934,13 +4987,9 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     bankDetails: {
       ...baseBank,
       __gender: resolvedGender,
-      __emailVerified: isAdminOrStaffCreated,
-      ...(isAdminOrStaffCreated
-        ? {}
-        : {
-            __verificationToken: verificationToken,
-            __verificationTokenExpiry: verificationExpiryIso,
-          }),
+      __emailVerified: false,
+      __verificationToken: verificationToken,
+      __verificationTokenExpiry: verificationExpiryIso,
       ...(resolvedKtpUrl ? { __ktpFileUrl: resolvedKtpUrl } : {}),
       ...(resolvedKtpName ? { __ktpFileName: resolvedKtpName } : {}),
       ...(cleanCustomFields ? { __customFields: cleanCustomFields } : {}),
@@ -4952,13 +5001,9 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     paidPayout: 0,
     referredClientsCount: 0,
     activeSubscribersCount: 0,
-    emailVerified: isAdminOrStaffCreated,
-    ...(isAdminOrStaffCreated
-      ? {}
-      : {
-          verificationToken,
-          verificationTokenExpiry: verificationExpiryIso,
-        }),
+    emailVerified: false,
+    verificationToken,
+    verificationTokenExpiry: verificationExpiryIso,
   };
 
   mitras.unshift(newMitra);
@@ -4975,7 +5020,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     operation: 'CREATE',
     targetEntity: 'Pendaftaran Mitra',
     description: isAdminOrStaffCreated
-      ? `Mitra baru "${newMitra.fullName}" (${newMitra.email}, ${newMitra.memberCode}) ditambahkan langsung oleh ${actorName || (actorRole === 'staff' ? 'Staf' : 'Admin')} dan otomatis disetujui (Verified).`
+      ? `Mitra baru "${newMitra.fullName}" (${newMitra.email}, ${newMitra.memberCode}) ditambahkan langsung oleh ${actorName || (actorRole === 'staff' ? 'Staf' : 'Admin')} dan otomatis disetujui (Approved). Akun menunggu verifikasi OTP saat login pertama.`
       : `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`,
   });
 
@@ -5013,9 +5058,9 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     ? await sendSystemEmail({
         recipient: normalizedEmail,
         recipientName: safeFullName,
-        subject: `Akun Mitra NDTAXANDLAW Anda Aktif & Terverifikasi (${newMitra.memberCode})`,
+        subject: `Akun Mitra NDTAXANDLAW Anda Telah Disetujui (${newMitra.memberCode})`,
         category: 'registration_verify',
-        previewSnippet: `Halo ${safeFullName},\n\nAkun Kemitraan Resmi NDTAXANDLAW Anda (${newMitra.memberCode}) telah didaftarkan dan langsung disetujui.\n\nAnda sudah dapat langsung masuk (login) menggunakan email ${normalizedEmail} untuk melengkapi Data Diri, NIK/NPWP, berkas KTP/NPWP, dan informasi rekening bank Anda.`,
+        previewSnippet: `Halo ${safeFullName},\n\nAkun Kemitraan Resmi NDTAXANDLAW Anda (${newMitra.memberCode}) telah didaftarkan dan otomatis disetujui oleh Admin/Staf.\n\nSaat Anda melakukan login pertama kali dengan email ${normalizedEmail}, sistem akan otomatis mengirimkan kode verifikasi OTP 6-digit ke email Anda. Setelah verifikasi OTP berhasil, Anda dapat langsung masuk dan melengkapi Data Diri.`,
       })
     : await sendSystemEmail({
         recipient: normalizedEmail,
@@ -5029,7 +5074,7 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     id: `notif-ops-${Date.now()}`,
     title: isAdminOrStaffCreated ? 'Mitra Baru Ditambahkan & Disetujui' : 'Pendaftaran Mitra Baru',
     message: isAdminOrStaffCreated
-      ? `${safeFullName} (${newMitra.memberCode}) ditambahkan oleh ${actorName || (actorRole === 'staff' ? 'Staf' : 'Admin')} dan langsung berstatus Terverifikasi.`
+      ? `${safeFullName} (${newMitra.memberCode}) ditambahkan oleh ${actorName || (actorRole === 'staff' ? 'Staf' : 'Admin')} dan otomatis disetujui (Menunggu verifikasi OTP saat login).`
       : `${safeFullName} (${newMitra.memberCode}) baru saja mendaftar kemitraan (Menunggu validasi Admin).`,
     type: 'verification',
     timestamp: new Date().toISOString(),
@@ -5052,12 +5097,12 @@ app.post('/api/mitra/register', async (req: Request, res: Response) => {
     success: true,
     data: safeMitraData,
     autoApproved: isAdminOrStaffCreated,
-    needsEmailVerification: !isAdminOrStaffCreated,
+    needsEmailVerification: true,
     email: normalizedEmail,
     emailSent: emailResult.success,
     emailError: emailResult.error,
     message: isAdminOrStaffCreated
-      ? `Mitra "${safeFullName}" berhasil ditambahkan dan langsung disetujui (Terverifikasi). Mitra sudah dapat langsung login dan melengkapi data diri.`
+      ? `Mitra "${safeFullName}" berhasil ditambahkan dan otomatis disetujui (Approved). Saat mitra login pertama kali, sistem akan otomatis mengirim kode OTP verifikasi ke email ${normalizedEmail}.`
       : `Pendaftaran berhasil disimpan! Kami telah mengirimkan kode OTP 6-digit ke alamat email ${normalizedEmail}. Silakan masukkan kode tersebut untuk mengaktifkan akun Anda.`,
   });
 });

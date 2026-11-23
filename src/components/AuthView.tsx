@@ -231,7 +231,16 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setVerifyEmail(data.email || loginEmail);
         setVerifyToken('');
         setAuthMode('verify');
-        setVerifyError(data.message || 'Akun Anda belum melakukan verifikasi email.');
+        if (data.otpSent) {
+          setVerifyError(null);
+          setResendMessage(
+            data.message ||
+              `Kode verifikasi OTP 6-digit telah otomatis dikirimkan ke email ${data.email || loginEmail}.`
+          );
+        } else {
+          setResendMessage(null);
+          setVerifyError(data.message || 'Akun Anda belum melakukan verifikasi email.');
+        }
       } else {
         setLoginError(data.message || 'Email atau kata sandi tidak valid.');
       }
@@ -534,7 +543,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setVerifySuccess(data.message || 'Verifikasi email berhasil! Mengalihkan ke login...');
         setTimeout(() => {
           setLoginEmail(verifyEmail);
-          setLoginPassword(regPassword || 'mitraND2026!');
+          setLoginPassword((prev) => prev || regPassword || '');
           setAuthMode('login');
           setVerifySuccess(null);
         }, 1800);
