@@ -80,7 +80,7 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
         width: isPrint ? `${ENVELOPE_WIDTH_MM}mm` : `${ENVELOPE_WIDTH_PX}px`,
         height: isPrint ? `${ENVELOPE_HEIGHT_MM}mm` : `${ENVELOPE_HEIGHT_PX}px`,
         backgroundColor: '#FFFFFF',
-        color: '#0A4B78',
+        color: '#1F4E79',
         fontFamily: 'Arial, Helvetica, sans-serif',
         overflow: 'hidden',
         boxSizing: 'border-box',
@@ -89,15 +89,15 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
         boxShadow: mode === 'preview' ? '0 10px 30px rgba(9, 33, 71, 0.18)' : 'none',
       }}
     >
-      {/* TOP-LEFT LOGO (follows Admin's uploaded logo or default ND Tax and Law emblem) */}
+      {/* TOP-LEFT LOGO (matches AMPLOP_ND_PRINT PDF: left 9mm, top 8.8mm, width 34.1mm, height 23.8mm) */}
       {isCustomUploadedLogo ? (
         <div
           style={{
             position: 'absolute',
-            top: '7.5mm',
-            left: '5mm',
-            width: '46mm',
-            height: '26mm',
+            top: '8.8mm',
+            left: '9mm',
+            width: '44mm',
+            height: '24mm',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-start',
@@ -108,8 +108,8 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
             src={customLogoSrc}
             alt="Logo Perusahaan"
             style={{
-              maxWidth: '46mm',
-              maxHeight: '26mm',
+              maxWidth: '44mm',
+              maxHeight: '24mm',
               width: 'auto',
               height: 'auto',
               objectFit: 'contain',
@@ -121,33 +121,43 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
         <div
           style={{
             position: 'absolute',
-            top: '7.5mm',
-            left: '4.5mm',
-            width: '36mm',
+            top: '8.8mm',
+            left: '9mm',
+            width: '34.1mm',
             textAlign: 'center',
             pointerEvents: 'none',
           }}
         >
-          <img
-            src={defaultEmblemSrc}
-            alt="ND TAX AND LAW"
+          <div
             style={{
-              width: '18.5mm',
-              height: '16.5mm',
-              objectFit: 'contain',
+              width: '23.9mm',
+              height: '14.5mm',
               margin: '0 auto',
-              display: 'block',
+              overflow: 'hidden',
             }}
-          />
+          >
+            <img
+              src={defaultEmblemSrc}
+              alt="ND TAX AND LAW"
+              style={{
+                width: '23.9mm',
+                height: '23.9mm',
+                marginTop: '-4.65mm',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          </div>
           <div
             style={{
               fontFamily: 'Arial, Helvetica, sans-serif',
-              fontSize: '11.2pt',
-              fontWeight: 700,
-              letterSpacing: '0.35px',
-              color: '#D5A76B',
-              lineHeight: 1.12,
-              marginTop: '1mm',
+              fontSize: '13.4pt',
+              fontWeight: 500,
+              letterSpacing: '0.25px',
+              color: '#D2AA6A',
+              lineHeight: 1,
+              marginTop: '2.35mm',
+              whiteSpace: 'nowrap',
             }}
           >
             TAX AND LAW
@@ -155,12 +165,13 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
           <div
             style={{
               fontFamily: 'Arial, Helvetica, sans-serif',
-              fontSize: '5.4pt',
-              fontWeight: 500,
-              letterSpacing: '0.5px',
-              color: '#D5A76B',
-              lineHeight: 1.15,
-              marginTop: '0.4mm',
+              fontSize: '5pt',
+              fontWeight: 400,
+              letterSpacing: '0.35px',
+              color: '#D2AA6A',
+              lineHeight: 1,
+              marginTop: '1.9mm',
+              whiteSpace: 'nowrap',
             }}
           >
             NURTIYAS &amp; DARMAWAN
@@ -168,41 +179,41 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
         </div>
       )}
 
-      {/* TOP-RIGHT TAGLINE & WEBSITE */}
+      {/* TOP-RIGHT TAGLINE & WEBSITE (matches AMPLOP_ND_PRINT PDF: top 9.1mm, right 11mm, 10.1pt, tight 1.15 leading) */}
       <div
         style={{
           position: 'absolute',
-          top: '9mm',
-          right: '6mm',
+          top: '9.1mm',
+          right: '11mm',
           textAlign: 'right',
           fontFamily: 'Arial, Helvetica, sans-serif',
-          lineHeight: 1.32,
+          lineHeight: 1.15,
           pointerEvents: 'none',
         }}
       >
-        <div style={{ fontSize: '10.2pt', fontStyle: 'italic', color: '#C89B58' }}>
+        <div style={{ fontSize: '10.1pt', fontStyle: 'italic', color: '#BD9861' }}>
           Your Trusted Partner in
         </div>
-        <div style={{ fontSize: '10.2pt', fontStyle: 'italic', color: '#C89B58' }}>
+        <div style={{ fontSize: '10.1pt', fontStyle: 'italic', color: '#BD9861' }}>
           Tax &amp; Legal Solutions
         </div>
-        <div style={{ fontSize: '10pt', fontStyle: 'normal', color: '#0A4B78', marginTop: '0.3mm' }}>
+        <div style={{ fontSize: '10.1pt', fontStyle: 'normal', color: '#1F4E79' }}>
           www.ndtaxandlaw.com
         </div>
       </div>
 
-      {/* BOTTOM-LEFT ROUNDED RECIPIENT BOX */}
+      {/* BOTTOM-LEFT ROUNDED RECIPIENT BOX (matches AMPLOP_ND_PRINT PDF: left 9mm, bottom 11.35mm, 84mm x 40mm, r=6.65mm, 1pt #1F4E79) */}
       <div
         style={{
           position: 'absolute',
-          bottom: '11.5mm',
-          left: '4.5mm',
-          width: '84.5mm',
-          height: '40.5mm',
-          border: '1.5px solid #0A4B78',
-          borderRadius: '7.5mm',
+          bottom: '11.35mm',
+          left: '9mm',
+          width: '84mm',
+          height: '40mm',
+          border: '1pt solid #1F4E79',
+          borderRadius: '6.65mm',
           backgroundColor: '#FFFFFF',
-          padding: '4.8mm 5.2mm',
+          padding: '5.4mm 4.7mm 4.5mm 4.7mm',
           boxSizing: 'border-box',
           overflow: 'hidden',
           display: 'flex',
@@ -213,11 +224,11 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
         <div
           style={{
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '10.2pt',
+            fontSize: '11pt',
             fontWeight: 700,
-            color: '#0A4B78',
-            letterSpacing: '0.2px',
-            lineHeight: 1.2,
+            color: '#1F4E79',
+            letterSpacing: '0.1px',
+            lineHeight: 1.15,
             marginBottom: '2.2mm',
           }}
         >
@@ -228,8 +239,8 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: companyFontSize,
             fontWeight: 700,
-            color: '#0A4B78',
-            lineHeight: 1.3,
+            color: '#1F4E79',
+            lineHeight: 1.28,
             wordBreak: 'break-word',
           }}
         >
@@ -241,8 +252,8 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
               fontFamily: 'Arial, Helvetica, sans-serif',
               fontSize: addressFontSize,
               fontWeight: 400,
-              color: '#0A4B78',
-              lineHeight: 1.3,
+              color: '#1F4E79',
+              lineHeight: 1.28,
               marginTop: '1.5mm',
               wordBreak: 'break-word',
             }}
@@ -252,12 +263,12 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
         )}
       </div>
 
-      {/* BOTTOM-RIGHT OFFICE ADDRESS BLOCK */}
+      {/* BOTTOM-RIGHT OFFICE ADDRESS BLOCK (matches AMPLOP_ND_PRINT PDF: bottom 14mm, right 11mm, 12pt gold heading + 10.1pt #1F4E79 lines) */}
       <div
         style={{
           position: 'absolute',
           bottom: '14mm',
-          right: '6mm',
+          right: '11mm',
           textAlign: 'right',
           fontFamily: 'Arial, Helvetica, sans-serif',
           pointerEvents: 'none',
@@ -265,25 +276,25 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
       >
         <div
           style={{
-            fontSize: '11.5pt',
+            fontSize: '12pt',
             fontWeight: 700,
-            color: '#D4A15E',
-            lineHeight: 1.25,
-            marginBottom: '0.6mm',
+            color: '#D2A969',
+            lineHeight: 1.15,
+            marginBottom: '0.35mm',
           }}
         >
           ND TAX AND LAW
         </div>
-        <div style={{ fontSize: '9.8pt', color: '#0A4B78', lineHeight: 1.36 }}>
+        <div style={{ fontSize: '10.1pt', color: '#1F4E79', lineHeight: 1.15 }}>
           Menara 165 Lantai 4, Jakarta Selatan
         </div>
-        <div style={{ fontSize: '9.8pt', color: '#0A4B78', lineHeight: 1.36 }}>
+        <div style={{ fontSize: '10.1pt', color: '#1F4E79', lineHeight: 1.15 }}>
           Grand Prima Bintara, Bekasi Barat
         </div>
-        <div style={{ fontSize: '9.8pt', color: '#0A4B78', lineHeight: 1.36 }}>
+        <div style={{ fontSize: '10.1pt', color: '#1F4E79', lineHeight: 1.15 }}>
           Jl. Sawo Raya, Jati Agung, Lampung
         </div>
-        <div style={{ fontSize: '9.8pt', color: '#0A4B78', lineHeight: 1.36 }}>
+        <div style={{ fontSize: '10.1pt', color: '#1F4E79', lineHeight: 1.15 }}>
           Telp: 021-86941220 | 0821-8074-4977
         </div>
       </div>
@@ -322,7 +333,7 @@ async function renderEnvelopeNodeToPngDataUrl(node: HTMLElement, scale = 3.5): P
     `<svg xmlns="http://www.w3.org/2000/svg" width="${scaledW}" height="${scaledH}" viewBox="0 0 ${scaledW} ${scaledH}">`,
     `<foreignObject x="0" y="0" width="${scaledW}" height="${scaledH}">`,
     `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${scaledW}px;height:${scaledH}px;overflow:hidden;position:relative;margin:0;padding:0;background:#ffffff;">`,
-    `<div style="width:${ENVELOPE_WIDTH_PX}px;height:${ENVELOPE_HEIGHT_PX}px;transform:scale(${scale});transform-origin:top left;margin:0;padding:0;background:#ffffff;color:#0A4B78;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;">`,
+    `<div style="width:${ENVELOPE_WIDTH_PX}px;height:${ENVELOPE_HEIGHT_PX}px;transform:scale(${scale});transform-origin:top left;margin:0;padding:0;background:#ffffff;color:#1F4E79;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;">`,
     `<style>*,*::before,*::after{box-sizing:border-box;}img{display:block;max-width:none;}</style>`,
     serialized,
     `</div>`,
@@ -378,80 +389,80 @@ async function generateEnvelopePdfVectorFallback(
     compress: true,
   });
 
-  const rightX = ENVELOPE_WIDTH_MM - 6;
+  const rightX = ENVELOPE_WIDTH_MM - 11;
 
   // White background
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, ENVELOPE_WIDTH_MM, ENVELOPE_HEIGHT_MM, 'F');
 
-  // Top-left logo
+  // Top-left logo (matches AMPLOP_ND_PRINT PDF: left 9mm, top 8.8mm, width 34.1mm)
   if (inlineLogo.isCustom && inlineLogo.dataUrl.startsWith('data:image/')) {
-    doc.addImage(inlineLogo.dataUrl, 'PNG', 5, 7.5, 36, 22, undefined, 'FAST');
+    doc.addImage(inlineLogo.dataUrl, 'PNG', 9, 8.8, 36, 22, undefined, 'FAST');
   } else {
+    const logoCenterX = 9 + 34.1 / 2;
     if (inlineLogo.dataUrl.startsWith('data:image/')) {
-      doc.addImage(inlineLogo.dataUrl, 'PNG', 13.5, 7.5, 18, 16.5, undefined, 'FAST');
+      doc.addImage(inlineLogo.dataUrl, 'PNG', logoCenterX - 11.95, 4.15, 23.9, 23.9, undefined, 'FAST');
     }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(213, 167, 107);
-    doc.text('TAX AND LAW', 22.5, 27.5, { align: 'center' });
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
-    doc.text('NURTIYAS & DARMAWAN', 22.5, 30.2, { align: 'center' });
+    doc.setFontSize(13.4);
+    doc.setTextColor(210, 170, 106);
+    doc.text('TAX AND LAW', logoCenterX, 29.2, { align: 'center' });
+    doc.setFontSize(5);
+    doc.text('NURTIYAS & DARMAWAN', logoCenterX, 32.4, { align: 'center' });
   }
 
-  // Top-right tagline & website
+  // Top-right tagline & website (matches AMPLOP_ND_PRINT PDF: right 11mm, 10.1pt, 4.06mm line step)
   doc.setFont('helvetica', 'italic');
-  doc.setFontSize(10.2);
-  doc.setTextColor(200, 155, 88);
-  doc.text('Your Trusted Partner in', rightX, 13, { align: 'right' });
-  doc.text('Tax & Legal Solutions', rightX, 17.8, { align: 'right' });
+  doc.setFontSize(10.1);
+  doc.setTextColor(189, 152, 97);
+  doc.text('Your Trusted Partner in', rightX, 12.45, { align: 'right' });
+  doc.text('Tax & Legal Solutions', rightX, 16.51, { align: 'right' });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(10, 75, 120);
-  doc.text('www.ndtaxandlaw.com', rightX, 22.8, { align: 'right' });
+  doc.setFontSize(10.1);
+  doc.setTextColor(31, 78, 121);
+  doc.text('www.ndtaxandlaw.com', rightX, 20.57, { align: 'right' });
 
-  // Bottom-left rounded recipient box (84.5mm x 40.5mm at left 4.5mm, bottom 11.5mm -> top 58mm)
-  const boxX = 4.5;
-  const boxY = ENVELOPE_HEIGHT_MM - 11.5 - 40.5;
-  const boxW = 84.5;
-  const boxH = 40.5;
-  doc.setDrawColor(10, 75, 120);
-  doc.setLineWidth(0.45);
-  doc.roundedRect(boxX, boxY, boxW, boxH, 7.5, 7.5, 'S');
+  // Bottom-left rounded recipient box (84mm x 40mm at left 9mm, bottom 11.35mm -> top 58.65mm, r=6.65mm, 1pt stroke)
+  const boxX = 9;
+  const boxY = ENVELOPE_HEIGHT_MM - 11.35 - 40;
+  const boxW = 84;
+  const boxH = 40;
+  doc.setDrawColor(31, 78, 121);
+  doc.setLineWidth(0.353);
+  doc.roundedRect(boxX, boxY, boxW, boxH, 6.65, 6.65, 'S');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.2);
-  doc.setTextColor(10, 75, 120);
-  doc.text('KEPADA YTH:', boxX + 5.2, boxY + 8.5);
+  doc.setFontSize(11);
+  doc.setTextColor(31, 78, 121);
+  doc.text('KEPADA YTH:', boxX + 4.7, boxY + 9);
 
   const companyName = String(letter.companyName || '').trim();
   const companySize = companyName.length > 52 ? 10 : companyName.length > 32 ? 11 : 12;
   doc.setFontSize(companySize);
-  const companyLines: string[] = doc.splitTextToSize(companyName, boxW - 10.4);
-  doc.text(companyLines, boxX + 5.2, boxY + 14.5);
+  const companyLines: string[] = doc.splitTextToSize(companyName, boxW - 9.4);
+  doc.text(companyLines, boxX + 4.7, boxY + 15.2);
 
   if (includeAddress && letter.companyAddress) {
-    const afterCompanyY = boxY + 14.5 + companyLines.length * (companySize * 0.45) + 1.5;
+    const afterCompanyY = boxY + 15.2 + companyLines.length * (companySize * 0.45) + 1.5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.2);
-    const addrLines: string[] = doc.splitTextToSize(letter.companyAddress, boxW - 10.4);
-    doc.text(addrLines.slice(0, 4), boxX + 5.2, afterCompanyY);
+    const addrLines: string[] = doc.splitTextToSize(letter.companyAddress, boxW - 9.4);
+    doc.text(addrLines.slice(0, 4), boxX + 4.7, afterCompanyY);
   }
 
-  // Bottom-right address block
+  // Bottom-right address block (matches AMPLOP_ND_PRINT PDF: right 11mm, 12pt gold heading + 10.1pt #1F4E79 lines)
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11.5);
-  doc.setTextColor(212, 161, 94);
-  doc.text('ND TAX AND LAW', rightX, 76, { align: 'right' });
+  doc.setFontSize(12);
+  doc.setTextColor(210, 169, 105);
+  doc.text('ND TAX AND LAW', rightX, 78.6, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.8);
-  doc.setTextColor(10, 75, 120);
-  doc.text('Menara 165 Lantai 4, Jakarta Selatan', rightX, 81.2, { align: 'right' });
-  doc.text('Grand Prima Bintara, Bekasi Barat', rightX, 86, { align: 'right' });
-  doc.text('Jl. Sawo Raya, Jati Agung, Lampung', rightX, 90.8, { align: 'right' });
-  doc.text('Telp: 021-86941220 | 0821-8074-4977', rightX, 95.6, { align: 'right' });
+  doc.setFontSize(10.1);
+  doc.setTextColor(31, 78, 121);
+  doc.text('Menara 165 Lantai 4, Jakarta Selatan', rightX, 82.8, { align: 'right' });
+  doc.text('Grand Prima Bintara, Bekasi Barat', rightX, 86.86, { align: 'right' });
+  doc.text('Jl. Sawo Raya, Jati Agung, Lampung', rightX, 90.92, { align: 'right' });
+  doc.text('Telp: 021-86941220 | 0821-8074-4977', rightX, 94.98, { align: 'right' });
 
   const safeSlug = companyName
     .replace(/[^a-zA-Z0-9]+/g, '_')
