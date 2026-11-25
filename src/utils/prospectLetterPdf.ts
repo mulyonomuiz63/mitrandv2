@@ -9,43 +9,43 @@ import {
 
 export const INDONESIAN_PROVINCES: string[] = [
   'Aceh',
-  'Sumatera Utara',
-  'Sumatera Barat',
-  'Riau',
-  'Kepulauan Riau',
-  'Jambi',
-  'Sumatera Selatan',
-  'Kepulauan Bangka Belitung',
-  'Bengkulu',
-  'Lampung',
-  'DKI Jakarta',
+  'Bali',
   'Banten',
+  'Bengkulu',
+  'DI Yogyakarta',
+  'DKI Jakarta',
+  'Gorontalo',
+  'Jambi',
   'Jawa Barat',
   'Jawa Tengah',
-  'DI Yogyakarta',
   'Jawa Timur',
-  'Bali',
-  'Nusa Tenggara Barat',
-  'Nusa Tenggara Timur',
   'Kalimantan Barat',
-  'Kalimantan Tengah',
   'Kalimantan Selatan',
+  'Kalimantan Tengah',
   'Kalimantan Timur',
   'Kalimantan Utara',
-  'Sulawesi Utara',
-  'Gorontalo',
-  'Sulawesi Tengah',
-  'Sulawesi Barat',
-  'Sulawesi Selatan',
-  'Sulawesi Tenggara',
+  'Kepulauan Bangka Belitung',
+  'Kepulauan Riau',
+  'Lampung',
   'Maluku',
   'Maluku Utara',
+  'Nusa Tenggara Barat',
+  'Nusa Tenggara Timur',
   'Papua',
   'Papua Barat',
+  'Papua Barat Daya',
+  'Papua Pegunungan',
   'Papua Selatan',
   'Papua Tengah',
-  'Papua Pegunungan',
-  'Papua Barat Daya',
+  'Riau',
+  'Sulawesi Barat',
+  'Sulawesi Selatan',
+  'Sulawesi Tengah',
+  'Sulawesi Tenggara',
+  'Sulawesi Utara',
+  'Sumatera Barat',
+  'Sumatera Selatan',
+  'Sumatera Utara',
 ];
 
 const ID_MONTH_NAMES = [
@@ -405,10 +405,10 @@ export async function generateProspectLetterPdf(
 
     let lawHeight = lh;
     for (const item of p1LawItems) {
-      const tLines = measureLines(item.title, CONTENT_W - 14, bodyFontSize, 'normal');
+      const tLines = measureLines(item.title, CONTENT_W - 12.5, bodyFontSize, 'normal');
       lawHeight += tLines.length * lh;
       for (const b of item.bullets) {
-        const bLines = measureLines(b, CONTENT_W - 18, bodyFontSize, 'normal');
+        const bLines = measureLines(b, CONTENT_W - 12.5, bodyFontSize, 'normal');
         lawHeight += bLines.length * lh;
       }
       lawHeight += gap * 0.55;
@@ -437,15 +437,15 @@ export async function generateProspectLetterPdf(
   };
 
   const candidates: Array<[number, number, number, number]> = [
-    [4.65, 3.6, 11, 11],
-    [4.45, 3.0, 11, 11],
-    [4.3, 2.5, 11, 11],
-    [4.18, 2.2, 10.5, 11],
-    [4.05, 1.9, 10, 11],
-    [3.92, 1.6, 9.5, 10.5],
-    [3.75, 1.3, 9.5, 10],
+    [4.45, 3.4, 11, 11],
+    [4.3, 2.8, 11, 11],
+    [4.15, 2.3, 11, 11],
+    [4.05, 2.0, 10.5, 11],
+    [3.95, 1.7, 10, 11],
+    [3.82, 1.4, 9.5, 10.5],
+    [3.68, 1.2, 9.5, 10],
   ];
-  let p1Layout = computePage1Metrics(4.65, 3.6, 11, 11);
+  let p1Layout = computePage1Metrics(4.45, 3.4, 11, 11);
   for (const [lh, gap, rfs, bfs] of candidates) {
     const test = computePage1Metrics(lh, gap, rfs, bfs);
     p1Layout = test;
@@ -499,31 +499,32 @@ export async function generateProspectLetterPdf(
   y += p1Layout.gap * 0.85;
 
   doc.text('I.', MARGIN_X, y);
-  y = drawWrapped(content.section1Title, MARGIN_X + 7, y, CONTENT_W - 7, p1Layout.lh, 'left');
+  y = drawWrapped(content.section1Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p1Layout.lh, 'left');
 
   doc.setFont('helvetica', 'normal');
   p1LawItems.forEach((item, idx) => {
-    doc.text(`${idx + 1}.`, MARGIN_X + 7, y);
-    y = drawWrapped(item.title, MARGIN_X + 14, y, CONTENT_W - 14, p1Layout.lh, 'left');
+    doc.text(`${idx + 1}.`, MARGIN_X + 6.5, y);
+    y = drawWrapped(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p1Layout.lh, 'left');
     for (const bullet of item.bullets) {
-      doc.text('-', MARGIN_X + 14, y);
-      y = drawWrapped(bullet, MARGIN_X + 18, y, CONTENT_W - 18, p1Layout.lh, 'justify');
+      doc.text('-', MARGIN_X + 6.5, y);
+      y = drawWrapped(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p1Layout.lh, 'justify');
     }
     y += p1Layout.gap * 0.55;
   });
 
   y += p1Layout.gap * 0.25;
-  const p1BoxLines = measureLines(p1Sanction, CONTENT_W - 6, p1Layout.bodyFontSize, 'normal');
-  const p1BoxH = p1BoxLines.length * p1Layout.lh + 3.6;
-  const p1BoxY = Math.min(y - 3.3, CONTENT_BOTTOM - p1BoxH);
+  const p1BoxW = CONTENT_W - 6.5;
+  const p1BoxLines = measureLines(p1Sanction, p1BoxW - 5, p1Layout.bodyFontSize, 'normal');
+  const p1BoxH = p1BoxLines.length * p1Layout.lh + 3.4;
+  const p1BoxY = Math.min(y - 3.2, CONTENT_BOTTOM - p1BoxH);
   doc.setFillColor(244, 244, 244);
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.3);
-  doc.rect(MARGIN_X, p1BoxY, CONTENT_W, p1BoxH, 'FD');
+  doc.rect(MARGIN_X + 6.5, p1BoxY, p1BoxW, p1BoxH, 'FD');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(p1Layout.bodyFontSize);
   doc.setTextColor(0, 0, 0);
-  drawWrapped(p1Sanction, MARGIN_X + 3, p1BoxY + 4.3, CONTENT_W - 6, p1Layout.lh, 'justify');
+  drawWrapped(p1Sanction, MARGIN_X + 9, p1BoxY + 4.1, p1BoxW - 5, p1Layout.lh, 'justify');
 
   // =========================================================================
   // PAGE 2 — DASAR HUKUM PERPAJAKAN & KETENAGAKERJAAN (LOCKED TO PAGE 2)
@@ -531,37 +532,39 @@ export async function generateProspectLetterPdf(
   doc.addPage();
   drawHeaderAndFooter();
 
+  const p2BoxW = CONTENT_W - 6.5;
   const computePage2Height = (lh: number, gap: number, fs: number) => {
     let h = lh; // II. heading
     for (const item of content.section2Items) {
-      h += measureLines(item.title, CONTENT_W - 14, fs, 'normal').length * lh;
+      h += measureLines(item.title, CONTENT_W - 12.5, fs, 'normal').length * lh;
       for (const b of item.bullets) {
-        h += measureLines(b, CONTENT_W - 18, fs, 'normal').length * lh;
+        h += measureLines(b, CONTENT_W - 12.5, fs, 'normal').length * lh;
       }
-      h += gap * 0.65;
+      h += gap;
     }
-    h += measureLines(content.section2Sanction, CONTENT_W - 6, fs, 'normal').length * lh + 3.6 + 6.2;
+    h += measureLines(content.section2Sanction, p2BoxW - 5, fs, 'normal').length * lh + 3.4 + 5.2;
     h += lh; // III. heading
     for (const item of content.section3Items) {
-      h += measureLines(item.title, CONTENT_W - 14, fs, 'normal').length * lh;
+      h += measureLines(item.title, CONTENT_W - 12.5, fs, 'normal').length * lh;
       for (const b of item.bullets) {
-        h += measureLines(b, CONTENT_W - 18, fs, 'normal').length * lh;
+        h += measureLines(b, CONTENT_W - 12.5, fs, 'normal').length * lh;
       }
-      h += gap * 0.55;
+      h += gap;
     }
-    h += measureLines(content.section3Sanction, CONTENT_W - 6, fs, 'normal').length * lh + 3.6;
+    h += measureLines(content.section3Sanction, p2BoxW - 5, fs, 'normal').length * lh + 3.4;
     return h;
   };
 
   const p2Candidates: Array<[number, number, number]> = [
-    [4.55, 2.6, 11],
-    [4.35, 2.1, 11],
-    [4.15, 1.7, 10.5],
-    [3.95, 1.4, 10],
-    [3.7, 1.1, 9.5],
+    [4.35, 2.0, 11],
+    [4.2, 1.6, 11],
+    [4.05, 1.4, 10.6],
+    [3.9, 1.2, 10.2],
+    [3.75, 1.0, 9.8],
+    [3.6, 0.85, 9.4],
   ];
-  let p2LH = 4.55;
-  let p2Gap = 2.6;
+  let p2LH = 4.35;
+  let p2Gap = 2.0;
   let p2FS = 11;
   for (const [lh, gap, fs] of p2Candidates) {
     p2LH = lh;
@@ -574,59 +577,59 @@ export async function generateProspectLetterPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(p2FS);
   doc.text('II.', MARGIN_X, y);
-  y = drawWrapped(content.section2Title, MARGIN_X + 7, y, CONTENT_W - 7, p2LH, 'left');
+  y = drawWrapped(content.section2Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p2LH, 'left');
 
   doc.setFont('helvetica', 'normal');
   content.section2Items.forEach((item, idx) => {
-    doc.text(`${idx + 1}.`, MARGIN_X + 7, y);
-    y = drawWrapped(item.title, MARGIN_X + 14, y, CONTENT_W - 14, p2LH, 'left');
+    doc.text(`${idx + 1}.`, MARGIN_X + 6.5, y);
+    y = drawWrapped(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'left');
     for (const bullet of item.bullets) {
-      doc.text('-', MARGIN_X + 14, y);
-      y = drawWrapped(bullet, MARGIN_X + 18, y, CONTENT_W - 18, p2LH, 'justify');
+      doc.text('-', MARGIN_X + 6.5, y);
+      y = drawWrapped(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'justify');
     }
-    y += p2Gap * 0.65;
+    y += p2Gap;
   });
 
-  const p2TaxBoxLines = measureLines(content.section2Sanction, CONTENT_W - 6, p2FS, 'normal');
-  const p2TaxBoxH = p2TaxBoxLines.length * p2LH + 3.6;
-  const p2TaxBoxY = y - 2.6;
+  const p2TaxBoxLines = measureLines(content.section2Sanction, p2BoxW - 5, p2FS, 'normal');
+  const p2TaxBoxH = p2TaxBoxLines.length * p2LH + 3.4;
+  const p2TaxBoxY = y - 2.4;
   doc.setFillColor(244, 244, 244);
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.3);
-  doc.rect(MARGIN_X, p2TaxBoxY, CONTENT_W, p2TaxBoxH, 'FD');
+  doc.rect(MARGIN_X + 6.5, p2TaxBoxY, p2BoxW, p2TaxBoxH, 'FD');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(p2FS);
   doc.setTextColor(0, 0, 0);
-  drawWrapped(content.section2Sanction, MARGIN_X + 3, p2TaxBoxY + 4.3, CONTENT_W - 6, p2LH, 'justify');
-  y = p2TaxBoxY + p2TaxBoxH + 6.2;
+  drawWrapped(content.section2Sanction, MARGIN_X + 9, p2TaxBoxY + 4.1, p2BoxW - 5, p2LH, 'justify');
+  y = p2TaxBoxY + p2TaxBoxH + 5.2;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(p2FS);
   doc.text('III.', MARGIN_X, y);
-  y = drawWrapped(content.section3Title, MARGIN_X + 7, y, CONTENT_W - 7, p2LH, 'left');
+  y = drawWrapped(content.section3Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p2LH, 'left');
 
   doc.setFont('helvetica', 'normal');
   content.section3Items.forEach((item, idx) => {
-    doc.text(`${idx + 1}.`, MARGIN_X + 7, y);
-    y = drawWrapped(item.title, MARGIN_X + 14, y, CONTENT_W - 14, p2LH, 'left');
+    doc.text(`${idx + 1}.`, MARGIN_X + 6.5, y);
+    y = drawWrapped(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'left');
     for (const bullet of item.bullets) {
-      doc.text('-', MARGIN_X + 14, y);
-      y = drawWrapped(bullet, MARGIN_X + 18, y, CONTENT_W - 18, p2LH, 'justify');
+      doc.text('-', MARGIN_X + 6.5, y);
+      y = drawWrapped(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'justify');
     }
-    y += p2Gap * 0.55;
+    y += p2Gap;
   });
 
-  const p2LaborBoxLines = measureLines(content.section3Sanction, CONTENT_W - 6, p2FS, 'normal');
-  const p2LaborBoxH = p2LaborBoxLines.length * p2LH + 3.6;
-  const p2LaborBoxY = Math.min(y - 2.2, CONTENT_BOTTOM - p2LaborBoxH);
+  const p2LaborBoxLines = measureLines(content.section3Sanction, p2BoxW - 5, p2FS, 'normal');
+  const p2LaborBoxH = p2LaborBoxLines.length * p2LH + 3.4;
+  const p2LaborBoxY = Math.min(y - 2.0, CONTENT_BOTTOM - p2LaborBoxH);
   doc.setFillColor(244, 244, 244);
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.3);
-  doc.rect(MARGIN_X, p2LaborBoxY, CONTENT_W, p2LaborBoxH, 'FD');
+  doc.rect(MARGIN_X + 6.5, p2LaborBoxY, p2BoxW, p2LaborBoxH, 'FD');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(p2FS);
   doc.setTextColor(0, 0, 0);
-  drawWrapped(content.section3Sanction, MARGIN_X + 3, p2LaborBoxY + 4.3, CONTENT_W - 6, p2LH, 'justify');
+  drawWrapped(content.section3Sanction, MARGIN_X + 9, p2LaborBoxY + 4.1, p2BoxW - 5, p2LH, 'justify');
 
   // =========================================================================
   // PAGE 3 — TENTANG ND TAX AND LAW, LAYANAN & TABEL PERBANDINGAN (LOCKED)

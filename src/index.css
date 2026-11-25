@@ -92,14 +92,20 @@ html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
   }
 }
 
-/* Hidden on screen, shown cleanly as top-level document body child when printing Mitra ID Card or Prospect Letter */
+/* Hidden on screen, shown cleanly as top-level document body child when printing Mitra ID Card, Prospect Letter, or Prospect Envelope */
 #nd-id-card-print-root,
-#nd-prospect-letter-print-root {
+#nd-prospect-letter-print-root,
+#nd-prospect-envelope-print-root {
   display: none;
 }
 
 @page nd-prospect-a4 {
   size: A4 portrait;
+  margin: 0;
+}
+
+@page nd-prospect-envelope {
+  size: 220mm 110mm;
   margin: 0;
 }
 
@@ -174,6 +180,34 @@ html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
   body.nd-printing-prospect-letter .nd-prospect-a4-page:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
+  }
+  body.nd-printing-prospect-envelope > *:not(#nd-prospect-envelope-print-root) {
+    display: none !important;
+  }
+  body.nd-printing-prospect-envelope #nd-prospect-envelope-print-root {
+    display: block !important;
+    position: static !important;
+    width: 220mm !important;
+    height: 110mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0A4B78 !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body.nd-printing-prospect-envelope #nd-prospect-envelope-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body.nd-printing-prospect-envelope .nd-prospect-envelope-page {
+    page: nd-prospect-envelope;
+    width: 220mm !important;
+    height: 110mm !important;
+    margin: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
   .nd-print-card-grid {
     display: flex !important;

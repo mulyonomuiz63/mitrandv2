@@ -17,6 +17,7 @@ import {
   Pencil,
   FileEdit,
   RotateCcw,
+  Mail,
 } from 'lucide-react';
 import {
   AuthUser,
@@ -41,6 +42,7 @@ import {
   TableSkeletonRows,
 } from './ServerDataTableControls';
 import { ProspectLetterPreviewModal } from './ProspectLetterPreviewModal';
+import { ProspectEnvelopeModal } from './ProspectEnvelopeModal';
 import { ProspectLetterContentEditor } from './ProspectLetterContentEditor';
 import { downloadProspectLetterPdfFromView } from './ProspectLetterDocument';
 import { useConfirm } from './ConfirmDialogModal';
@@ -73,7 +75,7 @@ const EMPTY_ADDRESS: ProspectAddressParts = {
   district: '',
   cityType: 'Kota',
   city: '',
-  province: 'DKI Jakarta',
+  province: '',
   postalCode: '',
 };
 
@@ -165,8 +167,9 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     };
   }, [refreshTick]);
 
-  // Preview & PDF download state
+  // Preview, Envelope & PDF download state
   const [previewLetter, setPreviewLetter] = useState<ProspectLetter | null>(null);
+  const [envelopeLetter, setEnvelopeLetter] = useState<ProspectLetter | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -1003,6 +1006,15 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
 
                           <button
                             type="button"
+                            onClick={() => setEnvelopeLetter(letter)}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Amplop</span>
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => handleDeleteLetter(letter)}
                             disabled={deletingId === letter.id}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
@@ -1155,6 +1167,14 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                                   <Download className="w-3.5 h-3.5" />
                                 )}
                                 <span>PDF</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEnvelopeLetter(letter)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                                <span>Amplop</span>
                               </button>
                               <button
                                 type="button"
@@ -1547,6 +1567,15 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         logoUrl={logoUrl}
         masterTemplate={masterTemplate}
         onClose={() => setPreviewLetter(null)}
+      />
+
+      {/* ================================================================= */}
+      {/* MODAL 5: CETAK & UNDUH AMPLOP 11cm x 22cm                         */}
+      {/* ================================================================= */}
+      <ProspectEnvelopeModal
+        letter={envelopeLetter}
+        logoUrl={logoUrl}
+        onClose={() => setEnvelopeLetter(null)}
       />
     </div>
   );

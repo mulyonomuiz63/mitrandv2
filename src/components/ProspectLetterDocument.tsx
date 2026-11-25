@@ -23,6 +23,20 @@ export const A4_HEIGHT_PX = 1123; // 297mm at 96dpi
 const DEFAULT_VERTICAL_SVG = '/assets/aistudio/logo_nd_vertikal.svg';
 const DEFAULT_EMBLEM_PNG = '/assets/aistudio/logo_kotak_5ecb05e4.png';
 
+/**
+ * Safely bolds specific official key phrases (e.g. "999 Ribu", contact info)
+ * using React elements only (no raw HTML injection).
+ */
+function renderWithBoldPhrases(text: string, phrases: string[]): React.ReactNode {
+  if (!text || phrases.length === 0) return text;
+  const escaped = phrases.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(`(${escaped.join('|')})`, 'g');
+  const parts = text.split(regex);
+  return parts.map((part, idx) =>
+    phrases.includes(part) ? <strong key={idx}>{part}</strong> : <React.Fragment key={idx}>{part}</React.Fragment>
+  );
+}
+
 interface LetterHeaderProps {
   logoUrl?: string;
   inlineLogo?: { isCustom: boolean; dataUrl: string } | null;
@@ -275,15 +289,18 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
   const [p1CompactLevel, setP1CompactLevel] = useState(0);
   const [p2CompactLevel, setP2CompactLevel] = useState(0);
   const [p3CompactLevel, setP3CompactLevel] = useState(0);
+  const [p4CompactLevel, setP4CompactLevel] = useState(0);
   const page1ContentRef = useRef<HTMLDivElement | null>(null);
   const page2ContentRef = useRef<HTMLDivElement | null>(null);
   const page3ContentRef = useRef<HTMLDivElement | null>(null);
+  const page4ContentRef = useRef<HTMLDivElement | null>(null);
   const readyFiredRef = useRef(false);
 
   useEffect(() => {
     setP1CompactLevel(0);
     setP2CompactLevel(0);
     setP3CompactLevel(0);
+    setP4CompactLevel(0);
     readyFiredRef.current = false;
   }, [letter, masterTemplate]);
 
@@ -292,20 +309,26 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
     let adjusted = false;
 
     const el1 = page1ContentRef.current;
-    if (el1 && el1.scrollHeight > el1.clientHeight + 1 && p1CompactLevel < 5) {
-      setP1CompactLevel((prev) => Math.min(5, prev + 1));
+    if (el1 && el1.scrollHeight > el1.clientHeight + 1 && p1CompactLevel < 6) {
+      setP1CompactLevel((prev) => Math.min(6, prev + 1));
       adjusted = true;
     }
 
     const el2 = page2ContentRef.current;
-    if (el2 && el2.scrollHeight > el2.clientHeight + 1 && p2CompactLevel < 4) {
-      setP2CompactLevel((prev) => Math.min(4, prev + 1));
+    if (el2 && el2.scrollHeight > el2.clientHeight + 1 && p2CompactLevel < 6) {
+      setP2CompactLevel((prev) => Math.min(6, prev + 1));
       adjusted = true;
     }
 
     const el3 = page3ContentRef.current;
-    if (el3 && el3.scrollHeight > el3.clientHeight + 1 && p3CompactLevel < 4) {
-      setP3CompactLevel((prev) => Math.min(4, prev + 1));
+    if (el3 && el3.scrollHeight > el3.clientHeight + 1 && p3CompactLevel < 6) {
+      setP3CompactLevel((prev) => Math.min(6, prev + 1));
+      adjusted = true;
+    }
+
+    const el4 = page4ContentRef.current;
+    if (el4 && el4.scrollHeight > el4.clientHeight + 1 && p4CompactLevel < 4) {
+      setP4CompactLevel((prev) => Math.min(4, prev + 1));
       adjusted = true;
     }
 
@@ -313,23 +336,35 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
       readyFiredRef.current = true;
       onLayoutReady();
     }
-  }, [mode, letter, masterTemplate, p1CompactLevel, p2CompactLevel, p3CompactLevel, onLayoutReady]);
+  }, [mode, letter, masterTemplate, p1CompactLevel, p2CompactLevel, p3CompactLevel, p4CompactLevel, onLayoutReady]);
 
   // Global content exclusively — applies uniformly to all Mitra
   const content = resolveProspectLetterContent(undefined, masterTemplate);
   const formattedDate = formatIndonesianLetterDate(letter.letterDate || letter.createdAt);
 
-  const p1LH = [1.24, 1.19, 1.15, 1.11, 1.07, 1.04][p1CompactLevel] || 1.24;
-  const p1GapMm = [3.6, 2.8, 2.1, 1.5, 1.1, 0.8][p1CompactLevel] || 3.6;
-  const p1BodyFont = p1CompactLevel >= 5 ? '10pt' : p1CompactLevel >= 4 ? '10.5pt' : '11pt';
+  // Page 1 metrics (exact Arial 11pt Word single spacing ~1.16, auto-compacts only if long company/address)
+  const p1LH = [1.16, 1.13, 1.1, 1.07, 1.04, 1.02, 1.0][p1CompactLevel] || 1.16;
+  const p1GapMm = [3.4, 2.7, 2.1, 1.6, 1.2, 0.9, 0.7][p1CompactLevel] || 3.4;
+  const p1ItemGapMm = [2.0, 1.6, 1.3, 1.0, 0.8, 0.6, 0.5][p1CompactLevel] || 2.0;
+  const p1BodyFont = p1CompactLevel >= 6 ? '9.8pt' : p1CompactLevel >= 5 ? '10.2pt' : p1CompactLevel >= 4 ? '10.5pt' : '11pt';
   const p1RecipFont = p1CompactLevel >= 3 ? '10pt' : p1CompactLevel >= 2 ? '10.5pt' : '11pt';
 
-  const p2LH = [1.2, 1.15, 1.1, 1.06, 1.03][p2CompactLevel] || 1.2;
-  const p2BodyFont = p2CompactLevel >= 3 ? '10pt' : p2CompactLevel >= 2 ? '10.5pt' : '11pt';
+  // Page 2 metrics (exact Arial 11pt Word single spacing 1.15 — all of II & III fit comfortably on Page 2!)
+  const p2LH = [1.15, 1.12, 1.09, 1.06, 1.03, 1.01, 0.99][p2CompactLevel] || 1.15;
+  const p2ItemGapMm = [1.8, 1.4, 1.1, 0.8, 0.6, 0.45, 0.35][p2CompactLevel] || 1.8;
+  const p2SectionGapMm = [4.6, 3.6, 2.8, 2.2, 1.7, 1.3, 1.0][p2CompactLevel] || 4.6;
+  const p2BodyFont = p2CompactLevel >= 6 ? '9.6pt' : p2CompactLevel >= 5 ? '10pt' : p2CompactLevel >= 4 ? '10.4pt' : p2CompactLevel >= 3 ? '10.7pt' : '11pt';
 
-  const p3LH = [1.24, 1.18, 1.13, 1.08, 1.04][p3CompactLevel] || 1.24;
-  const p3BodyFont = p3CompactLevel >= 3 ? '10pt' : p3CompactLevel >= 2 ? '10.5pt' : '11pt';
-  const p3TableFont = p3CompactLevel >= 3 ? '9.5pt' : p3CompactLevel >= 2 ? '10pt' : '10.5pt';
+  // Page 3 metrics (exact Arial 11pt Word single spacing 1.16 — fits all of Tentang + Layanan + Table + Closing cleanly!)
+  const p3LH = [1.16, 1.13, 1.1, 1.07, 1.04, 1.02, 1.0][p3CompactLevel] || 1.16;
+  const p3GapMm = [3.4, 2.8, 2.2, 1.7, 1.3, 1.0, 0.8][p3CompactLevel] || 3.4;
+  const p3CellPad = p3CompactLevel >= 3 ? '1.1mm 2mm' : p3CompactLevel >= 1 ? '1.35mm 2.2mm' : '1.6mm 2.3mm';
+  const p3BodyFont = p3CompactLevel >= 6 ? '9.8pt' : p3CompactLevel >= 5 ? '10.2pt' : p3CompactLevel >= 4 ? '10.5pt' : '11pt';
+  const p3TableFont = p3CompactLevel >= 5 ? '9.6pt' : p3CompactLevel >= 3 ? '10pt' : '10.8pt';
+
+  // Page 4 metrics
+  const p4LH = [1.22, 1.17, 1.12, 1.08, 1.04][p4CompactLevel] || 1.22;
+  const p4SigGapMm = [15, 11, 8, 6, 4][p4CompactLevel] || 15;
 
   const measureRef = mode !== 'print';
 
@@ -353,7 +388,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             overflow: 'hidden',
           }}
         >
-          <div style={{ textAlign: 'right', marginBottom: '0.8mm' }}>
+          <div style={{ textAlign: 'right', marginBottom: '0.6mm' }}>
             {content.city}, {formattedDate}
           </div>
 
@@ -396,7 +431,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             </div>
           </div>
 
-          <div style={{ marginBottom: '0.6mm' }}>{content.greeting}</div>
+          <div style={{ marginBottom: '0.5mm' }}>{content.greeting}</div>
           <p style={{ margin: `0 0 ${p1GapMm}mm 0`, textAlign: 'justify' }}>
             {interpolateCompanyName(content.introPara1, letter.companyName)}
           </p>
@@ -405,46 +440,45 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             {interpolateCompanyName(content.introPara2, letter.companyName)}
           </p>
 
-          <div style={{ fontWeight: 700, marginBottom: `${Math.max(1.5, p1GapMm * 0.8)}mm` }}>
+          <div style={{ fontWeight: 700, marginBottom: `${Math.max(1.6, p1GapMm * 0.85)}mm` }}>
             {content.sectionMainTitle}
           </div>
 
-          <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-            <span style={{ width: '5mm', flexShrink: 0 }}>I.</span>
-            <span>{content.section1Title}</span>
+          <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.6mm' }}>
+            <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
+            <span style={{ flex: 1 }}>{content.section1Title}</span>
           </div>
 
           {content.section1Items.map((item, idx) => (
             <div
               key={idx}
               style={{
-                paddingLeft: '9mm',
+                paddingLeft: '6.5mm',
                 marginBottom:
                   idx === content.section1Items.length - 1
-                    ? `${Math.max(1.6, p1GapMm * 0.7)}mm`
-                    : `${Math.max(1.2, p1GapMm * 0.55)}mm`,
+                    ? `${Math.max(1.8, p1ItemGapMm + 0.4)}mm`
+                    : `${p1ItemGapMm}mm`,
               }}
             >
-              <div style={{ display: 'flex', gap: '3mm' }}>
-                <span style={{ width: '4.5mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <div style={{ flex: 1 }}>
-                  <div>{item.title}</div>
-                  {item.bullets.map((bullet, bIdx) => (
-                    <div key={bIdx} style={{ display: 'flex', gap: '2.5mm', textAlign: 'justify' }}>
-                      <span>-</span>
-                      <span>{bullet}</span>
-                    </div>
-                  ))}
-                </div>
+              <div style={{ display: 'flex' }}>
+                <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
+                <div style={{ flex: 1 }}>{item.title}</div>
               </div>
+              {item.bullets.map((bullet, bIdx) => (
+                <div key={bIdx} style={{ display: 'flex', textAlign: 'justify' }}>
+                  <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
+                  <div style={{ flex: 1 }}>{bullet}</div>
+                </div>
+              ))}
             </div>
           ))}
 
           <div
             style={{
+              marginLeft: '6.5mm',
               backgroundColor: '#F4F4F4',
               border: '1px solid #000000',
-              padding: '1.8mm 2.8mm',
+              padding: '1.5mm 2.5mm',
               textAlign: 'justify',
               WebkitPrintColorAdjust: 'exact',
               printColorAdjust: 'exact',
@@ -474,41 +508,43 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             overflow: 'hidden',
           }}
         >
-          <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-            <span style={{ width: '5mm', flexShrink: 0 }}>II.</span>
-            <span>{content.section2Title}</span>
+          <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+            <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
+            <span style={{ flex: 1 }}>{content.section2Title}</span>
           </div>
 
           {content.section2Items.map((item, idx) => (
             <div
               key={idx}
               style={{
-                paddingLeft: '9mm',
-                marginBottom: idx === content.section2Items.length - 1 ? '2.4mm' : '1.6mm',
+                paddingLeft: '6.5mm',
+                marginBottom:
+                  idx === content.section2Items.length - 1
+                    ? `${Math.max(1.5, p2ItemGapMm + 0.4)}mm`
+                    : `${p2ItemGapMm}mm`,
               }}
             >
-              <div style={{ display: 'flex', gap: '3mm' }}>
-                <span style={{ width: '4.5mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <div style={{ flex: 1 }}>
-                  <div>{item.title}</div>
-                  {item.bullets.map((bullet, bIdx) => (
-                    <div key={bIdx} style={{ display: 'flex', gap: '2.5mm', textAlign: 'justify' }}>
-                      <span>-</span>
-                      <span>{bullet}</span>
-                    </div>
-                  ))}
-                </div>
+              <div style={{ display: 'flex' }}>
+                <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
+                <div style={{ flex: 1 }}>{item.title}</div>
               </div>
+              {item.bullets.map((bullet, bIdx) => (
+                <div key={bIdx} style={{ display: 'flex', textAlign: 'justify' }}>
+                  <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
+                  <div style={{ flex: 1 }}>{bullet}</div>
+                </div>
+              ))}
             </div>
           ))}
 
           <div
             style={{
+              marginLeft: '6.5mm',
               backgroundColor: '#F4F4F4',
               border: '1px solid #000000',
-              padding: '1.8mm 2.8mm',
+              padding: '1.4mm 2.5mm',
               textAlign: 'justify',
-              marginBottom: '5.2mm',
+              marginBottom: `${p2SectionGapMm}mm`,
               WebkitPrintColorAdjust: 'exact',
               printColorAdjust: 'exact',
             }}
@@ -516,39 +552,41 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             {content.section2Sanction}
           </div>
 
-          <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-            <span style={{ width: '6mm', flexShrink: 0 }}>III.</span>
-            <span>{content.section3Title}</span>
+          <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+            <span style={{ width: '6.5mm', flexShrink: 0 }}>III.</span>
+            <span style={{ flex: 1 }}>{content.section3Title}</span>
           </div>
 
           {content.section3Items.map((item, idx) => (
             <div
               key={idx}
               style={{
-                paddingLeft: '9mm',
-                marginBottom: idx === content.section3Items.length - 1 ? '2.2mm' : '1.6mm',
+                paddingLeft: '6.5mm',
+                marginBottom:
+                  idx === content.section3Items.length - 1
+                    ? `${Math.max(1.5, p2ItemGapMm + 0.4)}mm`
+                    : `${p2ItemGapMm}mm`,
               }}
             >
-              <div style={{ display: 'flex', gap: '3mm' }}>
-                <span style={{ width: '4.5mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <div style={{ flex: 1 }}>
-                  <div>{item.title}</div>
-                  {item.bullets.map((bullet, bIdx) => (
-                    <div key={bIdx} style={{ display: 'flex', gap: '2.5mm', textAlign: 'justify' }}>
-                      <span>-</span>
-                      <span>{bullet}</span>
-                    </div>
-                  ))}
-                </div>
+              <div style={{ display: 'flex' }}>
+                <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
+                <div style={{ flex: 1 }}>{item.title}</div>
               </div>
+              {item.bullets.map((bullet, bIdx) => (
+                <div key={bIdx} style={{ display: 'flex', textAlign: 'justify' }}>
+                  <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
+                  <div style={{ flex: 1 }}>{bullet}</div>
+                </div>
+              ))}
             </div>
           ))}
 
           <div
             style={{
+              marginLeft: '6.5mm',
               backgroundColor: '#F4F4F4',
               border: '1px solid #000000',
-              padding: '1.8mm 2.8mm',
+              padding: '1.4mm 2.5mm',
               textAlign: 'justify',
               WebkitPrintColorAdjust: 'exact',
               printColorAdjust: 'exact',
@@ -578,69 +616,69 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             overflow: 'hidden',
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: '3.2mm' }}>{content.aboutTitle}</div>
+          <div style={{ fontWeight: 700, marginBottom: `${p3GapMm}mm` }}>{content.aboutTitle}</div>
 
-          <p style={{ margin: '0 0 3.6mm 0', textAlign: 'justify' }}>
+          <p style={{ margin: `0 0 ${p3GapMm}mm 0`, textAlign: 'justify' }}>
             {interpolateCompanyName(content.aboutPara, letter.companyName)}
           </p>
 
-          <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-            <span style={{ width: '5mm', flexShrink: 0 }}>I.</span>
-            <span>{content.servicesTitle}</span>
+          <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+            <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
+            <span style={{ flex: 1 }}>{content.servicesTitle}</span>
           </div>
 
-          <div style={{ paddingLeft: '9mm', marginBottom: '2mm', textAlign: 'justify' }}>
-            {content.servicesIntro}
+          <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm', textAlign: 'justify' }}>
+            {renderWithBoldPhrases(content.servicesIntro, ['999 Ribu'])}
           </div>
 
-          <div style={{ paddingLeft: '11mm', marginBottom: '3mm' }}>
+          <div style={{ paddingLeft: '12.5mm', marginBottom: `${Math.max(1.8, p3GapMm * 0.85)}mm` }}>
             {content.servicesItems.map((svc, idx) => (
               <div
                 key={idx}
                 style={{
                   display: 'flex',
-                  gap: '3mm',
-                  marginBottom: idx === content.servicesItems.length - 1 ? 0 : '1mm',
+                  marginBottom: idx === content.servicesItems.length - 1 ? 0 : '0.8mm',
                   textAlign: 'justify',
                 }}
               >
-                <span style={{ width: '4.5mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <span>
+                <span style={{ width: '5.5mm', flexShrink: 0 }}>{idx + 1}.</span>
+                <div style={{ flex: 1 }}>
                   {svc.lead ? <strong>{svc.lead} </strong> : null}
                   {svc.body}
-                </span>
+                </div>
               </div>
             ))}
           </div>
 
-          <p style={{ margin: '0 0 4.5mm 0', textAlign: 'justify' }}>
+          <p style={{ margin: `0 0 ${p3GapMm + 1}mm 0`, textAlign: 'justify' }}>
             {content.servicesCaseNote}
           </p>
 
-          <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '1.5mm' }}>
-            <span style={{ width: '5mm', flexShrink: 0 }}>II.</span>
-            <span>{content.comparisonTitle}</span>
+          <div style={{ display: 'flex', fontWeight: 700, marginBottom: '1.4mm' }}>
+            <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
+            <span style={{ flex: 1 }}>{content.comparisonTitle}</span>
           </div>
 
-          <div style={{ marginBottom: '2mm' }}>{content.comparisonIntro}</div>
+          <div style={{ marginBottom: '1.2mm' }}>{content.comparisonIntro}</div>
 
           <table
             style={{
               width: '100%',
               borderCollapse: 'collapse',
               fontSize: p3TableFont,
-              marginBottom: '4mm',
+              lineHeight: 1.18,
+              marginBottom: `${p3GapMm}mm`,
             }}
           >
             <thead>
               <tr style={{ backgroundColor: '#DFDCCE', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <th style={{ border: '1px solid #000000', padding: '2mm 2.5mm', textAlign: 'left', width: '34%', fontWeight: 700 }}>
+                <th style={{ border: '1px solid #000000', padding: p3CellPad, textAlign: 'left', width: '34%', fontWeight: 700 }}>
                   {content.comparisonHeaders[0]}
                 </th>
-                <th style={{ border: '1px solid #000000', padding: '2mm 2.5mm', textAlign: 'left', width: '40%', fontWeight: 700 }}>
+                <th style={{ border: '1px solid #000000', padding: p3CellPad, textAlign: 'left', width: '40%', fontWeight: 700 }}>
                   {content.comparisonHeaders[1]}
                 </th>
-                <th style={{ border: '1px solid #000000', padding: '2mm 2.5mm', textAlign: 'left', width: '26%', fontWeight: 700 }}>
+                <th style={{ border: '1px solid #000000', padding: p3CellPad, textAlign: 'left', width: '26%', fontWeight: 700 }}>
                   {content.comparisonHeaders[2]}
                 </th>
               </tr>
@@ -648,16 +686,16 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             <tbody>
               {content.comparisonRows.map((row, idx) => (
                 <tr key={idx}>
-                  <td style={{ border: '1px solid #000000', padding: '1.8mm 2.5mm' }}>
+                  <td style={{ border: '1px solid #000000', padding: p3CellPad }}>
                     {row.component}
                   </td>
-                  <td style={{ border: '1px solid #000000', padding: '1.8mm 2.5mm' }}>
+                  <td style={{ border: '1px solid #000000', padding: p3CellPad }}>
                     {row.internalStaff}
                   </td>
                   <td
                     style={{
                       border: '1px solid #000000',
-                      padding: '1.8mm 2.5mm',
+                      padding: p3CellPad,
                       fontWeight: idx === 0 ? 700 : 400,
                     }}
                   >
@@ -677,6 +715,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
       <A4PageFrame mode={mode}>
         <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} />
         <div
+          ref={measureRef ? page4ContentRef : undefined}
           style={{
             position: 'absolute',
             top: '40mm',
@@ -685,31 +724,36 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             right: '30mm',
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '11pt',
-            lineHeight: 1.3,
+            lineHeight: p4LH,
             color: '#000000',
             overflow: 'hidden',
           }}
         >
-          <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '2.5mm' }}>
-            <span style={{ width: '6mm', flexShrink: 0 }}>III.</span>
-            <span>{content.consultTitle}</span>
+          <div style={{ display: 'flex', fontWeight: 700, marginBottom: '2.4mm' }}>
+            <span style={{ width: '8mm', flexShrink: 0 }}>III.</span>
+            <span style={{ flex: 1 }}>{content.consultTitle}</span>
           </div>
 
-          <p style={{ paddingLeft: '10mm', margin: '0 0 8mm 0', textAlign: 'justify' }}>
-            {interpolateCompanyName(content.consultPara, letter.companyName)}
+          <p style={{ paddingLeft: '8mm', margin: '0 0 7.5mm 0', textAlign: 'justify' }}>
+            {renderWithBoldPhrases(interpolateCompanyName(content.consultPara, letter.companyName), [
+              '082180744977',
+              'business@ndtaxandlaw.com',
+              'www.ndtaxandlaw.com',
+            ])}
           </p>
 
           <div
             style={{
+              marginLeft: '8mm',
               border: '1px solid #000000',
-              padding: '4mm 4.5mm',
-              marginBottom: '7.5mm',
+              padding: '3.8mm 4.2mm',
+              marginBottom: '7mm',
             }}
           >
-            <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.5mm' }}>
+            <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.2mm' }}>
               Mitra Strategis
             </div>
-            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '11pt', lineHeight: 1.35 }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '11pt', lineHeight: 1.3 }}>
               <tbody>
                 <tr>
                   <td style={{ width: '24mm', padding: 0 }}>Nama</td>
@@ -731,7 +775,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             </table>
           </div>
 
-          <p style={{ margin: '0 0 18mm 0' }}>
+          <p style={{ paddingLeft: '8mm', margin: `0 0 ${p4SigGapMm}mm 0` }}>
             {interpolateCompanyName(content.closingPara, letter.companyName)}
           </p>
 
@@ -842,8 +886,7 @@ async function waitForImages(container: HTMLElement): Promise<void> {
 /**
  * Renders a self-contained inline-styled A4 DOM page directly via XHTML
  * SVG foreignObject -> high-DPI Canvas. Avoids cloning global Tailwind v4
- * stylesheets (which contain oklch/@property rules that break html2canvas
- * and html-to-image), producing pixel-identical output to the View modal.
+ * stylesheets, producing pixel-identical output to the View modal.
  */
 async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 2): Promise<string> {
   const serialized = new XMLSerializer().serializeToString(pageEl);

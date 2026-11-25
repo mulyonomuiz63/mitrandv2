@@ -269,115 +269,114 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
             key={idx}
             className="group/law"
             style={{
-              paddingLeft: '9mm',
+              paddingLeft: '6.5mm',
               marginBottom: idx === items.length - 1 ? '1.8mm' : '1.4mm',
               position: 'relative',
             }}
           >
-            <div style={{ display: 'flex', gap: '3mm', alignItems: 'flex-start' }}>
-              <span style={{ width: '4.5mm', flexShrink: 0 }}>{idx + 1}.</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
-                  <AutoGrowTextarea
-                    value={item.title}
-                    onChange={(title) => updateItem(idx, { ...item, title })}
-                    placeholder="Judul pasal / poin"
-                  />
-                  {items.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeItem(idx)}
-                      title="Hapus poin"
-                      style={{
-                        opacity: 0.45,
-                        padding: '2px',
-                        color: '#e11d48',
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                      }}
-                      className="hover:!opacity-100"
-                    >
-                      <Trash2 style={{ width: '12px', height: '12px' }} />
-                    </button>
-                  )}
-                </div>
-
-                {item.bullets.map((bullet, bIdx) => (
-                  <div
-                    key={bIdx}
-                    style={{ display: 'flex', gap: '2.5mm', alignItems: 'flex-start', textAlign: 'justify' }}
-                  >
-                    <span>-</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <AutoGrowTextarea
-                        value={bullet}
-                        onChange={(val) => {
-                          const nextBullets = item.bullets.map((b, i) => (i === bIdx ? val : b));
-                          updateItem(idx, { ...item, bullets: nextBullets });
-                        }}
-                        placeholder="Isi rincian"
-                        style={{ textAlign: 'justify' }}
-                      />
-                    </div>
-                    {item.bullets.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateItem(idx, {
-                            ...item,
-                            bullets: item.bullets.filter((_, i) => i !== bIdx),
-                          })
-                        }
-                        title="Hapus rincian"
-                        style={{
-                          opacity: 0.35,
-                          padding: '2px',
-                          color: '#e11d48',
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                        className="hover:!opacity-100"
-                      >
-                        <Trash2 style={{ width: '11px', height: '11px' }} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-
-                {item.bullets.length < 6 && (
+            <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+              <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+                <AutoGrowTextarea
+                  value={item.title}
+                  onChange={(title) => updateItem(idx, { ...item, title })}
+                  placeholder="Judul pasal / poin"
+                />
+                {items.length > 1 && (
                   <button
                     type="button"
-                    onClick={() =>
-                      updateItem(idx, { ...item, bullets: [...item.bullets, 'Rincian baru'] })
-                    }
+                    onClick={() => removeItem(idx)}
+                    title="Hapus poin"
                     style={{
-                      fontSize: '8pt',
-                      color: '#2563eb',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '2px',
-                      marginTop: '1px',
+                      opacity: 0.45,
+                      padding: '2px',
+                      color: '#e11d48',
                       cursor: 'pointer',
-                      opacity: 0.75,
+                      flexShrink: 0,
                     }}
                     className="hover:!opacity-100"
                   >
-                    <Plus style={{ width: '10px', height: '10px' }} />
-                    <span>Sub-poin</span>
+                    <Trash2 style={{ width: '12px', height: '12px' }} />
                   </button>
                 )}
               </div>
             </div>
+
+            {item.bullets.map((bullet, bIdx) => (
+              <div
+                key={bIdx}
+                style={{ display: 'flex', alignItems: 'flex-start', textAlign: 'justify' }}
+              >
+                <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <AutoGrowTextarea
+                    value={bullet}
+                    onChange={(val) => {
+                      const nextBullets = item.bullets.map((b, i) => (i === bIdx ? val : b));
+                      updateItem(idx, { ...item, bullets: nextBullets });
+                    }}
+                    placeholder="Isi rincian"
+                    style={{ textAlign: 'justify' }}
+                  />
+                </div>
+                {item.bullets.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateItem(idx, {
+                        ...item,
+                        bullets: item.bullets.filter((_, i) => i !== bIdx),
+                      })
+                    }
+                    title="Hapus rincian"
+                    style={{
+                      opacity: 0.35,
+                      padding: '2px',
+                      color: '#e11d48',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                    }}
+                    className="hover:!opacity-100"
+                  >
+                    <Trash2 style={{ width: '11px', height: '11px' }} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {item.bullets.length < 6 && (
+              <div style={{ paddingLeft: '6mm' }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateItem(idx, { ...item, bullets: [...item.bullets, 'Rincian baru'] })
+                  }
+                  style={{
+                    fontSize: '7.5pt',
+                    color: '#2563eb',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '2px',
+                    cursor: 'pointer',
+                    opacity: 0.65,
+                  }}
+                  className="hover:!opacity-100"
+                >
+                  <Plus style={{ width: '10px', height: '10px' }} />
+                  <span>Sub-poin</span>
+                </button>
+              </div>
+            )}
           </div>
         ))}
 
         {items.length < 6 && (
-          <div style={{ paddingLeft: '9mm', marginBottom: '1.5mm' }}>
+          <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm' }}>
             <button
               type="button"
               onClick={addItem}
               style={{
-                fontSize: '8.5pt',
+                fontSize: '8pt',
                 fontWeight: 600,
                 color: '#092147',
                 backgroundColor: '#eff6ff',
@@ -624,7 +623,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 overflow: 'visible',
                 fontFamily: 'Arial, Helvetica, sans-serif',
                 fontSize: '11pt',
-                lineHeight: pageTab === 2 ? 1.2 : pageTab === 4 ? 1.3 : 1.24,
+                lineHeight: pageTab === 2 ? 1.15 : pageTab === 4 ? 1.22 : 1.16,
                 color: '#000000',
                 zIndex: 10,
               }}
@@ -757,8 +756,8 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-                      <span style={{ width: '5mm', flexShrink: 0 }}>I.</span>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.6mm' }}>
+                      <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
                       <div style={{ flex: 1 }}>
                         <InlineInput
                           value={value.section1Title}
@@ -773,9 +772,10 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
                     <div
                       style={{
+                        marginLeft: '6.5mm',
                         backgroundColor: '#F4F4F4',
                         border: '1px solid #000000',
-                        padding: '1.8mm 2.8mm',
+                        padding: '1.5mm 2.5mm',
                         textAlign: 'justify',
                       }}
                     >
@@ -792,8 +792,8 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {/* ===================== HALAMAN 2 ===================== */}
                 {pageTab === 2 && (
                   <>
-                    <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-                      <span style={{ width: '5mm', flexShrink: 0 }}>II.</span>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+                      <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
                       <div style={{ flex: 1 }}>
                         <InlineInput
                           value={value.section2Title}
@@ -808,11 +808,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
                     <div
                       style={{
+                        marginLeft: '6.5mm',
                         backgroundColor: '#F4F4F4',
                         border: '1px solid #000000',
-                        padding: '1.8mm 2.8mm',
+                        padding: '1.4mm 2.5mm',
                         textAlign: 'justify',
-                        marginBottom: '5.2mm',
+                        marginBottom: '4.5mm',
                       }}
                     >
                       <AutoGrowTextarea
@@ -823,8 +824,8 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-                      <span style={{ width: '6mm', flexShrink: 0 }}>III.</span>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+                      <span style={{ width: '6.5mm', flexShrink: 0 }}>III.</span>
                       <div style={{ flex: 1 }}>
                         <InlineInput
                           value={value.section3Title}
@@ -839,9 +840,10 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
                     <div
                       style={{
+                        marginLeft: '6.5mm',
                         backgroundColor: '#F4F4F4',
                         border: '1px solid #000000',
-                        padding: '1.8mm 2.8mm',
+                        padding: '1.4mm 2.5mm',
                         textAlign: 'justify',
                       }}
                     >
@@ -876,8 +878,8 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '0.8mm' }}>
-                      <span style={{ width: '5mm', flexShrink: 0 }}>I.</span>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+                      <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
                       <div style={{ flex: 1 }}>
                         <InlineInput
                           value={value.servicesTitle}
@@ -888,7 +890,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </div>
                     </div>
 
-                    <div style={{ paddingLeft: '9mm', marginBottom: '2mm' }}>
+                    <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm' }}>
                       <AutoGrowTextarea
                         value={value.servicesIntro}
                         onChange={(v) => patch('servicesIntro', v)}
@@ -897,18 +899,17 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ paddingLeft: '11mm', marginBottom: '3mm' }}>
+                    <div style={{ paddingLeft: '12.5mm', marginBottom: '2.8mm' }}>
                       {value.servicesItems.map((svc: ProspectLetterServiceItem, idx) => (
                         <div
                           key={idx}
                           style={{
                             display: 'flex',
-                            gap: '3mm',
                             alignItems: 'flex-start',
-                            marginBottom: '1.2mm',
+                            marginBottom: '0.9mm',
                           }}
                         >
-                          <span style={{ width: '4.5mm', flexShrink: 0 }}>{idx + 1}.</span>
+                          <span style={{ width: '5.5mm', flexShrink: 0 }}>{idx + 1}.</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <InlineInput
                               value={svc.lead}
@@ -997,8 +998,8 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '1.5mm' }}>
-                      <span style={{ width: '5mm', flexShrink: 0 }}>II.</span>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '1.4mm' }}>
+                      <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
                       <div style={{ flex: 1 }}>
                         <InlineInput
                           value={value.comparisonTitle}
@@ -1009,7 +1010,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </div>
                     </div>
 
-                    <div style={{ marginBottom: '2mm' }}>
+                    <div style={{ marginBottom: '1.2mm' }}>
                       <InlineInput
                         value={value.comparisonIntro}
                         onChange={(v) => patch('comparisonIntro', v)}
@@ -1163,8 +1164,8 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {/* ===================== HALAMAN 4 ===================== */}
                 {pageTab === 4 && (
                   <>
-                    <div style={{ display: 'flex', gap: '4mm', fontWeight: 700, marginBottom: '2.5mm' }}>
-                      <span style={{ width: '6mm', flexShrink: 0 }}>III.</span>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '2.4mm' }}>
+                      <span style={{ width: '8mm', flexShrink: 0 }}>III.</span>
                       <div style={{ flex: 1 }}>
                         <InlineInput
                           value={value.consultTitle}
@@ -1175,7 +1176,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </div>
                     </div>
 
-                    <div style={{ paddingLeft: '10mm', marginBottom: '8mm' }}>
+                    <div style={{ paddingLeft: '8mm', marginBottom: '7.5mm' }}>
                       <AutoGrowTextarea
                         value={value.consultPara}
                         onChange={(v) => patch('consultPara', v)}
@@ -1186,9 +1187,10 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
                     <div
                       style={{
+                        marginLeft: '8mm',
                         border: '1px solid #000000',
-                        padding: '4mm 4.5mm',
-                        marginBottom: '7.5mm',
+                        padding: '3.8mm 4.2mm',
+                        marginBottom: '7mm',
                       }}
                     >
                       <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.5mm' }}>
