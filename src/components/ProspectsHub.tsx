@@ -610,11 +610,6 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 font-display tracking-tight">
             {isAdminOrStaff ? 'Manajemen Surat Prospek Mitra' : 'Prospek & Surat Penawaran'}
           </h1>
-          {!isAdminOrStaff && (
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Buat dan kelola surat penawaran kerjasama resmi ND TAX AND LAW.
-            </p>
-          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
