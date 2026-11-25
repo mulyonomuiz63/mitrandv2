@@ -19,9 +19,10 @@ import {
   Ban,
   Briefcase,
   ChevronDown,
-  MoreVertical
+  MoreVertical,
+  Pencil
 } from 'lucide-react';
-import { Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
+import { AppSettings, AuthUser, Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
 import { getDefaultAvatar } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
@@ -33,10 +34,13 @@ import {
   TableSkeletonRows,
 } from './ServerDataTableControls';
 import { ImageWithSkeleton } from './SkeletonLoader';
+import { AdminEditMitraModal } from './AdminEditMitraModal';
 
 interface MitraVerificationPanelProps {
   mitras: Mitra[];
   clientDeals?: ClientDeal[];
+  settings?: AppSettings | null;
+  currentUser?: AuthUser | null;
   onVerifyMitra: (
     id: string,
     status: 'verified' | 'rejected',
@@ -44,7 +48,7 @@ interface MitraVerificationPanelProps {
     groupChatIds?: string[]
   ) => Promise<void>;
   onSelectMitraPreview: (mitra: Mitra) => void;
-  onUpdateMitraProfile?: (id: string, data: Partial<Mitra>) => Promise<any>;
+  onUpdateMitraProfile?: (id: string, data: Partial<Mitra> & Record<string, any>) => Promise<any>;
   onToggleMitraActive?: (id: string, isActive: boolean, reason?: string) => Promise<any>;
   onDeleteMitra?: (id: string) => Promise<any>;
 }
@@ -60,6 +64,8 @@ const REJECTION_REASON_PRESETS = [
 export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   mitras,
   clientDeals = [],
+  settings,
+  currentUser,
   onVerifyMitra,
   onSelectMitraPreview,
   onUpdateMitraProfile,
@@ -70,6 +76,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified' | 'rejected' | 'inactive'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMitraDetail, setSelectedMitraDetail] = useState<Mitra | null>(null);
+  const [editingMitra, setEditingMitra] = useState<Mitra | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [isAdminUploadingKtp, setIsAdminUploadingKtp] = useState(false);
   const [adminUploadMsg, setAdminUploadMsg] = useState<string | null>(null);
@@ -714,6 +721,19 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                   <span>Cek Data Mitra</span>
                 </button>
 
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenActionMenu(null);
+                    setEditingMitra(target);
+                  }}
+                  className="w-full px-3 py-2 text-left text-amber-800 hover:bg-amber-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Edit Data Mitra</span>
+                </button>
+
                 {target.status === 'pending' && (
                   <>
                     <button
@@ -1159,6 +1179,14 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             {/* Modal Footer (Fixed, Always Visible) */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-4 sm:px-6 border-t border-slate-200 shrink-0 bg-slate-50 rounded-b-2xl">
               <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setEditingMitra(selectedMitraDetail)}
+                  className="px-3 py-2 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200/80 border border-amber-300 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Edit Data</span>
+                </button>
                 {onToggleMitraActive && (
                   <button
                     type="button"
@@ -1575,6 +1603,42 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* Admin / Staf Full Edit Mitra Modal */}
+      <AdminEditMitraModal
+        mitra={editingMitra}
+        settings={settings}
+        currentUser={currentUser}
+        onClose={() => setEditingMitra(null)}
+        onSave={async (id, payload) => {
+          let result: any;
+          if (onUpdateMitraProfile) {
+            result = await onUpdateMitraProfile(id, payload);
+          } else {
+            const res = await fetch(`/api/mitra/${id}/profile`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const json = await res.json();
+            if (!res.ok || !json?.success) {
+              throw new Error(json?.message || 'Gagal memperbarui data mitra.');
+            }
+            result = json;
+          }
+          if (selectedMitraDetail && selectedMitraDetail.id === id && result?.data) {
+            setSelectedMitraDetail(result.data);
+          }
+          setPanelFeedback({
+            type: 'success',
+            text:
+              result?.message ||
+              `Data lengkap Mitra "${result?.data?.fullName || payload.fullName || ''}" berhasil diperbarui.`,
+          });
+          mitraDt.refresh();
+          return result;
+        }}
+      />
     </div>
   );
 };

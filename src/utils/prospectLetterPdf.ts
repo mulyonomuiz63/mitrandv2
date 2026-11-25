@@ -6,6 +6,7 @@ import {
   ProspectLetterContent,
   resolveProspectLetterContent,
 } from '../types';
+import { stripProspectRichText } from './prospectRichText';
 
 export const INDONESIAN_PROVINCES: string[] = [
   'Aceh',
@@ -255,7 +256,71 @@ export async function generateProspectLetterPdf(
     compress: true,
   });
 
-  const content = resolveProspectLetterContent(undefined, masterTemplate);
+  const rawContent = resolveProspectLetterContent(undefined, masterTemplate);
+  const s = stripProspectRichText;
+  const content: ProspectLetterContent = {
+    ...rawContent,
+    city: s(rawContent.city),
+    sifat: s(rawContent.sifat),
+    lampiran: s(rawContent.lampiran),
+    perihal: s(rawContent.perihal),
+    greeting: s(rawContent.greeting),
+    introPara1: s(rawContent.introPara1),
+    introPara2: s(rawContent.introPara2),
+    sectionMainTitle: s(rawContent.sectionMainTitle),
+    section1Title: s(rawContent.section1Title),
+    section1Items: rawContent.section1Items.map((it) => ({
+      title: s(it.title),
+      bullets: it.bullets.map((b) => s(b)),
+    })),
+    section1Sanction: s(rawContent.section1Sanction),
+    section2Title: s(rawContent.section2Title),
+    section2Items: rawContent.section2Items.map((it) => ({
+      title: s(it.title),
+      bullets: it.bullets.map((b) => s(b)),
+    })),
+    section2Sanction: s(rawContent.section2Sanction),
+    section3Title: s(rawContent.section3Title),
+    section3Items: rawContent.section3Items.map((it) => ({
+      title: s(it.title),
+      bullets: it.bullets.map((b) => s(b)),
+    })),
+    section3Sanction: s(rawContent.section3Sanction),
+    aboutTitle: s(rawContent.aboutTitle),
+    aboutPara: s(rawContent.aboutPara),
+    servicesTitle: s(rawContent.servicesTitle),
+    servicesIntro: s(rawContent.servicesIntro),
+    servicesItems: rawContent.servicesItems.map((it) => ({
+      lead: s(it.lead),
+      body: s(it.body),
+    })),
+    servicesCaseNote: s(rawContent.servicesCaseNote),
+    comparisonTitle: s(rawContent.comparisonTitle),
+    comparisonIntro: s(rawContent.comparisonIntro),
+    comparisonHeaders: [
+      s(rawContent.comparisonHeaders[0]),
+      s(rawContent.comparisonHeaders[1]),
+      s(rawContent.comparisonHeaders[2]),
+    ],
+    comparisonRows: rawContent.comparisonRows.map((r) => ({
+      component: s(r.component),
+      internalStaff: s(r.internalStaff),
+      consultant: s(r.consultant),
+    })),
+    comparisonClosing: s(rawContent.comparisonClosing),
+    consultTitle: s(rawContent.consultTitle),
+    consultPara: s(rawContent.consultPara),
+    closingPara: s(rawContent.closingPara),
+    directorFirmLabel: s(rawContent.directorFirmLabel),
+    directorName: s(rawContent.directorName),
+    directorTitle: s(rawContent.directorTitle),
+    mitraSignerLabel: s(rawContent.mitraSignerLabel),
+    mitraRoleLabel: s(rawContent.mitraRoleLabel),
+    footerLeftTitle: s(rawContent.footerLeftTitle),
+    footerLeftLines: rawContent.footerLeftLines.map((l) => s(l)),
+    footerRightTitle: s(rawContent.footerRightTitle),
+    footerRightLines: rawContent.footerRightLines.map((l) => s(l)),
+  };
 
   const PAGE_W = 210;
   const PAGE_H = 297;

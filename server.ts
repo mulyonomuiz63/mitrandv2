@@ -1930,38 +1930,38 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
     }
   };
 
-  assignStr('city', 60);
-  assignStr('sifat', 60);
-  assignStr('lampiran', 60);
-  assignStr('perihal', 140);
-  assignStr('greeting', 80);
-  assignStr('introPara1', 900);
-  assignStr('introPara2', 900);
-  assignStr('sectionMainTitle', 260);
-  assignStr('section1Title', 200);
-  assignStr('section1Sanction', 500);
-  assignStr('section2Title', 200);
-  assignStr('section2Sanction', 500);
-  assignStr('section3Title', 200);
-  assignStr('section3Sanction', 500);
-  assignStr('aboutTitle', 160);
-  assignStr('aboutPara', 900);
-  assignStr('servicesTitle', 160);
-  assignStr('servicesIntro', 400);
-  assignStr('servicesCaseNote', 600);
-  assignStr('comparisonTitle', 200);
-  assignStr('comparisonIntro', 300);
-  assignStr('comparisonClosing', 500);
-  assignStr('consultTitle', 160);
-  assignStr('consultPara', 900);
-  assignStr('closingPara', 400);
-  assignStr('directorFirmLabel', 100);
-  assignStr('directorName', 120);
-  assignStr('directorTitle', 100);
-  assignStr('mitraSignerLabel', 100);
-  assignStr('mitraRoleLabel', 100);
-  assignStr('footerLeftTitle', 100);
-  assignStr('footerRightTitle', 100);
+  assignStr('city', 120);
+  assignStr('sifat', 120);
+  assignStr('lampiran', 120);
+  assignStr('perihal', 220);
+  assignStr('greeting', 140);
+  assignStr('introPara1', 1200);
+  assignStr('introPara2', 1200);
+  assignStr('sectionMainTitle', 360);
+  assignStr('section1Title', 280);
+  assignStr('section1Sanction', 700);
+  assignStr('section2Title', 280);
+  assignStr('section2Sanction', 700);
+  assignStr('section3Title', 280);
+  assignStr('section3Sanction', 700);
+  assignStr('aboutTitle', 240);
+  assignStr('aboutPara', 1200);
+  assignStr('servicesTitle', 240);
+  assignStr('servicesIntro', 600);
+  assignStr('servicesCaseNote', 800);
+  assignStr('comparisonTitle', 280);
+  assignStr('comparisonIntro', 400);
+  assignStr('comparisonClosing', 700);
+  assignStr('consultTitle', 240);
+  assignStr('consultPara', 1200);
+  assignStr('closingPara', 600);
+  assignStr('directorFirmLabel', 160);
+  assignStr('directorName', 180);
+  assignStr('directorTitle', 160);
+  assignStr('mitraSignerLabel', 160);
+  assignStr('mitraRoleLabel', 160);
+  assignStr('footerLeftTitle', 160);
+  assignStr('footerRightTitle', 160);
 
   const s1 = cleanLawItems(src.section1Items, 6);
   if (s1) out.section1Items = s1;
@@ -1974,9 +1974,9 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
   if (services) out.servicesItems = services;
 
   if (Array.isArray(src.comparisonHeaders) && src.comparisonHeaders.length === 3) {
-    const h0 = cleanStr(src.comparisonHeaders[0], 60);
-    const h1 = cleanStr(src.comparisonHeaders[1], 60);
-    const h2 = cleanStr(src.comparisonHeaders[2], 60);
+    const h0 = cleanStr(src.comparisonHeaders[0], 140);
+    const h1 = cleanStr(src.comparisonHeaders[1], 140);
+    const h2 = cleanStr(src.comparisonHeaders[2], 140);
     if (h0 && h1 && h2) {
       out.comparisonHeaders = [h0, h1, h2];
     }
@@ -5815,6 +5815,7 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
   const { id } = req.params;
   const {
     fullName,
+    email,
     phone,
     nik,
     ktpFileUrl,
@@ -5826,6 +5827,17 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     newPassword,
     resubmitVerification,
     customFields,
+    memberCode,
+    referralCode,
+    joinedDate,
+    status,
+    rejectionReason,
+    emailVerified,
+    editedByAdmin,
+    actorRole,
+    actorId,
+    actorName,
+    actorEmail,
   } = req.body;
 
   await syncMitrasFromMysqlForValidation();
@@ -5834,6 +5846,37 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
 
   if (!mitra) {
     return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan' });
+  }
+
+  const isAdminOrStaffEdit =
+    Boolean(editedByAdmin) || actorRole === 'admin' || actorRole === 'staff';
+  const oldEmailLower = normalizeMitraEmail(mitra.email);
+  let nextEmailLower = oldEmailLower;
+
+  // VALIDASI FORMAT & KEUNIKAN EMAIL BILA DIUBAH
+  if (typeof email === 'string' && email.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        field: 'email',
+        message: 'Format alamat email tidak valid.',
+      });
+    }
+    if (cleanEmail !== oldEmailLower) {
+      const emailCheck = checkMitraIdentityUniqueness({
+        email: cleanEmail,
+        excludeMitraId: id,
+      });
+      if (emailCheck.emailTaken) {
+        return res.status(400).json({
+          success: false,
+          field: 'email',
+          message: emailCheck.emailMessage || 'Email sudah digunakan oleh akun lain.',
+        });
+      }
+      nextEmailLower = cleanEmail;
+    }
   }
 
   // VALIDASI KEUNIKAN NIK / NPWP SAAT MELENGKAPI ATAU MENGUBAH DATA PROFIL MITRA
@@ -5851,12 +5894,60 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     }
   }
 
+  // VALIDASI KEUNIKAN MEMBER CODE & REFERRAL CODE BILA DIUBAH OLEH ADMIN/STAF
+  if (isAdminOrStaffEdit && typeof memberCode === 'string' && memberCode.trim()) {
+    const cleanMemberCode = memberCode.trim().toUpperCase();
+    const duplicateCode = mitras.find(
+      (m) => m.id !== id && String(m.memberCode || '').trim().toUpperCase() === cleanMemberCode
+    );
+    if (duplicateCode) {
+      return res.status(400).json({
+        success: false,
+        field: 'memberCode',
+        message: `ID Anggota "${cleanMemberCode}" sudah digunakan oleh mitra lain.`,
+      });
+    }
+    mitra.memberCode = cleanMemberCode;
+  }
+
+  if (isAdminOrStaffEdit && typeof referralCode === 'string' && referralCode.trim()) {
+    const cleanReferralCode = referralCode.trim().toUpperCase();
+    const duplicateRef = mitras.find(
+      (m) => m.id !== id && String(m.referralCode || '').trim().toUpperCase() === cleanReferralCode
+    );
+    if (duplicateRef) {
+      return res.status(400).json({
+        success: false,
+        field: 'referralCode',
+        message: `Kode Referral "${cleanReferralCode}" sudah digunakan oleh mitra lain.`,
+      });
+    }
+    mitra.referralCode = cleanReferralCode;
+  }
+
   const wasRejected = mitra.status === 'rejected';
 
-  if (fullName) mitra.fullName = fullName;
-  if (phone) mitra.phone = phone;
-  if (nik) mitra.nik = String(nik).trim();
-  if (specialization) mitra.specialization = specialization;
+  if (typeof fullName === 'string' && fullName.trim()) mitra.fullName = fullName.trim();
+  if (typeof phone === 'string') {
+    const cleanPhone = phone.trim();
+    if (cleanPhone) mitra.phone = cleanPhone;
+  }
+  if (typeof nik === 'string') {
+    mitra.nik = nik.trim() || '-';
+  }
+  if (typeof specialization === 'string' && specialization.trim()) {
+    mitra.specialization = specialization.trim();
+  }
+  if (isAdminOrStaffEdit && typeof joinedDate === 'string' && joinedDate.trim()) {
+    mitra.joinedDate = joinedDate.trim();
+  }
+  if (isAdminOrStaffEdit && typeof emailVerified === 'boolean') {
+    mitra.emailVerified = emailVerified;
+    if (emailVerified) {
+      mitra.verificationToken = undefined;
+      mitra.verificationTokenExpiry = undefined;
+    }
+  }
 
   if (typeof ktpFileUrl === 'string' && ktpFileUrl.trim()) {
     let cleanKtpUrl = ktpFileUrl.trim();
@@ -5896,9 +5987,11 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     }
     mitra.customFields = mergedCf;
   }
+
   if (gender === 'male' || gender === 'female') {
     mitra.gender = gender;
   }
+
   if (
     bankDetails ||
     mitra.customFields ||
@@ -5927,20 +6020,40 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
         mergedBank.accountNumber = rawAcc.replace(/\D/g, '');
       }
     }
-    if (wasRejected || resubmitVerification) {
+    if (!isAdminOrStaffEdit && (wasRejected || resubmitVerification)) {
       delete mergedBank.__rejectionReason;
       delete mergedBank.__rejectedAt;
     }
     mitra.bankDetails = mergedBank;
   }
+
   if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim().length > 0) {
     mitra.avatarUrl = avatarUrl.trim();
   } else if (gender === 'male' || gender === 'female') {
     mitra.avatarUrl = getDefaultAvatar(gender, mitra.fullName);
   }
 
-  // Jika mitra yang sebelumnya ditolak memperbaiki data / mengajukan ulang verifikasi, kembalikan status ke 'pending'
-  if (wasRejected || resubmitVerification) {
+  // Status update handling: Admin/Staf can explicitly set status, while Mitra resubmits rejected profile to pending
+  if (isAdminOrStaffEdit && (status === 'verified' || status === 'pending' || status === 'rejected')) {
+    mitra.status = status;
+    const bankMeta: any = { ...(mitra.bankDetails || {}) };
+    if (status === 'rejected') {
+      const cleanReason =
+        typeof rejectionReason === 'string' && rejectionReason.trim()
+          ? rejectionReason.trim()
+          : mitra.rejectionReason || 'Data pendaftaran memerlukan perbaikan.';
+      mitra.rejectionReason = cleanReason;
+      mitra.rejectedAt = mitra.rejectedAt || new Date().toISOString();
+      bankMeta.__rejectionReason = cleanReason;
+      bankMeta.__rejectedAt = mitra.rejectedAt;
+    } else {
+      mitra.rejectionReason = undefined;
+      mitra.rejectedAt = undefined;
+      delete bankMeta.__rejectionReason;
+      delete bankMeta.__rejectedAt;
+    }
+    mitra.bankDetails = bankMeta;
+  } else if (!isAdminOrStaffEdit && (wasRejected || resubmitVerification)) {
     mitra.status = 'pending';
     mitra.rejectionReason = undefined;
     mitra.rejectedAt = undefined;
@@ -5969,41 +6082,80 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
     }
   }
 
-  if (newPassword && newPassword.length >= 6) {
-    const encryptedPwd = encryptUserPassword(newPassword, 'mitra');
-    userPasswords.set(mitra.email.toLowerCase(), encryptedPwd);
+  // Migrasi kredensial login bila Email Mitra berubah & pembaruan kata sandi bila diisi
+  const prevStoredEnc =
+    userPasswords.get(oldEmailLower) || encryptUserPassword('mitraND2026!', 'mitra');
+
+  if (nextEmailLower !== oldEmailLower) {
+    userPasswords.delete(oldEmailLower);
+    mitra.email = nextEmailLower;
     if (db) {
       try {
-        await db.from('user_passwords').upsert([{ email: mitra.email.toLowerCase(), password: encryptedPwd }]);
+        await db.from('user_passwords').delete().eq('email', oldEmailLower);
+      } catch {}
+    }
+  }
+
+  if (newPassword && String(newPassword).trim().length >= 6) {
+    const encryptedPwd = encryptUserPassword(String(newPassword).trim(), 'mitra');
+    userPasswords.set(nextEmailLower, encryptedPwd);
+    if (db) {
+      try {
+        await db.from('user_passwords').upsert([{ email: nextEmailLower, password: encryptedPwd }]);
+      } catch {}
+    }
+  } else if (nextEmailLower !== oldEmailLower) {
+    const migratedPwd = encryptUserPassword(prevStoredEnc, 'mitra');
+    userPasswords.set(nextEmailLower, migratedPwd);
+    if (db) {
+      try {
+        await db.from('user_passwords').upsert([{ email: nextEmailLower, password: migratedPwd }]);
       } catch {}
     }
   }
 
   recordActivity({
-    actorRole: 'mitra',
-    actorId: mitra.id,
-    actorName: mitra.fullName,
-    actorEmail: mitra.email,
+    actorRole: isAdminOrStaffEdit ? (actorRole === 'staff' ? 'staff' : 'admin') : 'mitra',
+    actorId: isAdminOrStaffEdit ? actorId || adminAccount.id : mitra.id,
+    actorName: isAdminOrStaffEdit
+      ? actorName || (actorRole === 'staff' ? 'Staf Operasional' : adminAccount.name)
+      : mitra.fullName,
+    actorEmail: isAdminOrStaffEdit ? actorEmail || adminAccount.email : mitra.email,
     actionType: 'profile_update',
     operation: 'UPDATE',
-    targetEntity: wasRejected || resubmitVerification ? 'Pengajuan Ulang Verifikasi Mitra' : 'Profil & Rekening Mitra',
-    description:
-      wasRejected || resubmitVerification
-        ? `Mitra "${mitra.fullName}" memperbarui data diri/rekening dan mengajukan ulang verifikasi pendaftaran ke Admin.`
-        : `Mitra "${mitra.fullName}" memperbarui data profil dan rekening bank (${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber}).`,
+    targetEntity: isAdminOrStaffEdit
+      ? 'Edit Data Mitra oleh Admin/Staf'
+      : wasRejected || resubmitVerification
+      ? 'Pengajuan Ulang Verifikasi Mitra'
+      : 'Profil & Rekening Mitra',
+    description: isAdminOrStaffEdit
+      ? `${actorRole === 'staff' ? 'Staf' : 'Admin'} memperbarui data lengkap Mitra "${mitra.fullName}" (${mitra.memberCode}, Email: ${mitra.email}, NIK/NPWP: ${mitra.nik}).`
+      : wasRejected || resubmitVerification
+      ? `Mitra "${mitra.fullName}" memperbarui data diri/rekening dan mengajukan ulang verifikasi pendaftaran ke Admin.`
+      : `Mitra "${mitra.fullName}" memperbarui data profil dan rekening bank (${mitra.bankDetails.bankName} - ${mitra.bankDetails.accountNumber}).`,
   });
 
   if (db) {
+    const dbUpdatePayload: Record<string, any> = {
+      fullName: mitra.fullName,
+      email: mitra.email,
+      phone: mitra.phone,
+      nik: mitra.nik,
+      specialization: mitra.specialization,
+      bankDetails: mitra.bankDetails,
+      avatarUrl: mitra.avatarUrl,
+      status: mitra.status,
+      joinedDate: mitra.joinedDate,
+      memberCode: mitra.memberCode,
+      referralCode: mitra.referralCode,
+      ...(typeof mitra.emailVerified === 'boolean' ? { emailVerified: mitra.emailVerified } : {}),
+    };
     try {
-      await db.from('mitras').update({
-        fullName: mitra.fullName,
-        phone: mitra.phone,
-        nik: mitra.nik,
-        specialization: mitra.specialization,
-        bankDetails: mitra.bankDetails,
-        avatarUrl: mitra.avatarUrl,
-        status: mitra.status,
-      }).eq('id', id);
+      const { error: updateErr } = await db.from('mitras').update(dbUpdatePayload).eq('id', id);
+      if (updateErr) {
+        const { emailVerified: _ev, ...minimalUpdate } = dbUpdatePayload;
+        await db.from('mitras').update(minimalUpdate).eq('id', id);
+      }
     } catch (e) {
       console.warn('MySQL update profile error', e);
     }
@@ -6011,7 +6163,11 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
 
   saveDatabase();
 
-  res.json({ success: true, data: mitra });
+  res.json({
+    success: true,
+    data: mitra,
+    message: `Data Mitra "${mitra.fullName}" berhasil diperbarui.`,
+  });
 });
 
 // ========================================================

@@ -1055,13 +1055,16 @@ export default function App() {
         const exists = prev.some((m) => m.id === id);
         return exists ? prev.map((m) => (m.id === id ? data.data : m)) : [data.data, ...prev];
       });
-      try {
-        localStorage.setItem('nd_cached_active_mitra', JSON.stringify(data.data));
-      } catch {}
+      if (currentRole === 'mitra' || activeMitraId === id) {
+        try {
+          localStorage.setItem('nd_cached_active_mitra', JSON.stringify(data.data));
+        } catch {}
+      }
       if (currentUser && (currentUser.mitraId === id || currentUser.id === id)) {
         const updatedUser: AuthUser = {
           ...currentUser,
           name: data.data.fullName || currentUser.name,
+          email: data.data.email || currentUser.email,
           avatarUrl: data.data.avatarUrl || currentUser.avatarUrl,
           gender: data.data.gender || currentUser.gender,
         };
@@ -1628,6 +1631,8 @@ export default function App() {
             <MitraVerificationPanel
               mitras={mitras}
               clientDeals={clientDeals}
+              settings={settings}
+              currentUser={currentUser}
               onVerifyMitra={handleVerifyMitra}
               onUpdateMitraProfile={handleUpdateProfile}
               onToggleMitraActive={handleToggleMitraActive}

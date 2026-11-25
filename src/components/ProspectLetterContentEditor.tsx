@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -7,6 +7,12 @@ import {
   ChevronLeft,
   ChevronRight,
   QrCode,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  RemoveFormatting,
+  Building2,
 } from 'lucide-react';
 import {
   ProspectLetterComparisonRow,
@@ -15,6 +21,12 @@ import {
   ProspectLetterServiceItem,
 } from '../types';
 import { A4_HEIGHT_PX, A4_WIDTH_PX } from './ProspectLetterDocument';
+import {
+  PROSPECT_TEXT_COLORS,
+  buildRichDomFragment,
+  normalizeHexColor,
+  serializeRichDomElement,
+} from '../utils/prospectRichText';
 
 interface ProspectLetterContentEditorProps {
   value: ProspectLetterContent;
@@ -27,36 +39,158 @@ const DEFAULT_EMBLEM_PNG = '/assets/aistudio/logo_kotak_5ecb05e4.png';
 // 297mm - 40mm (top) - 40mm (bottom) = 217mm ≈ 820.16px at 96dpi
 const MAX_BODY_HEIGHT_PX = 820;
 
-const AutoGrowTextarea: React.FC<{
+interface ActiveFormatState {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  color: string;
+}
+
+const DEFAULT_FORMAT_STATE: ActiveFormatState = {
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  color: '#000000',
+};
+
+interface RichEditableFieldProps {
   value: string;
   onChange: (val: string) => void;
+  multiline?: boolean;
   placeholder?: string;
   style?: React.CSSProperties;
   ariaLabel?: string;
-}> = ({ value, onChange, placeholder, style, ariaLabel }) => {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
+  onFieldFocus?: (el: HTMLDivElement) => void;
+  onSelectionActivity?: () => void;
+}
 
+/**
+ * True WYSIWYG inline rich-text editable field built without innerHTML / dangerouslySetInnerHTML.
+ * Displays live Bold, Italic, Underline, Strikethrough, and Text Color directly on the A4 letter sheet.
+ */
+const RichEditableField: React.FC<RichEditableFieldProps> = ({
+  value,
+  onChange,
+  multiline = true,
+  placeholder,
+  style,
+  ariaLabel,
+  onFieldFocus,
+  onSelectionActivity,
+}) => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const lastEmittedRef = useRef<string | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const defaultBold =
+    style?.fontWeight === 700 ||
+    style?.fontWeight === '700' ||
+    style?.fontWeight === 'bold';
+  const defaultColor = typeof style?.color === 'string' ? style.color : '#000000';
+
+  const emitCurrentDom = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const serialized = serializeRichDomElement(el, {
+      multiline,
+      defaultBold,
+      defaultColor,
+    });
+    if (serialized !== lastEmittedRef.current) {
+      lastEmittedRef.current = serialized;
+      onChangeRef.current(serialized);
+    }
+  }, [multiline, defaultBold, defaultColor]);
+
+  // Populate DOM cleanly on initial mount and whenever value changes externally (e.g., Reset Default)
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = '0px';
-    el.style.height = `${Math.max(el.scrollHeight, 18)}px`;
-  }, [value]);
+    if (lastEmittedRef.current === value) return;
+    lastEmittedRef.current = value;
+    while (el.firstChild) {
+      el.removeChild(el.firstChild);
+    }
+    if (value) {
+      el.appendChild(buildRichDomFragment(document, value, multiline));
+    }
+  }, [value, multiline]);
+
+  // Allow toolbar to trigger re-serialization immediately after formatting commands
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const handleSync = () => emitCurrentDom();
+    el.addEventListener('nd-rich-sync', handleSync);
+    return () => el.removeEventListener('nd-rich-sync', handleSync);
+  }, [emitCurrentDom]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!multiline && e.key === 'Enter') {
+      e.preventDefault();
+      return;
+    }
+    // Support standard keyboard shortcuts Ctrl/Cmd + B / I / U
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'b' || k === 'i' || k === 'u') {
+        e.preventDefault();
+        const cmd = k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline';
+        document.execCommand(cmd, false);
+        emitCurrentDom();
+        onSelectionActivity?.();
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const rawText = e.clipboardData.getData('text/plain') || '';
+    const cleaned = multiline ? rawText.replace(/\r\n/g, '\n') : rawText.replace(/[\r\n]+/g, ' ');
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const textNode = document.createTextNode(cleaned);
+      range.insertNode(textNode);
+      range.setStartAfter(textNode);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    emitCurrentDom();
+  };
 
   return (
-    <textarea
+    <div
       ref={ref}
-      rows={1}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
+      contentEditable
+      suppressContentEditableWarning
+      role="textbox"
+      aria-multiline={multiline}
       aria-label={ariaLabel}
+      data-placeholder={placeholder || ''}
+      onFocus={(e) => {
+        onFieldFocus?.(e.currentTarget);
+        onSelectionActivity?.();
+      }}
+      onInput={() => {
+        emitCurrentDom();
+        onSelectionActivity?.();
+      }}
+      onBlur={() => emitCurrentDom()}
+      onKeyDown={handleKeyDown}
+      onKeyUp={() => onSelectionActivity?.()}
+      onMouseUp={() => onSelectionActivity?.()}
+      onPaste={handlePaste}
       className="nd-wysiwyg-field"
       style={{
         display: 'block',
         width: '100%',
-        resize: 'none',
-        overflow: 'hidden',
+        minHeight: '1.15em',
         background: 'transparent',
         border: '1px dashed transparent',
         borderRadius: '3px',
@@ -70,45 +204,14 @@ const AutoGrowTextarea: React.FC<{
         color: 'inherit',
         textAlign: 'inherit',
         boxSizing: 'border-box',
+        whiteSpace: multiline ? 'pre-wrap' : 'nowrap',
+        overflow: multiline ? 'visible' : 'hidden',
+        wordBreak: 'break-word',
         ...style,
       }}
     />
   );
 };
-
-const InlineInput: React.FC<{
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-  style?: React.CSSProperties;
-  ariaLabel?: string;
-}> = ({ value, onChange, placeholder, style, ariaLabel }) => (
-  <input
-    type="text"
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    placeholder={placeholder}
-    aria-label={ariaLabel}
-    className="nd-wysiwyg-field"
-    style={{
-      background: 'transparent',
-      border: '1px dashed transparent',
-      borderRadius: '3px',
-      padding: '0 2px',
-      margin: 0,
-      outline: 'none',
-      fontFamily: 'inherit',
-      fontSize: 'inherit',
-      fontWeight: 'inherit',
-      lineHeight: 'inherit',
-      color: 'inherit',
-      textAlign: 'inherit',
-      boxSizing: 'border-box',
-      width: '100%',
-      ...style,
-    }}
-  />
-);
 
 const EditorHeaderLogo: React.FC<{ logoUrl?: string }> = ({ logoUrl }) => {
   const trimmed = String(logoUrl || '').trim();
@@ -198,11 +301,94 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
   const [pageTab, setPageTab] = useState<1 | 2 | 3 | 4>(1);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const bodyMeasureRef = useRef<HTMLDivElement | null>(null);
+  const activeFieldRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
   const [bodyHeightPx, setBodyHeightPx] = useState(0);
+  const [formatState, setFormatState] = useState<ActiveFormatState>(DEFAULT_FORMAT_STATE);
 
   const patch = <K extends keyof ProspectLetterContent>(key: K, nextVal: ProspectLetterContent[K]) => {
     onChange({ ...value, [key]: nextVal });
+  };
+
+  // Query active formatting state at current cursor/selection
+  const refreshFormatState = useCallback(() => {
+    try {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const anchor = sel.anchorNode;
+      const anchorEl = anchor?.nodeType === Node.ELEMENT_NODE ? (anchor as HTMLElement) : anchor?.parentElement;
+      if (!anchorEl?.closest('.nd-wysiwyg-field')) return;
+
+      const bold = document.queryCommandState('bold');
+      const italic = document.queryCommandState('italic');
+      const underline = document.queryCommandState('underline');
+      const strike = document.queryCommandState('strikeThrough');
+      const rawColor = document.queryCommandValue('foreColor');
+      const color = normalizeHexColor(rawColor) || '#000000';
+      setFormatState({ bold, italic, underline, strike, color });
+    } catch {
+      // Ignore queryCommandState errors in restricted environments
+    }
+  }, []);
+
+  useEffect(() => {
+    const onSelChange = () => refreshFormatState();
+    document.addEventListener('selectionchange', onSelChange);
+    return () => document.removeEventListener('selectionchange', onSelChange);
+  }, [refreshFormatState]);
+
+  const applyFormatCommand = (
+    cmd: 'bold' | 'italic' | 'underline' | 'strikeThrough' | 'foreColor' | 'removeFormat',
+    arg?: string
+  ) => {
+    const activeEl = activeFieldRef.current;
+    if (!activeEl) return;
+
+    // Ensure focus stays in the active WYSIWYG field
+    if (document.activeElement !== activeEl && !activeEl.contains(document.activeElement)) {
+      activeEl.focus();
+    }
+
+    try {
+      if (cmd === 'foreColor' && arg) {
+        document.execCommand('styleWithCSS', false, 'true');
+        document.execCommand('foreColor', false, arg);
+      } else {
+        document.execCommand(cmd, false, arg);
+      }
+    } catch {
+      // Ignore unsupported command
+    }
+
+    activeEl.dispatchEvent(new CustomEvent('nd-rich-sync'));
+    refreshFormatState();
+  };
+
+  const insertCompanyPlaceholder = () => {
+    const activeEl = activeFieldRef.current;
+    if (!activeEl) return;
+
+    if (document.activeElement !== activeEl && !activeEl.contains(document.activeElement)) {
+      activeEl.focus();
+    }
+
+    const token = '{{NAMA_PERUSAHAAN}}';
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && activeEl.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const textNode = document.createTextNode(token);
+      range.insertNode(textNode);
+      range.setStartAfter(textNode);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      activeEl.appendChild(document.createTextNode(` ${token}`));
+    }
+
+    activeEl.dispatchEvent(new CustomEvent('nd-rich-sync'));
+    refreshFormatState();
   };
 
   // Scale A4 sheet smoothly if modal width < 794px
@@ -244,6 +430,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
   const isOverflowing = overflowPx > 2;
   const isNearLimit = !isOverflowing && usagePct >= 93;
 
+  const fieldHandlers = {
+    onFieldFocus: (el: HTMLDivElement) => {
+      activeFieldRef.current = el;
+    },
+    onSelectionActivity: refreshFormatState,
+  };
+
   // Law items helper (Section I, II, III)
   const renderEditableLawList = (
     sectionKey: 'section1Items' | 'section2Items' | 'section3Items',
@@ -266,7 +459,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
       <div>
         {items.map((item, idx) => (
           <div
-            key={idx}
+            key={`${sectionKey}-${idx}`}
             className="group/law"
             style={{
               paddingLeft: '6.5mm',
@@ -277,10 +470,11 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
             <div style={{ display: 'flex', alignItems: 'flex-start' }}>
               <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
               <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
-                <AutoGrowTextarea
+                <RichEditableField
                   value={item.title}
                   onChange={(title) => updateItem(idx, { ...item, title })}
                   placeholder="Judul pasal / poin"
+                  {...fieldHandlers}
                 />
                 {items.length > 1 && (
                   <button
@@ -304,12 +498,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
             {item.bullets.map((bullet, bIdx) => (
               <div
-                key={bIdx}
+                key={`${sectionKey}-${idx}-b-${bIdx}`}
                 style={{ display: 'flex', alignItems: 'flex-start', textAlign: 'justify' }}
               >
                 <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <AutoGrowTextarea
+                  <RichEditableField
                     value={bullet}
                     onChange={(val) => {
                       const nextBullets = item.bullets.map((b, i) => (i === bIdx ? val : b));
@@ -317,6 +511,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     }}
                     placeholder="Isi rincian"
                     style={{ textAlign: 'justify' }}
+                    {...fieldHandlers}
                   />
                 </div>
                 {item.bullets.length > 1 && (
@@ -420,45 +615,53 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
         boxSizing: 'border-box',
       }}
     >
-      <div style={{ flex: 1, textAlign: 'left' }}>
-        <InlineInput
+      <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+        <RichEditableField
           value={value.footerLeftTitle}
           onChange={(v) => patch('footerLeftTitle', v)}
+          multiline={false}
           placeholder="Judul kiri"
           style={{ fontWeight: 700, color: '#111111' }}
+          {...fieldHandlers}
         />
         {value.footerLeftLines.slice(0, 5).map((line, i) => (
-          <InlineInput
-            key={i}
+          <RichEditableField
+            key={`fl-${i}`}
             value={line}
             onChange={(v) => {
               const next = [...value.footerLeftLines];
               next[i] = v;
               patch('footerLeftLines', next);
             }}
+            multiline={false}
             placeholder={`Baris ${i + 1}`}
+            {...fieldHandlers}
           />
         ))}
       </div>
 
-      <div style={{ flex: 1, textAlign: 'right' }}>
-        <InlineInput
+      <div style={{ flex: 1, textAlign: 'right', minWidth: 0 }}>
+        <RichEditableField
           value={value.footerRightTitle}
           onChange={(v) => patch('footerRightTitle', v)}
+          multiline={false}
           placeholder="Judul kanan"
           style={{ fontWeight: 700, color: '#BA984A', textAlign: 'right' }}
+          {...fieldHandlers}
         />
         {value.footerRightLines.slice(0, 5).map((line, i) => (
-          <InlineInput
-            key={i}
+          <RichEditableField
+            key={`fr-${i}`}
             value={line}
             onChange={(v) => {
               const next = [...value.footerRightLines];
               next[i] = v;
               patch('footerRightLines', next);
             }}
+            multiline={false}
             placeholder={`Baris ${i + 1}`}
             style={{ textAlign: 'right' }}
+            {...fieldHandlers}
           />
         ))}
       </div>
@@ -474,7 +677,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
   return (
     <div className="space-y-3">
-      {/* Hover/focus CSS scoped specifically to inline WYSIWYG fields */}
+      {/* Hover/focus & empty placeholder CSS scoped specifically to inline WYSIWYG fields */}
       <style>{`
         .nd-wysiwyg-field:hover {
           border-color: rgba(59, 130, 246, 0.45) !important;
@@ -483,74 +686,194 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
         .nd-wysiwyg-field:focus {
           border-color: #2563eb !important;
           border-style: solid !important;
-          background: rgba(239, 246, 255, 0.7) !important;
+          background: rgba(239, 246, 255, 0.65) !important;
+        }
+        .nd-wysiwyg-field:empty::before {
+          content: attr(data-placeholder);
+          color: #94a3b8;
+          pointer-events: none;
         }
       `}</style>
 
-      {/* Top Page Selector & Live Overflow Meter */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {([1, 2, 3, 4] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPageTab(p)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                pageTab === p
-                  ? 'bg-[#092147] text-amber-300 shadow-2xs'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+      {/* Sticky Top Control Strip: Page Selector + Rich Text Formatting Toolbar + Overflow Meter */}
+      <div className="sticky top-0 z-30 space-y-2 bg-slate-50/95 backdrop-blur-xs pb-1">
+        {/* Row 1: Page Tabs & Live Overflow Meter */}
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {([1, 2, 3, 4] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPageTab(p)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  pageTab === p
+                    ? 'bg-[#092147] text-amber-300 shadow-2xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Halaman {p}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                isOverflowing
+                  ? 'bg-rose-50 text-rose-700 border-rose-300'
+                  : isNearLimit
+                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
               }`}
             >
-              Halaman {p}
-            </button>
-          ))}
+              {isOverflowing ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Kelebihan +{overflowPx}px</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Muat · {Math.min(usagePct, 100)}%</span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={pageTab === 1}
+                onClick={() => setPageTab((p) => (p > 1 ? ((p - 1) as 1 | 2 | 3 | 4) : p))}
+                className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                aria-label="Halaman sebelumnya"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                disabled={pageTab === 4}
+                onClick={() => setPageTab((p) => (p < 4 ? ((p + 1) as 1 | 2 | 3 | 4) : p))}
+                className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                aria-label="Halaman berikutnya"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Live Page Fit / Overflow Status */}
-          <div
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border ${
-              isOverflowing
-                ? 'bg-rose-50 text-rose-700 border-rose-300'
-                : isNearLimit
-                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-            }`}
-          >
-            {isOverflowing ? (
-              <>
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>Kelebihan +{overflowPx}px</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Muat · {Math.min(usagePct, 100)}%</span>
-              </>
-            )}
+        {/* Row 2: Rich Text Formatting Toolbar (Bold, Italic, Underline, Strikethrough, Color, Clear, Company Tag) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              title="Tebal (Ctrl+B)"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatCommand('bold')}
+              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                formatState.bold
+                  ? 'bg-[#092147] text-amber-300 border-[#092147]'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label="Bold"
+            >
+              <Bold className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              title="Miring (Ctrl+I)"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatCommand('italic')}
+              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                formatState.italic
+                  ? 'bg-[#092147] text-amber-300 border-[#092147]'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label="Italic"
+            >
+              <Italic className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              title="Garis Bawah (Ctrl+U)"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatCommand('underline')}
+              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                formatState.underline
+                  ? 'bg-[#092147] text-amber-300 border-[#092147]'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label="Underline"
+            >
+              <Underline className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              title="Coret"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatCommand('strikeThrough')}
+              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                formatState.strike
+                  ? 'bg-[#092147] text-amber-300 border-[#092147]'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+              aria-label="Strikethrough"
+            >
+              <Strikethrough className="w-4 h-4" />
+            </button>
+
+            <div className="w-px h-5 bg-slate-200 mx-1" />
+
+            {/* Compact Text Color Swatches */}
+            <div className="inline-flex items-center gap-1 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">
+              {PROSPECT_TEXT_COLORS.map((swatch) => {
+                const isActive = formatState.color === swatch.hex;
+                return (
+                  <button
+                    key={swatch.hex}
+                    type="button"
+                    title={`Warna: ${swatch.label}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatCommand('foreColor', swatch.hex)}
+                    className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
+                      isActive
+                        ? 'ring-2 ring-offset-1 ring-[#092147] scale-110 border-white'
+                        : 'border-slate-300 hover:scale-110'
+                    }`}
+                    style={{ backgroundColor: swatch.hex }}
+                    aria-label={`Warna teks ${swatch.label}`}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="w-px h-5 bg-slate-200 mx-1" />
+
+            <button
+              type="button"
+              title="Hapus Format Teks"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatCommand('removeFormat')}
+              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+            >
+              <RemoveFormatting className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Normal</span>
+            </button>
           </div>
 
-          {/* Quick Prev / Next Page Arrows */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={pageTab === 1}
-              onClick={() => setPageTab((p) => (p > 1 ? ((p - 1) as 1 | 2 | 3 | 4) : p))}
-              className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-              aria-label="Halaman sebelumnya"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              disabled={pageTab === 4}
-              onClick={() => setPageTab((p) => (p < 4 ? ((p + 1) as 1 | 2 | 3 | 4) : p))}
-              className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-              aria-label="Halaman berikutnya"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            title="Sisipkan nama perusahaan otomatis di posisi kursor"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={insertCompanyPlaceholder}
+            className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-[11px] font-bold text-amber-900 transition-colors cursor-pointer"
+          >
+            <Building2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+            <span>+ Nama Perusahaan</span>
+          </button>
         </div>
       </div>
 
@@ -640,11 +963,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         marginBottom: '0.8mm',
                       }}
                     >
-                      <InlineInput
+                      <RichEditableField
                         value={value.city}
                         onChange={(v) => patch('city', v)}
+                        multiline={false}
                         placeholder="Kota"
                         style={{ width: '90px', textAlign: 'right' }}
+                        {...fieldHandlers}
                       />
                       <span>, </span>
                       <span style={autoTagStyle}>25 November 2026</span>
@@ -671,10 +996,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                               <span>:</span>
-                              <InlineInput
+                              <RichEditableField
                                 value={value.sifat}
                                 onChange={(v) => patch('sifat', v)}
+                                multiline={false}
                                 placeholder="Sifat"
+                                {...fieldHandlers}
                               />
                             </div>
                           </td>
@@ -684,10 +1011,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                               <span>:</span>
-                              <InlineInput
+                              <RichEditableField
                                 value={value.lampiran}
                                 onChange={(v) => patch('lampiran', v)}
+                                multiline={false}
                                 placeholder="Lampiran"
+                                {...fieldHandlers}
                               />
                             </div>
                           </td>
@@ -697,10 +1026,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                               <span>:</span>
-                              <InlineInput
+                              <RichEditableField
                                 value={value.perihal}
                                 onChange={(v) => patch('perihal', v)}
+                                multiline={false}
                                 placeholder="Perihal"
+                                {...fieldHandlers}
                               />
                             </div>
                           </td>
@@ -722,48 +1053,55 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     </div>
 
                     <div style={{ marginBottom: '0.6mm' }}>
-                      <InlineInput
+                      <RichEditableField
                         value={value.greeting}
                         onChange={(v) => patch('greeting', v)}
+                        multiline={false}
                         placeholder="Salam pembuka"
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ marginBottom: '3.6mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.introPara1}
                         onChange={(v) => patch('introPara1', v)}
                         placeholder="Paragraf pembuka 1"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ marginBottom: '4.6mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.introPara2}
                         onChange={(v) => patch('introPara2', v)}
                         placeholder="Paragraf pembuka 2"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ fontWeight: 700, marginBottom: '2.8mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.sectionMainTitle}
                         onChange={(v) => patch('sectionMainTitle', v)}
                         placeholder="Judul bagian utama"
                         style={{ fontWeight: 700 }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.6mm' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
                       <div style={{ flex: 1 }}>
-                        <InlineInput
+                        <RichEditableField
                           value={value.section1Title}
                           onChange={(v) => patch('section1Title', v)}
+                          multiline={false}
                           placeholder="Judul Bagian I"
                           style={{ fontWeight: 700 }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>
@@ -779,11 +1117,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         textAlign: 'justify',
                       }}
                     >
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.section1Sanction}
                         onChange={(v) => patch('section1Sanction', v)}
                         placeholder="Teks kotak sanksi I"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
                   </>
@@ -795,11 +1134,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
                       <div style={{ flex: 1 }}>
-                        <InlineInput
+                        <RichEditableField
                           value={value.section2Title}
                           onChange={(v) => patch('section2Title', v)}
+                          multiline={false}
                           placeholder="Judul Bagian II"
                           style={{ fontWeight: 700 }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>
@@ -816,22 +1157,25 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         marginBottom: '4.5mm',
                       }}
                     >
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.section2Sanction}
                         onChange={(v) => patch('section2Sanction', v)}
                         placeholder="Teks kotak sanksi II"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>III.</span>
                       <div style={{ flex: 1 }}>
-                        <InlineInput
+                        <RichEditableField
                           value={value.section3Title}
                           onChange={(v) => patch('section3Title', v)}
+                          multiline={false}
                           placeholder="Judul Bagian III"
                           style={{ fontWeight: 700 }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>
@@ -847,11 +1191,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         textAlign: 'justify',
                       }}
                     >
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.section3Sanction}
                         onChange={(v) => patch('section3Sanction', v)}
                         placeholder="Teks kotak sanksi III"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
                   </>
@@ -861,48 +1206,54 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {pageTab === 3 && (
                   <>
                     <div style={{ fontWeight: 700, marginBottom: '3.2mm' }}>
-                      <InlineInput
+                      <RichEditableField
                         value={value.aboutTitle}
                         onChange={(v) => patch('aboutTitle', v)}
+                        multiline={false}
                         placeholder="Judul tentang perusahaan"
                         style={{ fontWeight: 700 }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ marginBottom: '3.6mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.aboutPara}
                         onChange={(v) => patch('aboutPara', v)}
                         placeholder="Profil singkat"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
                       <div style={{ flex: 1 }}>
-                        <InlineInput
+                        <RichEditableField
                           value={value.servicesTitle}
                           onChange={(v) => patch('servicesTitle', v)}
+                          multiline={false}
                           placeholder="Judul layanan"
                           style={{ fontWeight: 700 }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>
 
                     <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.servicesIntro}
                         onChange={(v) => patch('servicesIntro', v)}
                         placeholder="Pengantar layanan"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ paddingLeft: '12.5mm', marginBottom: '2.8mm' }}>
                       {value.servicesItems.map((svc: ProspectLetterServiceItem, idx) => (
                         <div
-                          key={idx}
+                          key={`svc-${idx}`}
                           style={{
                             display: 'flex',
                             alignItems: 'flex-start',
@@ -911,7 +1262,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         >
                           <span style={{ width: '5.5mm', flexShrink: 0 }}>{idx + 1}.</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <InlineInput
+                            <RichEditableField
                               value={svc.lead}
                               onChange={(v) => {
                                 const next = value.servicesItems.map((it, i) =>
@@ -919,10 +1270,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                 );
                                 patch('servicesItems', next);
                               }}
+                              multiline={false}
                               placeholder="Judul layanan"
                               style={{ fontWeight: 700 }}
+                              {...fieldHandlers}
                             />
-                            <AutoGrowTextarea
+                            <RichEditableField
                               value={svc.body}
                               onChange={(v) => {
                                 const next = value.servicesItems.map((it, i) =>
@@ -932,6 +1285,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               }}
                               placeholder="Deskripsi layanan"
                               style={{ textAlign: 'justify' }}
+                              {...fieldHandlers}
                             />
                           </div>
                           {value.servicesItems.length > 1 && (
@@ -990,31 +1344,36 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     </div>
 
                     <div style={{ marginBottom: '4.2mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.servicesCaseNote}
                         onChange={(v) => patch('servicesCaseNote', v)}
                         placeholder="Catatan case-by-case"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
                     <div style={{ display: 'flex', fontWeight: 700, marginBottom: '1.4mm' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
                       <div style={{ flex: 1 }}>
-                        <InlineInput
+                        <RichEditableField
                           value={value.comparisonTitle}
                           onChange={(v) => patch('comparisonTitle', v)}
+                          multiline={false}
                           placeholder="Judul perbandingan"
                           style={{ fontWeight: 700 }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>
 
                     <div style={{ marginBottom: '1.2mm' }}>
-                      <InlineInput
+                      <RichEditableField
                         value={value.comparisonIntro}
                         onChange={(v) => patch('comparisonIntro', v)}
+                        multiline={false}
                         placeholder="Pengantar tabel"
+                        {...fieldHandlers}
                       />
                     </div>
 
@@ -1030,7 +1389,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         <tr style={{ backgroundColor: '#DFDCCE' }}>
                           {([0, 1, 2] as const).map((colIdx) => (
                             <th
-                              key={colIdx}
+                              key={`hdr-${colIdx}`}
                               style={{
                                 border: '1px solid #000000',
                                 padding: '1.8mm 2mm',
@@ -1039,15 +1398,17 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                 fontWeight: 700,
                               }}
                             >
-                              <InlineInput
+                              <RichEditableField
                                 value={value.comparisonHeaders[colIdx]}
                                 onChange={(v) => {
                                   const next: [string, string, string] = [...value.comparisonHeaders];
                                   next[colIdx] = v;
                                   patch('comparisonHeaders', next);
                                 }}
+                                multiline={false}
                                 placeholder={`Kolom ${colIdx + 1}`}
                                 style={{ fontWeight: 700 }}
+                                {...fieldHandlers}
                               />
                             </th>
                           ))}
@@ -1055,9 +1416,9 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </thead>
                       <tbody>
                         {value.comparisonRows.map((row: ProspectLetterComparisonRow, rIdx) => (
-                          <tr key={rIdx}>
+                          <tr key={`row-${rIdx}`}>
                             <td style={{ border: '1px solid #000000', padding: '1.5mm 2mm' }}>
-                              <InlineInput
+                              <RichEditableField
                                 value={row.component}
                                 onChange={(v) => {
                                   const next = value.comparisonRows.map((r, i) =>
@@ -1065,11 +1426,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                   );
                                   patch('comparisonRows', next);
                                 }}
+                                multiline={false}
                                 placeholder="Komponen"
+                                {...fieldHandlers}
                               />
                             </td>
                             <td style={{ border: '1px solid #000000', padding: '1.5mm 2mm' }}>
-                              <InlineInput
+                              <RichEditableField
                                 value={row.internalStaff}
                                 onChange={(v) => {
                                   const next = value.comparisonRows.map((r, i) =>
@@ -1077,12 +1440,14 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                   );
                                   patch('comparisonRows', next);
                                 }}
+                                multiline={false}
                                 placeholder="Internal"
+                                {...fieldHandlers}
                               />
                             </td>
                             <td style={{ border: '1px solid #000000', padding: '1.5mm 2mm' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                <InlineInput
+                                <RichEditableField
                                   value={row.consultant}
                                   onChange={(v) => {
                                     const next = value.comparisonRows.map((r, i) =>
@@ -1090,8 +1455,10 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                     );
                                     patch('comparisonRows', next);
                                   }}
+                                  multiline={false}
                                   placeholder="Konsultan"
                                   style={{ fontWeight: rIdx === 0 ? 700 : 400 }}
+                                  {...fieldHandlers}
                                 />
                                 {value.comparisonRows.length > 1 && (
                                   <button
@@ -1152,11 +1519,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </div>
                     )}
 
-                    <AutoGrowTextarea
+                    <RichEditableField
                       value={value.comparisonClosing}
                       onChange={(v) => patch('comparisonClosing', v)}
                       placeholder="Penutup perbandingan"
                       style={{ textAlign: 'justify' }}
+                      {...fieldHandlers}
                     />
                   </>
                 )}
@@ -1167,21 +1535,24 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     <div style={{ display: 'flex', fontWeight: 700, marginBottom: '2.4mm' }}>
                       <span style={{ width: '8mm', flexShrink: 0 }}>III.</span>
                       <div style={{ flex: 1 }}>
-                        <InlineInput
+                        <RichEditableField
                           value={value.consultTitle}
                           onChange={(v) => patch('consultTitle', v)}
+                          multiline={false}
                           placeholder="Judul bagian III"
                           style={{ fontWeight: 700 }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>
 
                     <div style={{ paddingLeft: '8mm', marginBottom: '7.5mm' }}>
-                      <AutoGrowTextarea
+                      <RichEditableField
                         value={value.consultPara}
                         onChange={(v) => patch('consultPara', v)}
                         placeholder="Paragraf konsultasi"
                         style={{ textAlign: 'justify' }}
+                        {...fieldHandlers}
                       />
                     </div>
 
@@ -1226,11 +1597,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </table>
                     </div>
 
-                    <div style={{ marginBottom: '18mm' }}>
-                      <AutoGrowTextarea
+                    <div style={{ paddingLeft: '8mm', marginBottom: '15mm' }}>
+                      <RichEditableField
                         value={value.closingPara}
                         onChange={(v) => patch('closingPara', v)}
                         placeholder="Paragraf penutup"
+                        {...fieldHandlers}
                       />
                     </div>
 
@@ -1238,11 +1610,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       <div style={{ flex: 1, textAlign: 'center' }}>
                         <div>Mengetahui,</div>
                         <div style={{ marginBottom: '3.5mm' }}>
-                          <InlineInput
+                          <RichEditableField
                             value={value.directorFirmLabel}
                             onChange={(v) => patch('directorFirmLabel', v)}
+                            multiline={false}
                             placeholder="Nama firma"
                             style={{ fontWeight: 700, textAlign: 'center' }}
+                            {...fieldHandlers}
                           />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
@@ -1267,28 +1641,34 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         <div style={{ fontSize: '9.5pt', color: '#999999', marginBottom: '3.5mm' }}>
                           Ditandatangani secara elektronik
                         </div>
-                        <InlineInput
+                        <RichEditableField
                           value={value.directorName}
                           onChange={(v) => patch('directorName', v)}
+                          multiline={false}
                           placeholder="Nama direktur"
                           style={{ fontWeight: 700, textAlign: 'center' }}
+                          {...fieldHandlers}
                         />
-                        <InlineInput
+                        <RichEditableField
                           value={value.directorTitle}
                           onChange={(v) => patch('directorTitle', v)}
+                          multiline={false}
                           placeholder="Jabatan direktur"
                           style={{ textAlign: 'center' }}
+                          {...fieldHandlers}
                         />
                       </div>
 
                       <div style={{ flex: 1, textAlign: 'center' }}>
                         <div>Hormat Kami,</div>
                         <div style={{ marginBottom: '3.5mm' }}>
-                          <InlineInput
+                          <RichEditableField
                             value={value.mitraSignerLabel}
                             onChange={(v) => patch('mitraSignerLabel', v)}
+                            multiline={false}
                             placeholder="Label mitra"
                             style={{ fontWeight: 700, textAlign: 'center' }}
+                            {...fieldHandlers}
                           />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
@@ -1316,11 +1696,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         <div style={{ fontWeight: 700 }}>
                           <span style={autoTagStyle}>Nama Mitra</span>
                         </div>
-                        <InlineInput
+                        <RichEditableField
                           value={value.mitraRoleLabel}
                           onChange={(v) => patch('mitraRoleLabel', v)}
+                          multiline={false}
                           placeholder="Jabatan mitra"
                           style={{ textAlign: 'center' }}
+                          {...fieldHandlers}
                         />
                       </div>
                     </div>

@@ -17,25 +17,12 @@ import {
   resolveInlineProspectLogo,
   triggerPdfBlobDownload,
 } from '../utils/prospectLetterPdf';
+import { renderProspectRichText } from '../utils/prospectRichText';
 
 export const A4_WIDTH_PX = 794; // 210mm at 96dpi
 export const A4_HEIGHT_PX = 1123; // 297mm at 96dpi
 const DEFAULT_VERTICAL_SVG = '/assets/aistudio/logo_nd_vertikal.svg';
 const DEFAULT_EMBLEM_PNG = '/assets/aistudio/logo_kotak_5ecb05e4.png';
-
-/**
- * Safely bolds specific official key phrases (e.g. "999 Ribu", contact info)
- * using React elements only (no raw HTML injection).
- */
-function renderWithBoldPhrases(text: string, phrases: string[]): React.ReactNode {
-  if (!text || phrases.length === 0) return text;
-  const escaped = phrases.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const regex = new RegExp(`(${escaped.join('|')})`, 'g');
-  const parts = text.split(regex);
-  return parts.map((part, idx) =>
-    phrases.includes(part) ? <strong key={idx}>{part}</strong> : <React.Fragment key={idx}>{part}</React.Fragment>
-  );
-}
 
 interface LetterHeaderProps {
   logoUrl?: string;
@@ -149,15 +136,15 @@ const LetterFooter: React.FC<{ content: ProspectLetterContent }> = ({ content })
     }}
   >
     <div style={{ textAlign: 'left' }}>
-      <div style={{ fontWeight: 700, color: '#111111' }}>{content.footerLeftTitle}</div>
+      <div style={{ fontWeight: 700, color: '#111111' }}>{renderProspectRichText(content.footerLeftTitle)}</div>
       {content.footerLeftLines.slice(0, 5).map((line, i) => (
-        <div key={i}>{line}</div>
+        <div key={i}>{renderProspectRichText(line)}</div>
       ))}
     </div>
     <div style={{ textAlign: 'right' }}>
-      <div style={{ fontWeight: 700, color: '#BA984A' }}>{content.footerRightTitle}</div>
+      <div style={{ fontWeight: 700, color: '#BA984A' }}>{renderProspectRichText(content.footerRightTitle)}</div>
       {content.footerRightLines.slice(0, 5).map((line, i) => (
-        <div key={i}>{line}</div>
+        <div key={i}>{renderProspectRichText(line)}</div>
       ))}
     </div>
   </div>
@@ -389,7 +376,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           }}
         >
           <div style={{ textAlign: 'right', marginBottom: '0.6mm' }}>
-            {content.city}, {formattedDate}
+            {renderProspectRichText(content.city)}, {formattedDate}
           </div>
 
           <table
@@ -408,15 +395,15 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               </tr>
               <tr>
                 <td style={{ padding: 0, verticalAlign: 'top' }}>Sifat</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {content.sifat}</td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>: {renderProspectRichText(content.sifat)}</td>
               </tr>
               <tr>
                 <td style={{ padding: 0, verticalAlign: 'top' }}>Lampiran</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {content.lampiran}</td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>: {renderProspectRichText(content.lampiran)}</td>
               </tr>
               <tr>
                 <td style={{ padding: 0, verticalAlign: 'top' }}>Perihal</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {content.perihal}</td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>: {renderProspectRichText(content.perihal)}</td>
               </tr>
             </tbody>
           </table>
@@ -431,22 +418,22 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             </div>
           </div>
 
-          <div style={{ marginBottom: '0.5mm' }}>{content.greeting}</div>
+          <div style={{ marginBottom: '0.5mm' }}>{renderProspectRichText(content.greeting)}</div>
           <p style={{ margin: `0 0 ${p1GapMm}mm 0`, textAlign: 'justify' }}>
-            {interpolateCompanyName(content.introPara1, letter.companyName)}
+            {renderProspectRichText(interpolateCompanyName(content.introPara1, letter.companyName))}
           </p>
 
           <p style={{ margin: `0 0 ${p1GapMm + 1}mm 0`, textAlign: 'justify' }}>
-            {interpolateCompanyName(content.introPara2, letter.companyName)}
+            {renderProspectRichText(interpolateCompanyName(content.introPara2, letter.companyName))}
           </p>
 
           <div style={{ fontWeight: 700, marginBottom: `${Math.max(1.6, p1GapMm * 0.85)}mm` }}>
-            {content.sectionMainTitle}
+            {renderProspectRichText(content.sectionMainTitle)}
           </div>
 
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.6mm' }}>
             <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
-            <span style={{ flex: 1 }}>{content.section1Title}</span>
+            <span style={{ flex: 1 }}>{renderProspectRichText(content.section1Title)}</span>
           </div>
 
           {content.section1Items.map((item, idx) => (
@@ -462,12 +449,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             >
               <div style={{ display: 'flex' }}>
                 <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <div style={{ flex: 1 }}>{item.title}</div>
+                <div style={{ flex: 1 }}>{renderProspectRichText(item.title)}</div>
               </div>
               {item.bullets.map((bullet, bIdx) => (
                 <div key={bIdx} style={{ display: 'flex', textAlign: 'justify' }}>
                   <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
-                  <div style={{ flex: 1 }}>{bullet}</div>
+                  <div style={{ flex: 1 }}>{renderProspectRichText(bullet)}</div>
                 </div>
               ))}
             </div>
@@ -484,7 +471,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               printColorAdjust: 'exact',
             }}
           >
-            {content.section1Sanction}
+            {renderProspectRichText(content.section1Sanction)}
           </div>
         </div>
         <LetterFooter content={content} />
@@ -510,7 +497,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
         >
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
             <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
-            <span style={{ flex: 1 }}>{content.section2Title}</span>
+            <span style={{ flex: 1 }}>{renderProspectRichText(content.section2Title)}</span>
           </div>
 
           {content.section2Items.map((item, idx) => (
@@ -526,12 +513,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             >
               <div style={{ display: 'flex' }}>
                 <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <div style={{ flex: 1 }}>{item.title}</div>
+                <div style={{ flex: 1 }}>{renderProspectRichText(item.title)}</div>
               </div>
               {item.bullets.map((bullet, bIdx) => (
                 <div key={bIdx} style={{ display: 'flex', textAlign: 'justify' }}>
                   <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
-                  <div style={{ flex: 1 }}>{bullet}</div>
+                  <div style={{ flex: 1 }}>{renderProspectRichText(bullet)}</div>
                 </div>
               ))}
             </div>
@@ -549,12 +536,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               printColorAdjust: 'exact',
             }}
           >
-            {content.section2Sanction}
+            {renderProspectRichText(content.section2Sanction)}
           </div>
 
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
             <span style={{ width: '6.5mm', flexShrink: 0 }}>III.</span>
-            <span style={{ flex: 1 }}>{content.section3Title}</span>
+            <span style={{ flex: 1 }}>{renderProspectRichText(content.section3Title)}</span>
           </div>
 
           {content.section3Items.map((item, idx) => (
@@ -570,12 +557,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             >
               <div style={{ display: 'flex' }}>
                 <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
-                <div style={{ flex: 1 }}>{item.title}</div>
+                <div style={{ flex: 1 }}>{renderProspectRichText(item.title)}</div>
               </div>
               {item.bullets.map((bullet, bIdx) => (
                 <div key={bIdx} style={{ display: 'flex', textAlign: 'justify' }}>
                   <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
-                  <div style={{ flex: 1 }}>{bullet}</div>
+                  <div style={{ flex: 1 }}>{renderProspectRichText(bullet)}</div>
                 </div>
               ))}
             </div>
@@ -592,7 +579,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               printColorAdjust: 'exact',
             }}
           >
-            {content.section3Sanction}
+            {renderProspectRichText(content.section3Sanction)}
           </div>
         </div>
         <LetterFooter content={content} />
@@ -616,19 +603,19 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             overflow: 'hidden',
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: `${p3GapMm}mm` }}>{content.aboutTitle}</div>
+          <div style={{ fontWeight: 700, marginBottom: `${p3GapMm}mm` }}>{renderProspectRichText(content.aboutTitle)}</div>
 
           <p style={{ margin: `0 0 ${p3GapMm}mm 0`, textAlign: 'justify' }}>
-            {interpolateCompanyName(content.aboutPara, letter.companyName)}
+            {renderProspectRichText(interpolateCompanyName(content.aboutPara, letter.companyName))}
           </p>
 
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
             <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
-            <span style={{ flex: 1 }}>{content.servicesTitle}</span>
+            <span style={{ flex: 1 }}>{renderProspectRichText(content.servicesTitle)}</span>
           </div>
 
           <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm', textAlign: 'justify' }}>
-            {renderWithBoldPhrases(content.servicesIntro, ['999 Ribu'])}
+            {renderProspectRichText(content.servicesIntro, ['999 Ribu'])}
           </div>
 
           <div style={{ paddingLeft: '12.5mm', marginBottom: `${Math.max(1.8, p3GapMm * 0.85)}mm` }}>
@@ -643,23 +630,23 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               >
                 <span style={{ width: '5.5mm', flexShrink: 0 }}>{idx + 1}.</span>
                 <div style={{ flex: 1 }}>
-                  {svc.lead ? <strong>{svc.lead} </strong> : null}
-                  {svc.body}
+                  {svc.lead ? <strong>{renderProspectRichText(svc.lead)} </strong> : null}
+                  {renderProspectRichText(svc.body)}
                 </div>
               </div>
             ))}
           </div>
 
           <p style={{ margin: `0 0 ${p3GapMm + 1}mm 0`, textAlign: 'justify' }}>
-            {content.servicesCaseNote}
+            {renderProspectRichText(content.servicesCaseNote)}
           </p>
 
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '1.4mm' }}>
             <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
-            <span style={{ flex: 1 }}>{content.comparisonTitle}</span>
+            <span style={{ flex: 1 }}>{renderProspectRichText(content.comparisonTitle)}</span>
           </div>
 
-          <div style={{ marginBottom: '1.2mm' }}>{content.comparisonIntro}</div>
+          <div style={{ marginBottom: '1.2mm' }}>{renderProspectRichText(content.comparisonIntro)}</div>
 
           <table
             style={{
@@ -673,13 +660,13 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             <thead>
               <tr style={{ backgroundColor: '#DFDCCE', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                 <th style={{ border: '1px solid #000000', padding: p3CellPad, textAlign: 'left', width: '34%', fontWeight: 700 }}>
-                  {content.comparisonHeaders[0]}
+                  {renderProspectRichText(content.comparisonHeaders[0])}
                 </th>
                 <th style={{ border: '1px solid #000000', padding: p3CellPad, textAlign: 'left', width: '40%', fontWeight: 700 }}>
-                  {content.comparisonHeaders[1]}
+                  {renderProspectRichText(content.comparisonHeaders[1])}
                 </th>
                 <th style={{ border: '1px solid #000000', padding: p3CellPad, textAlign: 'left', width: '26%', fontWeight: 700 }}>
-                  {content.comparisonHeaders[2]}
+                  {renderProspectRichText(content.comparisonHeaders[2])}
                 </th>
               </tr>
             </thead>
@@ -687,10 +674,10 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               {content.comparisonRows.map((row, idx) => (
                 <tr key={idx}>
                   <td style={{ border: '1px solid #000000', padding: p3CellPad }}>
-                    {row.component}
+                    {renderProspectRichText(row.component)}
                   </td>
                   <td style={{ border: '1px solid #000000', padding: p3CellPad }}>
-                    {row.internalStaff}
+                    {renderProspectRichText(row.internalStaff)}
                   </td>
                   <td
                     style={{
@@ -699,14 +686,14 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
                       fontWeight: idx === 0 ? 700 : 400,
                     }}
                   >
-                    {row.consultant}
+                    {renderProspectRichText(row.consultant)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <p style={{ margin: 0, textAlign: 'justify' }}>{content.comparisonClosing}</p>
+          <p style={{ margin: 0, textAlign: 'justify' }}>{renderProspectRichText(content.comparisonClosing)}</p>
         </div>
         <LetterFooter content={content} />
       </A4PageFrame>
@@ -731,11 +718,11 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
         >
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '2.4mm' }}>
             <span style={{ width: '8mm', flexShrink: 0 }}>III.</span>
-            <span style={{ flex: 1 }}>{content.consultTitle}</span>
+            <span style={{ flex: 1 }}>{renderProspectRichText(content.consultTitle)}</span>
           </div>
 
           <p style={{ paddingLeft: '8mm', margin: '0 0 7.5mm 0', textAlign: 'justify' }}>
-            {renderWithBoldPhrases(interpolateCompanyName(content.consultPara, letter.companyName), [
+            {renderProspectRichText(interpolateCompanyName(content.consultPara, letter.companyName), [
               '082180744977',
               'business@ndtaxandlaw.com',
               'www.ndtaxandlaw.com',
@@ -776,13 +763,15 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           </div>
 
           <p style={{ paddingLeft: '8mm', margin: `0 0 ${p4SigGapMm}mm 0` }}>
-            {interpolateCompanyName(content.closingPara, letter.companyName)}
+            {renderProspectRichText(interpolateCompanyName(content.closingPara, letter.companyName))}
           </p>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12mm' }}>
             <div style={{ flex: 1, textAlign: 'center' }}>
               <div>Mengetahui,</div>
-              <div style={{ fontWeight: 700, marginBottom: '3.5mm' }}>{content.directorFirmLabel}</div>
+              <div style={{ fontWeight: 700, marginBottom: '3.5mm' }}>
+                {renderProspectRichText(content.directorFirmLabel)}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
                 {directorQr ? (
                   <img
@@ -809,14 +798,16 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
                 Ditandatangani secara elektronik
               </div>
               <div style={{ fontWeight: 700 }}>
-                {content.directorName || letter.directorName || 'Nurtiyas, S.E., M.Ak, BKP'}
+                {renderProspectRichText(content.directorName || letter.directorName || 'Nurtiyas, S.E., M.Ak, BKP')}
               </div>
-              <div>{content.directorTitle || letter.directorTitle || 'Direktur Utama'}</div>
+              <div>{renderProspectRichText(content.directorTitle || letter.directorTitle || 'Direktur Utama')}</div>
             </div>
 
             <div style={{ flex: 1, textAlign: 'center' }}>
               <div>Hormat Kami,</div>
-              <div style={{ fontWeight: 700, marginBottom: '3.5mm' }}>{content.mitraSignerLabel}</div>
+              <div style={{ fontWeight: 700, marginBottom: '3.5mm' }}>
+                {renderProspectRichText(content.mitraSignerLabel)}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
                 {mitraQr ? (
                   <img
@@ -850,7 +841,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
               >
                 {letter.mitraName}
               </div>
-              <div>{content.mitraRoleLabel}</div>
+              <div>{renderProspectRichText(content.mitraRoleLabel)}</div>
             </div>
           </div>
         </div>
