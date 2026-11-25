@@ -9,10 +9,10 @@ import {
   triggerPdfBlobDownload,
 } from '../utils/prospectLetterPdf';
 
-// Exact DL envelope dimensions: 22cm x 11cm (220mm x 110mm) at 96dpi
-const ENVELOPE_WIDTH_MM = 220;
+// Exact envelope dimensions: 23cm x 11cm (230mm x 110mm) at 96dpi
+const ENVELOPE_WIDTH_MM = 230;
 const ENVELOPE_HEIGHT_MM = 110;
-const ENVELOPE_WIDTH_PX = 831; // 220mm * 96 / 25.4
+const ENVELOPE_WIDTH_PX = 869; // 230mm * 96 / 25.4
 const ENVELOPE_HEIGHT_PX = 416; // 110mm * 96 / 25.4
 
 const DEFAULT_VERTICAL_SVG = '/assets/aistudio/logo_nd_vertikal.svg';
@@ -314,14 +314,18 @@ async function waitForEnvelopeImages(container: HTMLElement): Promise<void> {
   );
 }
 
-async function renderEnvelopeNodeToPngDataUrl(node: HTMLElement, scale = 2): Promise<string> {
+async function renderEnvelopeNodeToPngDataUrl(node: HTMLElement, scale = 3.5): Promise<string> {
+  const scaledW = Math.round(ENVELOPE_WIDTH_PX * scale);
+  const scaledH = Math.round(ENVELOPE_HEIGHT_PX * scale);
   const serialized = new XMLSerializer().serializeToString(node);
   const svgXml = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${ENVELOPE_WIDTH_PX}" height="${ENVELOPE_HEIGHT_PX}" viewBox="0 0 ${ENVELOPE_WIDTH_PX} ${ENVELOPE_HEIGHT_PX}">`,
-    `<foreignObject x="0" y="0" width="100%" height="100%">`,
-    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${ENVELOPE_WIDTH_PX}px;height:${ENVELOPE_HEIGHT_PX}px;margin:0;padding:0;background:#ffffff;color:#0A4B78;font-family:Arial,Helvetica,sans-serif;">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${scaledW}" height="${scaledH}" viewBox="0 0 ${scaledW} ${scaledH}">`,
+    `<foreignObject x="0" y="0" width="${scaledW}" height="${scaledH}">`,
+    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${scaledW}px;height:${scaledH}px;overflow:hidden;position:relative;margin:0;padding:0;background:#ffffff;">`,
+    `<div style="width:${ENVELOPE_WIDTH_PX}px;height:${ENVELOPE_HEIGHT_PX}px;transform:scale(${scale});transform-origin:top left;margin:0;padding:0;background:#ffffff;color:#0A4B78;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;">`,
     `<style>*,*::before,*::after{box-sizing:border-box;}img{display:block;max-width:none;}</style>`,
     serialized,
+    `</div>`,
     `</div>`,
     `</foreignObject>`,
     `</svg>`,
@@ -331,23 +335,32 @@ async function renderEnvelopeNodeToPngDataUrl(node: HTMLElement, scale = 2): Pro
 
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
+    image.width = scaledW;
+    image.height = scaledH;
     image.decoding = 'async';
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      if (typeof image.decode === 'function') {
+        image.decode().then(() => resolve(image)).catch(() => resolve(image));
+      } else {
+        resolve(image);
+      }
+    };
     image.onerror = () => reject(new Error('Envelope SVG foreignObject failed to render'));
     image.src = svgDataUrl;
   });
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(ENVELOPE_WIDTH_PX * scale);
-  canvas.height = Math.round(ENVELOPE_HEIGHT_PX * scale);
+  canvas.width = scaledW;
+  canvas.height = scaledH;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Canvas 2D context unavailable');
   }
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.scale(scale, scale);
-  ctx.drawImage(img, 0, 0, ENVELOPE_WIDTH_PX, ENVELOPE_HEIGHT_PX);
+  ctx.fillRect(0, 0, scaledW, scaledH);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, scaledW, scaledH);
 
   return canvas.toDataURL('image/png');
 }
@@ -364,6 +377,8 @@ async function generateEnvelopePdfVectorFallback(
     format: [ENVELOPE_WIDTH_MM, ENVELOPE_HEIGHT_MM],
     compress: true,
   });
+
+  const rightX = ENVELOPE_WIDTH_MM - 6;
 
   // White background
   doc.setFillColor(255, 255, 255);
@@ -389,12 +404,12 @@ async function generateEnvelopePdfVectorFallback(
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(10.2);
   doc.setTextColor(200, 155, 88);
-  doc.text('Your Trusted Partner in', 214, 13, { align: 'right' });
-  doc.text('Tax & Legal Solutions', 214, 17.8, { align: 'right' });
+  doc.text('Your Trusted Partner in', rightX, 13, { align: 'right' });
+  doc.text('Tax & Legal Solutions', rightX, 17.8, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(10, 75, 120);
-  doc.text('www.ndtaxandlaw.com', 214, 22.8, { align: 'right' });
+  doc.text('www.ndtaxandlaw.com', rightX, 22.8, { align: 'right' });
 
   // Bottom-left rounded recipient box (84.5mm x 40.5mm at left 4.5mm, bottom 11.5mm -> top 58mm)
   const boxX = 4.5;
@@ -428,15 +443,15 @@ async function generateEnvelopePdfVectorFallback(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11.5);
   doc.setTextColor(212, 161, 94);
-  doc.text('ND TAX AND LAW', 214, 76, { align: 'right' });
+  doc.text('ND TAX AND LAW', rightX, 76, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.8);
   doc.setTextColor(10, 75, 120);
-  doc.text('Menara 165 Lantai 4, Jakarta Selatan', 214, 81.2, { align: 'right' });
-  doc.text('Grand Prima Bintara, Bekasi Barat', 214, 86, { align: 'right' });
-  doc.text('Jl. Sawo Raya, Jati Agung, Lampung', 214, 90.8, { align: 'right' });
-  doc.text('Telp: 021-86941220 | 0821-8074-4977', 214, 95.6, { align: 'right' });
+  doc.text('Menara 165 Lantai 4, Jakarta Selatan', rightX, 81.2, { align: 'right' });
+  doc.text('Grand Prima Bintara, Bekasi Barat', rightX, 86, { align: 'right' });
+  doc.text('Jl. Sawo Raya, Jati Agung, Lampung', rightX, 90.8, { align: 'right' });
+  doc.text('Telp: 021-86941220 | 0821-8074-4977', rightX, 95.6, { align: 'right' });
 
   const safeSlug = companyName
     .replace(/[^a-zA-Z0-9]+/g, '_')
@@ -494,7 +509,12 @@ export async function downloadProspectEnvelopePdf(
       throw new Error('Envelope capture node not found');
     }
 
-    const pngDataUrl = await renderEnvelopeNodeToPngDataUrl(sheetNode, 2);
+    let pngDataUrl: string;
+    try {
+      pngDataUrl = await renderEnvelopeNodeToPngDataUrl(sheetNode, 3.5);
+    } catch {
+      pngDataUrl = await renderEnvelopeNodeToPngDataUrl(sheetNode, 2.5);
+    }
     if (!pngDataUrl.startsWith('data:image/png;base64,') || pngDataUrl.length < 3000) {
       throw new Error('Captured envelope image appears empty');
     }
@@ -586,12 +606,12 @@ export const ProspectEnvelopeModal: React.FC<ProspectEnvelopeModalProps> = ({
   const handleDirectPrint = () => {
     setIsPrinting(true);
 
-    // Ensure browser print dialog automatically picks exact 220mm x 110mm (11cm x 22cm) paper size
+    // Ensure browser print dialog automatically picks exact 230mm x 110mm (11cm x 23cm) paper size
     let styleEl = document.getElementById('nd-envelope-dynamic-page-style') as HTMLStyleElement | null;
     if (!styleEl) {
       styleEl = document.createElement('style');
       styleEl.id = 'nd-envelope-dynamic-page-style';
-      styleEl.textContent = '@page { size: 220mm 110mm; margin: 0; }';
+      styleEl.textContent = '@page { size: 230mm 110mm; margin: 0; }';
       document.head.appendChild(styleEl);
     }
 
@@ -642,7 +662,7 @@ export const ProspectEnvelopeModal: React.FC<ProspectEnvelopeModalProps> = ({
                   Cetak Amplop — {letter.companyName}
                 </h3>
                 <p className="text-[11px] text-amber-200/90 font-mono">
-                  Ukuran 11 cm × 22 cm
+                  Ukuran 11 cm × 23 cm
                 </p>
               </div>
             </div>
@@ -713,7 +733,7 @@ export const ProspectEnvelopeModal: React.FC<ProspectEnvelopeModalProps> = ({
                 ) : (
                   <Download className="w-4 h-4" />
                 )}
-                <span>{isDownloading ? 'Menyiapkan...' : 'Unduh PDF (11×22 cm)'}</span>
+                <span>{isDownloading ? 'Menyiapkan...' : 'Unduh PDF (11×23 cm)'}</span>
               </button>
 
               <button
@@ -730,7 +750,7 @@ export const ProspectEnvelopeModal: React.FC<ProspectEnvelopeModalProps> = ({
         </div>
       </div>
 
-      {/* Top-level body portal for exact 220mm x 110mm native browser printing */}
+      {/* Top-level body portal for exact 230mm x 110mm native browser printing */}
       {typeof document !== 'undefined' &&
         createPortal(
           <div id="nd-prospect-envelope-print-root">

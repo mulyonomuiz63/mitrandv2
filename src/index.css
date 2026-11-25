@@ -105,7 +105,7 @@ html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
 }
 
 @page nd-prospect-envelope {
-  size: 220mm 110mm;
+  size: 230mm 110mm;
   margin: 0;
 }
 
@@ -187,7 +187,7 @@ html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
   body.nd-printing-prospect-envelope #nd-prospect-envelope-print-root {
     display: block !important;
     position: static !important;
-    width: 220mm !important;
+    width: 230mm !important;
     height: 110mm !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -203,7 +203,7 @@ html.dark-portal .portal-root .id-card-preserve-colors .text-slate-900 {
   }
   body.nd-printing-prospect-envelope .nd-prospect-envelope-page {
     page: nd-prospect-envelope;
-    width: 220mm !important;
+    width: 230mm !important;
     height: 110mm !important;
     margin: 0 !important;
     page-break-inside: avoid !important;
