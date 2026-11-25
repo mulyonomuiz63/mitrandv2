@@ -63,6 +63,8 @@ interface AppSettingsModalProps {
   onClose: () => void;
   onSettingsSaved?: (newSettings: AppSettings) => void;
   currentUser?: AuthUser | null;
+  activeTab?: 'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai';
+  onTabChange?: (tab: 'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai') => void;
 }
 
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
@@ -70,6 +72,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   onClose,
   onSettingsSaved,
   currentUser,
+  activeTab: controlledTab,
+  onTabChange,
 }) => {
   const confirm = useConfirm();
   const isStaff = currentUser?.roleCode === 'staff';
@@ -124,7 +128,21 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     clientFieldsInitialized: true,
   });
 
-  const [activeTab, setActiveTab] = useState<'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai'>('general');
+  const [activeTab, setActiveTabState] = useState<'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai'>(
+    controlledTab || 'general'
+  );
+  const setActiveTab = (
+    next: 'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai'
+  ) => {
+    setActiveTabState(next);
+    onTabChange?.(next);
+  };
+
+  useEffect(() => {
+    if (controlledTab && controlledTab !== activeTab) {
+      setActiveTabState(controlledTab);
+    }
+  }, [controlledTab]);
 
   // Registered Mitras & Client Deals for Usage Protection Check
   const [registeredMitras, setRegisteredMitras] = useState<Mitra[]>([]);
@@ -286,10 +304,14 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
         fetchEmailLogs();
         checkMysql();
       } else {
-        if (canAccessFormsTab) {
-          setActiveTab('forms');
+        if (controlledTab === 'forms' && canAccessFormsTab) {
+          setActiveTabState('forms');
+        } else if (controlledTab === 'general' && canAccessGeneralTab) {
+          setActiveTabState('general');
+        } else if (canAccessFormsTab) {
+          setActiveTabState('forms');
         } else if (canAccessGeneralTab) {
-          setActiveTab('general');
+          setActiveTabState('general');
         }
       }
     }

@@ -81,6 +81,7 @@ interface AdminOperationsHubProps {
   onRefreshData: () => void;
   onOpenSettings?: () => void;
   initialSubTab?: AdminSubTab;
+  onSubTabChange?: (subTab: AdminSubTab) => void;
   mode?: 'operations' | 'logs';
 }
 
@@ -91,12 +92,17 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
   onRefreshData,
   onOpenSettings,
   initialSubTab = 'client_validation',
+  onSubTabChange,
   mode,
 }) => {
   const resolvedMode: 'operations' | 'logs' =
     mode || (initialSubTab === 'activity_logs' || initialSubTab === 'email_logs' ? 'logs' : 'operations');
   const confirm = useConfirm();
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(initialSubTab);
+  const handleChangeSubTab = (nextSubTab: AdminSubTab) => {
+    setActiveSubTab(nextSubTab);
+    onSubTabChange?.(nextSubTab);
+  };
   const [payoutRequests, setPayoutRequests] = useState<PayoutRequest[]>([]);
   const [loadingPayouts, setLoadingPayouts] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -253,6 +259,11 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
   useEffect(() => {
     setActiveSubTab(initialSubTab);
+    if (initialSubTab === 'activity_logs') {
+      fetchActivityLogs();
+    } else if (initialSubTab === 'email_logs') {
+      fetchEmailLogs();
+    }
   }, [initialSubTab]);
 
   // Modal States
@@ -1121,7 +1132,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
           <>
             <button
               type="button"
-              onClick={() => setActiveSubTab('client_validation')}
+              onClick={() => handleChangeSubTab('client_validation')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'client_validation'
                   ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
@@ -1139,7 +1150,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveSubTab('commission_bonus')}
+              onClick={() => handleChangeSubTab('commission_bonus')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'commission_bonus'
                   ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
@@ -1152,7 +1163,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveSubTab('mitra_analysis')}
+              onClick={() => handleChangeSubTab('mitra_analysis')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'mitra_analysis'
                   ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
@@ -1165,7 +1176,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveSubTab('payout_management')}
+              onClick={() => handleChangeSubTab('payout_management')}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
                 activeSubTab === 'payout_management'
                   ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-sm'
@@ -1186,7 +1197,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             <button
               type="button"
               onClick={() => {
-                setActiveSubTab('activity_logs');
+                handleChangeSubTab('activity_logs');
                 fetchActivityLogs();
               }}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${
@@ -1205,7 +1216,7 @@ export const AdminOperationsHub: React.FC<AdminOperationsHubProps> = ({
             <button
               type="button"
               onClick={() => {
-                setActiveSubTab('email_logs');
+                handleChangeSubTab('email_logs');
                 fetchEmailLogs();
               }}
               className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-2 ${

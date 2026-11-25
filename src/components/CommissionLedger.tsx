@@ -51,6 +51,8 @@ interface CommissionLedgerProps {
   onEditBankDetails: () => void;
   onOpenClientInput?: () => void;
   onNavigateToOperations?: () => void;
+  activeSubTab?: 'referrals' | 'transactions' | 'payouts';
+  onSubTabChange?: (tab: 'referrals' | 'transactions' | 'payouts') => void;
 }
 
 export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
@@ -63,8 +65,23 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
   onEditBankDetails,
   onOpenClientInput,
   onNavigateToOperations,
+  activeSubTab,
+  onSubTabChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'referrals' | 'transactions' | 'payouts'>('referrals');
+  const [activeTab, setActiveTab] = useState<'referrals' | 'transactions' | 'payouts'>(
+    activeSubTab || 'referrals'
+  );
+  const handleChangeTab = (next: 'referrals' | 'transactions' | 'payouts') => {
+    setActiveTab(next);
+    onSubTabChange?.(next);
+  };
+
+  useEffect(() => {
+    if (activeSubTab && activeSubTab !== activeTab) {
+      setActiveTab(activeSubTab);
+    }
+  }, [activeSubTab]);
+
   const [localSettings, setLocalSettings] = useState<AppSettings | null>(settings || null);
 
   useEffect(() => {
@@ -1095,7 +1112,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:inline-flex w-full lg:w-auto gap-1.5 bg-slate-200/70 p-1.5 rounded-xl border border-slate-200">
           <button
             type="button"
-            onClick={() => setActiveTab('referrals')}
+            onClick={() => handleChangeTab('referrals')}
             className={`px-3.5 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer ${
               activeTab === 'referrals'
                 ? 'bg-white text-blue-900 shadow-xs'
@@ -1108,7 +1125,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('transactions')}
+            onClick={() => handleChangeTab('transactions')}
             className={`px-3.5 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer ${
               activeTab === 'transactions'
                 ? 'bg-white text-blue-900 shadow-xs'
@@ -1121,7 +1138,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('payouts')}
+            onClick={() => handleChangeTab('payouts')}
             className={`px-3.5 py-2.5 sm:py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer ${
               activeTab === 'payouts'
                 ? 'bg-white text-blue-900 shadow-xs'

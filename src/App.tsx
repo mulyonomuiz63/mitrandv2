@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { ExclusiveIdCard } from './components/ExclusiveIdCard';
 import { MarketingToolsHub } from './components/MarketingToolsHub';
@@ -28,6 +28,20 @@ import { RealtimeChatHub } from './components/RealtimeChatHub';
 import { PageLoadingSkeleton } from './components/SkeletonLoader';
 import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer, isMitraDataIncomplete } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
+import {
+  AppHistoryState,
+  CommissionsSubTab,
+  LogsSubTab,
+  OperationsSubTab,
+  PortalModalKey,
+  SettingsTabKey,
+  StaffSectionKey,
+  ViewMode,
+  buildNavUrl,
+  isAppHistoryState,
+  parseHashToNavState,
+  serializeNavKey,
+} from './utils/navigationHistory';
 import { 
   ShieldCheck, 
   ArrowRight, 
@@ -43,8 +57,25 @@ import {
 
 const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard', 'staff-management', 'chat'];
 const MITRA_VALID_TABS = ['dashboard', 'idcard', 'marketing-tools', 'commissions', 'chat'];
+const VALID_OPERATIONS_SUBTABS: OperationsSubTab[] = [
+  'client_validation',
+  'commission_bonus',
+  'mitra_analysis',
+  'payout_management',
+];
+const VALID_LOGS_SUBTABS: LogsSubTab[] = ['activity_logs', 'email_logs'];
+const VALID_COMMISSIONS_SUBTABS: CommissionsSubTab[] = ['referrals', 'transactions', 'payouts'];
+const VALID_STAFF_SECTIONS: StaffSectionKey[] = ['staff_list', 'add_staff', 'admin_profile'];
+
+function readInitialHashNav(): Partial<AppHistoryState> | null {
+  if (typeof window === 'undefined') return null;
+  if (isAppHistoryState(window.history.state)) return window.history.state;
+  return parseHashToNavState(window.location.hash);
+}
 
 export default function App() {
+  const initialHashNav = useMemo(() => readInitialHashNav(), []);
+
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
       const saved = localStorage.getItem('nd_auth_user');
@@ -54,27 +85,41 @@ export default function App() {
     }
   });
 
-  const [viewMode, setViewMode] = useState<'landing' | 'portal' | 'auth' | 'client_register' | 'mitra_verify'>(() => {
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('verify')) return 'mitra_verify';
       if (urlParams.get('ref')) return 'client_register';
     }
+    let hasSavedUser = false;
     try {
-      const savedUser = localStorage.getItem('nd_auth_user');
-      if (savedUser) return 'portal';
+      hasSavedUser = Boolean(localStorage.getItem('nd_auth_user'));
     } catch {}
-    return 'landing';
+
+    const hashNav = readInitialHashNav();
+    if (hashNav?.viewMode === 'landing') return 'landing';
+    if (hashNav?.viewMode === 'auth') return hasSavedUser ? 'portal' : 'auth';
+    if (hashNav?.viewMode === 'portal') return hasSavedUser ? 'portal' : 'auth';
+
+    return hasSavedUser ? 'portal' : 'landing';
   });
 
-  const [clientRefCode, setClientRefCode] = useState<string | null>(null);
+  const [clientRefCode, setClientRefCode] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('ref');
+    }
+    return null;
+  });
   const [verifyMemberCode, setVerifyMemberCode] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return new URLSearchParams(window.location.search).get('verify');
     }
     return null;
   });
-  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>(() => {
+    const hashNav = readInitialHashNav();
+    return hashNav?.authMode === 'register' ? 'register' : 'login';
+  });
 
   const [currentRole, setCurrentRole] = useState<'admin' | 'mitra'>(() => {
     try {
@@ -90,7 +135,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
       const savedUser = localStorage.getItem('nd_auth_user');
-      const savedTab = localStorage.getItem('nd_active_tab');
+      const hashNav = readInitialHashNav();
+      const savedTab =
+        (hashNav?.viewMode === 'portal' && hashNav.activeTab) ||
+        localStorage.getItem('nd_active_tab');
       if (savedUser) {
         const parsed: AuthUser = JSON.parse(savedUser);
         if (parsed.role === 'admin') {
@@ -103,7 +151,48 @@ export default function App() {
     return 'dashboard';
   });
 
-  const [pendingChatRoomId, setPendingChatRoomId] = useState<string | null>(null);
+  // Sub-tabs synced with browser Back/Forward history across Admin, Staf, & Mitra
+  const [operationsSubTab, setOperationsSubTab] = useState<OperationsSubTab>(() => {
+    const sub = initialHashNav?.subTab;
+    return initialHashNav?.activeTab === 'admin-operations' &&
+      sub &&
+      VALID_OPERATIONS_SUBTABS.includes(sub as OperationsSubTab)
+      ? (sub as OperationsSubTab)
+      : 'client_validation';
+  });
+  const [logsSubTab, setLogsSubTab] = useState<LogsSubTab>(() => {
+    const sub = initialHashNav?.subTab;
+    return initialHashNav?.activeTab === 'activity-logs' &&
+      sub &&
+      VALID_LOGS_SUBTABS.includes(sub as LogsSubTab)
+      ? (sub as LogsSubTab)
+      : 'activity_logs';
+  });
+  const [commissionsSubTab, setCommissionsSubTab] = useState<CommissionsSubTab>(() => {
+    const sub = initialHashNav?.subTab;
+    return initialHashNav?.activeTab === 'commissions' &&
+      sub &&
+      VALID_COMMISSIONS_SUBTABS.includes(sub as CommissionsSubTab)
+      ? (sub as CommissionsSubTab)
+      : 'referrals';
+  });
+  const [staffSection, setStaffSection] = useState<StaffSectionKey>(() => {
+    const sub = initialHashNav?.subTab;
+    return initialHashNav?.activeTab === 'staff-management' &&
+      sub &&
+      VALID_STAFF_SECTIONS.includes(sub as StaffSectionKey)
+      ? (sub as StaffSectionKey)
+      : 'staff_list';
+  });
+  const [settingsActiveTab, setSettingsActiveTab] = useState<SettingsTabKey>(() =>
+    initialHashNav?.settingsTab || 'general'
+  );
+
+  const [pendingChatRoomId, setPendingChatRoomId] = useState<string | null>(() =>
+    initialHashNav?.viewMode === 'portal' && initialHashNav.activeTab === 'chat'
+      ? initialHashNav.chatRoomId || null
+      : null
+  );
   const [settings, setSettings] = useState<AppSettings | null>(null);
   
   // State from server API with immediate offline fallbacks
@@ -123,6 +212,9 @@ export default function App() {
       const savedUser = localStorage.getItem('nd_auth_user');
       if (savedUser) {
         const parsed: AuthUser = JSON.parse(savedUser);
+        if (parsed.role === 'admin' && initialHashNav?.activeMitraId) {
+          return initialHashNav.activeMitraId;
+        }
         if (parsed.mitraId) return parsed.mitraId;
         if (parsed.role === 'mitra' && parsed.id) return parsed.id;
       }
@@ -135,16 +227,307 @@ export default function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [salesHistory, setSalesHistory] = useState<SalesHistoryMonth[]>([]);
 
-  // Modals state
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isNotifDrawerOpen, setIsNotifDrawerOpen] = useState(false);
-  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
-  const [isServicesModalOpen, setIsServicesModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Modals state (synced with browser Back/Forward history)
+  const [isRegisterOpen, setIsRegisterOpen] = useState(() => initialHashNav?.modal === 'register');
+  const [isProfileOpen, setIsProfileOpen] = useState(
+    () => initialHashNav?.viewMode === 'portal' && initialHashNav?.modal === 'profile'
+  );
+  const [isNotifDrawerOpen, setIsNotifDrawerOpen] = useState(
+    () => initialHashNav?.viewMode === 'portal' && initialHashNav?.modal === 'notifications'
+  );
+  const [isClientModalOpen, setIsClientModalOpen] = useState(
+    () => initialHashNav?.viewMode === 'portal' && initialHashNav?.modal === 'client-input'
+  );
+  const [isServicesModalOpen, setIsServicesModalOpen] = useState(
+    () => initialHashNav?.viewMode === 'portal' && initialHashNav?.modal === 'services'
+  );
+  const [isSettingsOpen, setIsSettingsOpen] = useState(
+    () => initialHashNav?.viewMode === 'portal' && initialHashNav?.modal === 'settings'
+  );
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [isIncompleteProfileAlertOpen, setIsIncompleteProfileAlertOpen] = useState(false);
   const [dismissedProfileAlertForId, setDismissedProfileAlertForId] = useState<string | null>(null);
+
+  const applyModalState = useCallback((modal: PortalModalKey) => {
+    setIsRegisterOpen(modal === 'register');
+    setIsProfileOpen(modal === 'profile');
+    setIsNotifDrawerOpen(modal === 'notifications');
+    setIsClientModalOpen(modal === 'client-input');
+    setIsServicesModalOpen(modal === 'services');
+    setIsSettingsOpen(modal === 'settings');
+  }, []);
+
+  const activeModal: PortalModalKey = isSettingsOpen
+    ? 'settings'
+    : isServicesModalOpen
+    ? 'services'
+    : isClientModalOpen
+    ? 'client-input'
+    : isNotifDrawerOpen
+    ? 'notifications'
+    : isProfileOpen
+    ? 'profile'
+    : isRegisterOpen
+    ? 'register'
+    : null;
+
+  const activeSubTabForHistory: string | null =
+    activeTab === 'admin-operations'
+      ? operationsSubTab
+      : activeTab === 'activity-logs'
+      ? logsSubTab
+      : activeTab === 'commissions'
+      ? commissionsSubTab
+      : activeTab === 'staff-management'
+      ? staffSection
+      : null;
+
+  const currentNavState = useMemo<AppHistoryState>(
+    () => ({
+      ndNav: true,
+      viewMode,
+      authMode: viewMode === 'auth' ? authInitialMode : undefined,
+      activeTab,
+      subTab: viewMode === 'portal' ? activeSubTabForHistory : null,
+      activeMitraId:
+        viewMode === 'portal' && activeTab === 'idcard' && currentRole === 'admin'
+          ? activeMitraId
+          : null,
+      chatRoomId: viewMode === 'portal' && activeTab === 'chat' ? pendingChatRoomId : null,
+      modal:
+        viewMode === 'portal'
+          ? activeModal
+          : activeModal === 'register'
+          ? 'register'
+          : null,
+      settingsTab: viewMode === 'portal' && activeModal === 'settings' ? settingsActiveTab : null,
+      clientRefCode: viewMode === 'client_register' ? clientRefCode : null,
+      verifyMemberCode: viewMode === 'mitra_verify' ? verifyMemberCode : null,
+    }),
+    [
+      viewMode,
+      authInitialMode,
+      activeTab,
+      activeSubTabForHistory,
+      currentRole,
+      activeMitraId,
+      pendingChatRoomId,
+      activeModal,
+      settingsActiveTab,
+      clientRefCode,
+      verifyMemberCode,
+    ]
+  );
+
+  // Browser Back / Forward history tracking refs
+  const hasInitHistoryRef = useRef(false);
+  const lastHistoryKeyRef = useRef<string>('');
+  const replaceNextHistoryRef = useRef(false);
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const currentRoleRef = useRef(currentRole);
+  currentRoleRef.current = currentRole;
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
+  const activeMitraIdRef = useRef(activeMitraId);
+  activeMitraIdRef.current = activeMitraId;
+
+  // Push / replace browser history entry whenever app navigation state changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const nextKey = serializeNavKey(currentNavState);
+    const nextUrl = buildNavUrl(currentNavState);
+
+    if (!hasInitHistoryRef.current) {
+      hasInitHistoryRef.current = true;
+      lastHistoryKeyRef.current = nextKey;
+      try {
+        window.history.replaceState(currentNavState, '', nextUrl);
+      } catch {}
+      return;
+    }
+
+    if (nextKey === lastHistoryKeyRef.current) {
+      replaceNextHistoryRef.current = false;
+      return;
+    }
+
+    lastHistoryKeyRef.current = nextKey;
+    try {
+      if (replaceNextHistoryRef.current) {
+        replaceNextHistoryRef.current = false;
+        window.history.replaceState(currentNavState, '', nextUrl);
+      } else {
+        window.history.pushState(currentNavState, '', nextUrl);
+      }
+    } catch {}
+  }, [currentNavState]);
+
+  // Listen to browser Back (←) & Forward (→) buttons
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const applyRestoredNavState = (raw: Partial<AppHistoryState>) => {
+      const user = currentUserRef.current;
+      const role = currentRoleRef.current;
+      let targetViewMode: ViewMode = raw.viewMode || (user ? 'portal' : 'landing');
+
+      // Prevent unauthenticated access to portal via browser Back/Forward
+      if (targetViewMode === 'portal' && !user) {
+        targetViewMode = 'auth';
+      }
+      // Keep authenticated users out of login screen when stepping back
+      if (targetViewMode === 'auth' && user) {
+        targetViewMode = 'landing';
+      }
+
+      const targetAuthMode: 'login' | 'register' =
+        raw.authMode === 'register' ? 'register' : 'login';
+      const validList = role === 'admin' ? ADMIN_VALID_TABS : MITRA_VALID_TABS;
+      const targetTab =
+        raw.activeTab && validList.includes(raw.activeTab) ? raw.activeTab : 'dashboard';
+
+      let resolvedSubTab: string | null = null;
+      if (targetViewMode === 'portal') {
+        if (targetTab === 'admin-operations') {
+          resolvedSubTab =
+            raw.subTab && VALID_OPERATIONS_SUBTABS.includes(raw.subTab as OperationsSubTab)
+              ? raw.subTab
+              : 'client_validation';
+        } else if (targetTab === 'activity-logs') {
+          resolvedSubTab =
+            raw.subTab && VALID_LOGS_SUBTABS.includes(raw.subTab as LogsSubTab)
+              ? raw.subTab
+              : 'activity_logs';
+        } else if (targetTab === 'commissions') {
+          resolvedSubTab =
+            raw.subTab && VALID_COMMISSIONS_SUBTABS.includes(raw.subTab as CommissionsSubTab)
+              ? raw.subTab
+              : 'referrals';
+        } else if (targetTab === 'staff-management') {
+          resolvedSubTab =
+            raw.subTab && VALID_STAFF_SECTIONS.includes(raw.subTab as StaffSectionKey)
+              ? raw.subTab
+              : 'staff_list';
+        }
+      }
+
+      const targetModal: PortalModalKey =
+        targetViewMode === 'portal'
+          ? raw.modal || null
+          : raw.modal === 'register'
+          ? 'register'
+          : null;
+      const targetSettingsTab: SettingsTabKey = raw.settingsTab || 'general';
+      const targetChatRoom =
+        targetViewMode === 'portal' && targetTab === 'chat' ? raw.chatRoomId || null : null;
+      const targetMitraId =
+        targetViewMode === 'portal' && targetTab === 'idcard' && role === 'admin'
+          ? raw.activeMitraId || activeMitraIdRef.current
+          : null;
+      const targetClientRef =
+        targetViewMode === 'client_register' ? raw.clientRefCode || null : null;
+      const targetVerifyCode =
+        targetViewMode === 'mitra_verify' ? raw.verifyMemberCode || null : null;
+
+      const normalized: AppHistoryState = {
+        ndNav: true,
+        viewMode: targetViewMode,
+        authMode: targetViewMode === 'auth' ? targetAuthMode : undefined,
+        activeTab: targetTab,
+        subTab: resolvedSubTab,
+        activeMitraId: targetMitraId,
+        chatRoomId: targetChatRoom,
+        modal: targetModal,
+        settingsTab: targetViewMode === 'portal' && targetModal === 'settings' ? targetSettingsTab : null,
+        clientRefCode: targetClientRef,
+        verifyMemberCode: targetVerifyCode,
+      };
+
+      // Update key before React state updates so the sync effect won't push a duplicate entry
+      lastHistoryKeyRef.current = serializeNavKey(normalized);
+
+      setViewMode(targetViewMode);
+      if (targetViewMode === 'auth') {
+        setAuthInitialMode(targetAuthMode);
+      }
+      if (targetViewMode === 'client_register') {
+        setClientRefCode(targetClientRef);
+      }
+      if (targetViewMode === 'mitra_verify') {
+        setVerifyMemberCode(targetVerifyCode);
+      }
+      if (targetViewMode === 'portal') {
+        setActiveTab(targetTab);
+        if (targetTab === 'admin-operations' && resolvedSubTab) {
+          setOperationsSubTab(resolvedSubTab as OperationsSubTab);
+        } else if (targetTab === 'activity-logs' && resolvedSubTab) {
+          setLogsSubTab(resolvedSubTab as LogsSubTab);
+        } else if (targetTab === 'commissions' && resolvedSubTab) {
+          setCommissionsSubTab(resolvedSubTab as CommissionsSubTab);
+        } else if (targetTab === 'staff-management' && resolvedSubTab) {
+          setStaffSection(resolvedSubTab as StaffSectionKey);
+        }
+        if (targetMitraId) {
+          setActiveMitraId(targetMitraId);
+        }
+        setPendingChatRoomId(targetChatRoom);
+      }
+
+      if (targetModal === 'settings') {
+        setSettingsActiveTab(targetSettingsTab);
+      }
+      applyModalState(targetModal);
+    };
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (isAppHistoryState(event.state)) {
+        applyRestoredNavState(event.state);
+        return;
+      }
+
+      const parsedHash = parseHashToNavState(window.location.hash);
+      if (parsedHash) {
+        applyRestoredNavState(parsedHash);
+        return;
+      }
+
+      // Allow native in-page anchor scrolling on the Landing Page (e.g. #alur-kemitraan)
+      if (
+        viewModeRef.current === 'landing' &&
+        window.location.hash &&
+        !window.location.hash.startsWith('#/')
+      ) {
+        return;
+      }
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const verify = urlParams.get('verify');
+      const ref = urlParams.get('ref');
+      if (verify) {
+        applyRestoredNavState({
+          ndNav: true,
+          viewMode: 'mitra_verify',
+          verifyMemberCode: verify,
+        });
+      } else if (ref) {
+        applyRestoredNavState({
+          ndNav: true,
+          viewMode: 'client_register',
+          clientRefCode: ref,
+        });
+      } else {
+        applyRestoredNavState({
+          ndNav: true,
+          viewMode: currentUserRef.current ? 'portal' : 'landing',
+          activeTab: 'dashboard',
+        });
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [applyModalState]);
 
   // Dark / Light Theme Mode for Portal (Mitra, Staf, & Admin)
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
@@ -288,6 +671,7 @@ export default function App() {
     }
 
     if (!validTabs.includes(activeTab)) {
+      replaceNextHistoryRef.current = true;
       setActiveTab(defaultRoleTab);
     }
   }, [currentUser, currentRole, activeTab, activeMitraId, settings?.chatEnabled]);
@@ -743,6 +1127,8 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: AuthUser) => {
+    replaceNextHistoryRef.current = true;
+    applyModalState(null);
     setCurrentUser(user);
     try {
       localStorage.setItem('nd_auth_user', JSON.stringify(user));
@@ -771,6 +1157,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    replaceNextHistoryRef.current = true;
+    applyModalState(null);
+    setPendingChatRoomId(null);
     setCurrentUser(null);
     setViewMode('landing');
     try {
@@ -845,9 +1234,6 @@ export default function App() {
         verifyCode={verifyMemberCode || activeMitra?.memberCode || ''}
         logoUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
         onBackToHome={() => {
-          if (typeof window !== 'undefined' && window.location.search) {
-            window.history.replaceState({}, '', window.location.pathname);
-          }
           if (currentUser) {
             setViewMode('portal');
           } else {
@@ -865,9 +1251,6 @@ export default function App() {
         <ClientSelfRegistration
           referralCode={clientRefCode || (activeMitra?.referralCode || 'ND-REF-0042')}
           onBackToHome={() => {
-            if (typeof window !== 'undefined' && window.location.search) {
-              window.history.replaceState({}, '', window.location.pathname);
-            }
             if (currentUser) {
               setViewMode('portal');
             } else {
@@ -1093,6 +1476,8 @@ export default function App() {
                 setIsClientModalOpen(true);
               }}
               onNavigateToOperations={() => setActiveTab('admin-operations')}
+              activeSubTab={commissionsSubTab}
+              onSubTabChange={setCommissionsSubTab}
             />
           )}
 
@@ -1122,7 +1507,12 @@ export default function App() {
                   ? () => setIsSettingsOpen(true)
                   : undefined
               }
-              initialSubTab="client_validation"
+              initialSubTab={operationsSubTab}
+              onSubTabChange={(nextSub) => {
+                if (VALID_OPERATIONS_SUBTABS.includes(nextSub as OperationsSubTab)) {
+                  setOperationsSubTab(nextSub as OperationsSubTab);
+                }
+              }}
               mode="operations"
             />
           )}
@@ -1134,7 +1524,12 @@ export default function App() {
               commissions={commissions}
               onRefreshData={fetchData}
               onOpenSettings={() => setIsSettingsOpen(true)}
-              initialSubTab="activity_logs"
+              initialSubTab={logsSubTab}
+              onSubTabChange={(nextSub) => {
+                if (VALID_LOGS_SUBTABS.includes(nextSub as LogsSubTab)) {
+                  setLogsSubTab(nextSub as LogsSubTab);
+                }
+              }}
               mode="logs"
             />
           )}
@@ -1157,6 +1552,8 @@ export default function App() {
           {activeTab === 'staff-management' && currentRole === 'admin' && currentUser?.roleCode !== 'staff' && (
             <StaffManagementPanel
               currentUser={currentUser}
+              activeSection={staffSection}
+              onSectionChange={setStaffSection}
               onAdminUserUpdated={(updatedUser) => {
                 setCurrentUser(updatedUser);
                 try {
@@ -1197,6 +1594,7 @@ export default function App() {
                 chatEnabled={settings?.chatEnabled !== false}
                 isChatPageOpen={true}
                 initialRoomId={pendingChatRoomId}
+                onSelectedRoomChange={setPendingChatRoomId}
                 onOpenChatPage={(roomId) => {
                   if (roomId) setPendingChatRoomId(roomId);
                   setActiveTab('chat');
@@ -1353,6 +1751,8 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         currentUser={currentUser}
+        activeTab={settingsActiveTab}
+        onTabChange={setSettingsActiveTab}
         onSettingsSaved={(newSettings) => {
           setSettings(newSettings);
           fetchData();

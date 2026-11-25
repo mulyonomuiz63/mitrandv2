@@ -37,16 +37,32 @@ import { Skeleton } from './SkeletonLoader';
 interface StaffManagementPanelProps {
   currentUser: AuthUser;
   onAdminUserUpdated: (updatedUser: AuthUser) => void;
+  activeSection?: 'staff_list' | 'add_staff' | 'admin_profile';
+  onSectionChange?: (section: 'staff_list' | 'add_staff' | 'admin_profile') => void;
 }
 
 export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   currentUser,
   onAdminUserUpdated,
+  activeSection: controlledSection,
+  onSectionChange,
 }) => {
   const confirm = useConfirm();
 
   // Sub-navigation inside Staff & Admin Management
-  const [activeSection, setActiveSection] = useState<'staff_list' | 'add_staff' | 'admin_profile'>('staff_list');
+  const [activeSection, setActiveSectionState] = useState<'staff_list' | 'add_staff' | 'admin_profile'>(
+    controlledSection || 'staff_list'
+  );
+  const setActiveSection = (next: 'staff_list' | 'add_staff' | 'admin_profile') => {
+    setActiveSectionState(next);
+    onSectionChange?.(next);
+  };
+
+  useEffect(() => {
+    if (controlledSection && controlledSection !== activeSection) {
+      setActiveSectionState(controlledSection);
+    }
+  }, [controlledSection]);
 
   // Admin Profile State
   const [adminData, setAdminData] = useState<AdminProfile>({

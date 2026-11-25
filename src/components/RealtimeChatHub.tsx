@@ -59,6 +59,7 @@ interface RealtimeChatHubProps {
   chatEnabled: boolean;
   isChatPageOpen: boolean;
   initialRoomId?: string | null;
+  onSelectedRoomChange?: (roomId: string | null) => void;
   onOpenChatPage: (roomId?: string) => void;
   onToggleChatEnabled?: (enabled: boolean) => Promise<void>;
 }
@@ -245,6 +246,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   chatEnabled,
   isChatPageOpen,
   initialRoomId,
+  onSelectedRoomChange,
   onOpenChatPage,
   onToggleChatEnabled,
 }) => {
@@ -256,7 +258,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [participants, setParticipants] = useState<ChatParticipant[]>([]);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(() =>
+    isChatPageOpen ? initialRoomId ?? null : null
+  );
   const [draftDirectRoom, setDraftDirectRoom] = useState<ChatRoom | null>(null);
 
   // Sidebar Filters & Tabs
@@ -386,12 +390,23 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     participantsRef.current = participants;
   }, [participants]);
 
-  // Honor initialRoomId when opening Chat from a notification toast
+  // Honor initialRoomId when opening Chat from a notification toast or browser Back/Forward
   useEffect(() => {
-    if (isChatPageOpen && initialRoomId) {
-      setSelectedRoomId(initialRoomId);
+    if (!isChatPageOpen) return;
+    const targetRoom = initialRoomId ?? null;
+    if (selectedRoomIdRef.current !== targetRoom) {
+      setSelectedRoomId(targetRoom);
     }
   }, [isChatPageOpen, initialRoomId]);
+
+  // Report user-selected chat room changes upward for browser Back/Forward history
+  useEffect(() => {
+    if (!isChatPageOpen || !onSelectedRoomChange) return;
+    const expected = initialRoomId ?? null;
+    if (selectedRoomId !== expected) {
+      onSelectedRoomChange(selectedRoomId);
+    }
+  }, [selectedRoomId, isChatPageOpen]);
 
   // Helper to show a clickable real-time chat toast banner
   const triggerChatNotificationToast = useCallback(
