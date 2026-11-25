@@ -43,6 +43,7 @@ export const useAlert = (): AlertFn => {
 };
 
 function resolveEntityLabelFromUrl(url: string): string {
+  if (url.includes('/api/prospects')) return 'Surat Penawaran Prospek';
   if (url.includes('/api/mitra')) return 'Data Mitra Konsultan';
   if (url.includes('/api/services')) return 'Layanan Pajak & Hukum';
   if (url.includes('/api/clients')) return 'Data & Kontrak Klien';

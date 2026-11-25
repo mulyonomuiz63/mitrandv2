@@ -1,4 +1,4 @@
-export type ViewMode = 'landing' | 'portal' | 'auth' | 'client_register' | 'mitra_verify';
+export type ViewMode = 'landing' | 'portal' | 'auth' | 'client_register' | 'mitra_verify' | 'letter_verify';
 
 export type PortalModalKey =
   | 'register'
@@ -21,6 +21,8 @@ export type CommissionsSubTab = 'referrals' | 'transactions' | 'payouts';
 
 export type StaffSectionKey = 'staff_list' | 'add_staff' | 'admin_profile';
 
+export type ProspectsSubTab = 'mitra_summary' | 'all_letters';
+
 export type SettingsTabKey = 'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai';
 
 export interface AppHistoryState {
@@ -35,6 +37,7 @@ export interface AppHistoryState {
   settingsTab?: SettingsTabKey | null;
   clientRefCode?: string | null;
   verifyMemberCode?: string | null;
+  verifyLetterCode?: string | null;
 }
 
 const VALID_MODAL_KEYS: Set<string> = new Set([
@@ -77,6 +80,7 @@ export function serializeNavKey(state: AppHistoryState): string {
     state.modal === 'settings' ? state.settingsTab || 'general' : '',
     state.viewMode === 'client_register' ? state.clientRefCode || '' : '',
     state.viewMode === 'mitra_verify' ? state.verifyMemberCode || '' : '',
+    state.viewMode === 'letter_verify' ? state.verifyLetterCode || '' : '',
   ];
   return parts.join('|');
 }
@@ -84,6 +88,11 @@ export function serializeNavKey(state: AppHistoryState): string {
 export function buildNavUrl(state: AppHistoryState): string {
   if (typeof window === 'undefined') return '/';
   const pathname = window.location.pathname || '/';
+
+  if (state.viewMode === 'letter_verify') {
+    const code = state.verifyLetterCode || new URLSearchParams(window.location.search).get('verify-surat') || '';
+    return code ? `${pathname}?verify-surat=${encodeURIComponent(code)}` : `${pathname}#/verify-surat`;
+  }
 
   if (state.viewMode === 'mitra_verify') {
     const code = state.verifyMemberCode || new URLSearchParams(window.location.search).get('verify') || '';
@@ -188,6 +197,14 @@ export function parseHashToNavState(hash: string): Partial<AppHistoryState> | nu
       ndNav: true,
       viewMode: 'mitra_verify',
       verifyMemberCode: params.get('code') || null,
+    };
+  }
+
+  if (head === 'verify-surat') {
+    return {
+      ndNav: true,
+      viewMode: 'letter_verify',
+      verifyLetterCode: params.get('code') || null,
     };
   }
 

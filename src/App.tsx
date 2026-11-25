@@ -23,6 +23,8 @@ import { ClientSelfRegistration } from './components/ClientSelfRegistration';
 import { StaffProfileEditModal } from './components/StaffProfileEditModal';
 import { StaffManagementPanel } from './components/StaffManagementPanel';
 import { MitraPublicVerificationView } from './components/MitraPublicVerificationView';
+import { ProspectLetterPublicVerifyView } from './components/ProspectLetterPublicVerifyView';
+import { ProspectsHub } from './components/ProspectsHub';
 import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
 import { RealtimeChatHub } from './components/RealtimeChatHub';
 import { PageLoadingSkeleton } from './components/SkeletonLoader';
@@ -34,6 +36,7 @@ import {
   LogsSubTab,
   OperationsSubTab,
   PortalModalKey,
+  ProspectsSubTab,
   SettingsTabKey,
   StaffSectionKey,
   ViewMode,
@@ -55,8 +58,8 @@ import {
   Globe
 } from 'lucide-react';
 
-const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'ai-reports', 'idcard', 'staff-management', 'chat'];
-const MITRA_VALID_TABS = ['dashboard', 'idcard', 'marketing-tools', 'commissions', 'chat'];
+const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'prospects', 'ai-reports', 'idcard', 'staff-management', 'chat'];
+const MITRA_VALID_TABS = ['dashboard', 'idcard', 'marketing-tools', 'commissions', 'prospects', 'chat'];
 const VALID_OPERATIONS_SUBTABS: OperationsSubTab[] = [
   'client_validation',
   'commission_bonus',
@@ -66,6 +69,7 @@ const VALID_OPERATIONS_SUBTABS: OperationsSubTab[] = [
 const VALID_LOGS_SUBTABS: LogsSubTab[] = ['activity_logs', 'email_logs'];
 const VALID_COMMISSIONS_SUBTABS: CommissionsSubTab[] = ['referrals', 'transactions', 'payouts'];
 const VALID_STAFF_SECTIONS: StaffSectionKey[] = ['staff_list', 'add_staff', 'admin_profile'];
+const VALID_PROSPECTS_SUBTABS: ProspectsSubTab[] = ['mitra_summary', 'all_letters'];
 
 function readInitialHashNav(): Partial<AppHistoryState> | null {
   if (typeof window === 'undefined') return null;
@@ -88,6 +92,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('verify-surat')) return 'letter_verify';
       if (urlParams.get('verify')) return 'mitra_verify';
       if (urlParams.get('ref')) return 'client_register';
     }
@@ -113,6 +118,12 @@ export default function App() {
   const [verifyMemberCode, setVerifyMemberCode] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return new URLSearchParams(window.location.search).get('verify');
+    }
+    return null;
+  });
+  const [verifyLetterCode, setVerifyLetterCode] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('verify-surat');
     }
     return null;
   });
@@ -183,6 +194,14 @@ export default function App() {
       VALID_STAFF_SECTIONS.includes(sub as StaffSectionKey)
       ? (sub as StaffSectionKey)
       : 'staff_list';
+  });
+  const [prospectsSubTab, setProspectsSubTab] = useState<ProspectsSubTab>(() => {
+    const sub = initialHashNav?.subTab;
+    return initialHashNav?.activeTab === 'prospects' &&
+      sub &&
+      VALID_PROSPECTS_SUBTABS.includes(sub as ProspectsSubTab)
+      ? (sub as ProspectsSubTab)
+      : 'mitra_summary';
   });
   const [settingsActiveTab, setSettingsActiveTab] = useState<SettingsTabKey>(() =>
     initialHashNav?.settingsTab || 'general'
@@ -280,6 +299,8 @@ export default function App() {
       ? commissionsSubTab
       : activeTab === 'staff-management'
       ? staffSection
+      : activeTab === 'prospects' && currentRole === 'admin'
+      ? prospectsSubTab
       : null;
 
   const currentNavState = useMemo<AppHistoryState>(
@@ -303,6 +324,7 @@ export default function App() {
       settingsTab: viewMode === 'portal' && activeModal === 'settings' ? settingsActiveTab : null,
       clientRefCode: viewMode === 'client_register' ? clientRefCode : null,
       verifyMemberCode: viewMode === 'mitra_verify' ? verifyMemberCode : null,
+      verifyLetterCode: viewMode === 'letter_verify' ? verifyLetterCode : null,
     }),
     [
       viewMode,
@@ -316,6 +338,7 @@ export default function App() {
       settingsActiveTab,
       clientRefCode,
       verifyMemberCode,
+      verifyLetterCode,
     ]
   );
 
@@ -409,6 +432,11 @@ export default function App() {
             raw.subTab && VALID_STAFF_SECTIONS.includes(raw.subTab as StaffSectionKey)
               ? raw.subTab
               : 'staff_list';
+        } else if (targetTab === 'prospects' && role === 'admin') {
+          resolvedSubTab =
+            raw.subTab && VALID_PROSPECTS_SUBTABS.includes(raw.subTab as ProspectsSubTab)
+              ? raw.subTab
+              : 'mitra_summary';
         }
       }
 
@@ -429,6 +457,8 @@ export default function App() {
         targetViewMode === 'client_register' ? raw.clientRefCode || null : null;
       const targetVerifyCode =
         targetViewMode === 'mitra_verify' ? raw.verifyMemberCode || null : null;
+      const targetVerifyLetterCode =
+        targetViewMode === 'letter_verify' ? raw.verifyLetterCode || null : null;
 
       const normalized: AppHistoryState = {
         ndNav: true,
@@ -442,6 +472,7 @@ export default function App() {
         settingsTab: targetViewMode === 'portal' && targetModal === 'settings' ? targetSettingsTab : null,
         clientRefCode: targetClientRef,
         verifyMemberCode: targetVerifyCode,
+        verifyLetterCode: targetVerifyLetterCode,
       };
 
       // Update key before React state updates so the sync effect won't push a duplicate entry
@@ -457,6 +488,9 @@ export default function App() {
       if (targetViewMode === 'mitra_verify') {
         setVerifyMemberCode(targetVerifyCode);
       }
+      if (targetViewMode === 'letter_verify') {
+        setVerifyLetterCode(targetVerifyLetterCode);
+      }
       if (targetViewMode === 'portal') {
         setActiveTab(targetTab);
         if (targetTab === 'admin-operations' && resolvedSubTab) {
@@ -467,6 +501,8 @@ export default function App() {
           setCommissionsSubTab(resolvedSubTab as CommissionsSubTab);
         } else if (targetTab === 'staff-management' && resolvedSubTab) {
           setStaffSection(resolvedSubTab as StaffSectionKey);
+        } else if (targetTab === 'prospects' && resolvedSubTab) {
+          setProspectsSubTab(resolvedSubTab as ProspectsSubTab);
         }
         if (targetMitraId) {
           setActiveMitraId(targetMitraId);
@@ -502,9 +538,16 @@ export default function App() {
       }
 
       const urlParams = new URLSearchParams(window.location.search);
+      const verifySurat = urlParams.get('verify-surat');
       const verify = urlParams.get('verify');
       const ref = urlParams.get('ref');
-      if (verify) {
+      if (verifySurat) {
+        applyRestoredNavState({
+          ndNav: true,
+          viewMode: 'letter_verify',
+          verifyLetterCode: verifySurat,
+        });
+      } else if (verify) {
         applyRestoredNavState({
           ndNav: true,
           viewMode: 'mitra_verify',
@@ -604,9 +647,13 @@ export default function App() {
     fetchData();
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      const verifySurat = urlParams.get('verify-surat');
       const verify = urlParams.get('verify');
       const ref = urlParams.get('ref');
-      if (verify) {
+      if (verifySurat) {
+        setVerifyLetterCode(verifySurat);
+        setViewMode('letter_verify');
+      } else if (verify) {
         setVerifyMemberCode(verify);
         setViewMode('mitra_verify');
       } else if (ref) {
@@ -651,10 +698,11 @@ export default function App() {
           ...(staffMenus.includes('verification') ? ['verification', 'idcard'] : []),
           ...(staffMenus.includes('marketing-tools') ? ['marketing-tools'] : []),
           ...(staffMenus.includes('commissions') ? ['commissions'] : []),
+          ...(staffMenus.includes('prospects') ? ['prospects'] : []),
           ...(isChatAllowedForUser ? ['chat'] : []),
         ]
       : currentUser.allowedTabs && currentUser.allowedTabs.length > 0
-        ? [...currentUser.allowedTabs, 'staff-management', ...(isChatAllowedForUser ? ['chat'] : [])]
+        ? [...currentUser.allowedTabs, 'prospects', 'staff-management', ...(isChatAllowedForUser ? ['chat'] : [])]
         : effectivePortalRole === 'admin'
           ? ADMIN_VALID_TABS
           : MITRA_VALID_TABS.filter((t) => (t === 'chat' ? isChatAllowedForUser : true));
@@ -1244,6 +1292,27 @@ export default function App() {
     );
   }
 
+  // 1.3 Public QR Code Director Offer Letter Verification View (Via ?verify-surat=ND-SPP-...)
+  if (viewMode === 'letter_verify') {
+    return (
+      <ProspectLetterPublicVerifyView
+        verifyCode={verifyLetterCode || ''}
+        logoUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
+        onBackToHome={() => {
+          if (currentUser) {
+            setViewMode('portal');
+          } else {
+            setViewMode('landing');
+          }
+        }}
+        onOpenMitraVerify={(memberCode) => {
+          setVerifyMemberCode(memberCode);
+          setViewMode('mitra_verify');
+        }}
+      />
+    );
+  }
+
   // 1.5 Client Self Registration View (Via Mitra Referral Link)
   if (viewMode === 'client_register') {
     return (
@@ -1478,6 +1547,27 @@ export default function App() {
               onNavigateToOperations={() => setActiveTab('admin-operations')}
               activeSubTab={commissionsSubTab}
               onSubTabChange={setCommissionsSubTab}
+            />
+          )}
+
+          {activeTab === 'prospects' && (
+            <ProspectsHub
+              userRole={currentRole}
+              currentUser={currentUser}
+              activeMitra={activeMitra}
+              allMitras={mitras}
+              logoUrl={settings?.logoUrl}
+              initialLetterTemplate={settings?.prospectLetterTemplate}
+              activeSubTab={prospectsSubTab}
+              onSubTabChange={setProspectsSubTab}
+              onOpenLetterVerify={(verificationCode) => {
+                setVerifyLetterCode(verificationCode);
+                setViewMode('letter_verify');
+              }}
+              onOpenMitraVerify={(memberCode) => {
+                setVerifyMemberCode(memberCode);
+                setViewMode('mitra_verify');
+              }}
             />
           )}
 

@@ -21,6 +21,7 @@ import {
   X,
   Sun,
   Moon,
+  FileText,
 } from 'lucide-react';
 import { Mitra, AuthUser, DEFAULT_STAFF_ALLOWED_MENUS, StaffMenuAccessKey, isMitraDataIncomplete } from '../types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from '../avatars';
@@ -577,6 +578,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <DollarSign className="w-3.5 h-3.5 shrink-0" />
                     <span>Monitoring</span>
                   </button>
+
+                  <button
+                    type="button"
+                    data-tour="tour-nav-prospects"
+                    onClick={() => onTabChange('prospects')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      activeTab === 'prospects'
+                        ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                    <span>Prospek</span>
+                  </button>
                 </>
               ) : (
                 <>
@@ -676,6 +691,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </button>
                   )}
 
+                  {canAccessMenu('prospects') && (
+                    <button
+                      type="button"
+                      data-tour="tour-nav-prospects"
+                      onClick={() => onTabChange('prospects')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                        activeTab === 'prospects'
+                          ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5 shrink-0" />
+                      <span>Prospek</span>
+                    </button>
+                  )}
+
                   {!isStaff && (
                     <button
                       type="button"
@@ -740,33 +771,33 @@ export const Navbar: React.FC<NavbarProps> = ({
         className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_20px_rgba(15,23,42,0.1)] px-1.5 py-1.5"
       >
         {currentRole === 'mitra' ? (
-          <div className="max-w-lg mx-auto grid grid-cols-5 gap-1 items-center">
+          <div className="max-w-lg mx-auto grid grid-cols-6 gap-0.5 items-center">
             <button
               type="button"
               data-tour="tour-nav-dashboard"
               onClick={() => onTabChange('dashboard')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all ${
                 activeTab === 'dashboard'
                   ? 'text-blue-700 bg-blue-50 font-bold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Dashboard</span>
+              <span className="text-[9px] mt-0.5 truncate">Home</span>
             </button>
 
             <button
               type="button"
               data-tour="tour-nav-idcard"
               onClick={() => onTabChange('idcard')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all ${
                 activeTab === 'idcard'
                   ? 'text-blue-700 bg-blue-50 font-bold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <CreditCard className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Kartu Identitas</span>
+              <span className="text-[9px] mt-0.5 truncate">Kartu ID</span>
             </button>
 
             <button
@@ -778,42 +809,56 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }
               }}
               disabled={activeMitra.status !== 'verified'}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl shadow-sm font-bold ${
+              className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl shadow-sm font-bold ${
                 activeMitra.status === 'verified'
                   ? 'bg-blue-700 text-white'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               <PlusCircle className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">+ Klien</span>
+              <span className="text-[9px] mt-0.5 truncate">+ Klien</span>
+            </button>
+
+            <button
+              type="button"
+              data-tour="tour-nav-prospects"
+              onClick={() => onTabChange('prospects')}
+              className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all ${
+                activeTab === 'prospects'
+                  ? 'text-blue-700 bg-blue-50 font-bold'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span className="text-[9px] mt-0.5 truncate">Prospek</span>
             </button>
 
             <button
               type="button"
               data-tour="tour-nav-commissions"
               onClick={() => onTabChange('commissions')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all ${
                 activeTab === 'commissions'
                   ? 'text-blue-700 bg-blue-50 font-bold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <DollarSign className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Monitoring</span>
+              <span className="text-[9px] mt-0.5 truncate">Komisi</span>
             </button>
 
             <button
               type="button"
               data-tour="tour-nav-marketing"
               onClick={() => onTabChange('marketing-tools')}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all ${
                 activeTab === 'marketing-tools'
                   ? 'text-blue-700 bg-blue-50 font-bold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <Briefcase className="w-4 h-4" />
-              <span className="text-[10px] mt-0.5 truncate">Tools</span>
+              <span className="text-[9px] mt-0.5 truncate">Tools</span>
             </button>
           </div>
         ) : (
@@ -911,6 +956,22 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <DollarSign className="w-4 h-4" />
                 <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Monitoring</span>
+              </button>
+            )}
+
+            {canAccessMenu('prospects') && (
+              <button
+                type="button"
+                data-tour="tour-nav-prospects"
+                onClick={() => onTabChange('prospects')}
+                className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                  activeTab === 'prospects'
+                    ? 'text-blue-700 bg-blue-50 font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Prospek</span>
               </button>
             )}
 

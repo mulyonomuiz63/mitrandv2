@@ -19,14 +19,20 @@ import {
 } from './src/mysql.ts';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, resolveAvatarUrl, inferGenderFromName } from './src/avatars.ts';
 
-const db = isMysqlConfigured() ? mysqlDb : null;
+let db: typeof mysqlDb | null = isMysqlConfigured() ? mysqlDb : null;
+let mysqlPreviewFallbackActive = false;
 import {
   OFFICIAL_ND_SERVICES,
   resolveServicePricingType,
+  DEFAULT_PROSPECT_LETTER_CONTENT,
+  resolveProspectLetterContent,
   type ChatParticipant,
   type ChatRoom,
   type ChatMessage,
   type ChatLinkPreview,
+  type ProspectLetter,
+  type ProspectAddressParts,
+  type ProspectLetterContent,
 } from './src/types.ts';
 
 dotenv.config();
@@ -678,6 +684,7 @@ export interface AppSettings {
   emailOnClientAcc: boolean;
   emailOnPasswordReset: boolean;
   emailOnRecurringInvoice: boolean;
+  prospectLetterTemplate?: Partial<ProspectLetterContent>;
   specializationEnabled?: boolean;
   specializationLabel?: string;
   specializationOptions?: SpecializationOptionItem[];
@@ -729,7 +736,10 @@ export interface ActivityLogItem {
     | 'tool_delete'
     | 'settings_update'
     | 'bonus_grant'
-    | 'commission_scheme_update';
+    | 'commission_scheme_update'
+    | 'prospect_create'
+    | 'prospect_update'
+    | 'prospect_delete';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
   targetEntity: string;
   description: string;
@@ -742,6 +752,7 @@ export const DEFAULT_STAFF_ALLOWED_MENUS: string[] = [
   'verification',
   'marketing-tools',
   'commissions',
+  'prospects',
   'manage-services',
   'settings-general',
   'settings-forms',
@@ -813,6 +824,35 @@ const toDbNotification = (n: NotificationItem) => ({
 
 // Initial Data with Default Male/Female Avatars
 let mitras: Mitra[] = [
+  {
+    id: 'mitra-tes-01',
+    memberCode: 'ND-TAX-LAW-9901',
+    referralCode: 'ND-REF-9901',
+    fullName: 'Mitra Uji Coba ND',
+    email: 'mitra.tes@ndtaxandlaw.com',
+    phone: '0812-9900-1122',
+    nik: '3174011205909901',
+    ktpFileUrl: '/assets/aistudio/logo_kotak_5ecb05e4.png',
+    ktpFileName: 'KTP_Mitra_Uji_Coba.png',
+    specialization: 'Konsultan Bisnis & Perpajakan',
+    status: 'verified',
+    isActive: true,
+    gender: 'male',
+    avatarUrl: MALE_AVATAR_URL,
+    joinedDate: '2026-11-24',
+    bankDetails: {
+      bankName: 'Bank Central Asia (BCA)',
+      accountNumber: '1234567890',
+      accountHolder: 'Mitra Uji Coba ND',
+    },
+    totalCommission: 0,
+    totalBonus: 0,
+    pendingPayout: 0,
+    paidPayout: 0,
+    referredClientsCount: 0,
+    activeSubscribersCount: 0,
+    emailVerified: true,
+  },
   {
     id: 'mitra-01',
     memberCode: 'ND-TAX-LAW-0042',
@@ -1743,6 +1783,238 @@ export const sendSystemEmail = async (params: {
   }
 };
 
+let prospectLetters: ProspectLetter[] = [];
+
+const ROMAN_MONTHS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+
+const formatStructuredProspectAddress = (parts?: Partial<ProspectAddressParts> | null, fallbackRaw = ''): string => {
+  if (!parts || typeof parts !== 'object') {
+    return String(fallbackRaw || '').trim();
+  }
+  const clean = (v?: string) => String(v || '').replace(/\s+/g, ' ').trim();
+  const streetRaw = clean(parts.street);
+  const villageRaw = clean(parts.village);
+  const districtRaw = clean(parts.district);
+  const cityType = parts.cityType === 'Kab.' ? 'Kab.' : 'Kota';
+  const cityRaw = clean(parts.city);
+  const provinceRaw = clean(parts.province);
+  const postalRaw = clean(parts.postalCode).replace(/[^\d]/g, '').slice(0, 5);
+
+  const segments: string[] = [];
+  if (streetRaw) {
+    segments.push(streetRaw);
+  }
+  if (villageRaw) {
+    const hasPrefix = /^(kel\.?|kelurahan|desa|ds\.?)\s+/i.test(villageRaw);
+    segments.push(hasPrefix ? villageRaw : `Kel./Desa ${villageRaw}`);
+  }
+  if (districtRaw) {
+    const hasPrefix = /^(kec\.?|kecamatan)\s+/i.test(districtRaw);
+    segments.push(hasPrefix ? districtRaw : `Kec. ${districtRaw}`);
+  }
+  if (cityRaw) {
+    const hasPrefix = /^(kota|kab\.?|kabupaten)\s+/i.test(cityRaw);
+    segments.push(hasPrefix ? cityRaw : `${cityType} ${cityRaw}`);
+  }
+  if (provinceRaw) {
+    const hasPrefix = /^(prov\.?|provinsi)\s+/i.test(provinceRaw);
+    segments.push(hasPrefix ? provinceRaw : `Prov. ${provinceRaw}`);
+  }
+  const joined = segments.join(', ');
+  if (postalRaw) {
+    return joined ? `${joined} ${postalRaw}` : postalRaw;
+  }
+  return joined || String(fallbackRaw || '').trim();
+};
+
+const generateNextProspectLetterMeta = (dateObj: Date) => {
+  // Use Asia/Jakarta (WIB, UTC+7) so Roman month & year always match Indonesian local date
+  const jakartaMs = dateObj.getTime() + 7 * 60 * 60 * 1000;
+  const jakartaDate = new Date(jakartaMs);
+  const year = jakartaDate.getUTCFullYear();
+  const monthIdx = jakartaDate.getUTCMonth();
+  const day = jakartaDate.getUTCDate();
+  const romanMonth = ROMAN_MONTHS[monthIdx] || 'I';
+
+  const sameYearMaxSeq = prospectLetters.reduce((max, item) => {
+    const itemYear = Number(String(item.letterDate || item.createdAt || '').slice(0, 4));
+    if (itemYear === year) {
+      const seqFromNum = Number(item.sequenceNumber) || 0;
+      const prefixMatch = /^(\d+)\//.exec(String(item.letterNumber || '').trim());
+      const seqFromStr = prefixMatch ? Number(prefixMatch[1]) || 0 : 0;
+      return Math.max(max, seqFromNum, seqFromStr);
+    }
+    return max;
+  }, 0);
+
+  const nextSeq = sameYearMaxSeq + 1;
+  const paddedSeq = String(nextSeq).padStart(3, '0');
+  const letterNumber = `${paddedSeq}/ND/SPP/${romanMonth}/${year}`;
+  const randomSuffix = crypto.randomBytes(3).toString('hex').toUpperCase();
+  const verificationCode = `ND-SPP-${year}-${paddedSeq}-${randomSuffix}`;
+  const letterDate = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  return { sequenceNumber: nextSeq, letterNumber, verificationCode, letterDate };
+};
+
+const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterContent> | undefined => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const src = raw as Record<string, unknown>;
+  const out: Partial<ProspectLetterContent> = {};
+
+  const cleanStr = (val: unknown, maxLen: number): string | undefined => {
+    if (typeof val !== 'string') return undefined;
+    const trimmed = val.replace(/\r\n/g, '\n').trim();
+    if (!trimmed) return undefined;
+    return trimmed.slice(0, maxLen);
+  };
+
+  const cleanLawItems = (val: unknown, maxItems: number) => {
+    if (!Array.isArray(val)) return undefined;
+    const list = val
+      .slice(0, maxItems)
+      .filter((item) => item && typeof item === 'object')
+      .map((item: any) => ({
+        title: String(item.title || '').replace(/\s+/g, ' ').trim().slice(0, 320),
+        bullets: Array.isArray(item.bullets)
+          ? item.bullets
+              .slice(0, 8)
+              .map((b: any) => String(b || '').replace(/\s+/g, ' ').trim().slice(0, 420))
+              .filter(Boolean)
+          : [],
+      }))
+      .filter((item) => item.title.length > 0);
+    return list.length > 0 ? list : undefined;
+  };
+
+  const cleanServices = (val: unknown) => {
+    if (!Array.isArray(val)) return undefined;
+    const list = val
+      .slice(0, 8)
+      .filter((item) => item && typeof item === 'object')
+      .map((item: any) => ({
+        lead: String(item.lead || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        body: String(item.body || '').replace(/\s+/g, ' ').trim().slice(0, 500),
+      }))
+      .filter((item) => item.lead.length > 0 || item.body.length > 0);
+    return list.length > 0 ? list : undefined;
+  };
+
+  const cleanComparisonRows = (val: unknown) => {
+    if (!Array.isArray(val)) return undefined;
+    const list = val
+      .slice(0, 10)
+      .filter((item) => item && typeof item === 'object')
+      .map((item: any) => ({
+        component: String(item.component || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        internalStaff: String(item.internalStaff || '').replace(/\s+/g, ' ').trim().slice(0, 140),
+        consultant: String(item.consultant || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+      }))
+      .filter((item) => item.component.length > 0);
+    return list.length > 0 ? list : undefined;
+  };
+
+  const cleanLines = (val: unknown, maxLines: number) => {
+    if (!Array.isArray(val)) return undefined;
+    const list = val
+      .slice(0, maxLines)
+      .map((line) => String(line || '').replace(/\s+/g, ' ').trim().slice(0, 140))
+      .filter(Boolean);
+    return list.length > 0 ? list : undefined;
+  };
+
+  const assignStr = <K extends keyof ProspectLetterContent>(key: K, maxLen: number) => {
+    const cleaned = cleanStr(src[key], maxLen);
+    if (cleaned !== undefined) {
+      (out as any)[key] = cleaned;
+    }
+  };
+
+  assignStr('city', 60);
+  assignStr('sifat', 60);
+  assignStr('lampiran', 60);
+  assignStr('perihal', 140);
+  assignStr('greeting', 80);
+  assignStr('introPara1', 900);
+  assignStr('introPara2', 900);
+  assignStr('sectionMainTitle', 260);
+  assignStr('section1Title', 200);
+  assignStr('section1Sanction', 500);
+  assignStr('section2Title', 200);
+  assignStr('section2Sanction', 500);
+  assignStr('section3Title', 200);
+  assignStr('section3Sanction', 500);
+  assignStr('aboutTitle', 160);
+  assignStr('aboutPara', 900);
+  assignStr('servicesTitle', 160);
+  assignStr('servicesIntro', 400);
+  assignStr('servicesCaseNote', 600);
+  assignStr('comparisonTitle', 200);
+  assignStr('comparisonIntro', 300);
+  assignStr('comparisonClosing', 500);
+  assignStr('consultTitle', 160);
+  assignStr('consultPara', 900);
+  assignStr('closingPara', 400);
+  assignStr('directorFirmLabel', 100);
+  assignStr('directorName', 120);
+  assignStr('directorTitle', 100);
+  assignStr('mitraSignerLabel', 100);
+  assignStr('mitraRoleLabel', 100);
+  assignStr('footerLeftTitle', 100);
+  assignStr('footerRightTitle', 100);
+
+  const s1 = cleanLawItems(src.section1Items, 6);
+  if (s1) out.section1Items = s1;
+  const s2 = cleanLawItems(src.section2Items, 6);
+  if (s2) out.section2Items = s2;
+  const s3 = cleanLawItems(src.section3Items, 8);
+  if (s3) out.section3Items = s3;
+
+  const services = cleanServices(src.servicesItems);
+  if (services) out.servicesItems = services;
+
+  if (Array.isArray(src.comparisonHeaders) && src.comparisonHeaders.length === 3) {
+    const h0 = cleanStr(src.comparisonHeaders[0], 60);
+    const h1 = cleanStr(src.comparisonHeaders[1], 60);
+    const h2 = cleanStr(src.comparisonHeaders[2], 60);
+    if (h0 && h1 && h2) {
+      out.comparisonHeaders = [h0, h1, h2];
+    }
+  }
+
+  const compRows = cleanComparisonRows(src.comparisonRows);
+  if (compRows) out.comparisonRows = compRows;
+
+  const fl = cleanLines(src.footerLeftLines, 6);
+  if (fl) out.footerLeftLines = fl;
+  const fr = cleanLines(src.footerRightLines, 6);
+  if (fr) out.footerRightLines = fr;
+
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
+const persistProspectLettersToMysql = async (latestItem?: ProspectLetter, deletedId?: string) => {
+  if (!db) return;
+  try {
+    await db.from('user_passwords').upsert([
+      { email: '__sys_prospect_letters__@ndtaxlaw.internal', password: JSON.stringify(prospectLetters) },
+    ]);
+  } catch (e) {
+    console.warn('[MySQL KV Prospect Letters Warning]', e);
+  }
+  try {
+    if (deletedId) {
+      await db.from('prospect_letters').delete().eq('id', deletedId);
+    } else if (latestItem) {
+      await db.from('prospect_letters').upsert([latestItem]);
+    } else if (prospectLetters.length > 0) {
+      await db.from('prospect_letters').upsert(prospectLetters);
+    }
+  } catch (e) {
+    console.warn('[MySQL prospect_letters Table Warning]', e);
+  }
+};
+
 let commissions: CommissionTransaction[] = [
   {
     id: 'trx-101',
@@ -2110,6 +2382,7 @@ const userPasswords = new Map<string, string>([
   ['bambang.sudirman@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
   ['dewi.lestari@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
   ['rian.pratama@example.com', encryptUserPassword('mitraND2026!', 'mitra')],
+  ['mitra.tes@ndtaxandlaw.com', encryptUserPassword('MitraTes2026!', 'mitra')],
 ]);
 
 // Seeded Real-Time Chat Rooms & Messages (1-on-1 & Group between Mitra & Staf)
@@ -2184,7 +2457,7 @@ let chatMessages: ChatMessage[] = [
 const passwordResetTokens = new Map<string, { otp: string; expiresAt: number; attempts: number }>();
 
 export const isProductionMode = (): boolean => {
-  if (!isMysqlConfigured()) return false;
+  if (mysqlPreviewFallbackActive || !db || !isMysqlConfigured()) return false;
   return (
     appSettings.appEnvironment === 'production' ||
     process.env.NODE_ENV === 'production' ||
@@ -2517,6 +2790,7 @@ export const saveDatabase = () => {
       staffAccounts,
       chatRooms,
       chatMessages,
+      prospectLetters,
       userPasswords: passwordsObj,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), 'utf-8');
@@ -2550,6 +2824,7 @@ export const loadDatabase = () => {
       emailLogs = [];
       chatRooms = [];
       chatMessages = [];
+      prospectLetters = [];
       cleanupLocalDatabaseFileInProduction();
       console.log('[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Database MySQL 100%.');
       return;
@@ -2633,6 +2908,7 @@ export const loadDatabase = () => {
         notifications = [];
         chatRooms = [];
         chatMessages = [];
+        prospectLetters = [];
         cleanupLocalDatabaseFileInProduction();
         console.log('[Production Mode] Hanya terhubung ke Database MySQL (penyimpanan lokal dinonaktifkan).');
       } else {
@@ -2645,6 +2921,7 @@ export const loadDatabase = () => {
         if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
         if (Array.isArray(data.commissions)) commissions = data.commissions;
         if (Array.isArray(data.notifications)) notifications = data.notifications;
+        if (Array.isArray(data.prospectLetters)) prospectLetters = data.prospectLetters;
         console.log(`[Development Mode] Database lokal dimuat dari ${DB_FILE}`);
       }
     } else if (isProductionMode()) {
@@ -2659,6 +2936,7 @@ export const loadDatabase = () => {
       emailLogs = [];
       chatRooms = [];
       chatMessages = [];
+      prospectLetters = [];
       cleanupLocalDatabaseFileInProduction();
     }
   } catch (err) {
@@ -2744,8 +3022,21 @@ export const syncFromMysql = async () => {
       }
     } catch {}
 
+    // 7c. Prospect Letters (Read from dedicated prospect_letters table if available)
+    let tableProspectLetters: ProspectLetter[] = [];
+    try {
+      const { data: dbProspects, error: errPL } = await db
+        .from('prospect_letters')
+        .select('*')
+        .order('createdAt', { ascending: false });
+      if (!errPL && Array.isArray(dbProspects)) {
+        tableProspectLetters = dbProspects as ProspectLetter[];
+      }
+    } catch {}
+
     let kvChatRooms: ChatRoom[] = [];
     let kvChatMessages: ChatMessage[] = [];
+    let kvProspectLetters: ProspectLetter[] = [];
 
     // 8. User Passwords & Encrypted Credentials + System KV (Settings, Roles, Activity Logs, Email Logs)
     const { data: dbPasswords, error: errP } = await db.from('user_passwords').select('*');
@@ -2868,6 +3159,15 @@ export const syncFromMysql = async () => {
           } catch {}
           continue;
         }
+        if (emailLower === '__sys_prospect_letters__@ndtaxlaw.internal') {
+          try {
+            const parsedLetters = JSON.parse(row.password);
+            if (Array.isArray(parsedLetters)) {
+              kvProspectLetters = parsedLetters;
+            }
+          } catch {}
+          continue;
+        }
         if (emailLower.startsWith('__sys_file_') && emailLower.endsWith('__@ndtaxlaw.internal')) {
           try {
             const parsedFile = JSON.parse(row.password);
@@ -2945,6 +3245,19 @@ export const syncFromMysql = async () => {
           userPasswords.set(mEmail, localEnc);
           toUpgradeInMysql.push({ email: mEmail, password: localEnc });
         }
+      }
+
+      // Merge prospectLetters from dedicated table and KV backup
+      const mergedProspectMap = new Map<string, ProspectLetter>();
+      for (const item of [...tableProspectLetters, ...kvProspectLetters]) {
+        if (item && item.id && !mergedProspectMap.has(item.id)) {
+          mergedProspectMap.set(item.id, item);
+        }
+      }
+      if (tableProspectLetters.length > 0 || kvProspectLetters.length > 0) {
+        prospectLetters = Array.from(mergedProspectMap.values()).sort(
+          (a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '')
+        );
       }
 
       // Ensure every Staff account has an encrypted password record in MySQL user_passwords
@@ -3067,8 +3380,6 @@ export const syncFromMysql = async () => {
   }
 };
 
-// Muat konfigurasi awal & sinkronkan langsung dari Database MySQL
-loadDatabase();
 // Pastikan default mode adalah production (terkoneksi eksklusif ke MySQL saat dikonfigurasi) kecuali disetel development
 if (!process.env.APP_ENV) {
   appSettings.appEnvironment = isMysqlConfigured() ? 'production' : 'development';
@@ -3078,14 +3389,38 @@ if (db) {
     .then((res) => {
       if (res.success) {
         console.log(`[MySQL Database] ${res.message}`);
+        loadDatabase();
+        return syncFromMysql();
       } else {
         console.warn(`[MySQL Schema Warning] ${res.message}`);
+        const cfg = getMysqlConfig();
+        const isLocalHost = cfg.host === '127.0.0.1' || cfg.host === 'localhost';
+        const isConnRefused = /ECONNREFUSED/i.test(String(res.message || ''));
+        if (isLocalHost && isConnRefused) {
+          mysqlPreviewFallbackActive = true;
+          db = null;
+          appSettings.appEnvironment = 'development';
+          console.warn('[MySQL Fallback] MySQL lokal tidak berjalan di lingkungan preview; beralih otomatis ke mode development lokal.');
+          loadDatabase();
+          return;
+        }
+        loadDatabase();
+        return syncFromMysql();
       }
-      return syncFromMysql();
     })
     .catch((err) => {
       console.warn('[MySQL Startup Warning]', err);
+      const cfg = getMysqlConfig();
+      const isLocalHost = cfg.host === '127.0.0.1' || cfg.host === 'localhost';
+      if (isLocalHost && /ECONNREFUSED/i.test(String(err?.message || err || ''))) {
+        mysqlPreviewFallbackActive = true;
+        db = null;
+        appSettings.appEnvironment = 'development';
+      }
+      loadDatabase();
     });
+} else {
+  loadDatabase();
 }
 
 // ========================================================
@@ -8535,6 +8870,82 @@ app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
         (m.referralCode || '').toLowerCase().includes(search)
       );
     });
+  } else if (resource === 'prospects') {
+    const scopedLetters = mitraId
+      ? prospectLetters.filter((l) => l.mitraId === mitraId)
+      : [...prospectLetters];
+    allItems = scopedLetters.map((l, idx) => ({
+      ...l,
+      _ts: parseServerRecordTimestamp(l.createdAt || l.letterDate, l.id, scopedLetters.length - idx),
+    }));
+    allItems.sort((a, b) => b._ts - a._ts);
+
+    filteredItems = allItems.filter((l) => {
+      if (!search) return true;
+      return (
+        (l.letterNumber || '').toLowerCase().includes(search) ||
+        (l.companyName || '').toLowerCase().includes(search) ||
+        (l.companyAddress || '').toLowerCase().includes(search) ||
+        (l.mitraName || '').toLowerCase().includes(search) ||
+        (l.mitraMemberCode || '').toLowerCase().includes(search) ||
+        (l.createdByName || '').toLowerCase().includes(search)
+      );
+    });
+  } else if (resource === 'prospects-summary') {
+    const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
+    const lettersByMitra = new Map<string, ProspectLetter[]>();
+    for (const l of prospectLetters) {
+      if (!l.mitraId) continue;
+      if (!lettersByMitra.has(l.mitraId)) lettersByMitra.set(l.mitraId, []);
+      lettersByMitra.get(l.mitraId)!.push(l);
+    }
+
+    allItems = safeList.map((m) => {
+      const mLetters = (lettersByMitra.get(m.id) || []).sort(
+        (a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '')
+      );
+      const latest = mLetters[0] || null;
+      const recentCompanies = Array.from(new Set(mLetters.map((x) => x.companyName))).slice(0, 5);
+      return {
+        mitraId: m.id,
+        mitraName: m.fullName,
+        memberCode: m.memberCode,
+        referralCode: m.referralCode,
+        phone: m.phone,
+        email: m.email,
+        avatarUrl: m.avatarUrl,
+        gender: m.gender,
+        status: m.status,
+        totalLetters: mLetters.length,
+        latestLetterDate: latest ? latest.letterDate || latest.createdAt : null,
+        latestCompanyName: latest ? latest.companyName : null,
+        recentCompanies,
+        _allCompanyNames: mLetters.map((x) => x.companyName.toLowerCase()).join(' '),
+        _latestTs: latest ? Date.parse(latest.createdAt || latest.letterDate || '') || 0 : 0,
+      };
+    });
+
+    // Mitra with most letters first, then most recently active, then alphabetically
+    allItems.sort((a, b) => {
+      if (b.totalLetters !== a.totalLetters) return b.totalLetters - a.totalLetters;
+      if (b._latestTs !== a._latestTs) return b._latestTs - a._latestTs;
+      return String(a.mitraName || '').localeCompare(String(b.mitraName || ''));
+    });
+
+    filteredItems = allItems
+      .filter((row) => {
+        if (status === 'has_letters' && row.totalLetters <= 0) return false;
+        if (status === 'no_letters' && row.totalLetters > 0) return false;
+        if (!search) return true;
+        return (
+          (row.mitraName || '').toLowerCase().includes(search) ||
+          (row.memberCode || '').toLowerCase().includes(search) ||
+          (row.referralCode || '').toLowerCase().includes(search) ||
+          (row.phone || '').toLowerCase().includes(search) ||
+          (row._allCompanyNames || '').includes(search)
+        );
+      })
+      .map(({ _allCompanyNames, _latestTs, ...publicRow }) => publicRow);
   } else {
     return res.status(404).json({ success: false, message: 'Resource DataTables tidak ditemukan.' });
   }
@@ -8555,6 +8966,448 @@ app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
       totalPages,
       totalAll: allItems.length,
     },
+  });
+});
+
+// ========================================================
+// 4.5 PROSPEK & SURAT PENAWARAN ENDPOINTS
+// ========================================================
+app.get('/api/prospects', async (req: Request, res: Response) => {
+  const mitraId = String(req.query.mitraId || '').trim();
+  const list = mitraId
+    ? prospectLetters.filter((l) => l.mitraId === mitraId)
+    : [...prospectLetters];
+  list.sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || ''));
+  return res.json({ success: true, data: list });
+});
+
+app.get('/api/prospects/template', async (_req: Request, res: Response) => {
+  const resolved = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+  return res.json({
+    success: true,
+    data: resolved,
+    hasCustomTemplate: Boolean(
+      appSettings.prospectLetterTemplate && Object.keys(appSettings.prospectLetterTemplate).length > 0
+    ),
+  });
+});
+
+app.put('/api/prospects/template', async (req: Request, res: Response) => {
+  try {
+    const {
+      content,
+      resetToDefault,
+      actorRole: rawActorRole,
+      actorId,
+      actorName,
+      actorEmail,
+    } = req.body || {};
+
+    if (rawActorRole !== 'admin' && rawActorRole !== 'staff') {
+      return res.status(403).json({
+        success: false,
+        message: 'Hanya Admin atau Staf yang dapat mengubah template isi surat penawaran.',
+      });
+    }
+
+    if (resetToDefault) {
+      appSettings.prospectLetterTemplate = undefined;
+    } else {
+      const sanitized = sanitizeProspectLetterContent(content);
+      if (!sanitized) {
+        return res.status(400).json({
+          success: false,
+          message: 'Isi template surat tidak valid.',
+        });
+      }
+      appSettings.prospectLetterTemplate = sanitized;
+    }
+
+    saveDatabase();
+    void persistSettingsToMysql();
+
+    const resolved = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+
+    recordActivity({
+      actorRole: rawActorRole,
+      actorId: actorId ? String(actorId) : undefined,
+      actorName: String(actorName || (rawActorRole === 'staff' ? 'Staf Operasional' : 'Admin Operasional')).trim(),
+      actorEmail: actorEmail ? String(actorEmail) : undefined,
+      actionType: 'prospect_update',
+      operation: 'UPDATE',
+      targetEntity: 'Template Isi Surat Prospek',
+      description: resetToDefault
+        ? 'Mengembalikan template isi surat penawaran prospek ke standar awal.'
+        : 'Memperbarui template master isi surat penawaran prospek.',
+    });
+
+    return res.json({
+      success: true,
+      message: resetToDefault
+        ? 'Template isi surat dikembalikan ke default.'
+        : 'Template isi surat penawaran berhasil disimpan.',
+      data: resolved,
+      hasCustomTemplate: !resetToDefault,
+    });
+  } catch (err: any) {
+    console.error('[Prospect Template Update Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menyimpan template isi surat.',
+    });
+  }
+});
+
+app.get('/api/prospects/public-verify/:code', async (req: Request, res: Response) => {
+  const rawCode = String(req.params.code || '').trim();
+  if (!rawCode) {
+    return res.status(404).json({
+      success: false,
+      verified: false,
+      message: 'Kode verifikasi surat tidak ditemukan.',
+    });
+  }
+  const normalized = rawCode.toLowerCase();
+  const found = prospectLetters.find(
+    (l) =>
+      (l.verificationCode || '').toLowerCase() === normalized ||
+      (l.id || '').toLowerCase() === normalized ||
+      (l.letterNumber || '').toLowerCase() === normalized
+  );
+  if (!found) {
+    return res.status(404).json({
+      success: false,
+      verified: false,
+      message: 'Surat penawaran dengan kode tersebut tidak terdaftar di sistem resmi ND TAX AND LAW.',
+    });
+  }
+
+  const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+
+  return res.json({
+    success: true,
+    verified: true,
+    data: {
+      id: found.id,
+      letterNumber: found.letterNumber,
+      verificationCode: found.verificationCode,
+      letterDate: found.letterDate,
+      companyName: found.companyName,
+      companyAddress: found.companyAddress,
+      mitraName: found.mitraName,
+      mitraMemberCode: found.mitraMemberCode,
+      mitraPhone: found.mitraPhone,
+      mitraEmail: found.mitraEmail,
+      directorName: effectiveContent.directorName || found.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+      directorTitle: effectiveContent.directorTitle || found.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+      firmName: effectiveContent.directorFirmLabel || 'ND TAX AND LAW',
+      firmLegalBasis: 'SK Kemenkumham AHU-0068631-AH.01.14',
+      supportPhone: appSettings.supportPhone || '021-86941220 / 0821-8074-4977',
+      supportEmail: appSettings.supportEmail || 'business@ndtaxandlaw.com',
+      createdAt: found.createdAt,
+    },
+  });
+});
+
+app.post('/api/prospects', async (req: Request, res: Response) => {
+  try {
+    const {
+      companyName: rawCompanyName,
+      addressParts: rawAddressParts,
+      companyAddress: rawCompanyAddress,
+      mitraId: rawMitraId,
+      actorRole: rawActorRole,
+      actorId,
+      actorName,
+      actorEmail,
+    } = req.body || {};
+
+    const actorRole: 'mitra' | 'admin' | 'staff' =
+      rawActorRole === 'admin' || rawActorRole === 'staff' ? rawActorRole : 'mitra';
+
+    const companyName = String(rawCompanyName || '').replace(/\s+/g, ' ').trim();
+    if (companyName.length < 2 || companyName.length > 90) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter).',
+      });
+    }
+
+    const parts: ProspectAddressParts | undefined =
+      rawAddressParts && typeof rawAddressParts === 'object'
+        ? {
+            street: String(rawAddressParts.street || '').replace(/\s+/g, ' ').trim().slice(0, 75),
+            village: String(rawAddressParts.village || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+            district: String(rawAddressParts.district || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+            cityType: rawAddressParts.cityType === 'Kab.' ? 'Kab.' : 'Kota',
+            city: String(rawAddressParts.city || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+            province: String(rawAddressParts.province || '').replace(/\s+/g, ' ').trim().slice(0, 50),
+            postalCode: String(rawAddressParts.postalCode || '').replace(/[^\d]/g, '').slice(0, 5),
+          }
+        : undefined;
+
+    if (parts) {
+      if (!parts.street || !parts.village || !parts.district || !parts.city || !parts.province) {
+        return res.status(400).json({
+          success: false,
+          message: 'Alamat perusahaan wajib dilengkapi berurutan (Jalan, Desa/Kelurahan, Kecamatan, Kab/Kota, dan Provinsi).',
+        });
+      }
+    }
+
+    const assembledAddress = formatStructuredProspectAddress(parts, String(rawCompanyAddress || '').trim());
+    if (assembledAddress.length < 10 || assembledAddress.length > 220) {
+      return res.status(400).json({
+        success: false,
+        message: 'Alamat perusahaan tidak valid atau terlalu panjang (maksimal 220 karakter).',
+      });
+    }
+
+    // Resolve target Mitra (Mitra role can only issue for themselves; Admin/Staf chooses target Mitra)
+    const targetMitraId = actorRole === 'mitra' ? String(actorId || rawMitraId || '').trim() : String(rawMitraId || '').trim();
+    const targetMitra = mitras.find((m) => m.id === targetMitraId);
+    if (!targetMitra) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mitra tujuan tidak ditemukan. Silakan pilih Mitra yang terdaftar.',
+      });
+    }
+
+    // Letter body content is global across all Mitra
+    const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+
+    const now = new Date();
+    const { sequenceNumber, letterNumber, verificationCode, letterDate } = generateNextProspectLetterMeta(now);
+
+    const newLetter: ProspectLetter = {
+      id: `prsp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      letterNumber,
+      sequenceNumber,
+      verificationCode,
+      letterDate,
+      companyName,
+      companyAddress: assembledAddress,
+      addressParts: parts,
+      mitraId: targetMitra.id,
+      mitraName: targetMitra.fullName,
+      mitraMemberCode: targetMitra.memberCode || '-',
+      mitraPhone: targetMitra.phone || '-',
+      mitraEmail: targetMitra.email || '-',
+      directorName: effectiveContent.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+      directorTitle: effectiveContent.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+      createdByRole: actorRole,
+      createdByName: String(actorName || targetMitra.fullName || 'Sistem').trim(),
+      createdById: String(actorId || targetMitra.id || '').trim(),
+      createdAt: now.toISOString(),
+    };
+
+    prospectLetters.unshift(newLetter);
+    saveDatabase();
+    void persistProspectLettersToMysql(newLetter);
+
+    recordActivity({
+      actorRole,
+      actorId: String(actorId || targetMitra.id),
+      actorName: String(actorName || targetMitra.fullName),
+      actorEmail: String(actorEmail || targetMitra.email),
+      actionType: 'prospect_create',
+      operation: 'CREATE',
+      targetEntity: `Surat Prospek ${newLetter.letterNumber}`,
+      description:
+        actorRole === 'mitra'
+          ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName}.`
+          : `${actorRole === 'admin' ? 'Admin' : 'Staf'} (${actorName || 'Tim Operasional'}) membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} atas nama Mitra ${targetMitra.fullName}.`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: `Surat penawaran ${newLetter.letterNumber} untuk ${companyName} berhasil diterbitkan.`,
+      data: newLetter,
+    });
+  } catch (err: any) {
+    console.error('[Prospect Create Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal membuat surat penawaran prospek.',
+    });
+  }
+});
+
+app.put('/api/prospects/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      companyName: rawCompanyName,
+      addressParts: rawAddressParts,
+      companyAddress: rawCompanyAddress,
+      mitraId: rawMitraId,
+      actorRole: rawActorRole,
+      actorId,
+      actorName,
+      actorEmail,
+    } = req.body || {};
+
+    const actorRole: 'mitra' | 'admin' | 'staff' =
+      rawActorRole === 'admin' || rawActorRole === 'staff' ? rawActorRole : 'mitra';
+
+    const idx = prospectLetters.findIndex((l) => l.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: 'Data surat prospek tidak ditemukan.' });
+    }
+    const existing = prospectLetters[idx];
+
+    // Enforce strict ownership for Mitra role
+    if (actorRole === 'mitra') {
+      const normalizedActorId = String(actorId || '').trim();
+      if (!normalizedActorId || existing.mitraId !== normalizedActorId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengedit surat penawaran milik Anda sendiri.',
+        });
+      }
+    }
+
+    const companyName =
+      rawCompanyName !== undefined
+        ? String(rawCompanyName || '').replace(/\s+/g, ' ').trim()
+        : existing.companyName;
+    if (companyName.length < 2 || companyName.length > 90) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter).',
+      });
+    }
+
+    let nextParts: ProspectAddressParts | undefined = existing.addressParts;
+    let nextAddress = existing.companyAddress;
+
+    if (rawAddressParts && typeof rawAddressParts === 'object') {
+      const parts: ProspectAddressParts = {
+        street: String(rawAddressParts.street || '').replace(/\s+/g, ' ').trim().slice(0, 75),
+        village: String(rawAddressParts.village || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+        district: String(rawAddressParts.district || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+        cityType: rawAddressParts.cityType === 'Kab.' ? 'Kab.' : 'Kota',
+        city: String(rawAddressParts.city || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+        province: String(rawAddressParts.province || '').replace(/\s+/g, ' ').trim().slice(0, 50),
+        postalCode: String(rawAddressParts.postalCode || '').replace(/[^\d]/g, '').slice(0, 5),
+      };
+      if (!parts.street || !parts.village || !parts.district || !parts.city || !parts.province) {
+        return res.status(400).json({
+          success: false,
+          message: 'Alamat perusahaan wajib dilengkapi berurutan (Jalan, Desa/Kelurahan, Kecamatan, Kab/Kota, dan Provinsi).',
+        });
+      }
+      nextParts = parts;
+      nextAddress = formatStructuredProspectAddress(parts, existing.companyAddress);
+    } else if (typeof rawCompanyAddress === 'string' && rawCompanyAddress.trim()) {
+      nextAddress = rawCompanyAddress.replace(/\s+/g, ' ').trim();
+    }
+
+    if (nextAddress.length < 10 || nextAddress.length > 220) {
+      return res.status(400).json({
+        success: false,
+        message: 'Alamat perusahaan tidak valid atau terlalu panjang (maksimal 220 karakter).',
+      });
+    }
+
+    // Only Admin & Staf may reassign target Mitra or modify custom letter body content
+    let nextMitra = mitras.find((m) => m.id === existing.mitraId) || null;
+    if ((actorRole === 'admin' || actorRole === 'staff') && rawMitraId && String(rawMitraId).trim() !== existing.mitraId) {
+      const reassigned = mitras.find((m) => m.id === String(rawMitraId).trim());
+      if (!reassigned) {
+        return res.status(404).json({
+          success: false,
+          message: 'Mitra tujuan tidak ditemukan.',
+        });
+      }
+      nextMitra = reassigned;
+    }
+
+    // Letter body content is managed globally via /api/prospects/template
+    const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+    const updatedLetter: ProspectLetter = {
+      ...existing,
+      companyName,
+      companyAddress: nextAddress,
+      addressParts: nextParts,
+      customContent: undefined,
+      mitraId: nextMitra ? nextMitra.id : existing.mitraId,
+      mitraName: nextMitra ? nextMitra.fullName : existing.mitraName,
+      mitraMemberCode: nextMitra ? nextMitra.memberCode || '-' : existing.mitraMemberCode,
+      mitraPhone: nextMitra ? nextMitra.phone || '-' : existing.mitraPhone,
+      mitraEmail: nextMitra ? nextMitra.email || '-' : existing.mitraEmail,
+      directorName: effectiveContent.directorName || existing.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+      directorTitle: effectiveContent.directorTitle || existing.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+      updatedAt: new Date().toISOString(),
+    };
+
+    prospectLetters[idx] = updatedLetter;
+    saveDatabase();
+    void persistProspectLettersToMysql(updatedLetter);
+
+    recordActivity({
+      actorRole,
+      actorId: String(actorId || updatedLetter.mitraId),
+      actorName: String(actorName || updatedLetter.mitraName),
+      actorEmail: actorEmail ? String(actorEmail) : undefined,
+      actionType: 'prospect_update',
+      operation: 'UPDATE',
+      targetEntity: `Surat Prospek ${updatedLetter.letterNumber}`,
+      description: `Memperbarui surat penawaran ${updatedLetter.letterNumber} untuk ${updatedLetter.companyName} (Mitra: ${updatedLetter.mitraName}).`,
+    });
+
+    return res.json({
+      success: true,
+      message: `Surat penawaran ${updatedLetter.letterNumber} berhasil diperbarui.`,
+      data: updatedLetter,
+    });
+  } catch (err: any) {
+    console.error('[Prospect Update Error]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memperbarui surat penawaran prospek.',
+    });
+  }
+});
+
+app.delete('/api/prospects/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const actorRoleRaw = String(req.body?.actorRole || req.query.actorRole || 'admin').trim();
+  const actorId = String(req.body?.actorId || req.query.actorId || '').trim();
+  const actorName = String(req.body?.actorName || req.query.actorName || 'Admin Operasional').trim();
+  const actorEmail = String(req.body?.actorEmail || req.query.actorEmail || '').trim();
+
+  const idx = prospectLetters.findIndex((l) => l.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Data surat prospek tidak ditemukan.' });
+  }
+  const existing = prospectLetters[idx];
+
+  if (actorRoleRaw === 'mitra' && (!actorId || existing.mitraId !== actorId)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Anda hanya dapat menghapus surat penawaran milik Anda sendiri.',
+    });
+  }
+
+  prospectLetters.splice(idx, 1);
+  saveDatabase();
+  void persistProspectLettersToMysql(undefined, id);
+
+  recordActivity({
+    actorRole: actorRoleRaw === 'mitra' ? 'mitra' : actorRoleRaw === 'staff' ? 'staff' : 'admin',
+    actorId: actorId || undefined,
+    actorName,
+    actorEmail: actorEmail || undefined,
+    actionType: 'prospect_delete',
+    operation: 'DELETE',
+    targetEntity: `Surat Prospek ${existing.letterNumber}`,
+    description: `Menghapus surat penawaran ${existing.letterNumber} (${existing.companyName}) milik Mitra ${existing.mitraName}.`,
+  });
+
+  return res.json({
+    success: true,
+    message: `Surat penawaran ${existing.letterNumber} berhasil dihapus.`,
   });
 });
 

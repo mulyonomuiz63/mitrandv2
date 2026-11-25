@@ -859,6 +859,9 @@ export interface AppSettings {
   emailOnClientAcc: boolean;          // Validasi keberhasilan deal klien (ACC)
   emailOnPasswordReset: boolean;      // Reset password dan instruksi keamanan
   emailOnRecurringInvoice: boolean;   // Notifikasi siklus invoice langganan
+
+  // Master Template Isi Surat Penawaran Prospek (Admin & Staf)
+  prospectLetterTemplate?: Partial<ProspectLetterContent>;
 }
 
 export interface EmailLogItem {
@@ -903,7 +906,10 @@ export interface ActivityLogItem {
     | 'tool_delete'
     | 'settings_update'
     | 'bonus_grant'
-    | 'commission_scheme_update';
+    | 'commission_scheme_update'
+    | 'prospect_create'
+    | 'prospect_update'
+    | 'prospect_delete';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
   targetEntity: string;
   description: string;
@@ -1078,6 +1084,7 @@ export type StaffMenuAccessKey =
   | 'dashboard'
   | 'admin-operations'
   | 'verification'
+  | 'prospects'
   | 'marketing-tools'
   | 'commissions'
   | 'manage-services'
@@ -1108,6 +1115,12 @@ export const STAFF_MENU_OPTIONS: StaffMenuOption[] = [
     key: 'verification',
     label: 'Verifikasi Mitra',
     description: 'Memeriksa berkas pendaftaran mitra baru, menyetujui (approve), atau menolak disertai alasan.',
+    category: 'menu_utama',
+  },
+  {
+    key: 'prospects',
+    label: 'Prospek & Surat Penawaran',
+    description: 'Memantau surat penawaran yang dibuat mitra serta menerbitkan surat penawaran atas nama mitra.',
     category: 'menu_utama',
   },
   {
@@ -1146,6 +1159,7 @@ export const DEFAULT_STAFF_ALLOWED_MENUS: StaffMenuAccessKey[] = [
   'dashboard',
   'admin-operations',
   'verification',
+  'prospects',
   'marketing-tools',
   'commissions',
   'manage-services',
@@ -1509,6 +1523,395 @@ export interface ChatRoom {
   lastMessageSenderId?: string;
   lastMessageSenderName?: string;
 }
+
+export interface ProspectAddressParts {
+  street: string;
+  village: string;
+  district: string;
+  cityType: 'Kota' | 'Kab.';
+  city: string;
+  province: string;
+  postalCode?: string;
+}
+
+export interface ProspectLetterLawItem {
+  title: string;
+  bullets: string[];
+}
+
+export interface ProspectLetterServiceItem {
+  lead: string;
+  body: string;
+}
+
+export interface ProspectLetterComparisonRow {
+  component: string;
+  internalStaff: string;
+  consultant: string;
+}
+
+export interface ProspectLetterContent {
+  // Page 1
+  city: string;
+  sifat: string;
+  lampiran: string;
+  perihal: string;
+  greeting: string;
+  introPara1: string;
+  introPara2: string; // Supports {{NAMA_PERUSAHAAN}} placeholder
+  sectionMainTitle: string;
+  section1Title: string;
+  section1Items: ProspectLetterLawItem[];
+  section1Sanction: string;
+
+  // Page 2
+  section2Title: string;
+  section2Items: ProspectLetterLawItem[];
+  section2Sanction: string;
+  section3Title: string;
+  section3Items: ProspectLetterLawItem[];
+  section3Sanction: string;
+
+  // Page 3
+  aboutTitle: string;
+  aboutPara: string;
+  servicesTitle: string;
+  servicesIntro: string;
+  servicesItems: ProspectLetterServiceItem[];
+  servicesCaseNote: string;
+  comparisonTitle: string;
+  comparisonIntro: string;
+  comparisonHeaders: [string, string, string];
+  comparisonRows: ProspectLetterComparisonRow[];
+  comparisonClosing: string;
+
+  // Page 4 & Footer
+  consultTitle: string;
+  consultPara: string;
+  closingPara: string;
+  directorFirmLabel: string;
+  directorName: string;
+  directorTitle: string;
+  mitraSignerLabel: string;
+  mitraRoleLabel: string;
+  footerLeftTitle: string;
+  footerLeftLines: string[];
+  footerRightTitle: string;
+  footerRightLines: string[];
+}
+
+export const DEFAULT_PROSPECT_LETTER_CONTENT: ProspectLetterContent = {
+  city: 'Jakarta',
+  sifat: 'Terbatas',
+  lampiran: 'Satu set',
+  perihal: 'Pemberitahuan dan Penawaran',
+  greeting: 'Dengan hormat,',
+  introPara1:
+    'Bersama ini kami sampaikan salam sejahtera untuk kita semua, karena telah diberi kesempatan untuk bisa menjalankan usaha dan memberikan penghidupan yang layak untuk banyak orang. Semoga kita diberikan keselamatan dan kesuksesan dalam menjalankan aktivitas sehari-hari. Aamiin.',
+  introPara2:
+    'Dalam rangka mendukung aktivitas usaha, memberikan bimbingan, dan membantu penyelesaian persoalan para pengusaha terkait isu keuangan, perpajakan, dan hukum, ND TAX AND LAW menyampaikan surat ini kepada {{NAMA_PERUSAHAAN}} sebagai bentuk kepedulian dan penawaran kerjasama yang saling menguntungkan.',
+  sectionMainTitle:
+    'KEWAJIBAN MENYUSUN LAPORAN KEUANGAN, KEWAJIBAN PERPAJAKAN, DAN KEWAJIBAN KETENAGAKERJAAN',
+  section1Title: 'Dasar Hukum Kewajiban Menyusun Laporan Keuangan:',
+  section1Items: [
+    {
+      title: 'Undang-Undang Tentang Perseroan Terbatas',
+      bullets: [
+        'Pasal 66, mengenai kewajiban menyusun laporan tahunan (didalamnya harus memuat laporan keuangan).',
+      ],
+    },
+    {
+      title: 'Undang-Undang Tentang Ketentuan Umum dan Tata Cara Perpajakan',
+      bullets: [
+        'Pasal 28, mengenai kewajiban pembukuan/menyusun laporan keuangan dalam rangka menjalankan kewajiban perpajakan.',
+        'Pasal 4, mengenai kewajiban melampirkan laporan keuangan dalam menyampaikan Surat Pemberitahuan Tahunan.',
+      ],
+    },
+    {
+      title:
+        'Peraturan Pemerintah Tentang Modal Dasar Perseroan Serta Pendaftaran Pendirian, Perubahan, dan Pembubaran Perseroan yang Memenuhi Kriteria Untuk Usaha Mikro dan Kecil.',
+      bullets: [
+        'Pasal 10, mengenai kewajiban membuat laporan keuangan dan menyampaikan kepada menteri paling lambat 6 bulan setelah akhir periode akuntansi berjalan.',
+      ],
+    },
+  ],
+  section1Sanction:
+    'Pelanggaran terhadap ketentuan tersebut dapat berupa sanksi administrasi, denda, pencabutan status badan hukum, sampai dengan sanksi pidana.',
+
+  section2Title: 'Dasar Hukum Kewajiban Perpajakan',
+  section2Items: [
+    {
+      title: 'Undang-Undang Tentang Pajak Penghasilan',
+      bullets: [
+        'Pasal 4 ayat (2), 15, 21, 22, 23, 26, dll, mengenai kewajiban melakukan pemotongan, penyetoran, dan pelaporan pajak penghasilan.',
+      ],
+    },
+    {
+      title: 'Undang-Undang Tentang Pajak Pertambahan Nilai',
+      bullets: [
+        'Pasal 3, mengenai kewajiban melaporkan usaha dan kewajiban memungut, menyetor, dan melaporkan pajak pertambahan nilai.',
+      ],
+    },
+    {
+      title: 'Undang-Undang Tentang Ketentuan Umum dan Tata Cara Perpajakan',
+      bullets: [
+        'Pasal 12, mengenai kewajiban membayar pajak dengan tidak menggantungkan adanya Surat Ketetapan Pajak.',
+        'Pasal 3, mengenai kewajiban menyampaikan surat pemberitahuan dengan benar, lengkap, jelas, dan menandatanganinya.',
+        'Pasal 39, mengenai sanksi pidana perpajakan.',
+      ],
+    },
+  ],
+  section2Sanction:
+    'Pelanggaran terhadap ketentuan perpajakan dapat berupa sanksi administrasi berupa denda, bunga hingga 24 bulan, sampai dengan sanksi pidana perpajakan.',
+
+  section3Title: 'Dasar Hukum Kewajiban Ketenagakerjaan',
+  section3Items: [
+    {
+      title: 'Undang-Undang Tentang Pelindungan Ketenagakerjaan',
+      bullets: [
+        'Pasal 137 dan Pasal 144, mengenai kewajiban membayar upah paling rendah sebesar upah minimum yang ditetapkan gubernur, serta ketentuan upah bagi usaha mikro dan kecil.',
+        'Pasal 92, mengenai kewajiban membayar upah dan memberikan jaminan sosial kepada pekerja yang sedang dalam masa percobaan.',
+        'Pasal 287 sampai dengan Pasal 290, mengenai sanksi pidana atas pelanggaran kewajiban pengupahan dan jaminan sosial.',
+      ],
+    },
+    {
+      title: 'Undang-Undang Tentang Badan Penyelenggara Jaminan Sosial',
+      bullets: [
+        'Pasal 15, mengenai kewajiban mendaftarkan diri dan seluruh pekerjanya sebagai peserta BPJS Kesehatan dan BPJS Ketenagakerjaan.',
+        'Pasal 19, mengenai kewajiban memungut iuran yang menjadi beban pekerja dan menyetorkannya bersama iuran pemberi kerja.',
+      ],
+    },
+    {
+      title: 'Peraturan Pemerintah Tentang Pengupahan',
+      bullets: [
+        'Pasal 21, mengenai kewajiban menyusun struktur dan skala upah.',
+        'Pasal 61, mengenai denda atas keterlambatan pembayaran upah.',
+      ],
+    },
+    {
+      title:
+        'Peraturan Menteri Ketenagakerjaan Tentang Tunjangan Hari Raya Keagamaan bagi Pekerja/Buruh di Perusahaan',
+      bullets: [
+        'Pasal 2 dan Pasal 5, mengenai kewajiban membayar THR kepada pekerja dengan masa kerja 1 bulan atau lebih, paling lambat 7 hari sebelum hari raya keagamaan.',
+      ],
+    },
+  ],
+  section3Sanction:
+    'Pelanggaran terhadap ketentuan ketenagakerjaan dapat berupa sanksi administrasi, denda, penghentian sementara kegiatan usaha, tidak mendapat pelayanan publik tertentu, sampai dengan sanksi pidana.',
+
+  aboutTitle: 'TENTANG ND TAX AND LAW',
+  aboutPara:
+    'ND Tax and Law adalah kantor konsultan perpajakan dan hukum dengan pengalaman lebih dari 15 tahun dan telah mendampingi lebih dari 100 wajib pajak dan pelaku usaha. Legalitas kami berdasarkan SK Kemenkumham AHU-0068631-AH.01.14, dan kami memiliki Izin praktik konsultan Pajak dan Advokat yang telah terdaftar resmi.',
+  servicesTitle: 'Layanan Yang Dapat Kami Berikan',
+  servicesIntro:
+    'Kami menyediakan empat layanan bulanan yang masing-masing tersedia hanya mulai 999 Ribu per bulan:',
+  servicesItems: [
+    {
+      lead: 'Jasa Perpajakan:',
+      body: 'analisis aspek pajak atas transaksi, penghitungan PPh 21/26, PPh 23, dan PPh 4 ayat (2), pembuatan bukti potong, faktur pajak, dan kode billing, pelaporan SPT Masa PPh 21/26, PPh Unifikasi, dan PPN, serta kertas kerja ekualisasi.',
+    },
+    {
+      lead: 'Jasa Akuntansi:',
+      body: 'analisis dan dokumentasi transaksi, input jurnal, membuat buku besar, serta penyusunan laporan posisi keuangan, laba rugi, dan perubahan ekuitas setiap bulan.',
+    },
+    {
+      lead: 'Jasa Keuangan:',
+      body: 'administrasi penagihan dan invoice, pembayaran supplier, gaji, dan operasional, rekap kas dan bank, pengelolaan utang-piutang, serta laporan realisasi anggaran.',
+    },
+    {
+      lead: 'Jasa Legal:',
+      body: 'melakukan review dokumen bisnis, membuat dokumen kontrak/perjanjian, membuat opini hukum, melakukan somasi, memberi tanggapan somasi, investigasi kecurangan, perizinan, dan lain sebagainya.',
+    },
+  ],
+  servicesCaseNote:
+    'Untuk kasus tertentu seperti SP2DK, pemeriksaan, keberatan, dan banding/gugatan di pengadilan, tersedia jasa konsultan per kasus. Besaran biaya setiap layanan ditentukan berdasarkan kompleksitas dan risiko kasusnya.',
+  comparisonTitle: 'Bahan Pertimbangan: Staf Internal dan Konsultan',
+  comparisonIntro: 'Bapak/Ibu dapat membandingkan kedua pilihan berikut ini.',
+  comparisonHeaders: ['Komponen', 'Staf Internal', 'Konsultan Kami'],
+  comparisonRows: [
+    { component: 'Biaya bulanan', internalStaff: 'Gaji, mulai Rp3–6 juta', consultant: 'Mulai 999 Ribu' },
+    { component: 'THR', internalStaff: '1 kali gaji per tahun', consultant: 'Tidak ada' },
+    { component: 'BPJS Kes & BPJSTK', internalStaff: 'Ditanggung perusahaan', consultant: 'Tidak ada' },
+    { component: 'Pesangon atau kompensasi', internalStaff: 'Ada saat hubungan kerja berakhir', consultant: 'Tidak ada' },
+    { component: 'Fasilitas kerja', internalStaff: 'Ruang, perangkat, dan aplikasi', consultant: 'Tidak perlu disediakan' },
+    { component: 'Pembaruan peraturan', internalStaff: 'Perlu pelatihan berkala', consultant: 'Sudah Kompeten' },
+  ],
+  comparisonClosing:
+    'Layanan kami dapat dipakai sebagai alternatif, atau sebagai pendamping staf internal yang sudah ada pada perusahaan untuk memastikan kepatuhannya.',
+
+  consultTitle: 'Konsultasi Awal Tanpa Biaya',
+  consultPara:
+    'Kami membuka kesempatan konsultasi awal tanpa biaya untuk membahas kondisi dan kebutuhan perusahaan. Bapak/Ibu dapat menghubungi kami melalui WhatsApp 082180744977, email business@ndtaxandlaw.com, atau mitra strategis resmi kami. Untuk profil perusahaan dan informasi lebih lanjut tersedia di www.ndtaxandlaw.com.',
+  closingPara: 'Demikian surat ini kami sampaikan. Atas perhatiannya, kami ucapkan terima kasih.',
+  directorFirmLabel: 'ND TAX AND LAW',
+  directorName: 'Nurtiyas, S.E., M.Ak, BKP',
+  directorTitle: 'Direktur Utama',
+  mitraSignerLabel: 'MITRA RESMI',
+  mitraRoleLabel: 'Mitra Strategis',
+  footerLeftTitle: 'ND TAX AND LAW',
+  footerLeftLines: [
+    'KBIG OFFICE – Jl. Sawo Raya, Lampung',
+    'Telepon: 021-86941220 / 0821-8074-4977',
+    'Email: lampung@ndtaxandlaw.com',
+    'Website: www.ndtaxandlaw.com',
+  ],
+  footerRightTitle: 'ND TAX AND LAW',
+  footerRightLines: [
+    'Menara 165 Lantai 4, Jakarta Selatan',
+    'Telepon: 021-86941220 / 0821-8074-4977',
+    'Email: jakarta@ndtaxandlaw.com',
+    'Website: www.ndtaxandlaw.com',
+  ],
+};
+
+export function resolveProspectLetterContent(
+  letterCustom?: Partial<ProspectLetterContent> | null,
+  masterTemplate?: Partial<ProspectLetterContent> | null
+): ProspectLetterContent {
+  const mergeOne = (
+    base: ProspectLetterContent,
+    override?: Partial<ProspectLetterContent> | null
+  ): ProspectLetterContent => {
+    if (!override || typeof override !== 'object') return base;
+    const str = (v: unknown, fb: string) =>
+      typeof v === 'string' && v.trim().length > 0 ? v : fb;
+    const lawList = (v: unknown, fb: ProspectLetterLawItem[]): ProspectLetterLawItem[] =>
+      Array.isArray(v) && v.length > 0
+        ? v
+            .filter((item) => item && typeof item === 'object')
+            .map((item: any) => ({
+              title: String(item.title || '').trim(),
+              bullets: Array.isArray(item.bullets)
+                ? item.bullets.map((b: any) => String(b || '').trim()).filter(Boolean)
+                : [],
+            }))
+            .filter((item) => item.title.length > 0)
+        : fb;
+    const serviceList = (v: unknown, fb: ProspectLetterServiceItem[]): ProspectLetterServiceItem[] =>
+      Array.isArray(v) && v.length > 0
+        ? v
+            .filter((item) => item && typeof item === 'object')
+            .map((item: any) => ({
+              lead: String(item.lead || '').trim(),
+              body: String(item.body || '').trim(),
+            }))
+            .filter((item) => item.lead.length > 0 || item.body.length > 0)
+        : fb;
+    const compRows = (v: unknown, fb: ProspectLetterComparisonRow[]): ProspectLetterComparisonRow[] =>
+      Array.isArray(v) && v.length > 0
+        ? v
+            .filter((item) => item && typeof item === 'object')
+            .map((item: any) => ({
+              component: String(item.component || '').trim(),
+              internalStaff: String(item.internalStaff || '').trim(),
+              consultant: String(item.consultant || '').trim(),
+            }))
+            .filter((item) => item.component.length > 0)
+        : fb;
+    const strLines = (v: unknown, fb: string[]): string[] =>
+      Array.isArray(v) && v.length > 0
+        ? v.map((line) => String(line || '').trim()).filter(Boolean)
+        : fb;
+    const headers: [string, string, string] =
+      Array.isArray(override.comparisonHeaders) && override.comparisonHeaders.length === 3
+        ? [
+            str(override.comparisonHeaders[0], base.comparisonHeaders[0]),
+            str(override.comparisonHeaders[1], base.comparisonHeaders[1]),
+            str(override.comparisonHeaders[2], base.comparisonHeaders[2]),
+          ]
+        : base.comparisonHeaders;
+
+    return {
+      city: str(override.city, base.city),
+      sifat: str(override.sifat, base.sifat),
+      lampiran: str(override.lampiran, base.lampiran),
+      perihal: str(override.perihal, base.perihal),
+      greeting: str(override.greeting, base.greeting),
+      introPara1: str(override.introPara1, base.introPara1),
+      introPara2: str(override.introPara2, base.introPara2),
+      sectionMainTitle: str(override.sectionMainTitle, base.sectionMainTitle),
+      section1Title: str(override.section1Title, base.section1Title),
+      section1Items: lawList(override.section1Items, base.section1Items),
+      section1Sanction: str(override.section1Sanction, base.section1Sanction),
+
+      section2Title: str(override.section2Title, base.section2Title),
+      section2Items: lawList(override.section2Items, base.section2Items),
+      section2Sanction: str(override.section2Sanction, base.section2Sanction),
+      section3Title: str(override.section3Title, base.section3Title),
+      section3Items: lawList(override.section3Items, base.section3Items),
+      section3Sanction: str(override.section3Sanction, base.section3Sanction),
+
+      aboutTitle: str(override.aboutTitle, base.aboutTitle),
+      aboutPara: str(override.aboutPara, base.aboutPara),
+      servicesTitle: str(override.servicesTitle, base.servicesTitle),
+      servicesIntro: str(override.servicesIntro, base.servicesIntro),
+      servicesItems: serviceList(override.servicesItems, base.servicesItems),
+      servicesCaseNote: str(override.servicesCaseNote, base.servicesCaseNote),
+      comparisonTitle: str(override.comparisonTitle, base.comparisonTitle),
+      comparisonIntro: str(override.comparisonIntro, base.comparisonIntro),
+      comparisonHeaders: headers,
+      comparisonRows: compRows(override.comparisonRows, base.comparisonRows),
+      comparisonClosing: str(override.comparisonClosing, base.comparisonClosing),
+
+      consultTitle: str(override.consultTitle, base.consultTitle),
+      consultPara: str(override.consultPara, base.consultPara),
+      closingPara: str(override.closingPara, base.closingPara),
+      directorFirmLabel: str(override.directorFirmLabel, base.directorFirmLabel),
+      directorName: str(override.directorName, base.directorName),
+      directorTitle: str(override.directorTitle, base.directorTitle),
+      mitraSignerLabel: str(override.mitraSignerLabel, base.mitraSignerLabel),
+      mitraRoleLabel: str(override.mitraRoleLabel, base.mitraRoleLabel),
+      footerLeftTitle: str(override.footerLeftTitle, base.footerLeftTitle),
+      footerLeftLines: strLines(override.footerLeftLines, base.footerLeftLines),
+      footerRightTitle: str(override.footerRightTitle, base.footerRightTitle),
+      footerRightLines: strLines(override.footerRightLines, base.footerRightLines),
+    };
+  };
+
+  const withMaster = mergeOne(DEFAULT_PROSPECT_LETTER_CONTENT, masterTemplate);
+  return mergeOne(withMaster, letterCustom);
+}
+
+export interface ProspectLetter {
+  id: string;
+  letterNumber: string;
+  sequenceNumber: number;
+  verificationCode: string;
+  letterDate: string; // YYYY-MM-DD
+  companyName: string;
+  companyAddress: string;
+  addressParts?: ProspectAddressParts;
+  customContent?: Partial<ProspectLetterContent>;
+  mitraId: string;
+  mitraName: string;
+  mitraMemberCode: string;
+  mitraPhone: string;
+  mitraEmail: string;
+  directorName: string;
+  directorTitle: string;
+  createdByRole: 'mitra' | 'admin' | 'staff';
+  createdByName: string;
+  createdById?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ProspectMitraSummaryRow {
+  mitraId: string;
+  mitraName: string;
+  memberCode: string;
+  referralCode: string;
+  phone: string;
+  email: string;
+  avatarUrl: string;
+  gender?: 'male' | 'female';
+  status: 'verified' | 'pending' | 'rejected';
+  totalLetters: number;
+  latestLetterDate: string | null;
+  latestCompanyName: string | null;
+  recentCompanies: string[];
+}
+
 
 
 

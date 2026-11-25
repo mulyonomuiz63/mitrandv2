@@ -251,7 +251,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
                 NDTAXANDLAW Portal Klien
               </span>
               <span className="text-[10px] text-blue-100">
-                Formulir Mandiri Layanan Pajak &amp; Laporan Keuangan
+                Formulir Mandiri Layanan Pajak dan Hukum
               </span>
             </div>
           </div>
@@ -385,7 +385,7 @@ export const ClientSelfRegistration: React.FC<ClientSelfRegistrationProps> = ({
 
               <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 self-start sm:self-auto">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                Referral Terverifikasi
+                Mitra Terverifikasi
               </span>
             </div>
 
