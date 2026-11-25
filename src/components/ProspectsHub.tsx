@@ -820,30 +820,6 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         </div>
       )}
 
-      {/* Incomplete Mitra Profile Notice */}
-      {mitraVerified && mitraProfileIncomplete && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950">
-          <div className="flex items-start gap-3">
-            <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold">Data Diri Belum Lengkap — Pembuatan Surat Penawaran Terkunci</p>
-              <p className="text-amber-800 mt-0.5 leading-relaxed">
-                Lengkapi Data Diri Anda (NIK/NPWP, Upload File KTP/NPWP, Nomor WhatsApp, serta Rekening Bank Pencairan Komisi) terlebih dahulu sebelum dapat membuat surat penawaran resmi.
-              </p>
-            </div>
-          </div>
-          {onOpenProfileEdit && (
-            <button
-              type="button"
-              onClick={onOpenProfileEdit}
-              className="px-4 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-xs shrink-0 self-start sm:self-auto cursor-pointer"
-            >
-              Lengkapi Data Diri Sekarang
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Clean KPI Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5">
