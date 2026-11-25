@@ -1553,9 +1553,16 @@ export interface ProspectLetterComparisonRow {
 export interface ProspectLetterContent {
   // Page 1
   city: string;
+  dateLine: string; // Supports {{TANGGAL_SURAT}}
+  metaNomorLabel: string;
+  nomorValue: string; // Supports {{NOMOR_SURAT}}
+  metaSifatLabel: string;
   sifat: string;
+  metaLampiranLabel: string;
   lampiran: string;
+  metaPerihalLabel: string;
   perihal: string;
+  recipientBlock: string; // Supports {{NAMA_PERUSAHAAN}} & {{ALAMAT_PERUSAHAAN}}
   greeting: string;
   introPara1: string;
   introPara2: string; // Supports {{NAMA_PERUSAHAAN}} placeholder
@@ -1588,11 +1595,23 @@ export interface ProspectLetterContent {
   // Page 4 & Footer
   consultTitle: string;
   consultPara: string;
+  mitraBoxTitle: string;
+  mitraBoxNameLabel: string;
+  mitraBoxNameValue: string; // Supports {{NAMA_MITRA}}
+  mitraBoxIdLabel: string;
+  mitraBoxIdValue: string; // Supports {{ID_MITRA}}
+  mitraBoxPhoneLabel: string;
+  mitraBoxPhoneValue: string; // Supports {{WA_MITRA}}
+  mitraBoxEmailLabel: string;
+  mitraBoxEmailValue: string; // Supports {{EMAIL_MITRA}}
   closingPara: string;
+  directorSignHeading: string;
   directorFirmLabel: string;
   directorName: string;
   directorTitle: string;
+  mitraSignHeading: string;
   mitraSignerLabel: string;
+  mitraSignerName: string; // Supports {{NAMA_MITRA}}
   mitraRoleLabel: string;
   footerLeftTitle: string;
   footerLeftLines: string[];
@@ -1602,9 +1621,17 @@ export interface ProspectLetterContent {
 
 export const DEFAULT_PROSPECT_LETTER_CONTENT: ProspectLetterContent = {
   city: 'Jakarta',
+  dateLine: 'Jakarta, {{TANGGAL_SURAT}}',
+  metaNomorLabel: 'Nomor',
+  nomorValue: '{{NOMOR_SURAT}}',
+  metaSifatLabel: 'Sifat',
   sifat: 'Terbatas',
+  metaLampiranLabel: 'Lampiran',
   lampiran: 'Satu set',
+  metaPerihalLabel: 'Perihal',
   perihal: 'Pemberitahuan dan Penawaran',
+  recipientBlock:
+    'Kepada Yth\nPimpinan/Direksi {{NAMA_PERUSAHAAN}}\nAlamat: {{ALAMAT_PERUSAHAAN}}',
   greeting: 'Dengan hormat,',
   introPara1:
     'Bersama ini kami sampaikan salam sejahtera untuk kita semua, karena telah diberi kesempatan untuk bisa menjalankan usaha dan memberikan penghidupan yang layak untuk banyak orang. Semoga kita diberikan keselamatan dan kesuksesan dalam menjalankan aktivitas sehari-hari. Aamiin.',
@@ -1742,11 +1769,23 @@ export const DEFAULT_PROSPECT_LETTER_CONTENT: ProspectLetterContent = {
   consultTitle: 'Konsultasi Awal Tanpa Biaya',
   consultPara:
     'Kami membuka kesempatan konsultasi awal tanpa biaya untuk membahas kondisi dan kebutuhan perusahaan. Bapak/Ibu dapat menghubungi kami melalui WhatsApp 082180744977, email business@ndtaxandlaw.com, atau mitra strategis resmi kami. Untuk profil perusahaan dan informasi lebih lanjut tersedia di www.ndtaxandlaw.com.',
+  mitraBoxTitle: 'Mitra Strategis',
+  mitraBoxNameLabel: 'Nama',
+  mitraBoxNameValue: '{{NAMA_MITRA}}',
+  mitraBoxIdLabel: 'No. ID',
+  mitraBoxIdValue: '{{ID_MITRA}}',
+  mitraBoxPhoneLabel: 'Whatsapp',
+  mitraBoxPhoneValue: '{{WA_MITRA}}',
+  mitraBoxEmailLabel: 'Email',
+  mitraBoxEmailValue: '{{EMAIL_MITRA}}',
   closingPara: 'Demikian surat ini kami sampaikan. Atas perhatiannya, kami ucapkan terima kasih.',
+  directorSignHeading: 'Mengetahui,',
   directorFirmLabel: 'ND TAX AND LAW',
   directorName: 'Nurtiyas, S.E., M.Ak, BKP',
   directorTitle: 'Direktur Utama',
+  mitraSignHeading: 'Hormat Kami,',
   mitraSignerLabel: 'MITRA RESMI',
+  mitraSignerName: '{{NAMA_MITRA}}',
   mitraRoleLabel: 'Mitra Strategis',
   footerLeftTitle: 'ND TAX AND LAW',
   footerLeftLines: [
@@ -1821,11 +1860,28 @@ export function resolveProspectLetterContent(
           ]
         : base.comparisonHeaders;
 
+    const resolvedCity = str(override.city, base.city);
+    const hasCustomDateLine = typeof override.dateLine === 'string' && override.dateLine.trim().length > 0;
+    const hasCustomCityOnly =
+      !hasCustomDateLine && typeof override.city === 'string' && override.city.trim().length > 0;
+    const resolvedDateLine = hasCustomDateLine
+      ? (override.dateLine as string)
+      : hasCustomCityOnly
+      ? `${resolvedCity}, {{TANGGAL_SURAT}}`
+      : base.dateLine;
+
     return {
-      city: str(override.city, base.city),
+      city: resolvedCity,
+      dateLine: resolvedDateLine,
+      metaNomorLabel: str(override.metaNomorLabel, base.metaNomorLabel),
+      nomorValue: str(override.nomorValue, base.nomorValue),
+      metaSifatLabel: str(override.metaSifatLabel, base.metaSifatLabel),
       sifat: str(override.sifat, base.sifat),
+      metaLampiranLabel: str(override.metaLampiranLabel, base.metaLampiranLabel),
       lampiran: str(override.lampiran, base.lampiran),
+      metaPerihalLabel: str(override.metaPerihalLabel, base.metaPerihalLabel),
       perihal: str(override.perihal, base.perihal),
+      recipientBlock: str(override.recipientBlock, base.recipientBlock),
       greeting: str(override.greeting, base.greeting),
       introPara1: str(override.introPara1, base.introPara1),
       introPara2: str(override.introPara2, base.introPara2),
@@ -1855,11 +1911,23 @@ export function resolveProspectLetterContent(
 
       consultTitle: str(override.consultTitle, base.consultTitle),
       consultPara: str(override.consultPara, base.consultPara),
+      mitraBoxTitle: str(override.mitraBoxTitle, base.mitraBoxTitle),
+      mitraBoxNameLabel: str(override.mitraBoxNameLabel, base.mitraBoxNameLabel),
+      mitraBoxNameValue: str(override.mitraBoxNameValue, base.mitraBoxNameValue),
+      mitraBoxIdLabel: str(override.mitraBoxIdLabel, base.mitraBoxIdLabel),
+      mitraBoxIdValue: str(override.mitraBoxIdValue, base.mitraBoxIdValue),
+      mitraBoxPhoneLabel: str(override.mitraBoxPhoneLabel, base.mitraBoxPhoneLabel),
+      mitraBoxPhoneValue: str(override.mitraBoxPhoneValue, base.mitraBoxPhoneValue),
+      mitraBoxEmailLabel: str(override.mitraBoxEmailLabel, base.mitraBoxEmailLabel),
+      mitraBoxEmailValue: str(override.mitraBoxEmailValue, base.mitraBoxEmailValue),
       closingPara: str(override.closingPara, base.closingPara),
+      directorSignHeading: str(override.directorSignHeading, base.directorSignHeading),
       directorFirmLabel: str(override.directorFirmLabel, base.directorFirmLabel),
       directorName: str(override.directorName, base.directorName),
       directorTitle: str(override.directorTitle, base.directorTitle),
+      mitraSignHeading: str(override.mitraSignHeading, base.mitraSignHeading),
       mitraSignerLabel: str(override.mitraSignerLabel, base.mitraSignerLabel),
+      mitraSignerName: str(override.mitraSignerName, base.mitraSignerName),
       mitraRoleLabel: str(override.mitraRoleLabel, base.mitraRoleLabel),
       footerLeftTitle: str(override.footerLeftTitle, base.footerLeftTitle),
       footerLeftLines: strLines(override.footerLeftLines, base.footerLeftLines),
@@ -1879,6 +1947,7 @@ export interface ProspectLetter {
   verificationCode: string;
   letterDate: string; // YYYY-MM-DD
   companyName: string;
+  businessField?: string;
   companyAddress: string;
   addressParts?: ProspectAddressParts;
   customContent?: Partial<ProspectLetterContent>;

@@ -13,11 +13,10 @@ import {
   formatIndonesianLetterDate,
   generateProspectLetterPdf,
   generateQrDataUrl,
-  interpolateCompanyName,
   resolveInlineProspectLogo,
   triggerPdfBlobDownload,
 } from '../utils/prospectLetterPdf';
-import { renderProspectRichText } from '../utils/prospectRichText';
+import { ProspectLetterVariables, renderProspectRichText } from '../utils/prospectRichText';
 
 export const A4_WIDTH_PX = 794; // 210mm at 96dpi
 export const A4_HEIGHT_PX = 1123; // 297mm at 96dpi
@@ -224,29 +223,45 @@ const A4PageFrame: React.FC<{
     );
   }
 
+  const scaledW = Math.round(A4_WIDTH_PX * scale);
+  const scaledH = Math.round(A4_HEIGHT_PX * scale);
+
   return (
-    <div
-      ref={wrapRef}
-      className="w-full max-w-[794px] mx-auto relative flex justify-center"
-      style={{ height: `${Math.round(A4_HEIGHT_PX * scale)}px` }}
-    >
+    <div ref={wrapRef} className="w-full max-w-[794px] mx-auto">
       <div
         style={{
-          width: `${A4_WIDTH_PX}px`,
-          height: `${A4_HEIGHT_PX}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: 'top center',
-          backgroundColor: '#FFFFFF',
-          color: '#000000',
+          width: `${scaledW}px`,
+          height: `${scaledH}px`,
+          margin: '0 auto',
           position: 'relative',
           overflow: 'hidden',
-          boxSizing: 'border-box',
           boxShadow: '0 8px 30px rgba(15, 23, 42, 0.25)',
-          fontFamily: 'Arial, Helvetica, sans-serif',
-          fontSize: '11pt',
+          backgroundColor: '#FFFFFF',
         }}
       >
-        {children}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: `${A4_WIDTH_PX}px`,
+            minWidth: `${A4_WIDTH_PX}px`,
+            maxWidth: `${A4_WIDTH_PX}px`,
+            height: `${A4_HEIGHT_PX}px`,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+            backgroundColor: '#FFFFFF',
+            color: '#000000',
+            overflow: 'hidden',
+            boxSizing: 'border-box',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '11pt',
+            WebkitTextSizeAdjust: 'none',
+            textSizeAdjust: 'none',
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -328,6 +343,16 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
   // Global content exclusively — applies uniformly to all Mitra
   const content = resolveProspectLetterContent(undefined, masterTemplate);
   const formattedDate = formatIndonesianLetterDate(letter.letterDate || letter.createdAt);
+  const letterVariables: ProspectLetterVariables = {
+    NAMA_PERUSAHAAN: letter.companyName.trim(),
+    ALAMAT_PERUSAHAAN: letter.companyAddress.trim(),
+    TANGGAL_SURAT: formattedDate,
+    NOMOR_SURAT: letter.letterNumber || '',
+    NAMA_MITRA: letter.mitraName || '',
+    ID_MITRA: letter.mitraMemberCode || '',
+    WA_MITRA: letter.mitraPhone || '',
+    EMAIL_MITRA: letter.mitraEmail || '',
+  };
 
   // Page 1 metrics (exact Arial 11pt Word single spacing ~1.16, auto-compacts only if long company/address)
   const p1LH = [1.16, 1.13, 1.1, 1.07, 1.04, 1.02, 1.0][p1CompactLevel] || 1.16;
@@ -376,7 +401,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           }}
         >
           <div style={{ textAlign: 'right', marginBottom: '0.6mm' }}>
-            {renderProspectRichText(content.city)}, {formattedDate}
+            {renderProspectRichText(content.dateLine, { variables: letterVariables })}
           </div>
 
           <table
@@ -390,41 +415,59 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           >
             <tbody>
               <tr>
-                <td style={{ width: '25mm', padding: 0, verticalAlign: 'top' }}>Nomor</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {letter.letterNumber}</td>
+                <td style={{ width: '25mm', padding: 0, verticalAlign: 'top' }}>
+                  {renderProspectRichText(content.metaNomorLabel, { variables: letterVariables })}
+                </td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  : {renderProspectRichText(content.nomorValue, { variables: letterVariables })}
+                </td>
               </tr>
               <tr>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>Sifat</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {renderProspectRichText(content.sifat)}</td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  {renderProspectRichText(content.metaSifatLabel, { variables: letterVariables })}
+                </td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  : {renderProspectRichText(content.sifat, { variables: letterVariables })}
+                </td>
               </tr>
               <tr>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>Lampiran</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {renderProspectRichText(content.lampiran)}</td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  {renderProspectRichText(content.metaLampiranLabel, { variables: letterVariables })}
+                </td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  : {renderProspectRichText(content.lampiran, { variables: letterVariables })}
+                </td>
               </tr>
               <tr>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>Perihal</td>
-                <td style={{ padding: 0, verticalAlign: 'top' }}>: {renderProspectRichText(content.perihal)}</td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  {renderProspectRichText(content.metaPerihalLabel, { variables: letterVariables })}
+                </td>
+                <td style={{ padding: 0, verticalAlign: 'top' }}>
+                  : {renderProspectRichText(content.perihal, { variables: letterVariables })}
+                </td>
               </tr>
             </tbody>
           </table>
 
-          <div style={{ marginBottom: `${p1GapMm}mm` }}>
-            <div>Kepada Yth</div>
-            <div style={{ fontSize: p1RecipFont, wordBreak: 'break-word' }}>
-              Pimpinan/Direksi {letter.companyName}
-            </div>
-            <div style={{ fontSize: p1RecipFont, wordBreak: 'break-word' }}>
-              Alamat: {letter.companyAddress}
-            </div>
+          <div
+            style={{
+              marginBottom: `${p1GapMm}mm`,
+              fontSize: p1RecipFont,
+              wordBreak: 'break-word',
+            }}
+          >
+            {renderProspectRichText(content.recipientBlock, { variables: letterVariables })}
           </div>
 
-          <div style={{ marginBottom: '0.5mm' }}>{renderProspectRichText(content.greeting)}</div>
+          <div style={{ marginBottom: '0.5mm' }}>
+            {renderProspectRichText(content.greeting, { variables: letterVariables })}
+          </div>
           <p style={{ margin: `0 0 ${p1GapMm}mm 0`, textAlign: 'justify' }}>
-            {renderProspectRichText(interpolateCompanyName(content.introPara1, letter.companyName))}
+            {renderProspectRichText(content.introPara1, { variables: letterVariables })}
           </p>
 
           <p style={{ margin: `0 0 ${p1GapMm + 1}mm 0`, textAlign: 'justify' }}>
-            {renderProspectRichText(interpolateCompanyName(content.introPara2, letter.companyName))}
+            {renderProspectRichText(content.introPara2, { variables: letterVariables })}
           </p>
 
           <div style={{ fontWeight: 700, marginBottom: `${Math.max(1.6, p1GapMm * 0.85)}mm` }}>
@@ -606,7 +649,7 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           <div style={{ fontWeight: 700, marginBottom: `${p3GapMm}mm` }}>{renderProspectRichText(content.aboutTitle)}</div>
 
           <p style={{ margin: `0 0 ${p3GapMm}mm 0`, textAlign: 'justify' }}>
-            {renderProspectRichText(interpolateCompanyName(content.aboutPara, letter.companyName))}
+            {renderProspectRichText(content.aboutPara, { variables: letterVariables })}
           </p>
 
           <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
@@ -722,11 +765,10 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           </div>
 
           <p style={{ paddingLeft: '8mm', margin: '0 0 7.5mm 0', textAlign: 'justify' }}>
-            {renderProspectRichText(interpolateCompanyName(content.consultPara, letter.companyName), [
-              '082180744977',
-              'business@ndtaxandlaw.com',
-              'www.ndtaxandlaw.com',
-            ])}
+            {renderProspectRichText(content.consultPara, {
+              variables: letterVariables,
+              autoBoldPhrases: ['082180744977', 'business@ndtaxandlaw.com', 'www.ndtaxandlaw.com'],
+            })}
           </p>
 
           <div
@@ -738,39 +780,55 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
             }}
           >
             <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.2mm' }}>
-              Mitra Strategis
+              {renderProspectRichText(content.mitraBoxTitle, { variables: letterVariables })}
             </div>
             <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '11pt', lineHeight: 1.3 }}>
               <tbody>
                 <tr>
-                  <td style={{ width: '24mm', padding: 0 }}>Nama</td>
-                  <td style={{ padding: 0 }}>: {letter.mitraName}</td>
+                  <td style={{ width: '24mm', padding: 0 }}>
+                    {renderProspectRichText(content.mitraBoxNameLabel, { variables: letterVariables })}
+                  </td>
+                  <td style={{ padding: 0 }}>
+                    : {renderProspectRichText(content.mitraBoxNameValue, { variables: letterVariables })}
+                  </td>
                 </tr>
                 <tr>
-                  <td style={{ padding: 0 }}>No. ID</td>
-                  <td style={{ padding: 0 }}>: {letter.mitraMemberCode}</td>
+                  <td style={{ padding: 0 }}>
+                    {renderProspectRichText(content.mitraBoxIdLabel, { variables: letterVariables })}
+                  </td>
+                  <td style={{ padding: 0 }}>
+                    : {renderProspectRichText(content.mitraBoxIdValue, { variables: letterVariables })}
+                  </td>
                 </tr>
                 <tr>
-                  <td style={{ padding: 0 }}>Whatsapp</td>
-                  <td style={{ padding: 0 }}>: {letter.mitraPhone}</td>
+                  <td style={{ padding: 0 }}>
+                    {renderProspectRichText(content.mitraBoxPhoneLabel, { variables: letterVariables })}
+                  </td>
+                  <td style={{ padding: 0 }}>
+                    : {renderProspectRichText(content.mitraBoxPhoneValue, { variables: letterVariables })}
+                  </td>
                 </tr>
                 <tr>
-                  <td style={{ padding: 0 }}>Email</td>
-                  <td style={{ padding: 0 }}>: {letter.mitraEmail}</td>
+                  <td style={{ padding: 0 }}>
+                    {renderProspectRichText(content.mitraBoxEmailLabel, { variables: letterVariables })}
+                  </td>
+                  <td style={{ padding: 0 }}>
+                    : {renderProspectRichText(content.mitraBoxEmailValue, { variables: letterVariables })}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           <p style={{ paddingLeft: '8mm', margin: `0 0 ${p4SigGapMm}mm 0` }}>
-            {renderProspectRichText(interpolateCompanyName(content.closingPara, letter.companyName))}
+            {renderProspectRichText(content.closingPara, { variables: letterVariables })}
           </p>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12mm' }}>
             <div style={{ flex: 1, textAlign: 'center' }}>
-              <div>Mengetahui,</div>
+              <div>{renderProspectRichText(content.directorSignHeading, { variables: letterVariables })}</div>
               <div style={{ fontWeight: 700, marginBottom: '3.5mm' }}>
-                {renderProspectRichText(content.directorFirmLabel)}
+                {renderProspectRichText(content.directorFirmLabel, { variables: letterVariables })}
               </div>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
                 {directorQr ? (
@@ -798,15 +856,21 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
                 Ditandatangani secara elektronik
               </div>
               <div style={{ fontWeight: 700 }}>
-                {renderProspectRichText(content.directorName || letter.directorName || 'Nurtiyas, S.E., M.Ak, BKP')}
+                {renderProspectRichText(content.directorName || letter.directorName || 'Nurtiyas, S.E., M.Ak, BKP', {
+                  variables: letterVariables,
+                })}
               </div>
-              <div>{renderProspectRichText(content.directorTitle || letter.directorTitle || 'Direktur Utama')}</div>
+              <div>
+                {renderProspectRichText(content.directorTitle || letter.directorTitle || 'Direktur Utama', {
+                  variables: letterVariables,
+                })}
+              </div>
             </div>
 
             <div style={{ flex: 1, textAlign: 'center' }}>
-              <div>Hormat Kami,</div>
+              <div>{renderProspectRichText(content.mitraSignHeading, { variables: letterVariables })}</div>
               <div style={{ fontWeight: 700, marginBottom: '3.5mm' }}>
-                {renderProspectRichText(content.mitraSignerLabel)}
+                {renderProspectRichText(content.mitraSignerLabel, { variables: letterVariables })}
               </div>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
                 {mitraQr ? (
@@ -839,9 +903,9 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
                   fontSize: letter.mitraName.length > 32 ? '9.8pt' : '11pt',
                 }}
               >
-                {letter.mitraName}
+                {renderProspectRichText(content.mitraSignerName, { variables: letterVariables })}
               </div>
-              <div>{renderProspectRichText(content.mitraRoleLabel)}</div>
+              <div>{renderProspectRichText(content.mitraRoleLabel, { variables: letterVariables })}</div>
             </div>
           </div>
         </div>

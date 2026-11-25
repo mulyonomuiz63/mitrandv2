@@ -13,6 +13,7 @@ import {
   Strikethrough,
   RemoveFormatting,
   Building2,
+  MapPin,
 } from 'lucide-react';
 import {
   ProspectLetterComparisonRow,
@@ -337,11 +338,26 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
     return () => document.removeEventListener('selectionchange', onSelChange);
   }, [refreshFormatState]);
 
+  const resolveTargetField = (): HTMLDivElement | null => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const anchor = sel.anchorNode;
+      const anchorEl =
+        anchor?.nodeType === Node.ELEMENT_NODE ? (anchor as HTMLElement) : anchor?.parentElement;
+      const matched = anchorEl?.closest('.nd-wysiwyg-field') as HTMLDivElement | null;
+      if (matched) {
+        activeFieldRef.current = matched;
+        return matched;
+      }
+    }
+    return activeFieldRef.current;
+  };
+
   const applyFormatCommand = (
     cmd: 'bold' | 'italic' | 'underline' | 'strikeThrough' | 'foreColor' | 'removeFormat',
     arg?: string
   ) => {
-    const activeEl = activeFieldRef.current;
+    const activeEl = resolveTargetField();
     if (!activeEl) return;
 
     // Ensure focus stays in the active WYSIWYG field
@@ -364,15 +380,14 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
     refreshFormatState();
   };
 
-  const insertCompanyPlaceholder = () => {
-    const activeEl = activeFieldRef.current;
+  const insertPlaceholderToken = (token: string) => {
+    const activeEl = resolveTargetField();
     if (!activeEl) return;
 
     if (document.activeElement !== activeEl && !activeEl.contains(document.activeElement)) {
       activeEl.focus();
     }
 
-    const token = '{{NAMA_PERUSAHAAN}}';
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && activeEl.contains(sel.anchorNode)) {
       const range = sel.getRangeAt(0);
@@ -668,13 +683,6 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
     </div>
   );
 
-  // Dynamic sample pills styled like real letter text with subtle visual cue
-  const autoTagStyle: React.CSSProperties = {
-    backgroundColor: 'rgba(254, 243, 199, 0.55)',
-    borderRadius: '2px',
-    padding: '0 2px',
-  };
-
   return (
     <div className="space-y-3">
       {/* Hover/focus & empty placeholder CSS scoped specifically to inline WYSIWYG fields */}
@@ -864,44 +872,68 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
             </button>
           </div>
 
-          <button
-            type="button"
-            title="Sisipkan nama perusahaan otomatis di posisi kursor"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={insertCompanyPlaceholder}
-            className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-[11px] font-bold text-amber-900 transition-colors cursor-pointer"
-          >
-            <Building2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-            <span>+ Nama Perusahaan</span>
-          </button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              title="Sisipkan variabel nama perusahaan otomatis ({{NAMA_PERUSAHAAN}})"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => insertPlaceholderToken('{{NAMA_PERUSAHAAN}}')}
+              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-[11px] font-bold text-amber-900 transition-colors cursor-pointer"
+            >
+              <Building2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              <span>+ Nama Perusahaan</span>
+            </button>
+            <button
+              type="button"
+              title="Sisipkan variabel alamat perusahaan otomatis ({{ALAMAT_PERUSAHAAN}})"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => insertPlaceholderToken('{{ALAMAT_PERUSAHAAN}}')}
+              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-[11px] font-bold text-amber-900 transition-colors cursor-pointer"
+            >
+              <MapPin className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              <span>+ Alamat</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Live A4 Paper Sheet Stage */}
-      <div className="bg-slate-700/90 rounded-xl p-3 sm:p-5 overflow-hidden">
-        <div
-          ref={stageRef}
-          className="w-full max-w-[794px] mx-auto relative flex justify-center"
-          style={{ height: `${Math.round(A4_HEIGHT_PX * scale)}px` }}
-        >
+      <div className="bg-slate-700/90 rounded-xl p-2 sm:p-5 overflow-hidden">
+        <div ref={stageRef} className="w-full max-w-[794px] mx-auto">
           <div
             style={{
-              width: `${A4_WIDTH_PX}px`,
-              height: `${A4_HEIGHT_PX}px`,
-              transform: `scale(${scale})`,
-              transformOrigin: 'top center',
-              backgroundColor: '#FFFFFF',
-              color: '#000000',
+              width: `${Math.round(A4_WIDTH_PX * scale)}px`,
+              height: `${Math.round(A4_HEIGHT_PX * scale)}px`,
+              margin: '0 auto',
               position: 'relative',
               overflow: 'hidden',
-              boxSizing: 'border-box',
               boxShadow: isOverflowing
                 ? '0 0 0 3px #f43f5e, 0 10px 30px rgba(15, 23, 42, 0.35)'
                 : '0 10px 30px rgba(15, 23, 42, 0.35)',
-              fontFamily: 'Arial, Helvetica, sans-serif',
-              fontSize: '11pt',
+              backgroundColor: '#FFFFFF',
             }}
           >
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: `${A4_WIDTH_PX}px`,
+                minWidth: `${A4_WIDTH_PX}px`,
+                maxWidth: `${A4_WIDTH_PX}px`,
+                height: `${A4_HEIGHT_PX}px`,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+                backgroundColor: '#FFFFFF',
+                color: '#000000',
+                overflow: 'hidden',
+                boxSizing: 'border-box',
+                fontFamily: 'Arial, Helvetica, sans-serif',
+                fontSize: '11pt',
+                WebkitTextSizeAdjust: 'none',
+                textSizeAdjust: 'none',
+              }}
+            >
             {/* Header Logo */}
             <EditorHeaderLogo logoUrl={logoUrl} />
 
@@ -955,24 +987,22 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {/* ===================== HALAMAN 1 ===================== */}
                 {pageTab === 1 && (
                   <>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        alignItems: 'center',
-                        marginBottom: '0.8mm',
-                      }}
-                    >
+                    <div style={{ marginBottom: '0.8mm' }}>
                       <RichEditableField
-                        value={value.city}
-                        onChange={(v) => patch('city', v)}
+                        value={value.dateLine}
+                        onChange={(v) => {
+                          const extractedCity = v.split(',')[0]?.replace(/[*_~]/g, '').trim();
+                          onChange({
+                            ...value,
+                            dateLine: v,
+                            city: extractedCity || value.city,
+                          });
+                        }}
                         multiline={false}
-                        placeholder="Kota"
-                        style={{ width: '90px', textAlign: 'right' }}
+                        placeholder="Jakarta, {{TANGGAL_SURAT}}"
+                        style={{ textAlign: 'right' }}
                         {...fieldHandlers}
                       />
-                      <span>, </span>
-                      <span style={autoTagStyle}>25 November 2026</span>
                     </div>
 
                     <table
@@ -986,13 +1016,38 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     >
                       <tbody>
                         <tr>
-                          <td style={{ width: '25mm', padding: 0, verticalAlign: 'top' }}>Nomor</td>
+                          <td style={{ width: '25mm', padding: 0, verticalAlign: 'top' }}>
+                            <RichEditableField
+                              value={value.metaNomorLabel}
+                              onChange={(v) => patch('metaNomorLabel', v)}
+                              multiline={false}
+                              placeholder="Nomor"
+                              {...fieldHandlers}
+                            />
+                          </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
-                            : <span style={autoTagStyle}>001/ND/SPP/XI/2026</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <span>:</span>
+                              <RichEditableField
+                                value={value.nomorValue}
+                                onChange={(v) => patch('nomorValue', v)}
+                                multiline={false}
+                                placeholder="{{NOMOR_SURAT}}"
+                                {...fieldHandlers}
+                              />
+                            </div>
                           </td>
                         </tr>
                         <tr>
-                          <td style={{ padding: 0, verticalAlign: 'top' }}>Sifat</td>
+                          <td style={{ padding: 0, verticalAlign: 'top' }}>
+                            <RichEditableField
+                              value={value.metaSifatLabel}
+                              onChange={(v) => patch('metaSifatLabel', v)}
+                              multiline={false}
+                              placeholder="Sifat"
+                              {...fieldHandlers}
+                            />
+                          </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                               <span>:</span>
@@ -1007,7 +1062,15 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           </td>
                         </tr>
                         <tr>
-                          <td style={{ padding: 0, verticalAlign: 'top' }}>Lampiran</td>
+                          <td style={{ padding: 0, verticalAlign: 'top' }}>
+                            <RichEditableField
+                              value={value.metaLampiranLabel}
+                              onChange={(v) => patch('metaLampiranLabel', v)}
+                              multiline={false}
+                              placeholder="Lampiran"
+                              {...fieldHandlers}
+                            />
+                          </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                               <span>:</span>
@@ -1022,7 +1085,15 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           </td>
                         </tr>
                         <tr>
-                          <td style={{ padding: 0, verticalAlign: 'top' }}>Perihal</td>
+                          <td style={{ padding: 0, verticalAlign: 'top' }}>
+                            <RichEditableField
+                              value={value.metaPerihalLabel}
+                              onChange={(v) => patch('metaPerihalLabel', v)}
+                              multiline={false}
+                              placeholder="Perihal"
+                              {...fieldHandlers}
+                            />
+                          </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                               <span>:</span>
@@ -1040,16 +1111,12 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     </table>
 
                     <div style={{ marginBottom: '3.6mm' }}>
-                      <div>Kepada Yth</div>
-                      <div>
-                        Pimpinan/Direksi <span style={autoTagStyle}>PT Contoh Perusahaan Indonesia</span>
-                      </div>
-                      <div>
-                        Alamat:{' '}
-                        <span style={autoTagStyle}>
-                          Jl. Jend. Sudirman No. 10, Kel. Karet, Kec. Setiabudi, Kota Jakarta Selatan, Prov. DKI Jakarta
-                        </span>
-                      </div>
+                      <RichEditableField
+                        value={value.recipientBlock}
+                        onChange={(v) => patch('recipientBlock', v)}
+                        placeholder={'Kepada Yth\nPimpinan/Direksi {{NAMA_PERUSAHAAN}}\nAlamat: {{ALAMAT_PERUSAHAAN}}'}
+                        {...fieldHandlers}
+                      />
                     </div>
 
                     <div style={{ marginBottom: '0.6mm' }}>
@@ -1565,32 +1632,107 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       }}
                     >
                       <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.5mm' }}>
-                        Mitra Strategis
+                        <RichEditableField
+                          value={value.mitraBoxTitle}
+                          onChange={(v) => patch('mitraBoxTitle', v)}
+                          multiline={false}
+                          placeholder="Mitra Strategis"
+                          style={{ fontWeight: 700, textDecoration: 'underline' }}
+                          {...fieldHandlers}
+                        />
                       </div>
                       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '11pt', lineHeight: 1.35 }}>
                         <tbody>
                           <tr>
-                            <td style={{ width: '24mm', padding: 0 }}>Nama</td>
+                            <td style={{ width: '24mm', padding: 0 }}>
+                              <RichEditableField
+                                value={value.mitraBoxNameLabel}
+                                onChange={(v) => patch('mitraBoxNameLabel', v)}
+                                multiline={false}
+                                placeholder="Nama"
+                                {...fieldHandlers}
+                              />
+                            </td>
                             <td style={{ padding: 0 }}>
-                              : <span style={autoTagStyle}>Nama Mitra (otomatis)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <span>:</span>
+                                <RichEditableField
+                                  value={value.mitraBoxNameValue}
+                                  onChange={(v) => patch('mitraBoxNameValue', v)}
+                                  multiline={false}
+                                  placeholder="{{NAMA_MITRA}}"
+                                  {...fieldHandlers}
+                                />
+                              </div>
                             </td>
                           </tr>
                           <tr>
-                            <td style={{ padding: 0 }}>No. ID</td>
                             <td style={{ padding: 0 }}>
-                              : <span style={autoTagStyle}>ND-TAX-LAW-0001</span>
+                              <RichEditableField
+                                value={value.mitraBoxIdLabel}
+                                onChange={(v) => patch('mitraBoxIdLabel', v)}
+                                multiline={false}
+                                placeholder="No. ID"
+                                {...fieldHandlers}
+                              />
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <span>:</span>
+                                <RichEditableField
+                                  value={value.mitraBoxIdValue}
+                                  onChange={(v) => patch('mitraBoxIdValue', v)}
+                                  multiline={false}
+                                  placeholder="{{ID_MITRA}}"
+                                  {...fieldHandlers}
+                                />
+                              </div>
                             </td>
                           </tr>
                           <tr>
-                            <td style={{ padding: 0 }}>Whatsapp</td>
                             <td style={{ padding: 0 }}>
-                              : <span style={autoTagStyle}>0812-3456-7890</span>
+                              <RichEditableField
+                                value={value.mitraBoxPhoneLabel}
+                                onChange={(v) => patch('mitraBoxPhoneLabel', v)}
+                                multiline={false}
+                                placeholder="Whatsapp"
+                                {...fieldHandlers}
+                              />
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <span>:</span>
+                                <RichEditableField
+                                  value={value.mitraBoxPhoneValue}
+                                  onChange={(v) => patch('mitraBoxPhoneValue', v)}
+                                  multiline={false}
+                                  placeholder="{{WA_MITRA}}"
+                                  {...fieldHandlers}
+                                />
+                              </div>
                             </td>
                           </tr>
                           <tr>
-                            <td style={{ padding: 0 }}>Email</td>
                             <td style={{ padding: 0 }}>
-                              : <span style={autoTagStyle}>mitra@ndtaxandlaw.com</span>
+                              <RichEditableField
+                                value={value.mitraBoxEmailLabel}
+                                onChange={(v) => patch('mitraBoxEmailLabel', v)}
+                                multiline={false}
+                                placeholder="Email"
+                                {...fieldHandlers}
+                              />
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <span>:</span>
+                                <RichEditableField
+                                  value={value.mitraBoxEmailValue}
+                                  onChange={(v) => patch('mitraBoxEmailValue', v)}
+                                  multiline={false}
+                                  placeholder="{{EMAIL_MITRA}}"
+                                  {...fieldHandlers}
+                                />
+                              </div>
                             </td>
                           </tr>
                         </tbody>
@@ -1608,7 +1750,14 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12mm' }}>
                       <div style={{ flex: 1, textAlign: 'center' }}>
-                        <div>Mengetahui,</div>
+                        <RichEditableField
+                          value={value.directorSignHeading}
+                          onChange={(v) => patch('directorSignHeading', v)}
+                          multiline={false}
+                          placeholder="Mengetahui,"
+                          style={{ textAlign: 'center' }}
+                          {...fieldHandlers}
+                        />
                         <div style={{ marginBottom: '3.5mm' }}>
                           <RichEditableField
                             value={value.directorFirmLabel}
@@ -1660,7 +1809,14 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </div>
 
                       <div style={{ flex: 1, textAlign: 'center' }}>
-                        <div>Hormat Kami,</div>
+                        <RichEditableField
+                          value={value.mitraSignHeading}
+                          onChange={(v) => patch('mitraSignHeading', v)}
+                          multiline={false}
+                          placeholder="Hormat Kami,"
+                          style={{ textAlign: 'center' }}
+                          {...fieldHandlers}
+                        />
                         <div style={{ marginBottom: '3.5mm' }}>
                           <RichEditableField
                             value={value.mitraSignerLabel}
@@ -1693,9 +1849,14 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         <div style={{ fontSize: '9.5pt', color: '#999999', marginBottom: '3.5mm' }}>
                           Ditandatangani secara elektronik
                         </div>
-                        <div style={{ fontWeight: 700 }}>
-                          <span style={autoTagStyle}>Nama Mitra</span>
-                        </div>
+                        <RichEditableField
+                          value={value.mitraSignerName}
+                          onChange={(v) => patch('mitraSignerName', v)}
+                          multiline={false}
+                          placeholder="{{NAMA_MITRA}}"
+                          style={{ fontWeight: 700, textAlign: 'center' }}
+                          {...fieldHandlers}
+                        />
                         <RichEditableField
                           value={value.mitraRoleLabel}
                           onChange={(v) => patch('mitraRoleLabel', v)}
@@ -1713,6 +1874,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
             {/* Editable Footer Strip */}
             {renderEditableFooter()}
+            </div>
           </div>
         </div>
       </div>

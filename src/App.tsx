@@ -1559,6 +1559,10 @@ export default function App() {
               currentUser={currentUser}
               activeMitra={activeMitra}
               allMitras={mitras}
+              settings={settings}
+              isProfileIncomplete={isMitraProfileIncomplete}
+              onOpenProfileEdit={() => setIsProfileOpen(true)}
+              onRequireCompleteProfile={() => setIsIncompleteProfileAlertOpen(true)}
               logoUrl={settings?.logoUrl}
               initialLetterTemplate={settings?.prospectLetterTemplate}
               activeSubTab={prospectsSubTab}
@@ -1877,7 +1881,7 @@ export default function App() {
                 Halo <strong>{activeMitra.fullName}</strong>, selamat datang di Portal Mitra NDTAXANDLAW!
               </p>
               <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
-                Data diri, berkas verifikasi <strong>File KTP / NPWP (JPG, PNG, JPEG, atau PDF)</strong>, atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Selama data diri dan unggahan berkas KTP/NPWP belum dilengkapi, Anda belum dapat melakukan <strong>penambahan klien</strong> maupun <strong>menyalin dan membagikan tautan registrasi klien</strong>. Silakan lengkapi Data Diri &amp; unggah file KTP/NPWP Anda sekarang untuk mengaktifkan seluruh fitur kemitraan.
+                Data diri, berkas verifikasi <strong>File KTP / NPWP (JPG, PNG, JPEG, atau PDF)</strong>, atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Selama data diri dan unggahan berkas KTP/NPWP belum dilengkapi, Anda belum dapat melakukan <strong>penambahan klien</strong>, <strong>pembuatan surat penawaran</strong>, maupun <strong>menyalin dan membagikan tautan registrasi klien</strong>. Silakan lengkapi Data Diri &amp; unggah file KTP/NPWP Anda sekarang untuk mengaktifkan seluruh fitur kemitraan.
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-2">

@@ -6,7 +6,11 @@ import {
   ProspectLetterContent,
   resolveProspectLetterContent,
 } from '../types';
-import { stripProspectRichText } from './prospectRichText';
+import {
+  parseProspectRichText,
+  ProspectLetterVariables,
+  stripProspectRichText,
+} from './prospectRichText';
 
 export const INDONESIAN_PROVINCES: string[] = [
   'Aceh',
@@ -257,13 +261,31 @@ export async function generateProspectLetterPdf(
   });
 
   const rawContent = resolveProspectLetterContent(undefined, masterTemplate);
-  const s = stripProspectRichText;
+  const formattedDate = formatIndonesianLetterDate(letter.letterDate || letter.createdAt);
+  const letterVariables: ProspectLetterVariables = {
+    NAMA_PERUSAHAAN: letter.companyName.trim(),
+    ALAMAT_PERUSAHAAN: letter.companyAddress.trim(),
+    TANGGAL_SURAT: formattedDate,
+    NOMOR_SURAT: letter.letterNumber || '',
+    NAMA_MITRA: letter.mitraName || '',
+    ID_MITRA: letter.mitraMemberCode || '',
+    WA_MITRA: letter.mitraPhone || '',
+    EMAIL_MITRA: letter.mitraEmail || '',
+  };
+  const s = (val: string) => stripProspectRichText(val, letterVariables);
   const content: ProspectLetterContent = {
     ...rawContent,
     city: s(rawContent.city),
+    dateLine: s(rawContent.dateLine),
+    metaNomorLabel: s(rawContent.metaNomorLabel),
+    nomorValue: s(rawContent.nomorValue),
+    metaSifatLabel: s(rawContent.metaSifatLabel),
     sifat: s(rawContent.sifat),
+    metaLampiranLabel: s(rawContent.metaLampiranLabel),
     lampiran: s(rawContent.lampiran),
+    metaPerihalLabel: s(rawContent.metaPerihalLabel),
     perihal: s(rawContent.perihal),
+    recipientBlock: s(rawContent.recipientBlock),
     greeting: s(rawContent.greeting),
     introPara1: s(rawContent.introPara1),
     introPara2: s(rawContent.introPara2),
@@ -310,11 +332,23 @@ export async function generateProspectLetterPdf(
     comparisonClosing: s(rawContent.comparisonClosing),
     consultTitle: s(rawContent.consultTitle),
     consultPara: s(rawContent.consultPara),
+    mitraBoxTitle: s(rawContent.mitraBoxTitle),
+    mitraBoxNameLabel: s(rawContent.mitraBoxNameLabel),
+    mitraBoxNameValue: s(rawContent.mitraBoxNameValue),
+    mitraBoxIdLabel: s(rawContent.mitraBoxIdLabel),
+    mitraBoxIdValue: s(rawContent.mitraBoxIdValue),
+    mitraBoxPhoneLabel: s(rawContent.mitraBoxPhoneLabel),
+    mitraBoxPhoneValue: s(rawContent.mitraBoxPhoneValue),
+    mitraBoxEmailLabel: s(rawContent.mitraBoxEmailLabel),
+    mitraBoxEmailValue: s(rawContent.mitraBoxEmailValue),
     closingPara: s(rawContent.closingPara),
+    directorSignHeading: s(rawContent.directorSignHeading),
     directorFirmLabel: s(rawContent.directorFirmLabel),
     directorName: s(rawContent.directorName),
     directorTitle: s(rawContent.directorTitle),
+    mitraSignHeading: s(rawContent.mitraSignHeading),
     mitraSignerLabel: s(rawContent.mitraSignerLabel),
+    mitraSignerName: s(rawContent.mitraSignerName),
     mitraRoleLabel: s(rawContent.mitraRoleLabel),
     footerLeftTitle: s(rawContent.footerLeftTitle),
     footerLeftLines: rawContent.footerLeftLines.map((l) => s(l)),
@@ -449,20 +483,27 @@ export async function generateProspectLetterPdf(
   // =========================================================================
   drawHeaderAndFooter();
 
-  const formattedDate = formatIndonesianLetterDate(letter.letterDate || letter.createdAt);
   const companyText = letter.companyName.trim();
-  const addressText = letter.companyAddress.trim();
+  const recipientRawLines = rawContent.recipientBlock.split('\n');
+  const recipientPlainLines = recipientRawLines.map((ln) => s(ln));
 
-  const p1Para1 = interpolateCompanyName(content.introPara1, companyText);
-  const p1Para2 = interpolateCompanyName(content.introPara2, companyText);
+  const p1Para1 = content.introPara1;
+  const p1Para2 = content.introPara2;
   const p1Heading = content.sectionMainTitle;
   const p1LawItems = content.section1Items;
   const p1Sanction = content.section1Sanction;
 
+  const isLineBold = (rawLine: string) => {
+    const segs = parseProspectRichText(rawLine).filter((seg) => seg.text.trim().length > 0);
+    return segs.length > 0 && segs.every((seg) => Boolean(seg.bold));
+  };
+
   const computePage1Metrics = (lh: number, gap: number, recipFontSize: number, bodyFontSize: number) => {
     const recipLH = recipFontSize === 11 ? lh : Math.max(3.75, lh - 0.35);
-    const lCompany = measureLines(`Pimpinan/Direksi ${companyText}`, CONTENT_W, recipFontSize, 'normal');
-    const lAddress = measureLines(`Alamat: ${addressText}`, CONTENT_W, recipFontSize, 'normal');
+    const recipHeight = recipientPlainLines.reduce((acc, ln, idx) => {
+      const style = isLineBold(recipientRawLines[idx] || '') ? 'bold' : 'normal';
+      return acc + measureLines(ln || ' ', CONTENT_W, recipFontSize, style).length * recipLH;
+    }, 0);
     const lPara1 = measureLines(p1Para1, CONTENT_W, bodyFontSize, 'normal');
     const lPara2 = measureLines(p1Para2, CONTENT_W, bodyFontSize, 'normal');
     const lHeading = measureLines(p1Heading, CONTENT_W, bodyFontSize, 'bold');
@@ -483,9 +524,7 @@ export async function generateProspectLetterPdf(
       lh +
       4 * lh +
       gap +
-      lh +
-      lCompany.length * recipLH +
-      lAddress.length * recipLH +
+      recipHeight +
       gap +
       lh +
       lPara1.length * lh +
@@ -518,33 +557,33 @@ export async function generateProspectLetterPdf(
   }
 
   let y = MARGIN_TOP + 2;
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('helvetica', isLineBold(rawContent.dateLine) ? 'bold' : 'normal');
   doc.setFontSize(p1Layout.bodyFontSize);
   doc.setTextColor(0, 0, 0);
 
-  doc.text(`${content.city}, ${formattedDate}`, PAGE_W - MARGIN_X, y, { align: 'right' });
+  doc.text(content.dateLine, PAGE_W - MARGIN_X, y, { align: 'right' });
   y += p1Layout.lh;
 
-  const metaRows: Array<[string, string]> = [
-    ['Nomor', letter.letterNumber],
-    ['Sifat', content.sifat],
-    ['Lampiran', content.lampiran],
-    ['Perihal', content.perihal],
+  const metaRows: Array<[string, string, string, string]> = [
+    [content.metaNomorLabel, content.nomorValue, rawContent.metaNomorLabel, rawContent.nomorValue],
+    [content.metaSifatLabel, content.sifat, rawContent.metaSifatLabel, rawContent.sifat],
+    [content.metaLampiranLabel, content.lampiran, rawContent.metaLampiranLabel, rawContent.lampiran],
+    [content.metaPerihalLabel, content.perihal, rawContent.metaPerihalLabel, rawContent.perihal],
   ];
-  for (const [label, val] of metaRows) {
+  for (const [label, val, rawLbl, rawVal] of metaRows) {
+    doc.setFont('helvetica', isLineBold(rawLbl) ? 'bold' : 'normal');
     doc.text(label, MARGIN_X, y);
+    doc.setFont('helvetica', isLineBold(rawVal) ? 'bold' : 'normal');
     doc.text(`: ${val}`, MARGIN_X + 25, y);
     y += p1Layout.lh;
   }
   y += p1Layout.gap;
 
-  doc.setFontSize(p1Layout.bodyFontSize);
-  doc.text('Kepada Yth', MARGIN_X, y);
-  y += p1Layout.lh;
-
   doc.setFontSize(p1Layout.recipFontSize);
-  y = drawWrapped(`Pimpinan/Direksi ${companyText}`, MARGIN_X, y, CONTENT_W, p1Layout.recipLH, 'left');
-  y = drawWrapped(`Alamat: ${addressText}`, MARGIN_X, y, CONTENT_W, p1Layout.recipLH, 'left');
+  recipientPlainLines.forEach((ln, idx) => {
+    doc.setFont('helvetica', isLineBold(recipientRawLines[idx] || '') ? 'bold' : 'normal');
+    y = drawWrapped(ln || ' ', MARGIN_X, y, CONTENT_W, p1Layout.recipLH, 'left');
+  });
   y += p1Layout.gap;
 
   doc.setFont('helvetica', 'normal');
@@ -831,21 +870,22 @@ export async function generateProspectLetterPdf(
   let boxY = boxTopY + 7;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('Mitra Strategis', MARGIN_X + 4, boxY);
-  const titleW = doc.getTextWidth('Mitra Strategis');
+  doc.text(content.mitraBoxTitle, MARGIN_X + 4, boxY);
+  const titleW = doc.getTextWidth(content.mitraBoxTitle);
   doc.setLineWidth(0.35);
   doc.line(MARGIN_X + 4, boxY + 0.8, MARGIN_X + 4 + titleW, boxY + 0.8);
 
   boxY += 8.2;
-  doc.setFont('helvetica', 'normal');
-  const mitraRows: Array<[string, string]> = [
-    ['Nama', letter.mitraName || '-'],
-    ['No. ID', letter.mitraMemberCode || '-'],
-    ['Whatsapp', letter.mitraPhone || '-'],
-    ['Email', letter.mitraEmail || '-'],
+  const mitraRows: Array<[string, string, string, string]> = [
+    [content.mitraBoxNameLabel, content.mitraBoxNameValue || '-', rawContent.mitraBoxNameLabel, rawContent.mitraBoxNameValue],
+    [content.mitraBoxIdLabel, content.mitraBoxIdValue || '-', rawContent.mitraBoxIdLabel, rawContent.mitraBoxIdValue],
+    [content.mitraBoxPhoneLabel, content.mitraBoxPhoneValue || '-', rawContent.mitraBoxPhoneLabel, rawContent.mitraBoxPhoneValue],
+    [content.mitraBoxEmailLabel, content.mitraBoxEmailValue || '-', rawContent.mitraBoxEmailLabel, rawContent.mitraBoxEmailValue],
   ];
-  for (const [lbl, val] of mitraRows) {
+  for (const [lbl, val, rawLbl, rawVal] of mitraRows) {
+    doc.setFont('helvetica', isLineBold(rawLbl) ? 'bold' : 'normal');
     doc.text(lbl, MARGIN_X + 4, boxY);
+    doc.setFont('helvetica', isLineBold(rawVal) ? 'bold' : 'normal');
     doc.text(`: ${val}`, MARGIN_X + 27, boxY);
     boxY += 5.1;
   }
@@ -859,10 +899,11 @@ export async function generateProspectLetterPdf(
   const leftCenterX = MARGIN_X + 34;
   const rightCenterX = PAGE_W - MARGIN_X - 34;
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('helvetica', isLineBold(rawContent.directorSignHeading) ? 'bold' : 'normal');
   doc.setFontSize(11);
-  doc.text('Mengetahui,', leftCenterX, y, { align: 'center' });
-  doc.text('Hormat Kami,', rightCenterX, y, { align: 'center' });
+  doc.text(content.directorSignHeading, leftCenterX, y, { align: 'center' });
+  doc.setFont('helvetica', isLineBold(rawContent.mitraSignHeading) ? 'bold' : 'normal');
+  doc.text(content.mitraSignHeading, rightCenterX, y, { align: 'center' });
   y += 5;
 
   doc.setFont('helvetica', 'bold');
@@ -893,7 +934,7 @@ export async function generateProspectLetterPdf(
     align: 'center',
   });
 
-  const mitraSignerName = letter.mitraName || 'Mitra Strategis';
+  const mitraSignerName = content.mitraSignerName || letter.mitraName || 'Mitra Strategis';
   const mitraNameFontSize = mitraSignerName.length > 34 ? 9.5 : mitraSignerName.length > 26 ? 10.2 : 11;
   doc.setFontSize(mitraNameFontSize);
   doc.text(mitraSignerName, rightCenterX, y, { align: 'center' });

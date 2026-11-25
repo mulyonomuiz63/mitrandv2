@@ -26,6 +26,7 @@ import {
   resolveServicePricingType,
   DEFAULT_PROSPECT_LETTER_CONTENT,
   resolveProspectLetterContent,
+  isMitraDataIncomplete,
   type ChatParticipant,
   type ChatRoom,
   type ChatMessage,
@@ -34,6 +35,7 @@ import {
   type ProspectAddressParts,
   type ProspectLetterContent,
 } from './src/types.ts';
+import { checkProspectCompanyDuplicates } from './src/utils/prospectCompanyMatcher.ts';
 
 dotenv.config();
 
@@ -1931,9 +1933,16 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
   };
 
   assignStr('city', 120);
+  assignStr('dateLine', 220);
+  assignStr('metaNomorLabel', 100);
+  assignStr('nomorValue', 220);
+  assignStr('metaSifatLabel', 100);
   assignStr('sifat', 120);
+  assignStr('metaLampiranLabel', 100);
   assignStr('lampiran', 120);
+  assignStr('metaPerihalLabel', 100);
   assignStr('perihal', 220);
+  assignStr('recipientBlock', 800);
   assignStr('greeting', 140);
   assignStr('introPara1', 1200);
   assignStr('introPara2', 1200);
@@ -1954,11 +1963,23 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
   assignStr('comparisonClosing', 700);
   assignStr('consultTitle', 240);
   assignStr('consultPara', 1200);
+  assignStr('mitraBoxTitle', 160);
+  assignStr('mitraBoxNameLabel', 100);
+  assignStr('mitraBoxNameValue', 200);
+  assignStr('mitraBoxIdLabel', 100);
+  assignStr('mitraBoxIdValue', 200);
+  assignStr('mitraBoxPhoneLabel', 100);
+  assignStr('mitraBoxPhoneValue', 200);
+  assignStr('mitraBoxEmailLabel', 100);
+  assignStr('mitraBoxEmailValue', 200);
   assignStr('closingPara', 600);
+  assignStr('directorSignHeading', 140);
   assignStr('directorFirmLabel', 160);
   assignStr('directorName', 180);
   assignStr('directorTitle', 160);
+  assignStr('mitraSignHeading', 140);
   assignStr('mitraSignerLabel', 160);
+  assignStr('mitraSignerName', 200);
   assignStr('mitraRoleLabel', 160);
   assignStr('footerLeftTitle', 160);
   assignStr('footerRightTitle', 160);
@@ -2002,13 +2023,23 @@ const persistProspectLettersToMysql = async (latestItem?: ProspectLetter, delete
   } catch (e) {
     console.warn('[MySQL KV Prospect Letters Warning]', e);
   }
+  const stripBusinessField = (item: ProspectLetter) => {
+    const { businessField: _bf, ...rest } = item;
+    return rest;
+  };
   try {
     if (deletedId) {
       await db.from('prospect_letters').delete().eq('id', deletedId);
     } else if (latestItem) {
-      await db.from('prospect_letters').upsert([latestItem]);
+      const { error } = await db.from('prospect_letters').upsert([latestItem]);
+      if (error && String(error.message || '').toLowerCase().includes('businessfield')) {
+        await db.from('prospect_letters').upsert([stripBusinessField(latestItem)]);
+      }
     } else if (prospectLetters.length > 0) {
-      await db.from('prospect_letters').upsert(prospectLetters);
+      const { error } = await db.from('prospect_letters').upsert(prospectLetters);
+      if (error && String(error.message || '').toLowerCase().includes('businessfield')) {
+        await db.from('prospect_letters').upsert(prospectLetters.map(stripBusinessField));
+      }
     }
   } catch (e) {
     console.warn('[MySQL prospect_letters Table Warning]', e);
@@ -3247,11 +3278,20 @@ export const syncFromMysql = async () => {
         }
       }
 
-      // Merge prospectLetters from dedicated table and KV backup
+      // Merge prospectLetters from dedicated table and KV backup (preserve fields like businessField from KV)
       const mergedProspectMap = new Map<string, ProspectLetter>();
-      for (const item of [...tableProspectLetters, ...kvProspectLetters]) {
+      for (const item of tableProspectLetters) {
         if (item && item.id && !mergedProspectMap.has(item.id)) {
           mergedProspectMap.set(item.id, item);
+        }
+      }
+      for (const kvItem of kvProspectLetters) {
+        if (!kvItem || !kvItem.id) continue;
+        const existing = mergedProspectMap.get(kvItem.id);
+        if (!existing) {
+          mergedProspectMap.set(kvItem.id, kvItem);
+        } else if (!existing.businessField && kvItem.businessField) {
+          mergedProspectMap.set(kvItem.id, { ...existing, businessField: kvItem.businessField });
         }
       }
       if (tableProspectLetters.length > 0 || kvProspectLetters.length > 0) {
@@ -9041,6 +9081,7 @@ app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
       return (
         (l.letterNumber || '').toLowerCase().includes(search) ||
         (l.companyName || '').toLowerCase().includes(search) ||
+        (l.businessField || '').toLowerCase().includes(search) ||
         (l.companyAddress || '').toLowerCase().includes(search) ||
         (l.mitraName || '').toLowerCase().includes(search) ||
         (l.mitraMemberCode || '').toLowerCase().includes(search) ||
@@ -9076,7 +9117,9 @@ app.get('/api/datatables/:resource', async (req: Request, res: Response) => {
         latestLetterDate: latest ? latest.letterDate || latest.createdAt : null,
         latestCompanyName: latest ? latest.companyName : null,
         recentCompanies,
-        _allCompanyNames: mLetters.map((x) => x.companyName.toLowerCase()).join(' '),
+        _allCompanyNames: mLetters
+          .map((x) => `${x.companyName || ''} ${x.businessField || ''}`.toLowerCase())
+          .join(' '),
         _latestTs: latest ? Date.parse(latest.createdAt || latest.letterDate || '') || 0 : 0,
       };
     });
@@ -9265,10 +9308,47 @@ app.get('/api/prospects/public-verify/:code', async (req: Request, res: Response
   });
 });
 
+app.post('/api/prospects/check-company', async (req: Request, res: Response) => {
+  const {
+    companyName: rawCompanyName,
+    targetMitraId: rawTargetMitraId,
+    excludeLetterId: rawExcludeLetterId,
+  } = req.body || {};
+
+  const companyName = String(rawCompanyName || '').replace(/\s+/g, ' ').trim();
+  const targetMitraId = String(rawTargetMitraId || '').trim();
+  const excludeLetterId = rawExcludeLetterId ? String(rawExcludeLetterId).trim() : undefined;
+
+  if (companyName.length < 2) {
+    return res.json({
+      success: true,
+      data: {
+        blocked: false,
+        exactMatches: [],
+        similarMatches: [],
+        ownMatches: [],
+      },
+    });
+  }
+
+  const result = checkProspectCompanyDuplicates(
+    companyName,
+    prospectLetters,
+    targetMitraId,
+    excludeLetterId
+  );
+
+  return res.json({
+    success: true,
+    data: result,
+  });
+});
+
 app.post('/api/prospects', async (req: Request, res: Response) => {
   try {
     const {
       companyName: rawCompanyName,
+      businessField: rawBusinessField,
       addressParts: rawAddressParts,
       companyAddress: rawCompanyAddress,
       mitraId: rawMitraId,
@@ -9286,6 +9366,14 @@ app.post('/api/prospects', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter).',
+      });
+    }
+
+    const businessField = String(rawBusinessField || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+    if (businessField.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bidang usaha wajib diisi (minimal 2 karakter).',
       });
     }
 
@@ -9329,6 +9417,37 @@ app.post('/api/prospects', async (req: Request, res: Response) => {
       });
     }
 
+    if (actorRole === 'mitra' && targetMitra.status !== 'verified') {
+      return res.status(403).json({
+        success: false,
+        code: 'MITRA_NOT_VERIFIED',
+        message: 'Akun Anda belum diverifikasi Admin sehingga belum dapat membuat surat penawaran.',
+      });
+    }
+
+    if (isMitraDataIncomplete(targetMitra as any, appSettings as any)) {
+      return res.status(403).json({
+        success: false,
+        code: 'MITRA_PROFILE_INCOMPLETE',
+        message:
+          actorRole === 'mitra'
+            ? 'Data Diri Anda belum lengkap. Mohon lengkapi NIK/NPWP, berkas KTP/NPWP, nomor WhatsApp, serta rekening bank pencairan komisi terlebih dahulu sebelum membuat surat penawaran.'
+            : `Data Diri Mitra "${targetMitra.fullName}" belum lengkap (NIK/NPWP, berkas KTP/NPWP, nomor WhatsApp, atau rekening bank). Lengkapi data mitra terlebih dahulu sebelum membuat surat penawaran.`,
+      });
+    }
+
+    // Enforce anti-duplicate rule: if another Mitra already created an offer letter for the same company, block creation!
+    const dupCheck = checkProspectCompanyDuplicates(companyName, prospectLetters, targetMitra.id);
+    if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
+      const conflict = dupCheck.exactMatches[0];
+      return res.status(409).json({
+        success: false,
+        code: 'COMPANY_ALREADY_CLAIMED',
+        message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} · ${conflict.mitraMemberCode}). Mitra lain tidak dapat membuat penawaran untuk perusahaan yang sama.`,
+        exactMatches: dupCheck.exactMatches,
+      });
+    }
+
     // Letter body content is global across all Mitra
     const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
 
@@ -9342,6 +9461,7 @@ app.post('/api/prospects', async (req: Request, res: Response) => {
       verificationCode,
       letterDate,
       companyName,
+      businessField,
       companyAddress: assembledAddress,
       addressParts: parts,
       mitraId: targetMitra.id,
@@ -9371,8 +9491,8 @@ app.post('/api/prospects', async (req: Request, res: Response) => {
       targetEntity: `Surat Prospek ${newLetter.letterNumber}`,
       description:
         actorRole === 'mitra'
-          ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName}.`
-          : `${actorRole === 'admin' ? 'Admin' : 'Staf'} (${actorName || 'Tim Operasional'}) membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} atas nama Mitra ${targetMitra.fullName}.`,
+          ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}).`
+          : `${actorRole === 'admin' ? 'Admin' : 'Staf'} (${actorName || 'Tim Operasional'}) membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}) atas nama Mitra ${targetMitra.fullName}.`,
     });
 
     return res.status(201).json({
@@ -9394,6 +9514,7 @@ app.put('/api/prospects/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const {
       companyName: rawCompanyName,
+      businessField: rawBusinessField,
       addressParts: rawAddressParts,
       companyAddress: rawCompanyAddress,
       mitraId: rawMitraId,
@@ -9431,6 +9552,17 @@ app.put('/api/prospects/:id', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter).',
+      });
+    }
+
+    const nextBusinessField =
+      rawBusinessField !== undefined
+        ? String(rawBusinessField || '').replace(/\s+/g, ' ').trim().slice(0, 100)
+        : existing.businessField || '';
+    if (rawBusinessField !== undefined && nextBusinessField.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bidang usaha wajib diisi (minimal 2 karakter).',
       });
     }
 
@@ -9479,15 +9611,33 @@ app.put('/api/prospects/:id', async (req: Request, res: Response) => {
       nextMitra = reassigned;
     }
 
+    const effectiveMitraId = nextMitra ? nextMitra.id : existing.mitraId;
+    const dupCheck = checkProspectCompanyDuplicates(
+      companyName,
+      prospectLetters,
+      effectiveMitraId,
+      existing.id
+    );
+    if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
+      const conflict = dupCheck.exactMatches[0];
+      return res.status(409).json({
+        success: false,
+        code: 'COMPANY_ALREADY_CLAIMED',
+        message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} · ${conflict.mitraMemberCode}). Tidak dapat menggunakan perusahaan yang sama.`,
+        exactMatches: dupCheck.exactMatches,
+      });
+    }
+
     // Letter body content is managed globally via /api/prospects/template
     const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
     const updatedLetter: ProspectLetter = {
       ...existing,
       companyName,
+      businessField: nextBusinessField || existing.businessField,
       companyAddress: nextAddress,
       addressParts: nextParts,
       customContent: undefined,
-      mitraId: nextMitra ? nextMitra.id : existing.mitraId,
+      mitraId: effectiveMitraId,
       mitraName: nextMitra ? nextMitra.fullName : existing.mitraName,
       mitraMemberCode: nextMitra ? nextMitra.memberCode || '-' : existing.mitraMemberCode,
       mitraPhone: nextMitra ? nextMitra.phone || '-' : existing.mitraPhone,

@@ -68,8 +68,8 @@ export const ProspectLetterPreviewModal: React.FC<ProspectLetterPreviewModalProp
         </button>
       </div>
 
-      {/* Scrollable 4-Page A4 Preview Canvas */}
-      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-6 bg-slate-800/95 space-y-6">
+      {/* Scrollable 4-Page A4 Preview Canvas (Identical Desktop A4 Layout Scaled Proportionally on Mobile) */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-6 py-4 sm:py-6 bg-slate-800/95 space-y-4 sm:space-y-6">
         <ProspectLetterDocument
           letter={letter}
           logoUrl={logoUrl}

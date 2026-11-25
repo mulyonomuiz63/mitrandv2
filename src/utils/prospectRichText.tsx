@@ -133,13 +133,33 @@ export function parseProspectRichText(input: string): RichTextSegment[] {
   return mergeSegments(parseRecursive(String(input), {}));
 }
 
+export type ProspectLetterVariables = Record<string, string>;
+
+/**
+ * Replaces dynamic letter placeholders (e.g. {{NAMA_PERUSAHAAN}}, {{ALAMAT_PERUSAHAAN}},
+ * {{TANGGAL_SURAT}}, {{NOMOR_SURAT}}, {{NAMA_MITRA}}, etc.) cleanly inside text.
+ */
+export function interpolateProspectVariables(
+  text: string,
+  variables?: ProspectLetterVariables
+): string {
+  if (!text || !variables) return text;
+  return text.replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/gi, (match, rawKey) => {
+    const key = String(rawKey || '').toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(variables, key)) {
+      return variables[key] ?? '';
+    }
+    return match;
+  });
+}
+
 /**
  * Removes inline formatting markers to produce clean plain text (e.g., for vector PDF fallback).
  */
-export function stripProspectRichText(input: string): string {
+export function stripProspectRichText(input: string, variables?: ProspectLetterVariables): string {
   if (!input) return '';
   return parseProspectRichText(input)
-    .map((s) => s.text)
+    .map((s) => interpolateProspectVariables(s.text, variables))
     .join('');
 }
 
@@ -190,21 +210,34 @@ function wrapSegmentNode(node: React.ReactNode, style: RichTextStyle, key: strin
   return <React.Fragment key={key}>{el}</React.Fragment>;
 }
 
+export interface RenderProspectRichTextOptions {
+  autoBoldPhrases?: string[];
+  variables?: ProspectLetterVariables;
+}
+
 /**
  * Renders safe React elements from inline rich text markup (zero dangerouslySetInnerHTML).
- * Optional `autoBoldPhrases` automatically bolds key official phrases when not already bolded.
+ * Parses formatting tokens BEFORE interpolating dynamic variables so special characters in
+ * company names or addresses never break formatting and styles applied to placeholders
+ * (e.g. **{{NAMA_PERUSAHAAN}}**) apply automatically across all Mitra letters.
  */
 export function renderProspectRichText(
   input: string,
-  autoBoldPhrases?: string[]
+  optionsOrAutoBold?: string[] | RenderProspectRichTextOptions
 ): React.ReactNode {
   if (!input) return null;
   const segments = parseProspectRichText(input);
   if (segments.length === 0) return null;
 
+  const autoBoldPhrases = Array.isArray(optionsOrAutoBold)
+    ? optionsOrAutoBold
+    : optionsOrAutoBold?.autoBoldPhrases;
+  const variables = Array.isArray(optionsOrAutoBold) ? undefined : optionsOrAutoBold?.variables;
+
   return segments.map((seg, idx) => {
+    const resolvedText = variables ? interpolateProspectVariables(seg.text, variables) : seg.text;
     if (!seg.bold && autoBoldPhrases && autoBoldPhrases.length > 0) {
-      const pieces = splitAutoBold(seg.text, autoBoldPhrases);
+      const pieces = splitAutoBold(resolvedText, autoBoldPhrases);
       return (
         <React.Fragment key={`seg-${idx}`}>
           {pieces.map((piece, pIdx) => {
@@ -218,7 +251,7 @@ export function renderProspectRichText(
         </React.Fragment>
       );
     }
-    return wrapSegmentNode(renderTextWithLineBreaks(seg.text, `seg-${idx}`), seg, `seg-${idx}`);
+    return wrapSegmentNode(renderTextWithLineBreaks(resolvedText, `seg-${idx}`), seg, `seg-${idx}`);
   });
 }
 
@@ -298,8 +331,7 @@ export function buildRichDomFragment(
   return frag;
 }
 
-function wrapSegmentToMarkup(seg: RichTextSegment): string {
-  const raw = seg.text;
+function wrapSingleLineToMarkup(raw: string, seg: RichTextStyle): string {
   if (!raw) return '';
 
   // Keep leading/trailing whitespace outside markers so markdown syntax stays crisp & unambiguous
@@ -320,6 +352,18 @@ function wrapSegmentToMarkup(seg: RichTextSegment): string {
     out = `[color=${seg.color}]${out}[/color]`;
   }
   return `${lead}${out}${trail}`;
+}
+
+function wrapSegmentToMarkup(seg: RichTextSegment): string {
+  const raw = seg.text;
+  if (!raw) return '';
+  if (!raw.includes('\n')) {
+    return wrapSingleLineToMarkup(raw, seg);
+  }
+  return raw
+    .split('\n')
+    .map((line) => wrapSingleLineToMarkup(line, seg))
+    .join('\n');
 }
 
 /**

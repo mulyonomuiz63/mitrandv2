@@ -1300,6 +1300,157 @@ function resolveAvatarUrl(avatarUrl, gender, fullName) {
 }
 
 // src/types.ts
+var DEFAULT_SPECIALIZATION_LABEL = "Bidang Keahlian / Profesi Mitra";
+var DEFAULT_BANK_OPTIONS = [
+  "Bank Central Asia (BCA)",
+  "Bank Mandiri",
+  "Bank Rakyat Indonesia (BRI)",
+  "Bank Negara Indonesia (BNI)",
+  "Bank Syariah Indonesia (BSI)",
+  "CIMB Niaga"
+];
+var DEFAULT_MITRA_FORM_FIELDS = [
+  {
+    id: "mitra-def-fullName",
+    systemKey: "fullName",
+    section: "profile",
+    isDefault: true,
+    label: "Nama Lengkap & Gelar",
+    type: "text",
+    placeholder: "Nama lengkap",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-email",
+    systemKey: "email",
+    section: "profile",
+    isDefault: true,
+    label: "Email Resmi",
+    type: "text",
+    placeholder: "nama@email.com",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-phone",
+    systemKey: "phone",
+    section: "profile",
+    isDefault: true,
+    label: "No. WhatsApp Aktif",
+    type: "text",
+    placeholder: "0812xxxx",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-nik",
+    systemKey: "nik",
+    section: "profile",
+    isDefault: true,
+    label: "Nomor KTP / NIK",
+    type: "text",
+    placeholder: "16 digit NIK",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-ktpFile",
+    systemKey: "ktpFile",
+    section: "profile",
+    isDefault: true,
+    label: "Upload File KTP / NPWP",
+    type: "file",
+    placeholder: "JPG, PNG, atau PDF",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-specialization",
+    systemKey: "specialization",
+    section: "profile",
+    isDefault: true,
+    label: DEFAULT_SPECIALIZATION_LABEL,
+    type: "select",
+    placeholder: "Pilih keahlian",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-bankName",
+    systemKey: "bankName",
+    section: "bank",
+    isDefault: true,
+    label: "Nama Bank Pencairan Komisi",
+    type: "select",
+    options: DEFAULT_BANK_OPTIONS,
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-accountNumber",
+    systemKey: "accountNumber",
+    section: "bank",
+    isDefault: true,
+    label: "Nomor Rekening Bank",
+    type: "number",
+    placeholder: "Nomor rekening",
+    required: true,
+    isActive: true
+  },
+  {
+    id: "mitra-def-accountHolder",
+    systemKey: "accountHolder",
+    section: "bank",
+    isDefault: true,
+    label: "Nama Pemilik Rekening",
+    type: "text",
+    placeholder: "Nama pemilik rekening",
+    required: true,
+    isActive: true
+  }
+];
+function getMitraKtpFileUrl(mitra) {
+  if (!mitra) return "";
+  const bankMeta = mitra.bankDetails || {};
+  const direct = mitra.ktpFileUrl || bankMeta.__ktpFileUrl;
+  if (direct && typeof direct === "string" && direct.trim() !== "" && direct.trim() !== "-") {
+    return direct.trim();
+  }
+  if (mitra.customFields) {
+    for (const [k, v] of Object.entries(mitra.customFields)) {
+      if (!v || typeof v !== "string") continue;
+      const kl = k.toLowerCase();
+      if ((k === "mitra-def-ktpFile" || kl.includes("ktp") || kl.includes("npwp")) && v.trim() !== "" && v.trim() !== "-") {
+        return v.trim();
+      }
+    }
+  }
+  return "";
+}
+function isMitraDataIncomplete(mitra, settings) {
+  if (!mitra || mitra.id === "mitra-empty" || mitra.isLoadingFallback) return false;
+  const fields = resolveMitraFormFields(settings);
+  const isFieldActive = (key) => {
+    const found = fields.find((f) => f.systemKey === key);
+    return found ? found.isActive !== false : true;
+  };
+  const missingBankNumber = isFieldActive("accountNumber") && (!mitra.bankDetails?.accountNumber || mitra.bankDetails.accountNumber.trim() === "" || mitra.bankDetails.accountNumber.trim() === "-" || !/^\d+$/.test(mitra.bankDetails.accountNumber.trim()));
+  const missingBankName = isFieldActive("bankName") && (!mitra.bankDetails?.bankName || mitra.bankDetails.bankName.trim() === "" || mitra.bankDetails.bankName.trim() === "-");
+  const missingBankHolder = isFieldActive("accountHolder") && (!mitra.bankDetails?.accountHolder || mitra.bankDetails.accountHolder.trim() === "" || mitra.bankDetails.accountHolder.trim() === "-");
+  const missingBank = missingBankNumber || missingBankName || missingBankHolder;
+  const missingNik = isFieldActive("nik") && (!mitra.nik || mitra.nik.trim() === "" || mitra.nik.trim() === "-" || mitra.nik.trim() === "3201000000000000");
+  const missingPhone = isFieldActive("phone") && (!mitra.phone || mitra.phone.trim() === "" || mitra.phone.trim() === "-");
+  const ktpField = fields.find((f) => f.systemKey === "ktpFile");
+  const isKtpRequiredAndActive = ktpField ? ktpField.isActive !== false && ktpField.required !== false : true;
+  const missingKtpFile = isKtpRequiredAndActive && !getMitraKtpFileUrl(mitra);
+  const missingRequiredCustomFile = fields.some((f) => {
+    if (f.systemKey || f.isActive === false || !f.required || f.type !== "file") return false;
+    const val = mitra.customFields?.[f.label] || mitra.customFields?.[f.id] || mitra.bankDetails?.customBankFields?.[f.label] || mitra.bankDetails?.customBankFields?.[f.id];
+    return !val || String(val).trim() === "" || String(val).trim() === "-";
+  });
+  return missingBank || missingNik || missingPhone || missingKtpFile || missingRequiredCustomFile;
+}
 function resolveServicePricingType(service) {
   if (!service) return "monthly_subscription";
   const nameLower = (service.name || "").toLowerCase();
@@ -1456,11 +1607,100 @@ var OFFICIAL_ND_SERVICES = [
     isActive: true
   }
 ];
+var LEGACY_PLACEHOLDER_UPGRADES = {
+  "Contoh: Muhammad Reza, S.H., M.H.": "Nama lengkap",
+  "0812-xxxx-xxxx": "0812xxxx",
+  "0812-XXXX-XXXX": "0812xxxx",
+  "16 digit NIK resmi": "16 digit NIK",
+  "Unggah dokumen KTP atau NPWP (Format: JPG, JPEG, PNG, atau PDF)": "JPG, PNG, atau PDF",
+  "Pilih Bidang Keahlian / Profesi Mitra": "Pilih keahlian",
+  "Contoh: 8830192837": "Nomor rekening",
+  "Harus sesuai buku tabungan": "Nama pemilik rekening",
+  "Contoh: PT Surya Kencana Abadi": "Nama perusahaan",
+  "Contoh: PT Sumber Pangan Makmur": "Nama perusahaan",
+  "Contoh: Bpk. Bambang Gunawan (Direktur Keuangan)": "Nama PIC",
+  "Contoh: Budi Santoso (Direktur)": "Nama PIC",
+  "finance@suryakencana.co.id": "email@perusahaan.com",
+  "finance@sumberpangan.com": "email@perusahaan.com",
+  "Contoh: Klien membutuhkan pendampingan segera karena jatuh tempo SPT Badan tanggal 30 atau sedang menerima surat panggilan klarifikasi SP2DK dari KPP.": "Catatan kebutuhan...",
+  "Contoh: Perlu pendampingan untuk membalas surat SP2DK atau persiapan audit laporan keuangan akhir tahun.": "Catatan kebutuhan..."
+};
+function normalizeShortPlaceholder(placeholder) {
+  if (!placeholder) return placeholder;
+  return LEGACY_PLACEHOLDER_UPGRADES[placeholder.trim()] || placeholder;
+}
+function resolveMitraFormFields(settings) {
+  const existing = Array.isArray(settings?.mitraCustomFields) ? settings.mitraCustomFields : [];
+  const specLabel = settings?.specializationLabel || DEFAULT_SPECIALIZATION_LABEL;
+  const specEnabled = settings?.specializationEnabled !== false;
+  const normalizeField = (f) => {
+    const inferredSection = f.section || (f.systemKey === "bankName" || f.systemKey === "accountNumber" || f.systemKey === "accountHolder" ? "bank" : "profile");
+    const nextPlaceholder = normalizeShortPlaceholder(f.placeholder);
+    if (f.systemKey === "specialization") {
+      return {
+        ...f,
+        placeholder: nextPlaceholder,
+        section: inferredSection,
+        label: f.label || specLabel,
+        isActive: settings?.specializationEnabled !== void 0 ? specEnabled : f.isActive
+      };
+    }
+    if (f.systemKey === "accountNumber") {
+      return {
+        ...f,
+        placeholder: nextPlaceholder,
+        type: f.type === "text" ? "number" : f.type || "number",
+        section: inferredSection
+      };
+    }
+    return {
+      ...f,
+      placeholder: nextPlaceholder,
+      section: inferredSection
+    };
+  };
+  const ensureDefaultKtpFileField = (list) => {
+    const hasKtpFile = list.some(
+      (f) => f.systemKey === "ktpFile" || f.id === "mitra-def-ktpFile"
+    );
+    if (hasKtpFile) return list;
+    const defaultKtpField = DEFAULT_MITRA_FORM_FIELDS.find((f) => f.systemKey === "ktpFile");
+    if (!defaultKtpField) return list;
+    const nikIdx = list.findIndex((f) => f.systemKey === "nik" || f.id === "mitra-def-nik");
+    if (nikIdx >= 0) {
+      const next = [...list];
+      next.splice(nikIdx + 1, 0, { ...defaultKtpField });
+      return next;
+    }
+    return [{ ...defaultKtpField }, ...list];
+  };
+  if (settings?.mitraFieldsInitialized) {
+    return ensureDefaultKtpFileField(existing.map(normalizeField));
+  }
+  const hasAnyDefault = existing.some((f) => Boolean(f.systemKey || f.isDefault));
+  if (hasAnyDefault) {
+    return ensureDefaultKtpFileField(existing.map(normalizeField));
+  }
+  const defaults = DEFAULT_MITRA_FORM_FIELDS.map((df) => {
+    if (df.systemKey === "specialization") {
+      return { ...df, label: specLabel, isActive: specEnabled };
+    }
+    return { ...df };
+  });
+  return [...defaults, ...existing.map(normalizeField)];
+}
 var DEFAULT_PROSPECT_LETTER_CONTENT = {
   city: "Jakarta",
+  dateLine: "Jakarta, {{TANGGAL_SURAT}}",
+  metaNomorLabel: "Nomor",
+  nomorValue: "{{NOMOR_SURAT}}",
+  metaSifatLabel: "Sifat",
   sifat: "Terbatas",
+  metaLampiranLabel: "Lampiran",
   lampiran: "Satu set",
+  metaPerihalLabel: "Perihal",
   perihal: "Pemberitahuan dan Penawaran",
+  recipientBlock: "Kepada Yth\nPimpinan/Direksi {{NAMA_PERUSAHAAN}}\nAlamat: {{ALAMAT_PERUSAHAAN}}",
   greeting: "Dengan hormat,",
   introPara1: "Bersama ini kami sampaikan salam sejahtera untuk kita semua, karena telah diberi kesempatan untuk bisa menjalankan usaha dan memberikan penghidupan yang layak untuk banyak orang. Semoga kita diberikan keselamatan dan kesuksesan dalam menjalankan aktivitas sehari-hari. Aamiin.",
   introPara2: "Dalam rangka mendukung aktivitas usaha, memberikan bimbingan, dan membantu penyelesaian persoalan para pengusaha terkait isu keuangan, perpajakan, dan hukum, ND TAX AND LAW menyampaikan surat ini kepada {{NAMA_PERUSAHAAN}} sebagai bentuk kepedulian dan penawaran kerjasama yang saling menguntungkan.",
@@ -1581,11 +1821,23 @@ var DEFAULT_PROSPECT_LETTER_CONTENT = {
   comparisonClosing: "Layanan kami dapat dipakai sebagai alternatif, atau sebagai pendamping staf internal yang sudah ada pada perusahaan untuk memastikan kepatuhannya.",
   consultTitle: "Konsultasi Awal Tanpa Biaya",
   consultPara: "Kami membuka kesempatan konsultasi awal tanpa biaya untuk membahas kondisi dan kebutuhan perusahaan. Bapak/Ibu dapat menghubungi kami melalui WhatsApp 082180744977, email business@ndtaxandlaw.com, atau mitra strategis resmi kami. Untuk profil perusahaan dan informasi lebih lanjut tersedia di www.ndtaxandlaw.com.",
+  mitraBoxTitle: "Mitra Strategis",
+  mitraBoxNameLabel: "Nama",
+  mitraBoxNameValue: "{{NAMA_MITRA}}",
+  mitraBoxIdLabel: "No. ID",
+  mitraBoxIdValue: "{{ID_MITRA}}",
+  mitraBoxPhoneLabel: "Whatsapp",
+  mitraBoxPhoneValue: "{{WA_MITRA}}",
+  mitraBoxEmailLabel: "Email",
+  mitraBoxEmailValue: "{{EMAIL_MITRA}}",
   closingPara: "Demikian surat ini kami sampaikan. Atas perhatiannya, kami ucapkan terima kasih.",
+  directorSignHeading: "Mengetahui,",
   directorFirmLabel: "ND TAX AND LAW",
   directorName: "Nurtiyas, S.E., M.Ak, BKP",
   directorTitle: "Direktur Utama",
+  mitraSignHeading: "Hormat Kami,",
   mitraSignerLabel: "MITRA RESMI",
+  mitraSignerName: "{{NAMA_MITRA}}",
   mitraRoleLabel: "Mitra Strategis",
   footerLeftTitle: "ND TAX AND LAW",
   footerLeftLines: [
@@ -1625,11 +1877,22 @@ function resolveProspectLetterContent(letterCustom, masterTemplate) {
       str(override.comparisonHeaders[1], base.comparisonHeaders[1]),
       str(override.comparisonHeaders[2], base.comparisonHeaders[2])
     ] : base.comparisonHeaders;
+    const resolvedCity = str(override.city, base.city);
+    const hasCustomDateLine = typeof override.dateLine === "string" && override.dateLine.trim().length > 0;
+    const hasCustomCityOnly = !hasCustomDateLine && typeof override.city === "string" && override.city.trim().length > 0;
+    const resolvedDateLine = hasCustomDateLine ? override.dateLine : hasCustomCityOnly ? `${resolvedCity}, {{TANGGAL_SURAT}}` : base.dateLine;
     return {
-      city: str(override.city, base.city),
+      city: resolvedCity,
+      dateLine: resolvedDateLine,
+      metaNomorLabel: str(override.metaNomorLabel, base.metaNomorLabel),
+      nomorValue: str(override.nomorValue, base.nomorValue),
+      metaSifatLabel: str(override.metaSifatLabel, base.metaSifatLabel),
       sifat: str(override.sifat, base.sifat),
+      metaLampiranLabel: str(override.metaLampiranLabel, base.metaLampiranLabel),
       lampiran: str(override.lampiran, base.lampiran),
+      metaPerihalLabel: str(override.metaPerihalLabel, base.metaPerihalLabel),
       perihal: str(override.perihal, base.perihal),
+      recipientBlock: str(override.recipientBlock, base.recipientBlock),
       greeting: str(override.greeting, base.greeting),
       introPara1: str(override.introPara1, base.introPara1),
       introPara2: str(override.introPara2, base.introPara2),
@@ -1656,11 +1919,23 @@ function resolveProspectLetterContent(letterCustom, masterTemplate) {
       comparisonClosing: str(override.comparisonClosing, base.comparisonClosing),
       consultTitle: str(override.consultTitle, base.consultTitle),
       consultPara: str(override.consultPara, base.consultPara),
+      mitraBoxTitle: str(override.mitraBoxTitle, base.mitraBoxTitle),
+      mitraBoxNameLabel: str(override.mitraBoxNameLabel, base.mitraBoxNameLabel),
+      mitraBoxNameValue: str(override.mitraBoxNameValue, base.mitraBoxNameValue),
+      mitraBoxIdLabel: str(override.mitraBoxIdLabel, base.mitraBoxIdLabel),
+      mitraBoxIdValue: str(override.mitraBoxIdValue, base.mitraBoxIdValue),
+      mitraBoxPhoneLabel: str(override.mitraBoxPhoneLabel, base.mitraBoxPhoneLabel),
+      mitraBoxPhoneValue: str(override.mitraBoxPhoneValue, base.mitraBoxPhoneValue),
+      mitraBoxEmailLabel: str(override.mitraBoxEmailLabel, base.mitraBoxEmailLabel),
+      mitraBoxEmailValue: str(override.mitraBoxEmailValue, base.mitraBoxEmailValue),
       closingPara: str(override.closingPara, base.closingPara),
+      directorSignHeading: str(override.directorSignHeading, base.directorSignHeading),
       directorFirmLabel: str(override.directorFirmLabel, base.directorFirmLabel),
       directorName: str(override.directorName, base.directorName),
       directorTitle: str(override.directorTitle, base.directorTitle),
+      mitraSignHeading: str(override.mitraSignHeading, base.mitraSignHeading),
       mitraSignerLabel: str(override.mitraSignerLabel, base.mitraSignerLabel),
+      mitraSignerName: str(override.mitraSignerName, base.mitraSignerName),
       mitraRoleLabel: str(override.mitraRoleLabel, base.mitraRoleLabel),
       footerLeftTitle: str(override.footerLeftTitle, base.footerLeftTitle),
       footerLeftLines: strLines(override.footerLeftLines, base.footerLeftLines),
@@ -1670,6 +1945,316 @@ function resolveProspectLetterContent(letterCustom, masterTemplate) {
   };
   const withMaster = mergeOne(DEFAULT_PROSPECT_LETTER_CONTENT, masterTemplate);
   return mergeOne(withMaster, letterCustom);
+}
+
+// src/utils/prospectCompanyMatcher.ts
+var LEGAL_PREFIXES = /* @__PURE__ */ new Set([
+  "pt",
+  "cv",
+  "ud",
+  "pd",
+  "fa",
+  "po",
+  "yayasan",
+  "koperasi",
+  "perum",
+  "firma",
+  "perkumpulan",
+  "perseroan",
+  "klinik",
+  "rs",
+  "rsud",
+  "rsia",
+  "toko",
+  "warung",
+  "bengkel",
+  "apotek",
+  "apotik"
+]);
+var LEGAL_SUFFIXES = /* @__PURE__ */ new Set(["tbk", "persero", "ltd", "inc", "corp", "llc", "sdn", "bhd"]);
+var GENERIC_COMPANY_WORDS = /* @__PURE__ */ new Set([
+  "indonesia",
+  "nusantara",
+  "indo",
+  "group",
+  "grup",
+  "global",
+  "internasional",
+  "international",
+  "nasional",
+  "jaya",
+  "abadi",
+  "makmur",
+  "sentosa",
+  "mandiri",
+  "sejahtera",
+  "sukses",
+  "perkasa",
+  "utama",
+  "prima",
+  "karya",
+  "sinar",
+  "bintang",
+  "berkah",
+  "mulia",
+  "pratama",
+  "indah",
+  "bersama",
+  "teknologi",
+  "solusi",
+  "mitra",
+  "putra",
+  "putri",
+  "cahaya",
+  "sumber",
+  "rezeki",
+  "rejeki",
+  "agung",
+  "lestari",
+  "maju",
+  "bangun",
+  "cipta",
+  "kencana",
+  "graha",
+  "buana",
+  "persada",
+  "energi",
+  "niaga",
+  "usaha",
+  "dagang",
+  "jasa",
+  "konstruksi",
+  "properti",
+  "logistik",
+  "trans",
+  "transport",
+  "trading",
+  "ekspres",
+  "express",
+  "digital",
+  "media",
+  "kreatif",
+  "creative",
+  "konsultan",
+  "consulting"
+]);
+function normalizeCompanyName(raw) {
+  const cleaned = String(raw || "").toLowerCase().replace(/\bp\s*\.\s*t\s*\.?(?=\s|$)/gi, "pt ").replace(/\bc\s*\.\s*v\s*\.?(?=\s|$)/gi, "cv ").replace(/\bu\s*\.\s*d\s*\.?(?=\s|$)/gi, "ud ").replace(/\bp\s*\.\s*d\s*\.?(?=\s|$)/gi, "pd ").replace(/\bf\s*\.\s*a\s*\.?(?=\s|$)/gi, "fa ").replace(/&/g, " dan ").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const allTokens = cleaned ? cleaned.split(" ").filter(Boolean) : [];
+  let entityPrefix = "";
+  const coreTokens = [...allTokens];
+  if (coreTokens.length >= 3 && coreTokens[0].length === 1 && coreTokens[1].length === 1) {
+    const joined = coreTokens[0] + coreTokens[1];
+    if (LEGAL_PREFIXES.has(joined)) {
+      coreTokens.splice(0, 2, joined);
+    }
+  }
+  if (coreTokens.length >= 2 && LEGAL_PREFIXES.has(coreTokens[0])) {
+    entityPrefix = coreTokens.shift() || "";
+  }
+  while (coreTokens.length >= 2 && LEGAL_SUFFIXES.has(coreTokens[coreTokens.length - 1])) {
+    coreTokens.pop();
+  }
+  const coreName = coreTokens.join(" ").trim();
+  const compactCore = coreName.replace(/\s+/g, "");
+  return {
+    raw: String(raw || "").trim(),
+    fullNormalized: cleaned,
+    entityPrefix,
+    coreName,
+    compactCore,
+    tokens: coreTokens
+  };
+}
+function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  const la = a.length;
+  const lb = b.length;
+  if (la === 0) return lb;
+  if (lb === 0) return la;
+  const prev = new Array(lb + 1);
+  const curr = new Array(lb + 1);
+  for (let j = 0; j <= lb; j++) prev[j] = j;
+  for (let i = 1; i <= la; i++) {
+    curr[0] = i;
+    const ca = a.charCodeAt(i - 1);
+    for (let j = 1; j <= lb; j++) {
+      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= lb; j++) prev[j] = curr[j];
+  }
+  return prev[lb];
+}
+function levenshteinSimilarity(a, b) {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshteinDistance(a, b) / maxLen;
+}
+function isExactSameCompany(a, b) {
+  if (!a.compactCore || !b.compactCore) return false;
+  if (a.fullNormalized && a.fullNormalized === b.fullNormalized) {
+    return true;
+  }
+  if (a.compactCore === b.compactCore) {
+    if (a.entityPrefix === b.entityPrefix || !a.entityPrefix || !b.entityPrefix) {
+      return true;
+    }
+  }
+  return false;
+}
+function evaluateSimilarity(a, b) {
+  if (!a.compactCore || !b.compactCore) {
+    return { matched: false, score: 0, reason: "" };
+  }
+  if (a.compactCore === b.compactCore && a.entityPrefix && b.entityPrefix && a.entityPrefix !== b.entityPrefix) {
+    return {
+      matched: true,
+      score: 0.96,
+      reason: `Nama inti sama (beda badan usaha: ${b.entityPrefix.toUpperCase()})`
+    };
+  }
+  if (a.compactCore.length < 3 || b.compactCore.length < 3) {
+    return { matched: false, score: 0, reason: "" };
+  }
+  const tokensA = a.tokens;
+  const tokensB = b.tokens;
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  const sharedTokens = tokensA.filter((t) => setB.has(t));
+  const uniqueShared = Array.from(new Set(sharedTokens));
+  const distinctiveShared = uniqueShared.filter((t) => t.length >= 4 && !GENERIC_COMPANY_WORDS.has(t));
+  const shorterTokens = tokensA.length <= tokensB.length ? tokensA : tokensB;
+  const longerSet = tokensA.length <= tokensB.length ? setB : setA;
+  const allShorterInLonger = shorterTokens.length > 0 && shorterTokens.every((t) => longerSet.has(t));
+  if (allShorterInLonger) {
+    const hasEnoughSpecificity = shorterTokens.length >= 2 || shorterTokens.length === 1 && shorterTokens[0].length >= 4 && !GENERIC_COMPANY_WORDS.has(shorterTokens[0]);
+    if (hasEnoughSpecificity) {
+      const ratio = shorterTokens.length / Math.max(tokensA.length, tokensB.length);
+      return {
+        matched: true,
+        score: Math.min(0.94, 0.8 + ratio * 0.14),
+        reason: "Kemiripan kata (tambahan kata depan/tengah/belakang)"
+      };
+    }
+  }
+  const shorterCompact = a.compactCore.length <= b.compactCore.length ? a.compactCore : b.compactCore;
+  const longerCompact = a.compactCore.length <= b.compactCore.length ? b.compactCore : a.compactCore;
+  if (shorterCompact.length >= 5 && longerCompact.includes(shorterCompact)) {
+    const shorterIsSingleGeneric = shorterTokens.length === 1 && GENERIC_COMPANY_WORDS.has(shorterTokens[0]);
+    if (!shorterIsSingleGeneric) {
+      const ratio = shorterCompact.length / longerCompact.length;
+      return {
+        matched: true,
+        score: Math.min(0.92, 0.78 + ratio * 0.14),
+        reason: "Sebagian nama perusahaan sangat mirip"
+      };
+    }
+  }
+  const minTokenCount = Math.min(tokensA.length, tokensB.length);
+  const maxTokenCount = Math.max(tokensA.length, tokensB.length);
+  const overlapMin = minTokenCount > 0 ? uniqueShared.length / minTokenCount : 0;
+  const overlapMax = maxTokenCount > 0 ? uniqueShared.length / maxTokenCount : 0;
+  if (uniqueShared.length >= 2 && overlapMin >= 0.6) {
+    return {
+      matched: true,
+      score: Math.min(0.9, 0.72 + overlapMax * 0.18),
+      reason: "Beberapa kata kunci perusahaan sama"
+    };
+  }
+  const strongDistinctive = distinctiveShared.filter((t) => t.length >= 5);
+  if (strongDistinctive.length >= 1 && overlapMax >= 0.4) {
+    return {
+      matched: true,
+      score: Math.min(0.86, 0.7 + overlapMax * 0.16),
+      reason: `Mengandung nama/merek serupa ("${strongDistinctive[0]}")`
+    };
+  }
+  if (a.compactCore.length >= 5 && b.compactCore.length >= 5) {
+    const simCompact = levenshteinSimilarity(a.compactCore, b.compactCore);
+    const simCore = levenshteinSimilarity(a.coreName, b.coreName);
+    const bestSim = Math.max(simCompact, simCore);
+    if (bestSim >= 0.78) {
+      return {
+        matched: true,
+        score: Number(bestSim.toFixed(2)),
+        reason: "Ejaan nama perusahaan sangat mirip"
+      };
+    }
+  }
+  return { matched: false, score: 0, reason: "" };
+}
+function checkProspectCompanyDuplicates(candidateCompanyName, existingLetters, targetMitraId, excludeLetterId) {
+  const candidateNorm = normalizeCompanyName(candidateCompanyName);
+  if (!candidateNorm.compactCore) {
+    return {
+      blocked: false,
+      exactMatches: [],
+      similarMatches: [],
+      ownMatches: []
+    };
+  }
+  const exactMatches = [];
+  const similarMatches = [];
+  const ownMatches = [];
+  const seenSimilarKeys = /* @__PURE__ */ new Set();
+  for (const letter of existingLetters) {
+    if (!letter || !letter.companyName) continue;
+    if (excludeLetterId && letter.id === excludeLetterId) continue;
+    const existingNorm = normalizeCompanyName(letter.companyName);
+    if (!existingNorm.compactCore) continue;
+    const isSameMitra = Boolean(targetMitraId && letter.mitraId === targetMitraId);
+    if (isExactSameCompany(candidateNorm, existingNorm)) {
+      const matchItem = {
+        letterId: letter.id,
+        letterNumber: letter.letterNumber,
+        companyName: letter.companyName,
+        companyAddress: letter.companyAddress,
+        letterDate: letter.letterDate || letter.createdAt,
+        mitraId: letter.mitraId,
+        mitraName: letter.mitraName,
+        mitraMemberCode: letter.mitraMemberCode,
+        matchType: isSameMitra ? "own" : "exact",
+        matchReason: isSameMitra ? "Anda sebelumnya sudah membuat surat penawaran untuk perusahaan ini" : "Nama perusahaan sama persis dengan surat yang sudah dibuat Mitra lain",
+        score: 1
+      };
+      if (isSameMitra) {
+        ownMatches.push(matchItem);
+      } else {
+        exactMatches.push(matchItem);
+      }
+      continue;
+    }
+    if (!isSameMitra) {
+      const sim = evaluateSimilarity(candidateNorm, existingNorm);
+      if (sim.matched) {
+        const dedupeKey = `${letter.mitraId}::${existingNorm.fullNormalized}`;
+        if (!seenSimilarKeys.has(dedupeKey)) {
+          seenSimilarKeys.add(dedupeKey);
+          similarMatches.push({
+            letterId: letter.id,
+            letterNumber: letter.letterNumber,
+            companyName: letter.companyName,
+            companyAddress: letter.companyAddress,
+            letterDate: letter.letterDate || letter.createdAt,
+            mitraId: letter.mitraId,
+            mitraName: letter.mitraName,
+            mitraMemberCode: letter.mitraMemberCode,
+            matchType: "similar",
+            matchReason: sim.reason,
+            score: sim.score
+          });
+        }
+      }
+    }
+  }
+  similarMatches.sort((a, b) => b.score - a.score);
+  return {
+    blocked: exactMatches.length > 0,
+    exactMatches: exactMatches.slice(0, 5),
+    similarMatches: similarMatches.slice(0, 5),
+    ownMatches: ownMatches.slice(0, 3)
+  };
 }
 
 // server.ts
@@ -1774,7 +2359,7 @@ var ai = new GoogleGenAI({
     }
   }
 });
-var DEFAULT_SPECIALIZATION_LABEL = "Bidang Keahlian / Profesi Mitra";
+var DEFAULT_SPECIALIZATION_LABEL2 = "Bidang Keahlian / Profesi Mitra";
 var DEFAULT_SPECIALIZATION_OPTIONS = [
   { id: "spec-1", label: "Business Partner", isActive: true }
 ];
@@ -1801,7 +2386,7 @@ var normalizeSpecializationOptions = (raw) => {
   );
   return hasBusinessPartner ? customOrValid : [{ id: "spec-1", label: "Business Partner", isActive: true }, ...customOrValid];
 };
-var DEFAULT_MITRA_FORM_FIELDS = [
+var DEFAULT_MITRA_FORM_FIELDS2 = [
   {
     id: "mitra-def-fullName",
     systemKey: "fullName",
@@ -1862,7 +2447,7 @@ var DEFAULT_MITRA_FORM_FIELDS = [
     systemKey: "specialization",
     isDefault: true,
     section: "profile",
-    label: DEFAULT_SPECIALIZATION_LABEL,
+    label: DEFAULT_SPECIALIZATION_LABEL2,
     type: "select",
     placeholder: "Pilih Bidang Keahlian / Profesi Mitra",
     required: true,
@@ -2564,9 +3149,9 @@ var appSettings = {
   emailOnPasswordReset: true,
   emailOnRecurringInvoice: true,
   specializationEnabled: true,
-  specializationLabel: DEFAULT_SPECIALIZATION_LABEL,
+  specializationLabel: DEFAULT_SPECIALIZATION_LABEL2,
   specializationOptions: DEFAULT_SPECIALIZATION_OPTIONS,
-  mitraCustomFields: DEFAULT_MITRA_FORM_FIELDS,
+  mitraCustomFields: DEFAULT_MITRA_FORM_FIELDS2,
   clientCustomFields: DEFAULT_CLIENT_FORM_FIELDS,
   mitraFieldsInitialized: true,
   clientFieldsInitialized: true
@@ -3039,9 +3624,16 @@ var sanitizeProspectLetterContent = (raw) => {
     }
   };
   assignStr("city", 120);
+  assignStr("dateLine", 220);
+  assignStr("metaNomorLabel", 100);
+  assignStr("nomorValue", 220);
+  assignStr("metaSifatLabel", 100);
   assignStr("sifat", 120);
+  assignStr("metaLampiranLabel", 100);
   assignStr("lampiran", 120);
+  assignStr("metaPerihalLabel", 100);
   assignStr("perihal", 220);
+  assignStr("recipientBlock", 800);
   assignStr("greeting", 140);
   assignStr("introPara1", 1200);
   assignStr("introPara2", 1200);
@@ -3062,11 +3654,23 @@ var sanitizeProspectLetterContent = (raw) => {
   assignStr("comparisonClosing", 700);
   assignStr("consultTitle", 240);
   assignStr("consultPara", 1200);
+  assignStr("mitraBoxTitle", 160);
+  assignStr("mitraBoxNameLabel", 100);
+  assignStr("mitraBoxNameValue", 200);
+  assignStr("mitraBoxIdLabel", 100);
+  assignStr("mitraBoxIdValue", 200);
+  assignStr("mitraBoxPhoneLabel", 100);
+  assignStr("mitraBoxPhoneValue", 200);
+  assignStr("mitraBoxEmailLabel", 100);
+  assignStr("mitraBoxEmailValue", 200);
   assignStr("closingPara", 600);
+  assignStr("directorSignHeading", 140);
   assignStr("directorFirmLabel", 160);
   assignStr("directorName", 180);
   assignStr("directorTitle", 160);
+  assignStr("mitraSignHeading", 140);
   assignStr("mitraSignerLabel", 160);
+  assignStr("mitraSignerName", 200);
   assignStr("mitraRoleLabel", 160);
   assignStr("footerLeftTitle", 160);
   assignStr("footerRightTitle", 160);
@@ -3103,13 +3707,23 @@ var persistProspectLettersToMysql = async (latestItem, deletedId) => {
   } catch (e) {
     console.warn("[MySQL KV Prospect Letters Warning]", e);
   }
+  const stripBusinessField = (item) => {
+    const { businessField: _bf, ...rest } = item;
+    return rest;
+  };
   try {
     if (deletedId) {
       await db.from("prospect_letters").delete().eq("id", deletedId);
     } else if (latestItem) {
-      await db.from("prospect_letters").upsert([latestItem]);
+      const { error } = await db.from("prospect_letters").upsert([latestItem]);
+      if (error && String(error.message || "").toLowerCase().includes("businessfield")) {
+        await db.from("prospect_letters").upsert([stripBusinessField(latestItem)]);
+      }
     } else if (prospectLetters.length > 0) {
-      await db.from("prospect_letters").upsert(prospectLetters);
+      const { error } = await db.from("prospect_letters").upsert(prospectLetters);
+      if (error && String(error.message || "").toLowerCase().includes("businessfield")) {
+        await db.from("prospect_letters").upsert(prospectLetters.map(stripBusinessField));
+      }
     }
   } catch (e) {
     console.warn("[MySQL prospect_letters Table Warning]", e);
@@ -4136,9 +4750,18 @@ var syncFromMysql = async () => {
         }
       }
       const mergedProspectMap = /* @__PURE__ */ new Map();
-      for (const item of [...tableProspectLetters, ...kvProspectLetters]) {
+      for (const item of tableProspectLetters) {
         if (item && item.id && !mergedProspectMap.has(item.id)) {
           mergedProspectMap.set(item.id, item);
+        }
+      }
+      for (const kvItem of kvProspectLetters) {
+        if (!kvItem || !kvItem.id) continue;
+        const existing = mergedProspectMap.get(kvItem.id);
+        if (!existing) {
+          mergedProspectMap.set(kvItem.id, kvItem);
+        } else if (!existing.businessField && kvItem.businessField) {
+          mergedProspectMap.set(kvItem.id, { ...existing, businessField: kvItem.businessField });
         }
       }
       if (tableProspectLetters.length > 0 || kvProspectLetters.length > 0) {
@@ -5888,7 +6511,7 @@ app.post("/api/mitra/register", async (req, res) => {
     actionType: "register",
     operation: "CREATE",
     targetEntity: "Pendaftaran Mitra",
-    description: isAdminOrStaffCreated ? `Mitra baru "${newMitra.fullName}" (${newMitra.email}, ${newMitra.memberCode}) ditambahkan langsung oleh ${actorName || (actorRole === "staff" ? "Staf" : "Admin")} dan otomatis disetujui (Approved). Akun menunggu verifikasi OTP saat login pertama.` : `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`
+    description: isAdminOrStaffCreated ? `Mitra baru "${newMitra.fullName}" (${newMitra.email}, ${newMitra.memberCode}) ditambahkan langsung oleh ${actorName || (actorRole === "staff" ? "Staf" : "Admin")} dan otomatis disetujui (Approved). Akun menunggu verifikasi OTP saat login pertama.` : `Pendaftaran mitra baru "${newMitra.fullName}" (${newMitra.email}, Role: ${assignedRole}) dengan ${appSettings.specializationLabel || DEFAULT_SPECIALIZATION_LABEL2}: ${newMitra.specialization}. Kode OTP 6-digit dikirim ke email.`
   });
   if (db) {
     try {
@@ -8312,14 +8935,14 @@ app.get("/api/settings", async (req, res) => {
     const existingMitra = Array.isArray(appSettings.mitraCustomFields) ? appSettings.mitraCustomFields : [];
     const hasDef = existingMitra.some((f) => Boolean(f.systemKey || f.isDefault));
     if (!hasDef) {
-      appSettings.mitraCustomFields = [...DEFAULT_MITRA_FORM_FIELDS, ...existingMitra];
+      appSettings.mitraCustomFields = [...DEFAULT_MITRA_FORM_FIELDS2, ...existingMitra];
     }
     appSettings.mitraFieldsInitialized = true;
     settingsMigrated = true;
   }
-  const currentMitraFields = Array.isArray(appSettings.mitraCustomFields) ? appSettings.mitraCustomFields : [...DEFAULT_MITRA_FORM_FIELDS];
+  const currentMitraFields = Array.isArray(appSettings.mitraCustomFields) ? appSettings.mitraCustomFields : [...DEFAULT_MITRA_FORM_FIELDS2];
   if (!currentMitraFields.some((f) => f.systemKey === "ktpFile" || f.id === "mitra-def-ktpFile")) {
-    const ktpDef = DEFAULT_MITRA_FORM_FIELDS.find((f) => f.systemKey === "ktpFile");
+    const ktpDef = DEFAULT_MITRA_FORM_FIELDS2.find((f) => f.systemKey === "ktpFile");
     if (ktpDef) {
       const nikIdx = currentMitraFields.findIndex((f) => f.systemKey === "nik" || f.id === "mitra-def-nik");
       const nextFields = [...currentMitraFields];
@@ -8921,7 +9544,7 @@ app.get("/api/datatables/:resource", async (req, res) => {
     allItems.sort((a, b) => b._ts - a._ts);
     filteredItems = allItems.filter((l) => {
       if (!search) return true;
-      return (l.letterNumber || "").toLowerCase().includes(search) || (l.companyName || "").toLowerCase().includes(search) || (l.companyAddress || "").toLowerCase().includes(search) || (l.mitraName || "").toLowerCase().includes(search) || (l.mitraMemberCode || "").toLowerCase().includes(search) || (l.createdByName || "").toLowerCase().includes(search);
+      return (l.letterNumber || "").toLowerCase().includes(search) || (l.companyName || "").toLowerCase().includes(search) || (l.businessField || "").toLowerCase().includes(search) || (l.companyAddress || "").toLowerCase().includes(search) || (l.mitraName || "").toLowerCase().includes(search) || (l.mitraMemberCode || "").toLowerCase().includes(search) || (l.createdByName || "").toLowerCase().includes(search);
     });
   } else if (resource === "prospects-summary") {
     const safeList = toPublicSafeMitraList(normalizeMitraAvatars(mitras));
@@ -8951,7 +9574,7 @@ app.get("/api/datatables/:resource", async (req, res) => {
         latestLetterDate: latest ? latest.letterDate || latest.createdAt : null,
         latestCompanyName: latest ? latest.companyName : null,
         recentCompanies,
-        _allCompanyNames: mLetters.map((x) => x.companyName.toLowerCase()).join(" "),
+        _allCompanyNames: mLetters.map((x) => `${x.companyName || ""} ${x.businessField || ""}`.toLowerCase()).join(" "),
         _latestTs: latest ? Date.parse(latest.createdAt || latest.letterDate || "") || 0 : 0
       };
     });
@@ -9102,10 +9725,42 @@ app.get("/api/prospects/public-verify/:code", async (req, res) => {
     }
   });
 });
+app.post("/api/prospects/check-company", async (req, res) => {
+  const {
+    companyName: rawCompanyName,
+    targetMitraId: rawTargetMitraId,
+    excludeLetterId: rawExcludeLetterId
+  } = req.body || {};
+  const companyName = String(rawCompanyName || "").replace(/\s+/g, " ").trim();
+  const targetMitraId = String(rawTargetMitraId || "").trim();
+  const excludeLetterId = rawExcludeLetterId ? String(rawExcludeLetterId).trim() : void 0;
+  if (companyName.length < 2) {
+    return res.json({
+      success: true,
+      data: {
+        blocked: false,
+        exactMatches: [],
+        similarMatches: [],
+        ownMatches: []
+      }
+    });
+  }
+  const result = checkProspectCompanyDuplicates(
+    companyName,
+    prospectLetters,
+    targetMitraId,
+    excludeLetterId
+  );
+  return res.json({
+    success: true,
+    data: result
+  });
+});
 app.post("/api/prospects", async (req, res) => {
   try {
     const {
       companyName: rawCompanyName,
+      businessField: rawBusinessField,
       addressParts: rawAddressParts,
       companyAddress: rawCompanyAddress,
       mitraId: rawMitraId,
@@ -9120,6 +9775,13 @@ app.post("/api/prospects", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter)."
+      });
+    }
+    const businessField = String(rawBusinessField || "").replace(/\s+/g, " ").trim().slice(0, 100);
+    if (businessField.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "Bidang usaha wajib diisi (minimal 2 karakter)."
       });
     }
     const parts = rawAddressParts && typeof rawAddressParts === "object" ? {
@@ -9154,6 +9816,30 @@ app.post("/api/prospects", async (req, res) => {
         message: "Mitra tujuan tidak ditemukan. Silakan pilih Mitra yang terdaftar."
       });
     }
+    if (actorRole === "mitra" && targetMitra.status !== "verified") {
+      return res.status(403).json({
+        success: false,
+        code: "MITRA_NOT_VERIFIED",
+        message: "Akun Anda belum diverifikasi Admin sehingga belum dapat membuat surat penawaran."
+      });
+    }
+    if (isMitraDataIncomplete(targetMitra, appSettings)) {
+      return res.status(403).json({
+        success: false,
+        code: "MITRA_PROFILE_INCOMPLETE",
+        message: actorRole === "mitra" ? "Data Diri Anda belum lengkap. Mohon lengkapi NIK/NPWP, berkas KTP/NPWP, nomor WhatsApp, serta rekening bank pencairan komisi terlebih dahulu sebelum membuat surat penawaran." : `Data Diri Mitra "${targetMitra.fullName}" belum lengkap (NIK/NPWP, berkas KTP/NPWP, nomor WhatsApp, atau rekening bank). Lengkapi data mitra terlebih dahulu sebelum membuat surat penawaran.`
+      });
+    }
+    const dupCheck = checkProspectCompanyDuplicates(companyName, prospectLetters, targetMitra.id);
+    if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
+      const conflict = dupCheck.exactMatches[0];
+      return res.status(409).json({
+        success: false,
+        code: "COMPANY_ALREADY_CLAIMED",
+        message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} \xB7 ${conflict.mitraMemberCode}). Mitra lain tidak dapat membuat penawaran untuk perusahaan yang sama.`,
+        exactMatches: dupCheck.exactMatches
+      });
+    }
     const effectiveContent = resolveProspectLetterContent(void 0, appSettings.prospectLetterTemplate);
     const now = /* @__PURE__ */ new Date();
     const { sequenceNumber, letterNumber, verificationCode, letterDate } = generateNextProspectLetterMeta(now);
@@ -9164,6 +9850,7 @@ app.post("/api/prospects", async (req, res) => {
       verificationCode,
       letterDate,
       companyName,
+      businessField,
       companyAddress: assembledAddress,
       addressParts: parts,
       mitraId: targetMitra.id,
@@ -9189,7 +9876,7 @@ app.post("/api/prospects", async (req, res) => {
       actionType: "prospect_create",
       operation: "CREATE",
       targetEntity: `Surat Prospek ${newLetter.letterNumber}`,
-      description: actorRole === "mitra" ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName}.` : `${actorRole === "admin" ? "Admin" : "Staf"} (${actorName || "Tim Operasional"}) membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} atas nama Mitra ${targetMitra.fullName}.`
+      description: actorRole === "mitra" ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}).` : `${actorRole === "admin" ? "Admin" : "Staf"} (${actorName || "Tim Operasional"}) membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}) atas nama Mitra ${targetMitra.fullName}.`
     });
     return res.status(201).json({
       success: true,
@@ -9209,6 +9896,7 @@ app.put("/api/prospects/:id", async (req, res) => {
     const { id } = req.params;
     const {
       companyName: rawCompanyName,
+      businessField: rawBusinessField,
       addressParts: rawAddressParts,
       companyAddress: rawCompanyAddress,
       mitraId: rawMitraId,
@@ -9237,6 +9925,13 @@ app.put("/api/prospects/:id", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter)."
+      });
+    }
+    const nextBusinessField = rawBusinessField !== void 0 ? String(rawBusinessField || "").replace(/\s+/g, " ").trim().slice(0, 100) : existing.businessField || "";
+    if (rawBusinessField !== void 0 && nextBusinessField.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "Bidang usaha wajib diisi (minimal 2 karakter)."
       });
     }
     let nextParts = existing.addressParts;
@@ -9279,14 +9974,31 @@ app.put("/api/prospects/:id", async (req, res) => {
       }
       nextMitra = reassigned;
     }
+    const effectiveMitraId = nextMitra ? nextMitra.id : existing.mitraId;
+    const dupCheck = checkProspectCompanyDuplicates(
+      companyName,
+      prospectLetters,
+      effectiveMitraId,
+      existing.id
+    );
+    if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
+      const conflict = dupCheck.exactMatches[0];
+      return res.status(409).json({
+        success: false,
+        code: "COMPANY_ALREADY_CLAIMED",
+        message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} \xB7 ${conflict.mitraMemberCode}). Tidak dapat menggunakan perusahaan yang sama.`,
+        exactMatches: dupCheck.exactMatches
+      });
+    }
     const effectiveContent = resolveProspectLetterContent(void 0, appSettings.prospectLetterTemplate);
     const updatedLetter = {
       ...existing,
       companyName,
+      businessField: nextBusinessField || existing.businessField,
       companyAddress: nextAddress,
       addressParts: nextParts,
       customContent: void 0,
-      mitraId: nextMitra ? nextMitra.id : existing.mitraId,
+      mitraId: effectiveMitraId,
       mitraName: nextMitra ? nextMitra.fullName : existing.mitraName,
       mitraMemberCode: nextMitra ? nextMitra.memberCode || "-" : existing.mitraMemberCode,
       mitraPhone: nextMitra ? nextMitra.phone || "-" : existing.mitraPhone,
@@ -10639,8 +11351,8 @@ export {
   DEFAULT_CLIENT_FORM_FIELDS,
   DEFAULT_COMMISSION_SCHEME,
   DEFAULT_FIRM_TAGLINE,
-  DEFAULT_MITRA_FORM_FIELDS,
-  DEFAULT_SPECIALIZATION_LABEL,
+  DEFAULT_MITRA_FORM_FIELDS2 as DEFAULT_MITRA_FORM_FIELDS,
+  DEFAULT_SPECIALIZATION_LABEL2 as DEFAULT_SPECIALIZATION_LABEL,
   DEFAULT_SPECIALIZATION_OPTIONS,
   DEFAULT_STAFF_ALLOWED_MENUS,
   LEGACY_SEEDED_CHAT_MSG_IDS,

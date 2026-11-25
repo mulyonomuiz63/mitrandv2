@@ -18,8 +18,13 @@ import {
   FileEdit,
   RotateCcw,
   Mail,
+  Briefcase,
+  AlertTriangle,
+  ShieldAlert,
+  Info,
 } from 'lucide-react';
 import {
+  AppSettings,
   AuthUser,
   DEFAULT_PROSPECT_LETTER_CONTENT,
   Mitra,
@@ -27,6 +32,7 @@ import {
   ProspectLetter,
   ProspectLetterContent,
   ProspectMitraSummaryRow,
+  isMitraDataIncomplete,
   resolveProspectLetterContent,
 } from '../types';
 import { ProspectsSubTab } from '../utils/navigationHistory';
@@ -35,6 +41,7 @@ import {
   assembleStructuredAddress,
   formatIndonesianLetterDate,
 } from '../utils/prospectLetterPdf';
+import type { ProspectCompanyCheckResult } from '../utils/prospectCompanyMatcher';
 import {
   ServerDataTableFooter,
   ServerDataTableMeta,
@@ -53,6 +60,10 @@ interface ProspectsHubProps {
   currentUser: AuthUser | null;
   activeMitra: Mitra;
   allMitras: Mitra[];
+  settings?: AppSettings | null;
+  isProfileIncomplete?: boolean;
+  onOpenProfileEdit?: () => void;
+  onRequireCompleteProfile?: () => void;
   logoUrl?: string;
   initialLetterTemplate?: Partial<ProspectLetterContent>;
   activeSubTab?: ProspectsSubTab;
@@ -80,7 +91,15 @@ const EMPTY_ADDRESS: ProspectAddressParts = {
 };
 
 const MAX_COMPANY_NAME_LEN = 90;
+const MAX_BUSINESS_FIELD_LEN = 100;
 const MAX_ADDRESS_COMBINED_LEN = 220;
+
+const EMPTY_COMPANY_CHECK: ProspectCompanyCheckResult = {
+  blocked: false,
+  exactMatches: [],
+  similarMatches: [],
+  ownMatches: [],
+};
 
 function extractAddressPartsFromLetter(letter: ProspectLetter): ProspectAddressParts {
   if (letter.addressParts && typeof letter.addressParts === 'object') {
@@ -105,6 +124,10 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   currentUser,
   activeMitra,
   allMitras,
+  settings,
+  isProfileIncomplete,
+  onOpenProfileEdit,
+  onRequireCompleteProfile,
   logoUrl,
   initialLetterTemplate,
   activeSubTab = 'mitra_summary',
@@ -115,6 +138,13 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   const confirm = useConfirm();
   const isStaff = userRole === 'admin' && currentUser?.roleCode === 'staff';
   const isAdminOrStaff = userRole === 'admin';
+
+  const mitraVerified = isAdminOrStaff || activeMitra.status === 'verified';
+  const mitraProfileIncomplete = useMemo(() => {
+    if (isAdminOrStaff) return false;
+    if (typeof isProfileIncomplete === 'boolean') return isProfileIncomplete;
+    return isMitraDataIncomplete(activeMitra, settings);
+  }, [isAdminOrStaff, isProfileIncomplete, activeMitra, settings]);
 
   // Local sub-tab fallback if parent doesn't control it
   const [localSubTab, setLocalSubTab] = useState<ProspectsSubTab>(activeSubTab);
@@ -376,9 +406,58 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   const [targetMitraId, setTargetMitraId] = useState<string>('');
   const [mitraPickerQuery, setMitraPickerQuery] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [businessField, setBusinessField] = useState('');
   const [addressParts, setAddressParts] = useState<ProspectAddressParts>(EMPTY_ADDRESS);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [companyCheck, setCompanyCheck] = useState<ProspectCompanyCheckResult>(EMPTY_COMPANY_CHECK);
+  const [companyCheckLoading, setCompanyCheckLoading] = useState(false);
+
+  // Live debounced duplicate & fuzzy similarity check when typing company name
+  useEffect(() => {
+    if (!isFormOpen) return;
+    const trimmed = companyName.replace(/\s+/g, ' ').trim();
+    const effectiveMitra = isAdminOrStaff ? targetMitraId : activeMitra.id;
+    if (trimmed.length < 2) {
+      setCompanyCheck(EMPTY_COMPANY_CHECK);
+      setCompanyCheckLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCompanyCheckLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch('/api/prospects/check-company', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-skip-crud-alert': 'true',
+          },
+          body: JSON.stringify({
+            companyName: trimmed,
+            targetMitraId: effectiveMitra,
+            excludeLetterId: editingLetter?.id,
+          }),
+        });
+        const json = await res.json();
+        if (!cancelled && res.ok && json?.success && json?.data) {
+          setCompanyCheck(json.data);
+        }
+      } catch {
+        // Keep last valid state on transient network glitch; backend still enforces on submit
+      } finally {
+        if (!cancelled) {
+          setCompanyCheckLoading(false);
+        }
+      }
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isFormOpen, companyName, targetMitraId, isAdminOrStaff, activeMitra.id, editingLetter?.id]);
 
   // =========================================================================
   // 5. ADMIN/STAF GLOBAL TEMPLATE EDITOR MODAL STATE
@@ -404,15 +483,50 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     );
   }, [allMitras, mitraPickerQuery]);
 
+  const mitraCompletenessMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const m of allMitras) {
+      map.set(m.id, isMitraDataIncomplete(m, settings));
+    }
+    return map;
+  }, [allMitras, settings]);
+
+  const selectedTargetMitra = useMemo(
+    () => (isAdminOrStaff ? allMitras.find((m) => m.id === targetMitraId) : activeMitra),
+    [isAdminOrStaff, allMitras, targetMitraId, activeMitra]
+  );
+
+  const isSelectedTargetMitraIncomplete = useMemo(() => {
+    if (editingLetter) return false;
+    if (!isAdminOrStaff) return mitraProfileIncomplete;
+    if (!selectedTargetMitra) return false;
+    return mitraCompletenessMap.get(selectedTargetMitra.id) ?? isMitraDataIncomplete(selectedTargetMitra, settings);
+  }, [editingLetter, isAdminOrStaff, mitraProfileIncomplete, selectedTargetMitra, mitraCompletenessMap, settings]);
+
   const openCreateModal = (preselectedMitraId?: string) => {
+    if (!isAdminOrStaff) {
+      if (!mitraVerified) return;
+      if (mitraProfileIncomplete) {
+        if (onRequireCompleteProfile) {
+          onRequireCompleteProfile();
+        } else {
+          onOpenProfileEdit?.();
+        }
+        return;
+      }
+    }
     setEditingLetter(null);
     setFormError('');
     setCompanyName('');
+    setBusinessField('');
+    setCompanyCheck(EMPTY_COMPANY_CHECK);
     setAddressParts({ ...EMPTY_ADDRESS });
     setMitraPickerQuery('');
     if (isAdminOrStaff) {
       const preferred =
         preselectedMitraId ||
+        allMitras.find((m) => m.status === 'verified' && !isMitraDataIncomplete(m, settings))?.id ||
+        allMitras.find((m) => !isMitraDataIncomplete(m, settings))?.id ||
         allMitras.find((m) => m.status === 'verified')?.id ||
         allMitras[0]?.id ||
         '';
@@ -427,6 +541,8 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     setEditingLetter(letter);
     setFormError('');
     setCompanyName(letter.companyName || '');
+    setBusinessField(letter.businessField || '');
+    setCompanyCheck(EMPTY_COMPANY_CHECK);
     setAddressParts(extractAddressPartsFromLetter(letter));
     setMitraPickerQuery('');
     setTargetMitraId(letter.mitraId || activeMitra.id);
@@ -457,12 +573,30 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     setFormError('');
 
     const trimmedCompany = companyName.replace(/\s+/g, ' ').trim();
+    const trimmedBusinessField = businessField.replace(/\s+/g, ' ').trim();
     if (trimmedCompany.length < 2) {
       setFormError('Nama perusahaan wajib diisi (minimal 2 karakter).');
       return;
     }
     if (trimmedCompany.length > MAX_COMPANY_NAME_LEN) {
       setFormError(`Nama perusahaan maksimal ${MAX_COMPANY_NAME_LEN} karakter.`);
+      return;
+    }
+    if (trimmedBusinessField.length < 2) {
+      setFormError('Bidang usaha wajib diisi (minimal 2 karakter).');
+      return;
+    }
+    if (trimmedBusinessField.length > MAX_BUSINESS_FIELD_LEN) {
+      setFormError(`Bidang usaha maksimal ${MAX_BUSINESS_FIELD_LEN} karakter.`);
+      return;
+    }
+    if (companyCheck.blocked) {
+      const conflict = companyCheck.exactMatches[0];
+      setFormError(
+        conflict
+          ? `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName}). Anda tidak dapat membuat surat penawaran untuk perusahaan yang sama.`
+          : 'Perusahaan ini sudah dibuatkan surat penawaran oleh Mitra lain.'
+      );
       return;
     }
     if (!addressParts.street.trim() || !addressParts.village.trim() || !addressParts.district.trim() || !addressParts.city.trim() || !addressParts.province.trim()) {
@@ -479,6 +613,14 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       setFormError('Pilih Mitra tujuan terlebih dahulu.');
       return;
     }
+    if (!editingLetter && isSelectedTargetMitraIncomplete) {
+      setFormError(
+        isAdminOrStaff
+          ? `Data Diri Mitra "${selectedTargetMitra?.fullName || ''}" belum lengkap. Lengkapi data mitra terlebih dahulu sebelum membuat surat penawaran.`
+          : 'Data Diri Anda belum lengkap. Mohon lengkapi NIK/NPWP, berkas KTP/NPWP, nomor WhatsApp, serta rekening bank terlebih dahulu.'
+      );
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -488,6 +630,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
 
       const payload: Record<string, unknown> = {
         companyName: trimmedCompany,
+        businessField: trimmedBusinessField,
         addressParts,
         mitraId: chosenMitraId,
         actorRole: isAdminOrStaff ? (isStaff ? 'staff' : 'admin') : 'mitra',
@@ -503,6 +646,13 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       });
       const json = await res.json();
       if (!res.ok || !json?.success || !json?.data) {
+        if (res.status === 409 && Array.isArray(json?.exactMatches)) {
+          setCompanyCheck((prev) => ({
+            ...prev,
+            blocked: true,
+            exactMatches: json.exactMatches,
+          }));
+        }
         setFormError(json?.message || (isEdit ? 'Gagal memperbarui surat.' : 'Gagal membuat surat.'));
         return;
       }
@@ -600,8 +750,6 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     }
   };
 
-  const mitraVerified = isAdminOrStaff || activeMitra.status === 'verified';
-
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-6 space-y-6">
       {/* Header Bar */}
@@ -631,16 +779,30 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
             title={
               !mitraVerified
                 ? 'Akun Anda sedang menunggu verifikasi Admin.'
+                : mitraProfileIncomplete
+                ? 'Lengkapi Data Diri terlebih dahulu sebelum membuat surat penawaran.'
                 : undefined
             }
             className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-xl transition-all shrink-0 shadow-xs cursor-pointer ${
-              mitraVerified
-                ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 hover:brightness-110'
-                : 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+              !mitraVerified
+                ? 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                : mitraProfileIncomplete
+                ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
+                : 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 hover:brightness-110'
             }`}
           >
-            {mitraVerified ? <Plus className="w-4 h-4 shrink-0" /> : <Lock className="w-4 h-4 shrink-0" />}
-            <span>{isAdminOrStaff ? 'Buat Surat untuk Mitra' : 'Buat Surat Penawaran'}</span>
+            {!mitraVerified || mitraProfileIncomplete ? (
+              <Lock className="w-4 h-4 shrink-0" />
+            ) : (
+              <Plus className="w-4 h-4 shrink-0" />
+            )}
+            <span>
+              {isAdminOrStaff
+                ? 'Buat Surat untuk Mitra'
+                : mitraProfileIncomplete
+                ? 'Buat Surat Penawaran (Lengkapi Data Diri)'
+                : 'Buat Surat Penawaran'}
+            </span>
           </button>
         </div>
       </div>
@@ -655,6 +817,30 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
               Setelah akun disetujui Admin, Anda dapat langsung membuat surat penawaran resmi.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Incomplete Mitra Profile Notice */}
+      {mitraVerified && mitraProfileIncomplete && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950">
+          <div className="flex items-start gap-3">
+            <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Data Diri Belum Lengkap — Pembuatan Surat Penawaran Terkunci</p>
+              <p className="text-amber-800 mt-0.5 leading-relaxed">
+                Lengkapi Data Diri Anda (NIK/NPWP, Upload File KTP/NPWP, Nomor WhatsApp, serta Rekening Bank Pencairan Komisi) terlebih dahulu sebelum dapat membuat surat penawaran resmi.
+              </p>
+            </div>
+          </div>
+          {onOpenProfileEdit && (
+            <button
+              type="button"
+              onClick={onOpenProfileEdit}
+              className="px-4 py-2 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-xs shrink-0 self-start sm:self-auto cursor-pointer"
+            >
+              Lengkapi Data Diri Sekarang
+            </button>
+          )}
         </div>
       )}
 
@@ -782,7 +968,9 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  summaryRows.map((row) => (
+                  summaryRows.map((row) => {
+                    const rowMitraIncomplete = mitraCompletenessMap.get(row.mitraId) ?? false;
+                    return (
                     <tr key={row.mitraId} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4 sm:px-6">
                         <div className="flex items-center gap-3 min-w-[200px]">
@@ -796,6 +984,12 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                             <p className="text-[11px] text-slate-500 font-mono truncate">
                               {row.memberCode} · {row.phone}
                             </p>
+                            {rowMitraIncomplete && (
+                              <p className="text-[10px] font-semibold text-amber-700 mt-0.5 flex items-center gap-1">
+                                <Lock className="w-3 h-3 shrink-0" />
+                                <span>Data Diri Belum Lengkap</span>
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -850,15 +1044,30 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                           <button
                             type="button"
                             onClick={() => openCreateModal(row.mitraId)}
-                            className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] border border-amber-400/30 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
+                            disabled={rowMitraIncomplete}
+                            title={
+                              rowMitraIncomplete
+                                ? 'Data diri mitra belum lengkap sehingga belum dapat dibuatkan surat penawaran.'
+                                : undefined
+                            }
+                            className={`px-2.5 py-1.5 text-xs font-bold rounded-lg inline-flex items-center gap-1 transition-colors ${
+                              rowMitraIncomplete
+                                ? 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                                : 'text-amber-300 bg-[#092147] hover:bg-[#113872] border border-amber-400/30 cursor-pointer'
+                            }`}
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            {rowMitraIncomplete ? (
+                              <Lock className="w-3.5 h-3.5" />
+                            ) : (
+                              <Plus className="w-3.5 h-3.5" />
+                            )}
                             <span>Buat Surat</span>
                           </button>
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -912,7 +1121,9 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <th className="py-3 px-4 sm:px-6 whitespace-nowrap">Nomor &amp; Tanggal</th>
-                  <th className="py-3 px-4">Perusahaan Prospek &amp; Alamat</th>
+                  <th className="py-3 px-4">
+                    {isAdminOrStaff ? 'Perusahaan, Bidang & Alamat' : 'Perusahaan Prospek & Alamat'}
+                  </th>
                   {isAdminOrStaff && <th className="py-3 px-4 whitespace-nowrap">Mitra Strategis</th>}
                   <th className="py-3 px-4 sm:px-6 text-right whitespace-nowrap">Aksi</th>
                 </tr>
@@ -950,6 +1161,14 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                           <Building2 className="w-3.5 h-3.5 text-[#092147] shrink-0" />
                           <span className="break-words">{letter.companyName}</span>
                         </p>
+                        {isAdminOrStaff && (
+                          <p className="text-[11px] text-indigo-800 font-semibold mt-1 flex items-center gap-1.5">
+                            <Briefcase className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                            <span className="break-words">
+                              Bidang: {letter.businessField?.trim() || 'Belum diisi'}
+                            </span>
+                          </p>
+                        )}
                         <p className="text-[11px] text-slate-600 mt-1 leading-relaxed flex items-start gap-1.5">
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                           <span className="break-words">{letter.companyAddress}</span>
@@ -1103,7 +1322,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                       <th className="py-3 px-4 whitespace-nowrap">Nomor &amp; Tanggal</th>
-                      <th className="py-3 px-4">Perusahaan &amp; Alamat</th>
+                      <th className="py-3 px-4">Perusahaan, Bidang &amp; Alamat</th>
                       <th className="py-3 px-4 text-right whitespace-nowrap">Aksi</th>
                     </tr>
                   </thead>
@@ -1128,6 +1347,10 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                           </td>
                           <td className="py-3 px-4 align-top">
                             <p className="font-bold text-slate-900">{letter.companyName}</p>
+                            <p className="text-[11px] text-indigo-800 font-semibold mt-0.5 flex items-center gap-1">
+                              <Briefcase className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span>Bidang: {letter.businessField?.trim() || 'Belum diisi'}</span>
+                            </p>
                             <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
                               {letter.companyAddress}
                             </p>
@@ -1263,28 +1486,48 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                         className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                       >
                         <option value="">Pilih mitra</option>
-                        {selectableMitras.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.fullName} — {m.memberCode}
-                          </option>
-                        ))}
+                        {selectableMitras.map((m) => {
+                          const incomplete = mitraCompletenessMap.get(m.id) ?? false;
+                          return (
+                            <option key={m.id} value={m.id}>
+                              {m.fullName} — {m.memberCode}
+                              {incomplete ? ' (Data Belum Lengkap)' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
+                      {!editingLetter && isSelectedTargetMitraIncomplete && (
+                        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-900 flex items-start gap-2">
+                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>
+                            Data Diri Mitra ini belum lengkap (NIK/NPWP, berkas KTP/NPWP, nomor WhatsApp, atau rekening bank). Surat penawaran tidak dapat dibuat sebelum data mitra dilengkapi.
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* Nama Perusahaan */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
+                  {/* Nama Perusahaan + Live Anti-Duplicate & Similarity Filter */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-bold text-slate-800">
                         Nama Perusahaan *
                       </label>
-                      <span
-                        className={`text-[11px] font-mono tabular-nums ${
-                          companyName.length >= MAX_COMPANY_NAME_LEN ? 'text-amber-600 font-bold' : 'text-slate-400'
-                        }`}
-                      >
-                        {companyName.length}/{MAX_COMPANY_NAME_LEN}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {companyCheckLoading && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Memeriksa...</span>
+                          </span>
+                        )}
+                        <span
+                          className={`text-[11px] font-mono tabular-nums ${
+                            companyName.length >= MAX_COMPANY_NAME_LEN ? 'text-amber-600 font-bold' : 'text-slate-400'
+                          }`}
+                        >
+                          {companyName.length}/{MAX_COMPANY_NAME_LEN}
+                        </span>
+                      </div>
                     </div>
                     <input
                       type="text"
@@ -1292,9 +1535,130 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                       maxLength={MAX_COMPANY_NAME_LEN}
                       value={companyName}
                       onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Nama perusahaan"
+                      placeholder="Contoh: PT Maju Jaya Nusantara"
+                      className={`w-full px-3.5 py-2.5 text-sm bg-white border rounded-xl focus:outline-hidden focus:ring-2 ${
+                        companyCheck.blocked
+                          ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/30'
+                          : companyCheck.similarMatches.length > 0
+                          ? 'border-amber-400 focus:ring-amber-500'
+                          : 'border-slate-300 focus:ring-blue-600'
+                      }`}
+                    />
+
+                    {/* HARD BLOCK: Exact same company already registered by another Mitra */}
+                    {companyCheck.blocked && companyCheck.exactMatches.length > 0 && (
+                      <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-300 text-xs text-rose-900 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <p className="font-bold text-rose-900">
+                              Perusahaan sudah dibuatkan surat penawaran oleh Mitra lain
+                            </p>
+                            <p className="text-[11px] text-rose-800 leading-relaxed">
+                              Surat penawaran tidak dapat dibuat karena perusahaan yang sama sudah terdaftar atas nama Mitra lain.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 pl-6">
+                          {companyCheck.exactMatches.map((m) => (
+                            <div
+                              key={m.letterId}
+                              className="p-2 rounded-lg bg-white/90 border border-rose-200 text-[11px] space-y-0.5"
+                            >
+                              <p className="font-bold text-slate-900">{m.companyName}</p>
+                              <p className="text-slate-600">
+                                Mitra: <span className="font-semibold text-slate-800">{m.mitraName}</span>{' '}
+                                <span className="font-mono text-slate-500">({m.mitraMemberCode})</span> ·{' '}
+                                {formatIndonesianLetterDate(m.letterDate)}
+                              </p>
+                              {m.companyAddress && (
+                                <p className="text-slate-500 truncate">{m.companyAddress}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* WARNING (NON-BLOCKING): Similar/near-match companies by another Mitra */}
+                    {!companyCheck.blocked && companyCheck.similarMatches.length > 0 && (
+                      <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <p className="font-bold text-amber-950">
+                              Ditemukan nama perusahaan yang mirip dari Mitra lain
+                            </p>
+                            <p className="text-[11px] text-amber-900 leading-relaxed">
+                              Mohon periksa daftar di bawah agar tidak terjadi penawaran ganda. Jika perusahaan ini memang berbeda, Anda tetap dapat melanjutkan membuat surat penawaran.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 pl-6">
+                          {companyCheck.similarMatches.map((m) => (
+                            <div
+                              key={m.letterId}
+                              className="p-2 rounded-lg bg-white/90 border border-amber-200 text-[11px] space-y-0.5"
+                            >
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <p className="font-bold text-slate-900">{m.companyName}</p>
+                                <span className="text-[10px] font-semibold text-amber-800">
+                                  {m.matchReason}
+                                </span>
+                              </div>
+                              <p className="text-slate-600">
+                                Mitra: <span className="font-semibold text-slate-800">{m.mitraName}</span>{' '}
+                                <span className="font-mono text-slate-500">({m.mitraMemberCode})</span> ·{' '}
+                                {formatIndonesianLetterDate(m.letterDate)}
+                              </p>
+                              {m.companyAddress && (
+                                <p className="text-slate-500 truncate">{m.companyAddress}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* INFO: Same Mitra previously created a letter for this company */}
+                    {!companyCheck.blocked && companyCheck.ownMatches.length > 0 && (
+                      <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
+                        <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <p className="text-[11px] leading-relaxed">
+                          Anda sebelumnya sudah membuat surat penawaran untuk{' '}
+                          <span className="font-bold">{companyCheck.ownMatches[0].companyName}</span> (
+                          <span className="font-mono">{companyCheck.ownMatches[0].letterNumber}</span>). Anda tetap dapat membuat surat baru jika diperlukan.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bidang Usaha (Pengumpulan data internal — tidak ditampilkan di surat) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-slate-800">
+                        Bidang Usaha *
+                      </label>
+                      <span
+                        className={`text-[11px] font-mono tabular-nums ${
+                          businessField.length >= MAX_BUSINESS_FIELD_LEN ? 'text-amber-600 font-bold' : 'text-slate-400'
+                        }`}
+                      >
+                        {businessField.length}/{MAX_BUSINESS_FIELD_LEN}
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      maxLength={MAX_BUSINESS_FIELD_LEN}
+                      value={businessField}
+                      onChange={(e) => setBusinessField(e.target.value)}
+                      placeholder="Contoh: Konstruksi, Manufaktur, Perdagangan, F&B, Logistik, Klinik"
                       className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                     />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Untuk pendataan internal — tidak ditampilkan pada surat penawaran.
+                    </p>
                   </div>
 
                   {/* Alamat Perusahaan Berurutan */}
@@ -1463,8 +1827,14 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting || isAddressOverLimit}
-                  className="px-5 py-2.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl inline-flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
+                  disabled={
+                    submitting ||
+                    isAddressOverLimit ||
+                    companyCheck.blocked ||
+                    companyCheckLoading ||
+                    (!editingLetter && isSelectedTargetMitraIncomplete)
+                  }
+                  className="px-5 py-2.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl inline-flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {submitting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
