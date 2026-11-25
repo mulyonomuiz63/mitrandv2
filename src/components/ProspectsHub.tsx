@@ -1632,9 +1632,6 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                       placeholder="Contoh: Konstruksi, Manufaktur, Perdagangan, F&B, Logistik, Klinik"
                       className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                     />
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Untuk pendataan internal — tidak ditampilkan pada surat penawaran.
-                    </p>
                   </div>
 
                   {/* Alamat Perusahaan Berurutan */}
