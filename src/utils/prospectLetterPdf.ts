@@ -176,13 +176,15 @@ async function loadRasterizedLogoPng(srcUrl: string): Promise<RasterizedLogo | n
 
     const natW = img.naturalWidth || img.width || 300;
     const natH = img.naturalHeight || img.height || 300;
-    const scale = Math.max(2, Math.min(4, 600 / Math.max(natW, natH)));
+    const scale = Math.max(2, Math.min(5, 1400 / Math.max(natW, natH)));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(natW * scale));
     canvas.height = Math.max(1, Math.round(natH * scale));
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/png');
     const result: RasterizedLogo = { dataUrl, width: natW, height: natH };
@@ -229,7 +231,7 @@ export async function resolveInlineProspectLogo(
 
 export async function generateQrDataUrl(content: string): Promise<string> {
   return QRCode.toDataURL(content, {
-    width: 320,
+    width: 640,
     margin: 1,
     errorCorrectionLevel: 'M',
     color: {

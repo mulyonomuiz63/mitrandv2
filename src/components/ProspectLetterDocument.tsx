@@ -940,17 +940,23 @@ async function waitForImages(container: HTMLElement): Promise<void> {
 
 /**
  * Renders a self-contained inline-styled A4 DOM page directly via XHTML
- * SVG foreignObject -> high-DPI Canvas. Avoids cloning global Tailwind v4
- * stylesheets, producing pixel-identical output to the View modal.
+ * SVG foreignObject -> high-DPI Canvas at native scaled resolution (default 3.5x = 336 DPI).
+ * Sizing both <svg> and <foreignObject> to scaledW x scaledH and applying CSS transform: scale()
+ * forces browsers (Chrome, Edge, Safari, Firefox) to rasterize fonts, borders, logos, and QR codes
+ * natively at print-grade HD resolution instead of upscaling a blurry 96 DPI bitmap.
  */
-async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 2): Promise<string> {
+async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 3.5): Promise<string> {
+  const scaledW = Math.round(A4_WIDTH_PX * scale);
+  const scaledH = Math.round(A4_HEIGHT_PX * scale);
   const serialized = new XMLSerializer().serializeToString(pageEl);
   const svgXml = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${A4_WIDTH_PX}" height="${A4_HEIGHT_PX}" viewBox="0 0 ${A4_WIDTH_PX} ${A4_HEIGHT_PX}">`,
-    `<foreignObject x="0" y="0" width="100%" height="100%">`,
-    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${A4_WIDTH_PX}px;height:${A4_HEIGHT_PX}px;margin:0;padding:0;background:#ffffff;color:#000000;font-family:Arial,Helvetica,sans-serif;">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${scaledW}" height="${scaledH}" viewBox="0 0 ${scaledW} ${scaledH}">`,
+    `<foreignObject x="0" y="0" width="${scaledW}" height="${scaledH}">`,
+    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${scaledW}px;height:${scaledH}px;overflow:hidden;position:relative;margin:0;padding:0;background:#ffffff;">`,
+    `<div style="width:${A4_WIDTH_PX}px;height:${A4_HEIGHT_PX}px;transform:scale(${scale});transform-origin:top left;margin:0;padding:0;background:#ffffff;color:#000000;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;">`,
     `<style>*,*::before,*::after{box-sizing:border-box;}p{margin:0;}table{border-collapse:collapse;border-spacing:0;}img{display:block;max-width:none;}</style>`,
     serialized,
+    `</div>`,
     `</div>`,
     `</foreignObject>`,
     `</svg>`,
@@ -960,23 +966,32 @@ async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 2): Promise
 
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
+    image.width = scaledW;
+    image.height = scaledH;
     image.decoding = 'async';
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      if (typeof image.decode === 'function') {
+        image.decode().then(() => resolve(image)).catch(() => resolve(image));
+      } else {
+        resolve(image);
+      }
+    };
     image.onerror = () => reject(new Error('SVG foreignObject image failed to render'));
     image.src = svgDataUrl;
   });
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(A4_WIDTH_PX * scale);
-  canvas.height = Math.round(A4_HEIGHT_PX * scale);
+  canvas.width = scaledW;
+  canvas.height = scaledH;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Canvas 2D context unavailable');
   }
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.scale(scale, scale);
-  ctx.drawImage(img, 0, 0, A4_WIDTH_PX, A4_HEIGHT_PX);
+  ctx.fillRect(0, 0, scaledW, scaledH);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, scaledW, scaledH);
 
   return canvas.toDataURL('image/png');
 }
@@ -984,8 +999,8 @@ async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 2): Promise
 /**
  * Downloads the 4-page A4 PDF by rendering the EXACT same View layout
  * (`ProspectLetterDocument`) at native 794x1123px (210mm x 297mm) and
- * capturing each page directly into a 4-page A4 PDF so View and
- * Download PDF match identically.
+ * capturing each page at 336 DPI HD (2779x3931px) directly into a 4-page A4 PDF
+ * so View and Download PDF match identically with crisp print-quality text.
  */
 export async function downloadProspectLetterPdfFromView(
   letter: ProspectLetter,
@@ -1058,7 +1073,12 @@ export async function downloadProspectLetterPdfFromView(
     });
 
     for (let i = 0; i < pageNodes.length; i++) {
-      const pngDataUrl = await renderA4NodeToPngDataUrl(pageNodes[i], 2);
+      let pngDataUrl: string;
+      try {
+        pngDataUrl = await renderA4NodeToPngDataUrl(pageNodes[i], 3.5);
+      } catch {
+        pngDataUrl = await renderA4NodeToPngDataUrl(pageNodes[i], 2.5);
+      }
       if (!pngDataUrl.startsWith('data:image/png;base64,') || pngDataUrl.length < 4000) {
         throw new Error(`Captured page ${i + 1} appears empty`);
       }
