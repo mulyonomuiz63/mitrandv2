@@ -60,28 +60,31 @@ interface RichEditableFieldProps {
   value: string;
   onChange: (val: string) => void;
   multiline?: boolean;
+  inline?: boolean;
   placeholder?: string;
   style?: React.CSSProperties;
   ariaLabel?: string;
-  onFieldFocus?: (el: HTMLDivElement) => void;
+  onFieldFocus?: (el: HTMLElement) => void;
   onSelectionActivity?: () => void;
 }
 
 /**
  * True WYSIWYG inline rich-text editable field built without innerHTML / dangerouslySetInnerHTML.
- * Displays live Bold, Italic, Underline, Strikethrough, and Text Color directly on the A4 letter sheet.
+ * Displays live Bold, Italic, Underline, Strikethrough, and Text Color directly on the A4 letter sheet
+ * with zero layout shift (uses outline instead of border and 0 padding so line wraps match Lihat Surat 1:1).
  */
 const RichEditableField: React.FC<RichEditableFieldProps> = ({
   value,
   onChange,
   multiline = true,
+  inline = false,
   placeholder,
   style,
   ariaLabel,
   onFieldFocus,
   onSelectionActivity,
 }) => {
-  const ref = useRef<HTMLDivElement | null>(null);
+  const ref = useRef<HTMLElement | null>(null);
   const lastEmittedRef = useRef<string | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -129,7 +132,7 @@ const RichEditableField: React.FC<RichEditableFieldProps> = ({
     return () => el.removeEventListener('nd-rich-sync', handleSync);
   }, [emitCurrentDom]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (!multiline && e.key === 'Enter') {
       e.preventDefault();
       return;
@@ -147,7 +150,7 @@ const RichEditableField: React.FC<RichEditableFieldProps> = ({
     }
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLElement>) => {
     e.preventDefault();
     const rawText = e.clipboardData.getData('text/plain') || '';
     const cleaned = multiline ? rawText.replace(/\r\n/g, '\n') : rawText.replace(/[\r\n]+/g, ' ');
@@ -165,51 +168,72 @@ const RichEditableField: React.FC<RichEditableFieldProps> = ({
     emitCurrentDom();
   };
 
+  const commonProps = {
+    contentEditable: true,
+    suppressContentEditableWarning: true,
+    role: 'textbox',
+    'aria-multiline': multiline,
+    'aria-label': ariaLabel,
+    'data-placeholder': placeholder || '',
+    onFocus: (e: React.FocusEvent<HTMLElement>) => {
+      onFieldFocus?.(e.currentTarget);
+      onSelectionActivity?.();
+    },
+    onInput: () => {
+      emitCurrentDom();
+      onSelectionActivity?.();
+    },
+    onBlur: () => emitCurrentDom(),
+    onKeyDown: handleKeyDown,
+    onKeyUp: () => onSelectionActivity?.(),
+    onMouseUp: () => onSelectionActivity?.(),
+    onPaste: handlePaste,
+    className: 'nd-wysiwyg-field',
+  };
+
+  const fieldStyle: React.CSSProperties = {
+    display: inline ? 'inline' : 'block',
+    width: inline ? 'auto' : '100%',
+    minHeight: inline ? undefined : '1em',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '2px',
+    padding: 0,
+    margin: 0,
+    outline: '1px dashed transparent',
+    outlineOffset: '1px',
+    fontFamily: 'inherit',
+    fontSize: 'inherit',
+    fontWeight: 'inherit',
+    lineHeight: 'inherit',
+    color: 'inherit',
+    textAlign: 'inherit',
+    boxSizing: 'border-box',
+    whiteSpace: inline ? 'pre-wrap' : multiline ? 'pre-wrap' : 'nowrap',
+    overflow: inline ? 'visible' : multiline ? 'visible' : 'hidden',
+    wordBreak: 'break-word',
+    ...style,
+  };
+
+  if (inline) {
+    return (
+      <span
+        ref={(node) => {
+          ref.current = node;
+        }}
+        {...commonProps}
+        style={fieldStyle}
+      />
+    );
+  }
+
   return (
     <div
-      ref={ref}
-      contentEditable
-      suppressContentEditableWarning
-      role="textbox"
-      aria-multiline={multiline}
-      aria-label={ariaLabel}
-      data-placeholder={placeholder || ''}
-      onFocus={(e) => {
-        onFieldFocus?.(e.currentTarget);
-        onSelectionActivity?.();
+      ref={(node) => {
+        ref.current = node;
       }}
-      onInput={() => {
-        emitCurrentDom();
-        onSelectionActivity?.();
-      }}
-      onBlur={() => emitCurrentDom()}
-      onKeyDown={handleKeyDown}
-      onKeyUp={() => onSelectionActivity?.()}
-      onMouseUp={() => onSelectionActivity?.()}
-      onPaste={handlePaste}
-      className="nd-wysiwyg-field"
-      style={{
-        display: 'block',
-        width: '100%',
-        minHeight: '1.15em',
-        background: 'transparent',
-        border: '1px dashed transparent',
-        borderRadius: '3px',
-        padding: '0 2px',
-        margin: 0,
-        outline: 'none',
-        fontFamily: 'inherit',
-        fontSize: 'inherit',
-        fontWeight: 'inherit',
-        lineHeight: 'inherit',
-        color: 'inherit',
-        textAlign: 'inherit',
-        boxSizing: 'border-box',
-        whiteSpace: multiline ? 'pre-wrap' : 'nowrap',
-        overflow: multiline ? 'visible' : 'hidden',
-        wordBreak: 'break-word',
-        ...style,
-      }}
+      {...commonProps}
+      style={fieldStyle}
     />
   );
 };
@@ -301,11 +325,20 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 }) => {
   const [pageTab, setPageTab] = useState<1 | 2 | 3 | 4>(1);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const bodyFrameRef = useRef<HTMLDivElement | null>(null);
   const bodyMeasureRef = useRef<HTMLDivElement | null>(null);
-  const activeFieldRef = useRef<HTMLDivElement | null>(null);
+  const activeFieldRef = useRef<HTMLElement | null>(null);
   const [scale, setScale] = useState(1);
   const [bodyHeightPx, setBodyHeightPx] = useState(0);
+  const [frameHeightPx, setFrameHeightPx] = useState(MAX_BODY_HEIGHT_PX);
   const [formatState, setFormatState] = useState<ActiveFormatState>(DEFAULT_FORMAT_STATE);
+  // Mirror ProspectLetterDocument's exact per-page auto-compact levels so Edit matches View 1:1
+  const [compactLevels, setCompactLevels] = useState<{ 1: number; 2: number; 3: number; 4: number }>({
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+  });
 
   const patch = <K extends keyof ProspectLetterContent>(key: K, nextVal: ProspectLetterContent[K]) => {
     onChange({ ...value, [key]: nextVal });
@@ -338,13 +371,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
     return () => document.removeEventListener('selectionchange', onSelChange);
   }, [refreshFormatState]);
 
-  const resolveTargetField = (): HTMLDivElement | null => {
+  const resolveTargetField = (): HTMLElement | null => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const anchor = sel.anchorNode;
       const anchorEl =
         anchor?.nodeType === Node.ELEMENT_NODE ? (anchor as HTMLElement) : anchor?.parentElement;
-      const matched = anchorEl?.closest('.nd-wysiwyg-field') as HTMLDivElement | null;
+      const matched = anchorEl?.closest('.nd-wysiwyg-field') as HTMLElement | null;
       if (matched) {
         activeFieldRef.current = matched;
         return matched;
@@ -427,35 +460,99 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
     };
   }, []);
 
-  // Measure active page body height in real time to detect overflow
+  // Reset active page compact level when content changes so it re-evaluates cleanly (exact parity with ProspectLetterDocument)
   useLayoutEffect(() => {
-    const el = bodyMeasureRef.current;
-    if (!el) return;
-    const measure = () => {
-      setBodyHeightPx(Math.ceil(el.scrollHeight));
-    };
-    measure();
-    const obs = new ResizeObserver(measure);
-    obs.observe(el);
-    return () => obs.disconnect();
+    setCompactLevels((prev) => (prev[pageTab] === 0 ? prev : { ...prev, [pageTab]: 0 }));
   }, [pageTab, value]);
 
-  const usagePct = Math.round((bodyHeightPx / MAX_BODY_HEIGHT_PX) * 100);
-  const overflowPx = Math.max(0, bodyHeightPx - MAX_BODY_HEIGHT_PX);
-  const isOverflowing = overflowPx > 2;
-  const isNearLimit = !isOverflowing && usagePct >= 93;
+  // Measure active page body height in real time and step compactLevel identically to ProspectLetterDocument
+  useLayoutEffect(() => {
+    const measureEl = bodyMeasureRef.current;
+    const frameEl = bodyFrameRef.current;
+    if (!measureEl || !frameEl) return;
+
+    const maxLevel = pageTab === 4 ? 4 : 6;
+    const measure = () => {
+      const availableH = frameEl.clientHeight || MAX_BODY_HEIGHT_PX;
+      const contentH = Math.ceil(measureEl.scrollHeight);
+      setFrameHeightPx(availableH);
+      setBodyHeightPx(contentH);
+      if (contentH > availableH + 1) {
+        setCompactLevels((prev) =>
+          prev[pageTab] < maxLevel ? { ...prev, [pageTab]: prev[pageTab] + 1 } : prev
+        );
+      }
+    };
+
+    measure();
+    const obs = new ResizeObserver(measure);
+    obs.observe(measureEl);
+    return () => obs.disconnect();
+  }, [pageTab, value, compactLevels]);
+
+  // Exact typography & spacing formulas mirrored from ProspectLetterDocument.tsx
+  const p1CompactLevel = compactLevels[1];
+  const p2CompactLevel = compactLevels[2];
+  const p3CompactLevel = compactLevels[3];
+  const p4CompactLevel = compactLevels[4];
+
+  const p1LH = [1.16, 1.13, 1.1, 1.07, 1.04, 1.02, 1.0][p1CompactLevel] || 1.16;
+  const p1GapMm = [3.4, 2.7, 2.1, 1.6, 1.2, 0.9, 0.7][p1CompactLevel] || 3.4;
+  const p1ItemGapMm = [2.0, 1.6, 1.3, 1.0, 0.8, 0.6, 0.5][p1CompactLevel] || 2.0;
+  const p1BodyFont =
+    p1CompactLevel >= 6 ? '9.8pt' : p1CompactLevel >= 5 ? '10.2pt' : p1CompactLevel >= 4 ? '10.5pt' : '11pt';
+  const p1RecipFont = p1CompactLevel >= 3 ? '10pt' : p1CompactLevel >= 2 ? '10.5pt' : '11pt';
+
+  const p2LH = [1.15, 1.12, 1.09, 1.06, 1.03, 1.01, 0.99][p2CompactLevel] || 1.15;
+  const p2ItemGapMm = [1.8, 1.4, 1.1, 0.8, 0.6, 0.45, 0.35][p2CompactLevel] || 1.8;
+  const p2SectionGapMm = [4.6, 3.6, 2.8, 2.2, 1.7, 1.3, 1.0][p2CompactLevel] || 4.6;
+  const p2BodyFont =
+    p2CompactLevel >= 6
+      ? '9.6pt'
+      : p2CompactLevel >= 5
+      ? '10pt'
+      : p2CompactLevel >= 4
+      ? '10.4pt'
+      : p2CompactLevel >= 3
+      ? '10.7pt'
+      : '11pt';
+
+  const p3LH = [1.16, 1.13, 1.1, 1.07, 1.04, 1.02, 1.0][p3CompactLevel] || 1.16;
+  const p3GapMm = [3.4, 2.8, 2.2, 1.7, 1.3, 1.0, 0.8][p3CompactLevel] || 3.4;
+  const p3CellPad =
+    p3CompactLevel >= 3 ? '1.1mm 2mm' : p3CompactLevel >= 1 ? '1.35mm 2.2mm' : '1.6mm 2.3mm';
+  const p3BodyFont =
+    p3CompactLevel >= 6 ? '9.8pt' : p3CompactLevel >= 5 ? '10.2pt' : p3CompactLevel >= 4 ? '10.5pt' : '11pt';
+  const p3TableFont = p3CompactLevel >= 5 ? '9.6pt' : p3CompactLevel >= 3 ? '10pt' : '10.8pt';
+
+  const p4LH = [1.22, 1.17, 1.12, 1.08, 1.04][p4CompactLevel] || 1.22;
+  const p4SigGapMm = [15, 11, 8, 6, 4][p4CompactLevel] || 15;
+
+  const activeBodyFont =
+    pageTab === 1 ? p1BodyFont : pageTab === 2 ? p2BodyFont : pageTab === 3 ? p3BodyFont : '11pt';
+  const activeBodyLH =
+    pageTab === 1 ? p1LH : pageTab === 2 ? p2LH : pageTab === 3 ? p3LH : p4LH;
+
+  const activeMaxCompact = pageTab === 4 ? 4 : 6;
+  const activeCompactLevel = compactLevels[pageTab];
+  const usagePct = Math.round((bodyHeightPx / frameHeightPx) * 100);
+  const overflowPx = Math.max(0, bodyHeightPx - frameHeightPx);
+  const isOverflowing = activeCompactLevel >= activeMaxCompact && overflowPx > 2;
+  const isNearLimit = !isOverflowing && usagePct >= 96;
 
   const fieldHandlers = {
-    onFieldFocus: (el: HTMLDivElement) => {
+    onFieldFocus: (el: HTMLElement) => {
       activeFieldRef.current = el;
     },
     onSelectionActivity: refreshFormatState,
   };
 
-  // Law items helper (Section I, II, III)
+  // Law items helper (Section I, II, III) — all edit actions live in the 30mm right margin gutter (0px layout impact!)
   const renderEditableLawList = (
     sectionKey: 'section1Items' | 'section2Items' | 'section3Items',
-    items: ProspectLetterLawItem[]
+    items: ProspectLetterLawItem[],
+    itemGapMm: number,
+    lastItemGapMm: number
   ) => {
     const updateItem = (idx: number, updated: ProspectLetterLawItem) => {
       const next = items.map((it, i) => (i === idx ? updated : it));
@@ -464,10 +561,6 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
     const removeItem = (idx: number) => {
       if (items.length <= 1) return;
       patch(sectionKey, items.filter((_, i) => i !== idx));
-    };
-    const addItem = () => {
-      if (items.length >= 6) return;
-      patch(sectionKey, [...items, { title: 'Dasar hukum baru', bullets: ['Keterangan poin'] }]);
     };
 
     return (
@@ -478,19 +571,60 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
             className="group/law"
             style={{
               paddingLeft: '6.5mm',
-              marginBottom: idx === items.length - 1 ? '1.8mm' : '1.4mm',
+              marginBottom: idx === items.length - 1 ? `${lastItemGapMm}mm` : `${itemGapMm}mm`,
               position: 'relative',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', position: 'relative' }}>
               <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <RichEditableField
                   value={item.title}
                   onChange={(title) => updateItem(idx, { ...item, title })}
                   placeholder="Judul pasal / poin"
                   {...fieldHandlers}
                 />
+              </div>
+              {/* Floating right-margin controls (0px impact on body flow) */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 'calc(100% + 5px)',
+                  top: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {item.bullets.length < 6 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateItem(idx, { ...item, bullets: [...item.bullets, 'Rincian baru'] })
+                    }
+                    title="Tambah sub-poin"
+                    style={{
+                      fontSize: '7pt',
+                      fontWeight: 600,
+                      color: '#2563eb',
+                      backgroundColor: '#eff6ff',
+                      border: '1px dashed #93c5fd',
+                      borderRadius: '4px',
+                      padding: '0 4px',
+                      height: '16px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '1px',
+                      cursor: 'pointer',
+                      opacity: 0.75,
+                    }}
+                    className="hover:!opacity-100"
+                  >
+                    <Plus style={{ width: '9px', height: '9px' }} />
+                    <span>Sub</span>
+                  </button>
+                )}
                 {items.length > 1 && (
                   <button
                     type="button"
@@ -505,7 +639,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     }}
                     className="hover:!opacity-100"
                   >
-                    <Trash2 style={{ width: '12px', height: '12px' }} />
+                    <Trash2 style={{ width: '11px', height: '11px' }} />
                   </button>
                 )}
               </div>
@@ -514,7 +648,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
             {item.bullets.map((bullet, bIdx) => (
               <div
                 key={`${sectionKey}-${idx}-b-${bIdx}`}
-                style={{ display: 'flex', alignItems: 'flex-start', textAlign: 'justify' }}
+                style={{ display: 'flex', textAlign: 'justify', position: 'relative' }}
               >
                 <span style={{ width: '6mm', flexShrink: 0 }}>-</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -540,70 +674,23 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                     }
                     title="Hapus rincian"
                     style={{
+                      position: 'absolute',
+                      left: 'calc(100% + 5px)',
+                      top: '1px',
                       opacity: 0.35,
-                      padding: '2px',
+                      padding: '1px',
                       color: '#e11d48',
                       cursor: 'pointer',
-                      flexShrink: 0,
                     }}
                     className="hover:!opacity-100"
                   >
-                    <Trash2 style={{ width: '11px', height: '11px' }} />
+                    <Trash2 style={{ width: '10px', height: '10px' }} />
                   </button>
                 )}
               </div>
             ))}
-
-            {item.bullets.length < 6 && (
-              <div style={{ paddingLeft: '6mm' }}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateItem(idx, { ...item, bullets: [...item.bullets, 'Rincian baru'] })
-                  }
-                  style={{
-                    fontSize: '7.5pt',
-                    color: '#2563eb',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    cursor: 'pointer',
-                    opacity: 0.65,
-                  }}
-                  className="hover:!opacity-100"
-                >
-                  <Plus style={{ width: '10px', height: '10px' }} />
-                  <span>Sub-poin</span>
-                </button>
-              </div>
-            )}
           </div>
         ))}
-
-        {items.length < 6 && (
-          <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm' }}>
-            <button
-              type="button"
-              onClick={addItem}
-              style={{
-                fontSize: '8pt',
-                fontWeight: 600,
-                color: '#092147',
-                backgroundColor: '#eff6ff',
-                border: '1px dashed #93c5fd',
-                borderRadius: '4px',
-                padding: '1px 7px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                cursor: 'pointer',
-              }}
-            >
-              <Plus style={{ width: '11px', height: '11px' }} />
-              <span>Tambah Poin</span>
-            </button>
-          </div>
-        )}
       </div>
     );
   };
@@ -688,12 +775,11 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
       {/* Hover/focus & empty placeholder CSS scoped specifically to inline WYSIWYG fields */}
       <style>{`
         .nd-wysiwyg-field:hover {
-          border-color: rgba(59, 130, 246, 0.45) !important;
+          outline: 1px dashed rgba(59, 130, 246, 0.55) !important;
           background: rgba(239, 246, 255, 0.35) !important;
         }
         .nd-wysiwyg-field:focus {
-          border-color: #2563eb !important;
-          border-style: solid !important;
+          outline: 1px solid #2563eb !important;
           background: rgba(239, 246, 255, 0.65) !important;
         }
         .nd-wysiwyg-field:empty::before {
@@ -967,18 +1053,19 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
               </div>
             )}
 
-            {/* Editable A4 Body Content Area (Exact 30mm L/R, 40mm Top/Bottom) */}
+            {/* Editable A4 Body Content Area (Exact 30mm L/R, 40mm Top/Bottom — mirrors ProspectLetterDocument 1:1) */}
             <div
+              ref={bodyFrameRef}
               style={{
                 position: 'absolute',
                 top: '40mm',
+                bottom: '40mm',
                 left: '30mm',
                 right: '30mm',
-                height: `${MAX_BODY_HEIGHT_PX}px`,
                 overflow: 'visible',
                 fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSize: '11pt',
-                lineHeight: pageTab === 2 ? 1.15 : pageTab === 4 ? 1.22 : 1.16,
+                fontSize: activeBodyFont,
+                lineHeight: activeBodyLH,
                 color: '#000000',
                 zIndex: 10,
               }}
@@ -987,7 +1074,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {/* ===================== HALAMAN 1 ===================== */}
                 {pageTab === 1 && (
                   <>
-                    <div style={{ marginBottom: '0.8mm' }}>
+                    <div style={{ marginBottom: '0.6mm' }}>
                       <RichEditableField
                         value={value.dateLine}
                         onChange={(v) => {
@@ -1009,9 +1096,9 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       style={{
                         borderCollapse: 'collapse',
                         width: '100%',
-                        fontSize: '11pt',
-                        lineHeight: 1.24,
-                        marginBottom: '3.6mm',
+                        fontSize: p1BodyFont,
+                        lineHeight: p1LH,
+                        marginBottom: `${p1GapMm}mm`,
                       }}
                     >
                       <tbody>
@@ -1026,7 +1113,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                             />
                           </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                               <span>:</span>
                               <RichEditableField
                                 value={value.nomorValue}
@@ -1049,7 +1136,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                             />
                           </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                               <span>:</span>
                               <RichEditableField
                                 value={value.sifat}
@@ -1072,7 +1159,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                             />
                           </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                               <span>:</span>
                               <RichEditableField
                                 value={value.lampiran}
@@ -1095,7 +1182,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                             />
                           </td>
                           <td style={{ padding: 0, verticalAlign: 'top' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                               <span>:</span>
                               <RichEditableField
                                 value={value.perihal}
@@ -1110,7 +1197,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </tbody>
                     </table>
 
-                    <div style={{ marginBottom: '3.6mm' }}>
+                    <div style={{ marginBottom: `${p1GapMm}mm`, fontSize: p1RecipFont, wordBreak: 'break-word' }}>
                       <RichEditableField
                         value={value.recipientBlock}
                         onChange={(v) => patch('recipientBlock', v)}
@@ -1119,7 +1206,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ marginBottom: '0.6mm' }}>
+                    <div style={{ marginBottom: '0.5mm' }}>
                       <RichEditableField
                         value={value.greeting}
                         onChange={(v) => patch('greeting', v)}
@@ -1129,7 +1216,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ marginBottom: '3.6mm' }}>
+                    <div style={{ marginBottom: `${p1GapMm}mm` }}>
                       <RichEditableField
                         value={value.introPara1}
                         onChange={(v) => patch('introPara1', v)}
@@ -1139,7 +1226,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ marginBottom: '4.6mm' }}>
+                    <div style={{ marginBottom: `${p1GapMm + 1}mm` }}>
                       <RichEditableField
                         value={value.introPara2}
                         onChange={(v) => patch('introPara2', v)}
@@ -1149,7 +1236,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ fontWeight: 700, marginBottom: '2.8mm' }}>
+                    <div style={{ fontWeight: 700, marginBottom: `${Math.max(1.6, p1GapMm * 0.85)}mm` }}>
                       <RichEditableField
                         value={value.sectionMainTitle}
                         onChange={(v) => patch('sectionMainTitle', v)}
@@ -1159,7 +1246,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.6mm' }}>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.6mm', position: 'relative' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
                       <div style={{ flex: 1 }}>
                         <RichEditableField
@@ -1171,9 +1258,47 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           {...fieldHandlers}
                         />
                       </div>
+                      {value.section1Items.length < 6 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patch('section1Items', [
+                              ...value.section1Items,
+                              { title: 'Dasar hukum baru', bullets: ['Keterangan poin'] },
+                            ])
+                          }
+                          title="Tambah poin Bagian I"
+                          style={{
+                            position: 'absolute',
+                            left: 'calc(100% + 5px)',
+                            top: 0,
+                            fontSize: '7.5pt',
+                            fontWeight: 600,
+                            color: '#092147',
+                            backgroundColor: '#eff6ff',
+                            border: '1px dashed #93c5fd',
+                            borderRadius: '4px',
+                            padding: '0 6px',
+                            height: '18px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Plus style={{ width: '10px', height: '10px' }} />
+                          <span>Poin</span>
+                        </button>
+                      )}
                     </div>
 
-                    {renderEditableLawList('section1Items', value.section1Items)}
+                    {renderEditableLawList(
+                      'section1Items',
+                      value.section1Items,
+                      p1ItemGapMm,
+                      Math.max(1.8, p1ItemGapMm + 0.4)
+                    )}
 
                     <div
                       style={{
@@ -1198,7 +1323,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {/* ===================== HALAMAN 2 ===================== */}
                 {pageTab === 2 && (
                   <>
-                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm', position: 'relative' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
                       <div style={{ flex: 1 }}>
                         <RichEditableField
@@ -1210,9 +1335,47 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           {...fieldHandlers}
                         />
                       </div>
+                      {value.section2Items.length < 6 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patch('section2Items', [
+                              ...value.section2Items,
+                              { title: 'Dasar hukum baru', bullets: ['Keterangan poin'] },
+                            ])
+                          }
+                          title="Tambah poin Bagian II"
+                          style={{
+                            position: 'absolute',
+                            left: 'calc(100% + 5px)',
+                            top: 0,
+                            fontSize: '7.5pt',
+                            fontWeight: 600,
+                            color: '#092147',
+                            backgroundColor: '#eff6ff',
+                            border: '1px dashed #93c5fd',
+                            borderRadius: '4px',
+                            padding: '0 6px',
+                            height: '18px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Plus style={{ width: '10px', height: '10px' }} />
+                          <span>Poin</span>
+                        </button>
+                      )}
                     </div>
 
-                    {renderEditableLawList('section2Items', value.section2Items)}
+                    {renderEditableLawList(
+                      'section2Items',
+                      value.section2Items,
+                      p2ItemGapMm,
+                      Math.max(1.5, p2ItemGapMm + 0.4)
+                    )}
 
                     <div
                       style={{
@@ -1221,7 +1384,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         border: '1px solid #000000',
                         padding: '1.4mm 2.5mm',
                         textAlign: 'justify',
-                        marginBottom: '4.5mm',
+                        marginBottom: `${p2SectionGapMm}mm`,
                       }}
                     >
                       <RichEditableField
@@ -1233,7 +1396,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm', position: 'relative' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>III.</span>
                       <div style={{ flex: 1 }}>
                         <RichEditableField
@@ -1245,9 +1408,47 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           {...fieldHandlers}
                         />
                       </div>
+                      {value.section3Items.length < 6 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patch('section3Items', [
+                              ...value.section3Items,
+                              { title: 'Dasar hukum baru', bullets: ['Keterangan poin'] },
+                            ])
+                          }
+                          title="Tambah poin Bagian III"
+                          style={{
+                            position: 'absolute',
+                            left: 'calc(100% + 5px)',
+                            top: 0,
+                            fontSize: '7.5pt',
+                            fontWeight: 600,
+                            color: '#092147',
+                            backgroundColor: '#eff6ff',
+                            border: '1px dashed #93c5fd',
+                            borderRadius: '4px',
+                            padding: '0 6px',
+                            height: '18px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Plus style={{ width: '10px', height: '10px' }} />
+                          <span>Poin</span>
+                        </button>
+                      )}
                     </div>
 
-                    {renderEditableLawList('section3Items', value.section3Items)}
+                    {renderEditableLawList(
+                      'section3Items',
+                      value.section3Items,
+                      p2ItemGapMm,
+                      Math.max(1.5, p2ItemGapMm + 0.4)
+                    )}
 
                     <div
                       style={{
@@ -1272,7 +1473,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                 {/* ===================== HALAMAN 3 ===================== */}
                 {pageTab === 3 && (
                   <>
-                    <div style={{ fontWeight: 700, marginBottom: '3.2mm' }}>
+                    <div style={{ fontWeight: 700, marginBottom: `${p3GapMm}mm` }}>
                       <RichEditableField
                         value={value.aboutTitle}
                         onChange={(v) => patch('aboutTitle', v)}
@@ -1283,7 +1484,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ marginBottom: '3.6mm' }}>
+                    <div style={{ marginBottom: `${p3GapMm}mm` }}>
                       <RichEditableField
                         value={value.aboutPara}
                         onChange={(v) => patch('aboutPara', v)}
@@ -1293,7 +1494,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm' }}>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '0.5mm', position: 'relative' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>I.</span>
                       <div style={{ flex: 1 }}>
                         <RichEditableField
@@ -1305,6 +1506,39 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           {...fieldHandlers}
                         />
                       </div>
+                      {value.servicesItems.length < 8 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patch('servicesItems', [
+                              ...value.servicesItems,
+                              { lead: 'Layanan Baru:', body: 'deskripsi layanan' },
+                            ])
+                          }
+                          title="Tambah layanan"
+                          style={{
+                            position: 'absolute',
+                            left: 'calc(100% + 5px)',
+                            top: 0,
+                            fontSize: '7.5pt',
+                            fontWeight: 600,
+                            color: '#092147',
+                            backgroundColor: '#eff6ff',
+                            border: '1px dashed #93c5fd',
+                            borderRadius: '4px',
+                            padding: '0 6px',
+                            height: '18px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Plus style={{ width: '10px', height: '10px' }} />
+                          <span>Layanan</span>
+                        </button>
+                      )}
                     </div>
 
                     <div style={{ paddingLeft: '6.5mm', marginBottom: '1.2mm' }}>
@@ -1317,19 +1551,22 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ paddingLeft: '12.5mm', marginBottom: '2.8mm' }}>
+                    <div style={{ paddingLeft: '12.5mm', marginBottom: `${Math.max(1.8, p3GapMm * 0.85)}mm` }}>
                       {value.servicesItems.map((svc: ProspectLetterServiceItem, idx) => (
                         <div
                           key={`svc-${idx}`}
                           style={{
                             display: 'flex',
-                            alignItems: 'flex-start',
-                            marginBottom: '0.9mm',
+                            marginBottom: idx === value.servicesItems.length - 1 ? 0 : '0.8mm',
+                            textAlign: 'justify',
+                            position: 'relative',
                           }}
                         >
                           <span style={{ width: '5.5mm', flexShrink: 0 }}>{idx + 1}.</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                          {/* Inline lead + body matches ProspectLetterDocument 1:1 */}
+                          <div style={{ flex: 1, minWidth: 0, textAlign: 'justify' }}>
                             <RichEditableField
+                              inline
                               value={svc.lead}
                               onChange={(v) => {
                                 const next = value.servicesItems.map((it, i) =>
@@ -1338,11 +1575,13 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                 patch('servicesItems', next);
                               }}
                               multiline={false}
-                              placeholder="Judul layanan"
+                              placeholder="Judul layanan:"
                               style={{ fontWeight: 700 }}
                               {...fieldHandlers}
                             />
+                            {' '}
                             <RichEditableField
+                              inline
                               value={svc.body}
                               onChange={(v) => {
                                 const next = value.servicesItems.map((it, i) =>
@@ -1350,8 +1589,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                 );
                                 patch('servicesItems', next);
                               }}
-                              placeholder="Deskripsi layanan"
-                              style={{ textAlign: 'justify' }}
+                              placeholder="deskripsi layanan"
                               {...fieldHandlers}
                             />
                           </div>
@@ -1366,51 +1604,24 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               }
                               title="Hapus layanan"
                               style={{
+                                position: 'absolute',
+                                left: 'calc(100% + 5px)',
+                                top: '1px',
                                 opacity: 0.4,
                                 padding: '2px',
                                 color: '#e11d48',
                                 cursor: 'pointer',
-                                flexShrink: 0,
                               }}
                               className="hover:!opacity-100"
                             >
-                              <Trash2 style={{ width: '12px', height: '12px' }} />
+                              <Trash2 style={{ width: '11px', height: '11px' }} />
                             </button>
                           )}
                         </div>
                       ))}
-
-                      {value.servicesItems.length < 8 && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            patch('servicesItems', [
-                              ...value.servicesItems,
-                              { lead: 'Layanan Baru,', body: 'deskripsi layanan' },
-                            ])
-                          }
-                          style={{
-                            fontSize: '8.5pt',
-                            fontWeight: 600,
-                            color: '#092147',
-                            backgroundColor: '#eff6ff',
-                            border: '1px dashed #93c5fd',
-                            borderRadius: '4px',
-                            padding: '1px 7px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            marginTop: '2px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <Plus style={{ width: '11px', height: '11px' }} />
-                          <span>Tambah Layanan</span>
-                        </button>
-                      )}
                     </div>
 
-                    <div style={{ marginBottom: '4.2mm' }}>
+                    <div style={{ marginBottom: `${p3GapMm + 1}mm` }}>
                       <RichEditableField
                         value={value.servicesCaseNote}
                         onChange={(v) => patch('servicesCaseNote', v)}
@@ -1420,7 +1631,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       />
                     </div>
 
-                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '1.4mm' }}>
+                    <div style={{ display: 'flex', fontWeight: 700, marginBottom: '1.4mm', position: 'relative' }}>
                       <span style={{ width: '6.5mm', flexShrink: 0 }}>II.</span>
                       <div style={{ flex: 1 }}>
                         <RichEditableField
@@ -1432,6 +1643,39 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           {...fieldHandlers}
                         />
                       </div>
+                      {value.comparisonRows.length < 8 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patch('comparisonRows', [
+                              ...value.comparisonRows,
+                              { component: 'Komponen baru', internalStaff: '-', consultant: '-' },
+                            ])
+                          }
+                          title="Tambah baris tabel"
+                          style={{
+                            position: 'absolute',
+                            left: 'calc(100% + 5px)',
+                            top: 0,
+                            fontSize: '7.5pt',
+                            fontWeight: 600,
+                            color: '#092147',
+                            backgroundColor: '#eff6ff',
+                            border: '1px dashed #93c5fd',
+                            borderRadius: '4px',
+                            padding: '0 6px',
+                            height: '18px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Plus style={{ width: '10px', height: '10px' }} />
+                          <span>Baris</span>
+                        </button>
+                      )}
                     </div>
 
                     <div style={{ marginBottom: '1.2mm' }}>
@@ -1448,8 +1692,9 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       style={{
                         width: '100%',
                         borderCollapse: 'collapse',
-                        fontSize: '10.5pt',
-                        marginBottom: '3.2mm',
+                        fontSize: p3TableFont,
+                        lineHeight: 1.18,
+                        marginBottom: `${p3GapMm}mm`,
                       }}
                     >
                       <thead>
@@ -1459,7 +1704,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               key={`hdr-${colIdx}`}
                               style={{
                                 border: '1px solid #000000',
-                                padding: '1.8mm 2mm',
+                                padding: p3CellPad,
                                 textAlign: 'left',
                                 width: colIdx === 0 ? '34%' : colIdx === 1 ? '40%' : '26%',
                                 fontWeight: 700,
@@ -1484,7 +1729,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       <tbody>
                         {value.comparisonRows.map((row: ProspectLetterComparisonRow, rIdx) => (
                           <tr key={`row-${rIdx}`}>
-                            <td style={{ border: '1px solid #000000', padding: '1.5mm 2mm' }}>
+                            <td style={{ border: '1px solid #000000', padding: p3CellPad }}>
                               <RichEditableField
                                 value={row.component}
                                 onChange={(v) => {
@@ -1498,7 +1743,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                 {...fieldHandlers}
                               />
                             </td>
-                            <td style={{ border: '1px solid #000000', padding: '1.5mm 2mm' }}>
+                            <td style={{ border: '1px solid #000000', padding: p3CellPad }}>
                               <RichEditableField
                                 value={row.internalStaff}
                                 onChange={(v) => {
@@ -1512,79 +1757,50 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                                 {...fieldHandlers}
                               />
                             </td>
-                            <td style={{ border: '1px solid #000000', padding: '1.5mm 2mm' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                <RichEditableField
-                                  value={row.consultant}
-                                  onChange={(v) => {
-                                    const next = value.comparisonRows.map((r, i) =>
-                                      i === rIdx ? { ...r, consultant: v } : r
-                                    );
-                                    patch('comparisonRows', next);
+                            <td style={{ border: '1px solid #000000', padding: p3CellPad, position: 'relative' }}>
+                              <RichEditableField
+                                value={row.consultant}
+                                onChange={(v) => {
+                                  const next = value.comparisonRows.map((r, i) =>
+                                    i === rIdx ? { ...r, consultant: v } : r
+                                  );
+                                  patch('comparisonRows', next);
+                                }}
+                                multiline={false}
+                                placeholder="Konsultan"
+                                style={{ fontWeight: rIdx === 0 ? 700 : 400 }}
+                                {...fieldHandlers}
+                              />
+                              {value.comparisonRows.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    patch(
+                                      'comparisonRows',
+                                      value.comparisonRows.filter((_, i) => i !== rIdx)
+                                    )
+                                  }
+                                  title="Hapus baris"
+                                  style={{
+                                    position: 'absolute',
+                                    left: 'calc(100% + 5px)',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    opacity: 0.4,
+                                    padding: '2px',
+                                    color: '#e11d48',
+                                    cursor: 'pointer',
                                   }}
-                                  multiline={false}
-                                  placeholder="Konsultan"
-                                  style={{ fontWeight: rIdx === 0 ? 700 : 400 }}
-                                  {...fieldHandlers}
-                                />
-                                {value.comparisonRows.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      patch(
-                                        'comparisonRows',
-                                        value.comparisonRows.filter((_, i) => i !== rIdx)
-                                      )
-                                    }
-                                    title="Hapus baris"
-                                    style={{
-                                      opacity: 0.35,
-                                      padding: '1px',
-                                      color: '#e11d48',
-                                      cursor: 'pointer',
-                                      flexShrink: 0,
-                                    }}
-                                    className="hover:!opacity-100"
-                                  >
-                                    <Trash2 style={{ width: '11px', height: '11px' }} />
-                                  </button>
-                                )}
-                              </div>
+                                  className="hover:!opacity-100"
+                                >
+                                  <Trash2 style={{ width: '11px', height: '11px' }} />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-
-                    {value.comparisonRows.length < 8 && (
-                      <div style={{ marginBottom: '2.5mm' }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            patch('comparisonRows', [
-                              ...value.comparisonRows,
-                              { component: 'Komponen baru', internalStaff: '-', consultant: '-' },
-                            ])
-                          }
-                          style={{
-                            fontSize: '8.5pt',
-                            fontWeight: 600,
-                            color: '#092147',
-                            backgroundColor: '#eff6ff',
-                            border: '1px dashed #93c5fd',
-                            borderRadius: '4px',
-                            padding: '1px 7px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <Plus style={{ width: '11px', height: '11px' }} />
-                          <span>Tambah Baris</span>
-                        </button>
-                      </div>
-                    )}
 
                     <RichEditableField
                       value={value.comparisonClosing}
@@ -1631,7 +1847,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                         marginBottom: '7mm',
                       }}
                     >
-                      <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.5mm' }}>
+                      <div style={{ fontWeight: 700, textDecoration: 'underline', marginBottom: '3.2mm' }}>
                         <RichEditableField
                           value={value.mitraBoxTitle}
                           onChange={(v) => patch('mitraBoxTitle', v)}
@@ -1641,7 +1857,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           {...fieldHandlers}
                         />
                       </div>
-                      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '11pt', lineHeight: 1.35 }}>
+                      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '11pt', lineHeight: 1.3 }}>
                         <tbody>
                           <tr>
                             <td style={{ width: '24mm', padding: 0 }}>
@@ -1654,7 +1870,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               />
                             </td>
                             <td style={{ padding: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                                 <span>:</span>
                                 <RichEditableField
                                   value={value.mitraBoxNameValue}
@@ -1677,7 +1893,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               />
                             </td>
                             <td style={{ padding: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                                 <span>:</span>
                                 <RichEditableField
                                   value={value.mitraBoxIdValue}
@@ -1700,7 +1916,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               />
                             </td>
                             <td style={{ padding: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                                 <span>:</span>
                                 <RichEditableField
                                   value={value.mitraBoxPhoneValue}
@@ -1723,7 +1939,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                               />
                             </td>
                             <td style={{ padding: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3px' }}>
                                 <span>:</span>
                                 <RichEditableField
                                   value={value.mitraBoxEmailValue}
@@ -1739,7 +1955,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                       </table>
                     </div>
 
-                    <div style={{ paddingLeft: '8mm', marginBottom: '15mm' }}>
+                    <div style={{ paddingLeft: '8mm', marginBottom: `${p4SigGapMm}mm` }}>
                       <RichEditableField
                         value={value.closingPara}
                         onChange={(v) => patch('closingPara', v)}
