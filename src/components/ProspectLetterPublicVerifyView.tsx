@@ -44,7 +44,6 @@ interface VerifiedLetterPublicData {
 export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerifyViewProps> = ({
   verifyCode,
   onBackToHome,
-  onOpenMitraVerify,
   logoUrl,
 }) => {
   const [loading, setLoading] = useState(true);
@@ -231,15 +230,6 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
                     <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
                     <span>Mitra Strategis Pengaju</span>
                   </span>
-                  {onOpenMitraVerify && data.mitraMemberCode && data.mitraMemberCode !== '-' && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenMitraVerify(data.mitraMemberCode)}
-                      className="text-[11px] font-semibold text-amber-300 hover:text-amber-200 underline cursor-pointer"
-                    >
-                      Cek Verifikasi Mitra
-                    </button>
-                  )}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
