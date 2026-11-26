@@ -6597,6 +6597,7 @@ const ALLOWED_CHAT_ATTACHMENT_EXTS = new Set([
   '7z',
 ]);
 const MAX_CHAT_ATTACHMENT_BYTES = 30 * 1024 * 1024;
+const MAX_CHAT_HD_VIDEO_BYTES = 120 * 1024 * 1024;
 const MAX_CHAT_VIDEO_DURATION_SEC = 120;
 const MAX_RAW_VIDEO_UPLOAD_BYTES = 250 * 1024 * 1024;
 const VIDEO_UPLOAD_CHUNK_MAX_BYTES = 10 * 1024 * 1024;
@@ -6645,6 +6646,9 @@ const transcodeVideoFileToWebMp4 = async (
     trimEndSec?: number;
     maxDurationSec?: number;
     rawByteSize?: number;
+    hd?: boolean;
+    sourceExt?: string;
+    needsTrim?: boolean;
   }
 ): Promise<{ buffer: Buffer; ext: string; transcoded: boolean; clippedDurationSec: number }> => {
   const maxDur = Math.max(1, Math.min(MAX_CHAT_VIDEO_DURATION_SEC, Number(options?.maxDurationSec || MAX_CHAT_VIDEO_DURATION_SEC)));
@@ -6666,25 +6670,49 @@ const transcodeVideoFileToWebMp4 = async (
     } catch {}
   }
 
-  // Adaptive resolution & bitrate so even 2-minute or large 150MB phone videos compress cleanly under ~12 MB
-  let maxDim = 1280;
-  let crf = '24';
-  let maxrate = '1800k';
-  let bufsize = '3600k';
-  let audioBitrate = '128k';
+  const isHd = Boolean(options?.hd);
+  const srcExt = (options?.sourceExt || path.extname(inPath).replace(/^\./, '') || 'mp4').toLowerCase();
 
-  if (clippedDurationSec > 75) {
-    maxDim = 854;
-    crf = '27';
-    maxrate = '750k';
-    bufsize = '1500k';
-    audioBitrate = '96k';
-  } else if (clippedDurationSec > 35 || rawBytes > 20 * 1024 * 1024) {
-    maxDim = 960;
-    crf = '26';
-    maxrate = '1100k';
-    bufsize = '2200k';
-    audioBitrate = '96k';
+  // HD Mode: preserve original uncompressed quality when already web-compatible MP4/WEBM
+  if (isHd && (srcExt === 'mp4' || srcExt === 'webm') && rawBytes <= MAX_CHAT_HD_VIDEO_BYTES) {
+    const rawBuf = fs.readFileSync(inPath);
+    const needsCodecConvert = bufferLikelyNeedsWebVideoTranscode(rawBuf, srcExt);
+    if (!needsCodecConvert && !options?.needsTrim) {
+      return {
+        buffer: rawBuf,
+        ext: srcExt,
+        transcoded: false,
+        clippedDurationSec,
+      };
+    }
+    // If trimmed in HD mode on an already web-compatible MP4, use lossless stream copy (-c copy)
+    if (!needsCodecConvert && options?.needsTrim && srcExt === 'mp4') {
+      const uniqueCopyId = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+      const copyOutPath = path.join(os.tmpdir(), `nd-vid-hdcopy-${uniqueCopyId}.mp4`);
+      const copyArgs: string[] = ['-y'];
+      if (startSec > 0.01) copyArgs.push('-ss', startSec.toFixed(2));
+      copyArgs.push('-i', inPath, '-t', clippedDurationSec.toFixed(2), '-c', 'copy', '-movflags', '+faststart', copyOutPath);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          execFile(RESOLVED_FFMPEG_BIN, copyArgs, { timeout: 90_000, maxBuffer: 10 * 1024 * 1024 }, (err) => {
+            if (err) return reject(err);
+            resolve();
+          });
+        });
+        if (fs.existsSync(copyOutPath)) {
+          const outBuf = fs.readFileSync(copyOutPath);
+          if (outBuf.length > 1024) {
+            return { buffer: outBuf, ext: 'mp4', transcoded: true, clippedDurationSec };
+          }
+        }
+      } catch {
+        // fallback to high-quality HD encode below
+      } finally {
+        try {
+          if (fs.existsSync(copyOutPath)) fs.unlinkSync(copyOutPath);
+        } catch {}
+      }
+    }
   }
 
   const uniqueId = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -6694,43 +6722,102 @@ const transcodeVideoFileToWebMp4 = async (
   if (startSec > 0.01) {
     args.push('-ss', startSec.toFixed(2));
   }
-  args.push(
-    '-i',
-    inPath,
-    '-t',
-    clippedDurationSec.toFixed(2),
-    '-map',
-    '0:v:0',
-    '-map',
-    '0:a:0?',
-    '-c:v',
-    'libx264',
-    '-pix_fmt',
-    'yuv420p',
-    '-profile:v',
-    'main',
-    '-level',
-    '4.0',
-    '-preset',
-    'veryfast',
-    '-crf',
-    crf,
-    '-maxrate',
-    maxrate,
-    '-bufsize',
-    bufsize,
-    '-vf',
-    `scale='min(${maxDim},iw)':'min(${maxDim},ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
-    '-c:a',
-    'aac',
-    '-b:a',
-    audioBitrate,
-    '-ac',
-    '2',
-    '-movflags',
-    '+faststart',
-    outPath
-  );
+
+  if (isHd) {
+    // High-fidelity HD conversion (preserves full original resolution without downscaling or aggressive bitrate cap)
+    args.push(
+      '-i',
+      inPath,
+      '-t',
+      clippedDurationSec.toFixed(2),
+      '-map',
+      '0:v:0',
+      '-map',
+      '0:a:0?',
+      '-c:v',
+      'libx264',
+      '-pix_fmt',
+      'yuv420p',
+      '-profile:v',
+      'high',
+      '-level',
+      '4.2',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '18',
+      '-vf',
+      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-ac',
+      '2',
+      '-movflags',
+      '+faststart',
+      outPath
+    );
+  } else {
+    // Standard Mode: adaptive resolution & bitrate compression so videos stay crisp & lightweight
+    let maxDim = 1280;
+    let crf = '24';
+    let maxrate = '1800k';
+    let bufsize = '3600k';
+    let audioBitrate = '128k';
+
+    if (clippedDurationSec > 75) {
+      maxDim = 854;
+      crf = '27';
+      maxrate = '750k';
+      bufsize = '1500k';
+      audioBitrate = '96k';
+    } else if (clippedDurationSec > 35 || rawBytes > 20 * 1024 * 1024) {
+      maxDim = 960;
+      crf = '26';
+      maxrate = '1100k';
+      bufsize = '2200k';
+      audioBitrate = '96k';
+    }
+
+    args.push(
+      '-i',
+      inPath,
+      '-t',
+      clippedDurationSec.toFixed(2),
+      '-map',
+      '0:v:0',
+      '-map',
+      '0:a:0?',
+      '-c:v',
+      'libx264',
+      '-pix_fmt',
+      'yuv420p',
+      '-profile:v',
+      'main',
+      '-level',
+      '4.0',
+      '-preset',
+      'veryfast',
+      '-crf',
+      crf,
+      '-maxrate',
+      maxrate,
+      '-bufsize',
+      bufsize,
+      '-vf',
+      `scale='min(${maxDim},iw)':'min(${maxDim},ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
+      '-c:a',
+      'aac',
+      '-b:a',
+      audioBitrate,
+      '-ac',
+      '2',
+      '-movflags',
+      '+faststart',
+      outPath
+    );
+  }
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -6761,7 +6848,7 @@ const transcodeVideoFileToWebMp4 = async (
 
   return {
     buffer: fs.existsSync(inPath) ? fs.readFileSync(inPath) : Buffer.alloc(0),
-    ext: path.extname(inPath).replace(/^\./, '').toLowerCase() || 'mp4',
+    ext: srcExt || 'mp4',
     transcoded: false,
     clippedDurationSec,
   };
@@ -7213,7 +7300,8 @@ const saveBufferToHostingServer = (
   originalName: string,
   extInput: string,
   bucket: HostedUploadBucket = 'marketing-tools',
-  originalBytesOverride?: number
+  originalBytesOverride?: number,
+  maxBytesOverride?: number
 ): {
   hostedUrl: string;
   fileName: string;
@@ -7224,9 +7312,10 @@ const saveBufferToHostingServer = (
 } | null => {
   const ext = extInput.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
   const originalBytes = originalBytesOverride || rawBuffer.length;
+  const maxAllowedBytes = maxBytesOverride || MAX_CHAT_ATTACHMENT_BYTES;
 
   if (bucket === 'chat') {
-    if (rawBuffer.length > MAX_CHAT_ATTACHMENT_BYTES) return null;
+    if (rawBuffer.length > maxAllowedBytes) return null;
     if (!ALLOWED_CHAT_ATTACHMENT_EXTS.has(ext)) return null;
   }
 
@@ -11946,7 +12035,7 @@ app.post('/api/chat/upload-video/chunk', async (req: Request, res: Response) => 
 });
 
 app.post('/api/chat/upload-video/finalize', async (req: Request, res: Response) => {
-  const { uploadId, fileName, trimStartSec, trimEndSec, senderRole } = req.body || {};
+  const { uploadId, fileName, trimStartSec, trimEndSec, totalDurationSec, hd, senderRole } = req.body || {};
   if (senderRole === 'admin') {
     return res.status(403).json({ message: 'Admin berada dalam Mode Monitoring.' });
   }
@@ -11970,12 +12059,21 @@ app.post('/api/chat/upload-video/finalize', async (req: Request, res: Response) 
 
     const startNum = Number.isFinite(Number(trimStartSec)) ? Math.max(0, Number(trimStartSec)) : 0;
     const endNum = Number.isFinite(Number(trimEndSec)) ? Number(trimEndSec) : undefined;
+    const totalNum = Number.isFinite(Number(totalDurationSec)) ? Number(totalDurationSec) : undefined;
+    const isHd = Boolean(hd);
+    const needsTrim =
+      startNum > 0.25 ||
+      (endNum !== undefined && totalNum !== undefined && endNum < totalNum - 0.5) ||
+      (totalNum !== undefined && totalNum > MAX_CHAT_VIDEO_DURATION_SEC + 0.5);
 
     const transcoded = await transcodeVideoFileToWebMp4(partPath, {
       trimStartSec: startNum,
       trimEndSec: endNum,
       maxDurationSec: MAX_CHAT_VIDEO_DURATION_SEC,
       rawByteSize: originalBytes,
+      hd: isHd,
+      sourceExt: rawExt,
+      needsTrim,
     });
 
     if (!transcoded.buffer || transcoded.buffer.length === 0) {
@@ -11993,11 +12091,14 @@ app.post('/api/chat/upload-video/finalize', async (req: Request, res: Response) 
       finalDisplayName,
       finalExt,
       'chat',
-      originalBytes
+      originalBytes,
+      isHd ? MAX_CHAT_HD_VIDEO_BYTES : MAX_CHAT_ATTACHMENT_BYTES
     );
     if (!saved) {
       return res.status(400).json({
-        message: 'Video hasil kompresi masih melebihi batas maksimal 30 MB. Silakan perpendek durasi potongan video.',
+        message: isHd
+          ? 'Video HD melebihi batas maksimal 120 MB. Nonaktifkan HD agar dikompres otomatis atau perpendek potongan.'
+          : 'Video hasil kompresi masih melebihi batas maksimal 30 MB. Silakan perpendek durasi potongan video.',
       });
     }
 
@@ -12012,6 +12113,7 @@ app.post('/api/chat/upload-video/finalize', async (req: Request, res: Response) 
       savedBytes: saved.savedBytes,
       formattedSize: saved.formattedSize,
       transcoded: transcoded.transcoded,
+      hd: isHd,
     });
   } catch (err) {
     console.error('Finalize video upload error:', err);

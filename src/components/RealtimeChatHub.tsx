@@ -674,15 +674,17 @@ const VideoTrimModal: React.FC<{
   totalDurationSec: number;
   initialStartSec: number;
   initialEndSec: number;
+  initialHd?: boolean;
   autoTriggered: boolean;
   onCancel: () => void;
-  onConfirm: (startSec: number, endSec: number) => void;
+  onConfirm: (startSec: number, endSec: number, isHd: boolean) => void;
 }> = ({
   file,
   previewUrl,
   totalDurationSec,
   initialStartSec,
   initialEndSec,
+  initialHd = false,
   autoTriggered,
   onCancel,
   onConfirm,
@@ -693,6 +695,7 @@ const VideoTrimModal: React.FC<{
   const [endSec, setEndSec] = useState(() =>
     Math.min(safeTotal, Math.max(initialStartSec + 1, Math.min(initialEndSec, initialStartSec + MAX_CHAT_VIDEO_DURATION_SEC)))
   );
+  const [isHd, setIsHd] = useState(Boolean(initialHd));
   const [currentTime, setCurrentTime] = useState(startSec);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
 
@@ -774,13 +777,27 @@ const VideoTrimModal: React.FC<{
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="p-2 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsHd((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-black border transition-colors cursor-pointer ${
+                isHd
+                  ? 'bg-emerald-500 border-emerald-400 text-white shadow-xs'
+                  : 'bg-white/10 hover:bg-white/20 border-white/20 text-white/75'
+              }`}
+              title={isHd ? 'HD Aktif (Tanpa Kompresi)' : 'Aktifkan Kualitas HD'}
+            >
+              HD
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="p-2 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Video Preview */}
@@ -891,7 +908,7 @@ const VideoTrimModal: React.FC<{
               </button>
               <button
                 type="button"
-                onClick={() => onConfirm(startSec, endSec)}
+                onClick={() => onConfirm(startSec, endSec, isHd)}
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
@@ -910,10 +927,12 @@ const LiveCameraCaptureModal: React.FC<{
   onFallbackFilePick: () => void;
   onCapture: (captured: {
     dataUrl: string;
+    hdDataUrl?: string;
     name: string;
     originalSize: number;
     compressedSize: number;
     kind: 'image';
+    isHd?: boolean;
   }) => void;
 }> = ({ onClose, onFallbackFilePick, onCapture }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -921,9 +940,12 @@ const LiveCameraCaptureModal: React.FC<{
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('user');
   const [isInitializing, setIsInitializing] = useState(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isHd, setIsHd] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<{
     dataUrl: string;
-    bytes: number;
+    hdDataUrl: string;
+    originalBytes: number;
+    compressedBytes: number;
   } | null>(null);
 
   const stopStream = useCallback(() => {
@@ -1005,7 +1027,27 @@ const LiveCameraCaptureModal: React.FC<{
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) return;
 
-    const maxDim = 1280;
+    const estimateBytes = (dUrl: string) => {
+      const idx = dUrl.indexOf(',');
+      return idx >= 0 ? Math.floor(((dUrl.length - idx - 1) * 3) / 4) : 0;
+    };
+
+    // Full-resolution HD capture
+    const hdCanvas = document.createElement('canvas');
+    hdCanvas.width = video.videoWidth;
+    hdCanvas.height = video.videoHeight;
+    const hdCtx = hdCanvas.getContext('2d');
+    if (!hdCtx) return;
+    if (facingMode === 'user') {
+      hdCtx.translate(hdCanvas.width, 0);
+      hdCtx.scale(-1, 1);
+    }
+    hdCtx.drawImage(video, 0, 0, hdCanvas.width, hdCanvas.height);
+    const hdDataUrl = hdCanvas.toDataURL('image/jpeg', 0.95);
+    const originalBytes = estimateBytes(hdDataUrl);
+
+    // Standard auto-compressed capture
+    const maxDim = 1024;
     let targetW = video.videoWidth;
     let targetH = video.videoHeight;
     if (targetW > maxDim || targetH > maxDim) {
@@ -1018,25 +1060,22 @@ const LiveCameraCaptureModal: React.FC<{
       }
     }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
+    const stdCanvas = document.createElement('canvas');
+    stdCanvas.width = targetW;
+    stdCanvas.height = targetH;
+    const stdCtx = stdCanvas.getContext('2d');
+    if (!stdCtx) return;
     if (facingMode === 'user') {
-      ctx.translate(targetW, 0);
-      ctx.scale(-1, 1);
+      stdCtx.translate(targetW, 0);
+      stdCtx.scale(-1, 1);
     }
-    ctx.drawImage(video, 0, 0, targetW, targetH);
+    stdCtx.drawImage(video, 0, 0, targetW, targetH);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    const commaIdx = dataUrl.indexOf(',');
-    const approxBytes =
-      commaIdx >= 0 ? Math.floor(((dataUrl.length - commaIdx - 1) * 3) / 4) : 0;
+    const dataUrl = stdCanvas.toDataURL('image/jpeg', 0.72);
+    const compressedBytes = estimateBytes(dataUrl);
 
     stopStream();
-    setCapturedPhoto({ dataUrl, bytes: approxBytes });
+    setCapturedPhoto({ dataUrl, hdDataUrl, originalBytes, compressedBytes });
   };
 
   const handleConfirmPhoto = () => {
@@ -1047,10 +1086,12 @@ const LiveCameraCaptureModal: React.FC<{
       .slice(0, 14);
     onCapture({
       dataUrl: capturedPhoto.dataUrl,
+      hdDataUrl: capturedPhoto.hdDataUrl,
       name: `kamera-${ts}.jpg`,
-      originalSize: capturedPhoto.bytes,
-      compressedSize: capturedPhoto.bytes,
+      originalSize: capturedPhoto.originalBytes,
+      compressedSize: capturedPhoto.compressedBytes,
       kind: 'image',
+      isHd,
     });
   };
 
@@ -1169,6 +1210,18 @@ const LiveCameraCaptureModal: React.FC<{
               </button>
               <button
                 type="button"
+                onClick={() => setIsHd((prev) => !prev)}
+                className={`px-3.5 py-2.5 rounded-xl text-xs font-black border transition-colors cursor-pointer ${
+                  isHd
+                    ? 'bg-emerald-500 border-emerald-400 text-white shadow-xs'
+                    : 'bg-white/10 hover:bg-white/20 border-white/20 text-white/80'
+                }`}
+                title={isHd ? 'HD Aktif (Tanpa Kompresi)' : 'Aktifkan Kualitas HD'}
+              >
+                HD
+              </button>
+              <button
+                type="button"
                 onClick={handleConfirmPhoto}
                 className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold inline-flex items-center gap-1.5 shadow-lg cursor-pointer"
               >
@@ -1234,6 +1287,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [pendingImage, setPendingImage] = useState<{
     dataUrl: string;
+    hdDataUrl?: string;
     originalSize: number;
     compressedSize: number;
     name: string;
@@ -1242,6 +1296,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     durationSec?: number;
     trimStartSec?: number;
     trimEndSec?: number;
+    isHd?: boolean;
   } | null>(null);
   const [videoTrimDraft, setVideoTrimDraft] = useState<{
     file: File;
@@ -1249,6 +1304,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     totalDurationSec: number;
     initialStartSec: number;
     initialEndSec: number;
+    initialHd?: boolean;
     autoTriggered: boolean;
   } | null>(null);
   const [videoUploadStatus, setVideoUploadStatus] = useState<{
@@ -2534,6 +2590,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         setPendingImage({
           ...compressed,
           kind: 'image',
+          rawFile: file,
+          isHd: false,
         });
       } else if (isVid) {
         const previewUrl = URL.createObjectURL(file);
@@ -2545,6 +2603,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             totalDurationSec: durationSec,
             initialStartSec: 0,
             initialEndSec: MAX_CHAT_VIDEO_DURATION_SEC,
+            initialHd: false,
             autoTriggered: true,
           });
         } else {
@@ -2559,6 +2618,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             durationSec: durationSec > 0 ? durationSec : undefined,
             trimStartSec: 0,
             trimEndSec: durationSec > 0 ? durationSec : undefined,
+            isHd: false,
           });
         }
       } else {
@@ -2629,7 +2689,18 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         let attachmentOriginalSize = pendingImage?.originalSize;
         let attachmentCompressedSize = pendingImage?.compressedSize;
 
-        // Chunked binary upload + server-side trim & adaptive compression for videos
+        // HD Image Mode: send uncompressed original image data URL
+        if (pendingImage?.kind === 'image' && pendingImage.isHd) {
+          if (pendingImage.hdDataUrl) {
+            attachmentUrlToSend = pendingImage.hdDataUrl;
+          } else if (pendingImage.rawFile) {
+            attachmentUrlToSend = await readFileToDataUrl(pendingImage.rawFile);
+          }
+          attachmentOriginalSize = pendingImage.originalSize;
+          attachmentCompressedSize = pendingImage.originalSize;
+        }
+
+        // Chunked binary upload + server-side trim & adaptive compression (or HD preserve) for videos
         if (pendingImage?.kind === 'video' && pendingImage.rawFile) {
           const rawFile = pendingImage.rawFile;
           const uploadId = `vid-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -2671,7 +2742,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           }
 
           setVideoUploadStatus({
-            label: 'Memotong & mengompres video...',
+            label: pendingImage.isHd
+              ? 'Memproses video HD...'
+              : 'Memotong & mengompres video...',
             percent: 88,
           });
 
@@ -2686,6 +2759,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               fileName: pendingImage.name,
               trimStartSec: pendingImage.trimStartSec ?? 0,
               trimEndSec: pendingImage.trimEndSec,
+              totalDurationSec: pendingImage.durationSec,
+              hd: Boolean(pendingImage.isHd),
               senderRole: currentUserRole === 'staff' ? 'staff' : 'mitra',
             }),
           });
@@ -4217,15 +4292,30 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                             <Maximize2 className="w-3.5 h-3.5" />
                                           </button>
                                         </div>
-                                        {msg.imageCompressedSize && (
+                                        {(msg.imageCompressedSize || msg.imageOriginalSize) && (
                                           <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-                                            <span>
-                                              ⚡ Terkompresi:{' '}
-                                              {formatFileSize(msg.imageCompressedSize)}
-                                              {msg.imageOriginalSize
-                                                ? ` (dari ${formatFileSize(msg.imageOriginalSize)})`
-                                                : ''}
-                                            </span>
+                                            {msg.imageOriginalSize &&
+                                            msg.imageCompressedSize &&
+                                            msg.imageCompressedSize < msg.imageOriginalSize ? (
+                                              <span>
+                                                ⚡ Terkompresi:{' '}
+                                                {formatFileSize(msg.imageCompressedSize)} (dari{' '}
+                                                {formatFileSize(msg.imageOriginalSize)})
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
+                                                <span className="px-1 py-0.2 rounded bg-emerald-600 text-white text-[9px] font-black leading-tight">
+                                                  HD
+                                                </span>
+                                                <span>
+                                                  {formatFileSize(
+                                                    msg.imageOriginalSize ||
+                                                      msg.imageCompressedSize ||
+                                                      0
+                                                  )}
+                                                </span>
+                                              </span>
+                                            )}
                                           </div>
                                         )}
                                       </div>
@@ -4628,10 +4718,16 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                 {pendingImage.name}
                               </p>
                               {pendingKind === 'image' ? (
-                                <p className="text-[11px] font-semibold text-emerald-700">
-                                  ⚡ {formatFileSize(pendingImage.originalSize)} →{' '}
-                                  {formatFileSize(pendingImage.compressedSize)}
-                                </p>
+                                pendingImage.isHd ? (
+                                  <p className="text-[11px] font-semibold text-emerald-700">
+                                    HD • {formatFileSize(pendingImage.originalSize)}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] font-semibold text-emerald-700">
+                                    ⚡ {formatFileSize(pendingImage.originalSize)} →{' '}
+                                    {formatFileSize(pendingImage.compressedSize)}
+                                  </p>
+                                )
                               ) : pendingKind === 'video' ? (
                                 <p className="text-[11px] font-semibold text-slate-500">
                                   {hasTrimRange
@@ -4639,7 +4735,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                     : pendingImage.durationSec
                                     ? `🎬 ${formatVideoDuration(pendingImage.durationSec)}`
                                     : 'Video'}{' '}
-                                  • {formatFileSize(pendingImage.originalSize)} • Kompres otomatis
+                                  • {formatFileSize(pendingImage.originalSize)} •{' '}
+                                  {pendingImage.isHd ? (
+                                    <span className="text-emerald-700 font-bold">HD</span>
+                                  ) : (
+                                    'Kompres otomatis'
+                                  )}
                                 </p>
                               ) : (
                                 <p className="text-[11px] font-semibold text-slate-500">
@@ -4650,6 +4751,31 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                             </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            {((pendingKind === 'image' &&
+                              (pendingImage.rawFile || pendingImage.hdDataUrl)) ||
+                              (pendingKind === 'video' && pendingImage.rawFile)) &&
+                              !isSending && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPendingImage((prev) =>
+                                      prev ? { ...prev, isHd: !prev.isHd } : prev
+                                    )
+                                  }
+                                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
+                                    pendingImage.isHd
+                                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                                      : 'bg-white border-slate-300 text-slate-600 hover:border-emerald-500 hover:text-emerald-700'
+                                  }`}
+                                  title={
+                                    pendingImage.isHd
+                                      ? 'Kualitas HD aktif (tanpa kompresi)'
+                                      : 'Kirim kualitas HD (tanpa kompresi)'
+                                  }
+                                >
+                                  HD
+                                </button>
+                              )}
                             {pendingKind === 'video' &&
                               pendingImage.rawFile &&
                               (pendingImage.durationSec || 0) > 2 &&
@@ -4668,6 +4794,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                           pendingImage.durationSec!,
                                           MAX_CHAT_VIDEO_DURATION_SEC
                                         ),
+                                      initialHd: Boolean(pendingImage.isHd),
                                       autoTriggered: false,
                                     })
                                   }
@@ -6268,6 +6395,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           totalDurationSec={videoTrimDraft.totalDurationSec}
           initialStartSec={videoTrimDraft.initialStartSec}
           initialEndSec={videoTrimDraft.initialEndSec}
+          initialHd={videoTrimDraft.initialHd}
           autoTriggered={videoTrimDraft.autoTriggered}
           onCancel={() => {
             if (
@@ -6280,7 +6408,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             }
             setVideoTrimDraft(null);
           }}
-          onConfirm={(startSec, endSec) => {
+          onConfirm={(startSec, endSec, isHd) => {
             const draft = videoTrimDraft;
             if (
               pendingImage?.dataUrl &&
@@ -6301,6 +6429,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               durationSec: draft.totalDurationSec,
               trimStartSec: startSec,
               trimEndSec: endSec,
+              isHd,
             });
             setVideoTrimDraft(null);
             setTimeout(() => composerInputRef.current?.focus(), 50);
