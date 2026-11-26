@@ -296,6 +296,14 @@ function isVideoAttachment(url?: string, name?: string): boolean {
   return /\.(mp4|webm|mov|m4v|3gp)(\b|\?|$)/i.test(target);
 }
 
+function getVideoMimeType(url?: string, name?: string): string {
+  const target = `${url || ''} ${name || ''}`.toLowerCase();
+  if (target.includes('video/webm') || /\.webm(\b|\?|$)/i.test(target)) return 'video/webm';
+  if (target.includes('video/quicktime') || /\.mov(\b|\?|$)/i.test(target)) return 'video/mp4';
+  if (target.includes('video/3gpp') || /\.3gp(\b|\?|$)/i.test(target)) return 'video/3gpp';
+  return 'video/mp4';
+}
+
 function isPdfAttachment(url?: string, name?: string): boolean {
   const safeUrl = String(url || '').trim();
   if (!safeUrl) return false;
@@ -3242,16 +3250,27 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                   }
 
                                   if (attachKind === 'video') {
+                                    const videoMime = getVideoMimeType(msg.imageUrl, msg.imageName);
                                     return (
-                                      <div className="mb-2">
-                                        <div className="rounded-xl overflow-hidden border border-black/10 bg-slate-950">
+                                      <div
+                                        className="mb-2"
+                                        onClick={(e) => e.stopPropagation()}
+                                        onTouchStart={(e) => e.stopPropagation()}
+                                        onTouchMove={(e) => e.stopPropagation()}
+                                        onTouchEnd={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="rounded-xl overflow-hidden border border-black/15 bg-black">
                                           <video
-                                            src={msg.imageUrl}
+                                            key={msg.imageUrl}
                                             controls
                                             playsInline
-                                            preload="metadata"
-                                            className="max-h-72 w-full max-w-[320px] bg-black"
-                                          />
+                                            preload="auto"
+                                            controlsList="nodownload"
+                                            className="block max-h-72 w-full min-w-[220px] max-w-[320px] bg-black"
+                                          >
+                                            <source src={msg.imageUrl} type={videoMime} />
+                                            <source src={msg.imageUrl} />
+                                          </video>
                                         </div>
                                         <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-slate-600">
                                           <div className="flex items-center gap-1.5 min-w-0">

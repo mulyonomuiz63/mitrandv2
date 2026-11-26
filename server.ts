@@ -66,6 +66,10 @@ app.use(express.urlencoded({ extended: true, limit: '60mb' }));
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 const sanitizeStringValue = (input: string): string => {
+  // Never run HTML/event regexes over binary base64 data: URIs (prevents corrupting media/document payloads)
+  if (/^data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,/i.test(input)) {
+    return input.replace(/\0/g, '');
+  }
   return input
     .replace(/\0/g, '') // Strip null bytes
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Strip <script> blocks
@@ -6788,6 +6792,7 @@ const serveHostedUploadFile = async (
   const applyUploadHeaders = (mimeType: string) => {
     res.setHeader('Content-Type', mimeType);
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=604800');
     if (String(req.query.download || '') === '1') {
       const requestedName = path
@@ -6800,7 +6805,7 @@ const serveHostedUploadFile = async (
     }
   };
 
-  // 1. Primary persistent OS home storage (immune to git pull / rebuild)
+  // 1. Primary persistent OS home storage (immune to git pull / rebuild; res.sendFile natively handles HTTP Range 206 video streaming)
   if (fs.existsSync(homePath)) {
     applyUploadHeaders(getMimeTypeFromExt(safeName));
     return res.sendFile(homePath);
@@ -6853,7 +6858,27 @@ const serveHostedUploadFile = async (
               fs.writeFileSync(target, buf);
             } catch {}
           }
-          applyUploadHeaders(parsed.mime || getMimeTypeFromExt(safeName));
+          const resolvedMime = parsed.mime || getMimeTypeFromExt(safeName);
+          applyUploadHeaders(resolvedMime);
+          if (fs.existsSync(homePath)) {
+            return res.sendFile(homePath);
+          }
+          const rangeHeader = req.headers.range;
+          if (rangeHeader && buf.length > 0) {
+            const m = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+            if (m) {
+              const start = m[1] ? Math.min(Number(m[1]), buf.length - 1) : 0;
+              const end = m[2] ? Math.min(Number(m[2]), buf.length - 1) : buf.length - 1;
+              if (start <= end) {
+                const chunk = buf.subarray(start, end + 1);
+                res.status(206);
+                res.setHeader('Content-Range', `bytes ${start}-${end}/${buf.length}`);
+                res.setHeader('Content-Length', String(chunk.length));
+                return res.send(chunk);
+              }
+            }
+          }
+          res.setHeader('Content-Length', String(buf.length));
           return res.send(buf);
         }
       }
@@ -6883,21 +6908,9 @@ const formatFileSizeServer = (bytes: number): string => {
   return `${mb.toFixed(2)} MB`;
 };
 
-const compressBinaryBuffer = (buf: Buffer, ext: string): Buffer => {
-  if (ext === 'pdf' || ext === 'mp4') {
-    let start = 0;
-    while (start < buf.length && buf[start] === 0) start++;
-    let end = buf.length;
-    while (
-      end > start &&
-      (buf[end - 1] === 0 ||
-        (ext === 'pdf' && (buf[end - 1] === 0x20 || buf[end - 1] === 0x0a || buf[end - 1] === 0x0d)))
-    ) {
-      end--;
-    }
-    const trimmed = buf.subarray(start, end);
-    return trimmed.length > 0 ? Buffer.from(trimmed) : buf;
-  }
+const compressBinaryBuffer = (buf: Buffer, _ext: string): Buffer => {
+  // Never strip leading/trailing null bytes from binary containers (e.g., MP4 starts with 0x00 0x00 0x00 0x18 ftyp).
+  // Preserve 100% bit-exact integrity for videos, PDFs, Office docs, and archives.
   return buf;
 };
 
