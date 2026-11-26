@@ -59,8 +59,8 @@ app.use((req: Request, res: Response, next) => {
   next();
 });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '60mb' }));
+app.use(express.urlencoded({ extended: true, limit: '60mb' }));
 
 // 3. Deep Input Sanitizer (Protects against XSS, Prototype Pollution, Null-Byte & SQL/PostgREST Injection)
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -6556,6 +6556,36 @@ rescueLegacyUploadsToPersistentHome(CHAT_HOME_UPLOADS_DIR, [
   LEGACY_DIST_CHAT_UPLOADS_DIR,
 ]);
 
+const ALLOWED_CHAT_ATTACHMENT_EXTS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'mp4',
+  'webm',
+  'mov',
+  'm4v',
+  '3gp',
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'txt',
+  'csv',
+  'rtf',
+  'odt',
+  'ods',
+  'odp',
+  'zip',
+  'rar',
+  '7z',
+]);
+const MAX_CHAT_ATTACHMENT_BYTES = 30 * 1024 * 1024;
+
 const getMimeTypeFromExt = (filename: string): string => {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.pdf')) return 'application/pdf';
@@ -6566,6 +6596,9 @@ const getMimeTypeFromExt = (filename: string): string => {
   if (lower.endsWith('.svg')) return 'image/svg+xml';
   if (lower.endsWith('.mp4')) return 'video/mp4';
   if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.m4v')) return 'video/x-m4v';
+  if (lower.endsWith('.3gp')) return 'video/3gpp';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.doc')) return 'application/msword';
@@ -6574,10 +6607,15 @@ const getMimeTypeFromExt = (filename: string): string => {
   if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint';
   if (lower.endsWith('.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (lower.endsWith('.rtf')) return 'application/rtf';
+  if (lower.endsWith('.odt')) return 'application/vnd.oasis.opendocument.text';
+  if (lower.endsWith('.ods')) return 'application/vnd.oasis.opendocument.spreadsheet';
+  if (lower.endsWith('.odp')) return 'application/vnd.oasis.opendocument.presentation';
   if (lower.endsWith('.csv')) return 'text/csv; charset=utf-8';
   if (lower.endsWith('.txt')) return 'text/plain; charset=utf-8';
   if (lower.endsWith('.zip')) return 'application/zip';
   if (lower.endsWith('.rar')) return 'application/vnd.rar';
+  if (lower.endsWith('.7z')) return 'application/x-7z-compressed';
   return 'application/octet-stream';
 };
 
@@ -6747,10 +6785,24 @@ const serveHostedUploadFile = async (
     return res.status(404).end();
   }
 
+  const applyUploadHeaders = (mimeType: string) => {
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    if (String(req.query.download || '') === '1') {
+      const requestedName = path
+        .basename(String(req.query.name || safeName).replace(/["\r\n]/g, ''))
+        .slice(0, 140) || safeName;
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${requestedName}"; filename*=UTF-8''${encodeURIComponent(requestedName)}`
+      );
+    }
+  };
+
   // 1. Primary persistent OS home storage (immune to git pull / rebuild)
   if (fs.existsSync(homePath)) {
-    res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
-    res.setHeader('Cache-Control', 'public, max-age=604800');
+    applyUploadHeaders(getMimeTypeFromExt(safeName));
     return res.sendFile(homePath);
   }
 
@@ -6762,11 +6814,10 @@ const serveHostedUploadFile = async (
           fs.mkdirSync(dirs.homeDir, { recursive: true });
         }
         fs.copyFileSync(candidate, homePath);
-        res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
-        res.setHeader('Cache-Control', 'public, max-age=604800');
+        applyUploadHeaders(getMimeTypeFromExt(safeName));
         return res.sendFile(homePath);
       } catch {
-        res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
+        applyUploadHeaders(getMimeTypeFromExt(safeName));
         return res.sendFile(candidate);
       }
     }
@@ -6802,8 +6853,7 @@ const serveHostedUploadFile = async (
               fs.writeFileSync(target, buf);
             } catch {}
           }
-          res.setHeader('Content-Type', parsed.mime || getMimeTypeFromExt(safeName));
-          res.setHeader('Cache-Control', 'public, max-age=604800');
+          applyUploadHeaders(parsed.mime || getMimeTypeFromExt(safeName));
           return res.send(buf);
         }
       }
@@ -6891,14 +6941,31 @@ const saveDataUrlToHostingServer = (
   else if (mime.includes('gif')) ext = 'gif';
   else if (mime.includes('png')) ext = 'png';
   else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+  else if (mime.includes('video/webm')) ext = 'webm';
+  else if (mime.includes('video/quicktime')) ext = 'mov';
+  else if (mime.includes('video/3gpp')) ext = '3gp';
+  else if (mime.includes('video/x-m4v')) ext = 'm4v';
   else if (mime.includes('mp4') || mime.includes('video')) ext = 'mp4';
-  else if (mime.includes('spreadsheetml') || mime.includes('excel')) ext = 'xlsx';
+  else if (mime.includes('spreadsheetml')) ext = 'xlsx';
+  else if (mime.includes('ms-excel') || mime.includes('excel')) ext = ext === 'xlsx' ? 'xlsx' : 'xls';
   else if (mime.includes('wordprocessingml')) ext = 'docx';
   else if (mime.includes('msword')) ext = 'doc';
   else if (mime.includes('presentationml')) ext = 'pptx';
+  else if (mime.includes('ms-powerpoint') || mime.includes('powerpoint')) ext = ext === 'pptx' ? 'pptx' : 'ppt';
+  else if (mime.includes('opendocument.text')) ext = 'odt';
+  else if (mime.includes('opendocument.spreadsheet')) ext = 'ods';
+  else if (mime.includes('opendocument.presentation')) ext = 'odp';
+  else if (mime.includes('rtf')) ext = 'rtf';
+  else if (mime.includes('x-7z')) ext = '7z';
+  else if (mime.includes('rar')) ext = 'rar';
   else if (mime.includes('zip')) ext = 'zip';
   else if (mime.includes('csv')) ext = 'csv';
   else if (mime.includes('text/plain')) ext = 'txt';
+
+  if (bucket === 'chat') {
+    if (originalBytes > MAX_CHAT_ATTACHMENT_BYTES) return null;
+    if (!ALLOWED_CHAT_ATTACHMENT_EXTS.has(ext)) return null;
+  }
 
   const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
   const safeBaseName = String(originalName || (bucket === 'chat' ? 'chat-file' : 'materi-marketing'))
@@ -11522,7 +11589,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
 
   const cleanText = String(text || '').trim();
   if (!cleanText && !imageUrl) {
-    return res.status(400).json({ message: 'Isi pesan atau gambar tidak boleh kosong.' });
+    return res.status(400).json({ message: 'Isi pesan atau lampiran tidak boleh kosong.' });
   }
 
   let room = chatRooms.find((r) => r.id === roomId);
@@ -11587,7 +11654,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
   let resolvedCompressedSize: number | undefined = imageCompressedSize ? Number(imageCompressedSize) : undefined;
   if (finalImageUrl && finalImageUrl.startsWith('data:')) {
     const extFromName = String(imageName || '').includes('.')
-      ? String(imageName).split('.').pop() || 'jpg'
+      ? String(imageName).split('.').pop() || 'pdf'
       : 'jpg';
     const saved = saveDataUrlToHostingServer(
       finalImageUrl,
@@ -11595,11 +11662,15 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
       extFromName,
       'chat'
     );
-    if (saved) {
-      if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
-      finalImageUrl = saved.hostedUrl;
-      if (!resolvedCompressedSize) resolvedCompressedSize = saved.savedBytes;
+    if (!saved) {
+      return res.status(400).json({
+        message:
+          'Format file tidak didukung atau ukuran melebihi batas maksimal 30 MB. Mendukung gambar, video (MP4/WEBM/MOV), dan dokumen (PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP/RAR).',
+      });
     }
+    if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
+    finalImageUrl = saved.hostedUrl;
+    if (!resolvedCompressedSize) resolvedCompressedSize = saved.savedBytes;
   }
 
   let resolvedLinkPreview: ChatLinkPreview | undefined = linkPreview;
@@ -11633,18 +11704,40 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
 
   chatMessages.push(newMsg);
 
+  const isImgAttachment = finalImageUrl
+    ? isImageAttachmentUrl(finalImageUrl, newMsg.imageName)
+    : false;
+  const isVidAttachment = finalImageUrl
+    ? isVideoAttachmentUrl(finalImageUrl, newMsg.imageName)
+    : false;
+  const attachmentPreviewText = finalImageUrl
+    ? isImgAttachment
+      ? '📷 Mengirim gambar'
+      : isVidAttachment
+      ? '🎬 Mengirim video'
+      : `📄 ${newMsg.imageName || 'Mengirim dokumen'}`
+    : 'Pesan baru';
+
   room.updatedAt = nowIso;
   room.lastMessageAt = nowIso;
   room.lastMessageSenderId = newMsg.senderId;
   room.lastMessageSenderName = newMsg.senderName;
-  room.lastMessageText =
-    cleanText || (finalImageUrl ? '📷 Mengirim lampiran' : 'Pesan baru');
+  room.lastMessageText = cleanText || attachmentPreviewText;
 
   await persistChatToCloud(room, newMsg);
 
   // Persist compact per-room+recipient chat notification in MySQL notifications table (no table bloat)
   const recipientIds = (room.participantIds || []).filter((pid) => pid !== newMsg.senderId);
-  const previewSnippet = (cleanText || (finalImageUrl ? `Lampiran: ${newMsg.imageName || 'File'}` : 'Pesan baru')).slice(0, 140);
+  const previewSnippet = (
+    cleanText ||
+    (finalImageUrl
+      ? isImgAttachment
+        ? '📷 Mengirim gambar'
+        : isVidAttachment
+        ? '🎬 Mengirim video'
+        : `📄 Dokumen: ${newMsg.imageName || 'File'}`
+      : 'Pesan baru')
+  ).slice(0, 140);
   const chatNotifsToUpsert: NotificationItem[] = [];
   const staffRecipientExists = recipientIds.some((pid) => staffAccounts.some((s) => s.id === pid));
 
@@ -11981,7 +12074,13 @@ const isImageAttachmentUrl = (url: string, fileName?: string): boolean => {
   return /\.(png|jpe?g|webp|gif|svg)(\b|\?|$)/i.test(target);
 };
 
-// GET Admin Chat File Gallery (Lists all active files/images shared across all chat rooms)
+const isVideoAttachmentUrl = (url: string, fileName?: string): boolean => {
+  const target = `${url} ${fileName || ''}`.toLowerCase();
+  if (url.startsWith('data:video/')) return true;
+  return /\.(mp4|webm|mov|m4v|3gp)(\b|\?|$)/i.test(target);
+};
+
+// GET Admin Chat File Gallery (Lists all active files/images/videos shared across all chat rooms)
 app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
   if (!verifyAdminChatActor(req)) {
     return res.status(403).json({ success: false, message: 'Akses khusus Administrator.' });
@@ -12004,6 +12103,7 @@ app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
     fileUrl: string;
     fileName: string;
     isImage: boolean;
+    isVideo: boolean;
     byteSize: number;
     formattedSize: string;
     caption: string;
@@ -12039,6 +12139,7 @@ app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
       fileUrl: msg.imageUrl,
       fileName: resolvedName,
       isImage: isImageAttachmentUrl(msg.imageUrl, resolvedName),
+      isVideo: isVideoAttachmentUrl(msg.imageUrl, resolvedName),
       byteSize,
       formattedSize: formatFileSizeServer(byteSize),
       caption: msg.text || '',
@@ -12232,7 +12333,14 @@ app.post('/api/chat/admin/reset', async (req: Request, res: Response) => {
       room.lastMessageSenderName = last.senderName;
       room.lastMessageText = last.isDeleted
         ? '🚫 Pesan telah ditarik'
-        : last.text || (last.imageUrl ? '📷 Mengirim lampiran' : 'Pesan baru');
+        : last.text ||
+          (last.imageUrl
+            ? isImageAttachmentUrl(last.imageUrl, last.imageName)
+              ? '📷 Mengirim gambar'
+              : isVideoAttachmentUrl(last.imageUrl, last.imageName)
+              ? '🎬 Mengirim video'
+              : `📄 ${last.imageName || 'Mengirim dokumen'}`
+            : 'Pesan baru');
       room.updatedAt = last.createdAt;
       updatedRooms.push(room);
     } else if (room.type === 'group') {

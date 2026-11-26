@@ -43,6 +43,9 @@ import {
   RotateCcw,
   FileText,
   RefreshCw,
+  Paperclip,
+  Film,
+  Loader2,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -241,6 +244,160 @@ async function compressImageFile(
   });
 }
 
+const CHAT_MEDIA_ACCEPT =
+  'image/*,video/mp4,video/webm,video/quicktime,video/x-m4v,video/3gpp,video/*';
+const CHAT_DOCUMENT_ACCEPT =
+  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp,.zip,.rar,.7z,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/zip';
+const MAX_CHAT_FILE_BYTES = 30 * 1024 * 1024;
+const ALLOWED_CHAT_EXTS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'mp4',
+  'webm',
+  'mov',
+  'm4v',
+  '3gp',
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'txt',
+  'csv',
+  'rtf',
+  'odt',
+  'ods',
+  'odp',
+  'zip',
+  'rar',
+  '7z',
+]);
+
+type ChatAttachmentKind = 'image' | 'video' | 'document';
+
+function isImageAttachment(url?: string, name?: string): boolean {
+  const safeUrl = String(url || '').trim();
+  if (!safeUrl) return false;
+  if (safeUrl.startsWith('data:image/')) return true;
+  const target = `${safeUrl} ${name || ''}`.toLowerCase();
+  return /\.(png|jpe?g|webp|gif|svg)(\b|\?|$)/i.test(target);
+}
+
+function isVideoAttachment(url?: string, name?: string): boolean {
+  const safeUrl = String(url || '').trim();
+  if (!safeUrl) return false;
+  if (safeUrl.startsWith('data:video/')) return true;
+  const target = `${safeUrl} ${name || ''}`.toLowerCase();
+  return /\.(mp4|webm|mov|m4v|3gp)(\b|\?|$)/i.test(target);
+}
+
+function isPdfAttachment(url?: string, name?: string): boolean {
+  const safeUrl = String(url || '').trim();
+  if (!safeUrl) return false;
+  if (safeUrl.startsWith('data:application/pdf')) return true;
+  const target = `${safeUrl} ${name || ''}`.toLowerCase();
+  return /\.pdf(\b|\?|$)/i.test(target);
+}
+
+function getAttachmentKind(url?: string, name?: string): ChatAttachmentKind {
+  if (isImageAttachment(url, name)) return 'image';
+  if (isVideoAttachment(url, name)) return 'video';
+  return 'document';
+}
+
+function getAttachmentSummaryText(url?: string, name?: string): string {
+  const kind = getAttachmentKind(url, name);
+  if (kind === 'image') return '📷 Mengirim gambar';
+  if (kind === 'video') return '🎬 Mengirim video';
+  return `📄 ${name || 'Mengirim dokumen'}`;
+}
+
+function getAttachmentPrefixIcon(url?: string, name?: string): string {
+  const kind = getAttachmentKind(url, name);
+  if (kind === 'image') return '📷 ';
+  if (kind === 'video') return '🎬 ';
+  return '📄 ';
+}
+
+function getDocumentBadgeMeta(fileName?: string, url?: string): {
+  extLabel: string;
+  bgClass: string;
+  textClass: string;
+  borderClass: string;
+} {
+  const raw = String(fileName || url || '').split('?')[0];
+  const extMatch = /\.([a-z0-9]{1,6})$/i.exec(raw);
+  const ext = (extMatch?.[1] || 'file').toLowerCase();
+  const extLabel = ext.toUpperCase().slice(0, 5);
+
+  if (ext === 'pdf') {
+    return {
+      extLabel: 'PDF',
+      bgClass: 'bg-rose-100',
+      textClass: 'text-rose-700',
+      borderClass: 'border-rose-200',
+    };
+  }
+  if (ext === 'doc' || ext === 'docx' || ext === 'odt' || ext === 'rtf') {
+    return {
+      extLabel,
+      bgClass: 'bg-blue-100',
+      textClass: 'text-blue-700',
+      borderClass: 'border-blue-200',
+    };
+  }
+  if (ext === 'xls' || ext === 'xlsx' || ext === 'ods' || ext === 'csv') {
+    return {
+      extLabel,
+      bgClass: 'bg-emerald-100',
+      textClass: 'text-emerald-700',
+      borderClass: 'border-emerald-200',
+    };
+  }
+  if (ext === 'ppt' || ext === 'pptx' || ext === 'odp') {
+    return {
+      extLabel,
+      bgClass: 'bg-amber-100',
+      textClass: 'text-amber-700',
+      borderClass: 'border-amber-200',
+    };
+  }
+  if (ext === 'zip' || ext === 'rar' || ext === '7z') {
+    return {
+      extLabel,
+      bgClass: 'bg-violet-100',
+      textClass: 'text-violet-700',
+      borderClass: 'border-violet-200',
+    };
+  }
+  return {
+    extLabel,
+    bgClass: 'bg-slate-200',
+    textClass: 'text-slate-700',
+    borderClass: 'border-slate-300',
+  };
+}
+
+function readFileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Gagal membaca file.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file dari perangkat.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   currentUserId,
   currentUserName,
@@ -284,6 +441,11 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     dataUrl: string;
     originalSize: number;
     compressedSize: number;
+    name: string;
+    kind?: ChatAttachmentKind;
+  } | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<{
+    url: string;
     name: string;
   } | null>(null);
   const [isCompressingImage, setIsCompressingImage] = useState(false);
@@ -329,6 +491,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       fileUrl: string;
       fileName: string;
       isImage: boolean;
+      isVideo?: boolean;
       byteSize: number;
       formattedSize: string;
       caption: string;
@@ -342,7 +505,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   }>({ totalFiles: 0, totalBytes: 0, totalFormattedSize: '0 B' });
   const [isLoadingAdminGallery, setIsLoadingAdminGallery] = useState(false);
   const [adminGallerySearch, setAdminGallerySearch] = useState('');
-  const [adminGalleryFilter, setAdminGalleryFilter] = useState<'all' | 'image' | 'file'>('all');
+  const [adminGalleryFilter, setAdminGalleryFilter] = useState<'all' | 'image' | 'video' | 'file'>('all');
   const [deletingGalleryId, setDeletingGalleryId] = useState<string | null>(null);
 
   const [showAdminResetModal, setShowAdminResetModal] = useState(false);
@@ -407,6 +570,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const docInputRef = useRef<HTMLInputElement | null>(null);
   const newGroupAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const editGroupAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -482,7 +646,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
 
       const previewText =
         incoming.text ||
-        (incoming.imageUrl ? '📷 Mengirim lampiran gambar' : 'Pesan baru masuk');
+        (incoming.imageUrl
+          ? getAttachmentSummaryText(incoming.imageUrl, incoming.imageName)
+          : 'Pesan baru masuk');
 
       setChatToast({
         id: incoming.id,
@@ -1449,36 +1615,64 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
-  // File/Image selection + automatic compression
+  // File/Image/Video/Document selection + automatic compression for images
   const handleSelectImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
 
+    if (file.size > MAX_CHAT_FILE_BYTES) {
+      showAlert({
+        type: 'warning',
+        title: 'Ukuran File Terlalu Besar',
+        message: 'Ukuran maksimal file yang dapat dikirim di chat adalah 30 MB.',
+      });
+      return;
+    }
+
+    const ext = file.name.includes('.')
+      ? (file.name.split('.').pop() || '').toLowerCase()
+      : '';
+    const isImg =
+      file.type.startsWith('image/') ||
+      ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+    const isVid =
+      file.type.startsWith('video/') ||
+      ['mp4', 'webm', 'mov', 'm4v', '3gp'].includes(ext);
+
+    if (!isImg && !isVid && !ALLOWED_CHAT_EXTS.has(ext)) {
+      showAlert({
+        type: 'warning',
+        title: 'Format File Tidak Didukung',
+        message:
+          'Format yang didukung: Gambar, Video (MP4, WEBM, MOV), serta Dokumen (PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT, CSV, ZIP/RAR).',
+      });
+      return;
+    }
+
     setIsCompressingImage(true);
     try {
-      if (file.type.startsWith('image/')) {
+      if (isImg) {
         const compressed = await compressImageFile(file, 1024, 0.72);
-        setPendingImage(compressed);
-      } else {
-        const { compressAndUploadFile } = await import('../utils/fileCompressor');
-        const res = await compressAndUploadFile(file, {
-          maxDimension: 1200,
-          quality: 0.75,
-          uploadToServer: true,
-        });
         setPendingImage({
-          dataUrl: res.hostedUrl || res.dataUrl,
-          name: res.fileName,
-          originalSize: res.originalBytes,
-          compressedSize: res.compressedBytes,
+          ...compressed,
+          kind: 'image',
+        });
+      } else {
+        const dataUrl = await readFileToDataUrl(file);
+        setPendingImage({
+          dataUrl,
+          name: file.name,
+          originalSize: file.size,
+          compressedSize: file.size,
+          kind: isVid ? 'video' : 'document',
         });
       }
     } catch {
       showAlert({
         type: 'error',
-        title: 'Gagal Mengompres File',
-        message: 'Terjadi kesalahan saat mengompres ukuran file.',
+        title: 'Gagal Memuat File',
+        message: 'Terjadi kesalahan saat memproses file dari perangkat Anda.',
       });
     } finally {
       setIsCompressingImage(false);
@@ -1564,7 +1758,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               lastMessageSenderName: created.senderName,
               lastMessageText:
                 created.text ||
-                (created.imageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan baru'),
+                (created.imageUrl
+                  ? getAttachmentSummaryText(created.imageUrl, created.imageName)
+                  : 'Pesan baru'),
             };
             setRooms((prev) =>
               prev.some((r) => r.id === promotedRoom.id)
@@ -1579,6 +1775,13 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           setPendingImage(null);
           setComposerLinkPreview(null);
           setShowEmojiPicker(false);
+        } else {
+          const errJson = await res.json().catch(() => null);
+          showAlert({
+            type: 'error',
+            title: 'Gagal Mengirim Pesan',
+            message: errJson?.message || 'Gagal mengunggah lampiran ke server.',
+          });
         }
       }
     } finally {
@@ -1671,14 +1874,17 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     setSelectedForwardMsgIds(initialMsgId ? [initialMsgId] : []);
   }, []);
 
-  // Trigger image download cleanly from context menu
-  const handleDownloadChatImage = useCallback((imageUrl: string, imageName?: string) => {
+  // Trigger attachment download cleanly (supports images, videos, and documents)
+  const handleDownloadChatImage = useCallback((fileUrl: string, fileName?: string) => {
     try {
+      const safeFileName = fileName || `lampiran-chat-${Date.now()}`;
+      const isHosted = fileUrl.startsWith('/uploads/');
+      const downloadHref = isHosted
+        ? `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}download=1&name=${encodeURIComponent(safeFileName)}`
+        : fileUrl;
       const link = document.createElement('a');
-      link.href = imageUrl;
-      link.download = imageName || `chat-image-${Date.now()}.jpg`;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
+      link.href = downloadHref;
+      link.download = safeFileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1764,7 +1970,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           lastMessageSenderName: lastCreated.senderName,
           lastMessageText:
             lastCreated.text ||
-            (lastCreated.imageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan diteruskan'),
+            (lastCreated.imageUrl
+              ? getAttachmentSummaryText(lastCreated.imageUrl, lastCreated.imageName)
+              : 'Pesan diteruskan'),
         };
         setRooms((prev) =>
           prev.some((r) => r.id === promotedRoom.id)
@@ -2630,8 +2838,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                           </span>
                         </div>
                         <p className="text-xs font-medium text-slate-800 truncate group-hover:text-amber-950">
-                          {pinnedMessages[0].imageUrl ? '📷 ' : ''}
-                          {pinnedMessages[0].text || 'Lampiran Gambar'}
+                          {pinnedMessages[0].imageUrl
+                            ? getAttachmentPrefixIcon(pinnedMessages[0].imageUrl, pinnedMessages[0].imageName)
+                            : ''}
+                          {pinnedMessages[0].text ||
+                            pinnedMessages[0].imageName ||
+                            'Lampiran'}
                         </p>
                       </div>
                     </button>
@@ -2685,8 +2897,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                               {pm.pinnedByName ? ` (disematkan oleh ${pm.pinnedByName})` : ''}
                             </p>
                             <p className="text-[11px] text-slate-700 truncate">
-                              {pm.imageUrl ? '📷 ' : ''}
-                              {pm.text || 'Lampiran Gambar'}
+                              {pm.imageUrl
+                                ? getAttachmentPrefixIcon(pm.imageUrl, pm.imageName)
+                                : ''}
+                              {pm.text || pm.imageName || 'Lampiran'}
                             </p>
                           </button>
                           {!isAdminMonitor && (
@@ -2959,7 +3173,13 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                   {msg.replyTo.senderName}
                                 </p>
                                 <p className="text-[11px] text-slate-600 line-clamp-2">
-                                  {msg.replyTo.imageUrl ? '📷 [Gambar] ' : ''}
+                                  {msg.replyTo.imageUrl
+                                    ? isImageAttachment(msg.replyTo.imageUrl)
+                                      ? '📷 [Gambar] '
+                                      : isVideoAttachment(msg.replyTo.imageUrl)
+                                      ? '🎬 [Video] '
+                                      : '📄 [Dokumen] '
+                                    : ''}
                                   {msg.replyTo.text}
                                 </p>
                               </button>
@@ -2973,48 +3193,153 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                               </p>
                             ) : (
                               <>
-                                {/* Compressed Image Attachment (Requirement 3) */}
-                                {msg.imageUrl && (
-                                  <div className="mb-2">
-                                    <div className="relative group/img rounded-xl overflow-hidden border border-black/10 bg-slate-900/5">
-                                      <img
-                                        src={msg.imageUrl}
-                                        alt={msg.imageName || 'Lampiran Chat'}
-                                        onClick={() =>
-                                          setLightboxImage({
-                                            url: msg.imageUrl!,
-                                            name: msg.imageName,
-                                          })
-                                        }
-                                        className="max-h-64 w-auto object-contain mx-auto cursor-zoom-in"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setLightboxImage({
-                                            url: msg.imageUrl!,
-                                            name: msg.imageName,
-                                          })
-                                        }
-                                        className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover/img:opacity-100 transition-opacity cursor-pointer"
-                                        title="Perbesar Gambar"
+                                {/* Image / Video / Document Attachment */}
+                                {msg.imageUrl && (() => {
+                                  const attachKind = getAttachmentKind(msg.imageUrl, msg.imageName);
+
+                                  if (attachKind === 'image') {
+                                    return (
+                                      <div className="mb-2">
+                                        <div className="relative group/img rounded-xl overflow-hidden border border-black/10 bg-slate-900/5">
+                                          <img
+                                            src={msg.imageUrl}
+                                            alt={msg.imageName || 'Lampiran Chat'}
+                                            onClick={() =>
+                                              setLightboxImage({
+                                                url: msg.imageUrl!,
+                                                name: msg.imageName,
+                                              })
+                                            }
+                                            className="max-h-64 w-auto object-contain mx-auto cursor-zoom-in"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setLightboxImage({
+                                                url: msg.imageUrl!,
+                                                name: msg.imageName,
+                                              })
+                                            }
+                                            className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover/img:opacity-100 transition-opacity cursor-pointer"
+                                            title="Perbesar Gambar"
+                                          >
+                                            <Maximize2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                        {msg.imageCompressedSize && (
+                                          <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                                            <span>
+                                              ⚡ Terkompresi:{' '}
+                                              {formatFileSize(msg.imageCompressedSize)}
+                                              {msg.imageOriginalSize
+                                                ? ` (dari ${formatFileSize(msg.imageOriginalSize)})`
+                                                : ''}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+
+                                  if (attachKind === 'video') {
+                                    return (
+                                      <div className="mb-2">
+                                        <div className="rounded-xl overflow-hidden border border-black/10 bg-slate-950">
+                                          <video
+                                            src={msg.imageUrl}
+                                            controls
+                                            playsInline
+                                            preload="metadata"
+                                            className="max-h-72 w-full max-w-[320px] bg-black"
+                                          />
+                                        </div>
+                                        <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <Film className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                            <span className="truncate font-semibold">
+                                              {msg.imageName || 'Video'}
+                                            </span>
+                                            {(msg.imageCompressedSize || msg.imageOriginalSize) && (
+                                              <span className="text-[10px] text-slate-500 shrink-0">
+                                                • {formatFileSize(msg.imageCompressedSize || msg.imageOriginalSize || 0)}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDownloadChatImage(msg.imageUrl!, msg.imageName || 'video-chat.mp4');
+                                            }}
+                                            className="p-1 rounded-lg hover:bg-black/10 text-slate-700 shrink-0 cursor-pointer"
+                                            title="Unduh Video"
+                                          >
+                                            <Download className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  const docMeta = getDocumentBadgeMeta(msg.imageName, msg.imageUrl);
+                                  const canPreviewPdf = isPdfAttachment(msg.imageUrl, msg.imageName);
+                                  const displayFileName = msg.imageName || 'Dokumen';
+                                  const displaySize = msg.imageCompressedSize || msg.imageOriginalSize;
+
+                                  return (
+                                    <div className="mb-2 p-2.5 rounded-xl bg-black/[0.04] border border-black/10 flex items-center gap-2.5 min-w-[210px] max-w-[320px]">
+                                      <div
+                                        className={`w-10 h-10 rounded-lg border ${docMeta.bgClass} ${docMeta.borderClass} ${docMeta.textClass} flex flex-col items-center justify-center shrink-0`}
                                       >
-                                        <Maximize2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                    {msg.imageCompressedSize && (
-                                      <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-                                        <span>
-                                          ⚡ Terkompresi:{' '}
-                                          {formatFileSize(msg.imageCompressedSize)}
-                                          {msg.imageOriginalSize
-                                            ? ` (dari ${formatFileSize(msg.imageOriginalSize)})`
-                                            : ''}
+                                        <FileText className="w-4 h-4" />
+                                        <span className="text-[8px] font-black leading-none mt-0.5">
+                                          {docMeta.extLabel}
                                         </span>
                                       </div>
-                                    )}
-                                  </div>
-                                )}
+                                      <div className="min-w-0 flex-1">
+                                        <p
+                                          className="text-xs font-bold text-slate-900 truncate"
+                                          title={displayFileName}
+                                        >
+                                          {displayFileName}
+                                        </p>
+                                        <p className="text-[10px] font-semibold text-slate-500">
+                                          {docMeta.extLabel}
+                                          {displaySize ? ` • ${formatFileSize(displaySize)}` : ''}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {canPreviewPdf && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setPreviewDocument({
+                                                url: msg.imageUrl!,
+                                                name: displayFileName,
+                                              });
+                                            }}
+                                            className="p-1.5 rounded-lg bg-white/80 hover:bg-white border border-slate-200 text-slate-700 transition-colors cursor-pointer"
+                                            title="Pratinjau PDF"
+                                          >
+                                            <Eye className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDownloadChatImage(msg.imageUrl!, displayFileName);
+                                          }}
+                                          className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer"
+                                          title="Unduh Dokumen"
+                                        >
+                                          <Download className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
 
                                 {/* Message Text */}
                                 {msg.text && (
@@ -3234,34 +3559,69 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     </div>
                   )}
 
-                  {/* Pending Compressed Image Preview */}
-                  {pendingImage && (
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <img
-                          src={pendingImage.dataUrl}
-                          alt={pendingImage.name}
-                          className="w-12 h-12 rounded-lg object-cover border border-slate-300 shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-800 truncate">
-                            {pendingImage.name}
-                          </p>
-                          <p className="text-[11px] font-semibold text-emerald-700">
-                            ⚡ Dikompres Otomatis: {formatFileSize(pendingImage.originalSize)}{' '}
-                            → {formatFileSize(pendingImage.compressedSize)}
-                          </p>
+                  {/* Pending Image / Video / Document Preview */}
+                  {pendingImage && (() => {
+                    const pendingKind =
+                      pendingImage.kind || getAttachmentKind(pendingImage.dataUrl, pendingImage.name);
+                    const pendingDocMeta = getDocumentBadgeMeta(pendingImage.name, pendingImage.dataUrl);
+                    return (
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {pendingKind === 'image' ? (
+                            <img
+                              src={pendingImage.dataUrl}
+                              alt={pendingImage.name}
+                              className="w-12 h-12 rounded-lg object-cover border border-slate-300 shrink-0"
+                            />
+                          ) : pendingKind === 'video' ? (
+                            <div className="relative w-14 h-12 rounded-lg overflow-hidden bg-slate-950 border border-slate-300 shrink-0">
+                              <video
+                                src={pendingImage.dataUrl}
+                                muted
+                                playsInline
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute bottom-0.5 right-0.5 px-1 rounded bg-black/75 text-white text-[8px] font-bold">
+                                VIDEO
+                              </span>
+                            </div>
+                          ) : (
+                            <div
+                              className={`w-12 h-12 rounded-lg border ${pendingDocMeta.bgClass} ${pendingDocMeta.borderClass} ${pendingDocMeta.textClass} flex flex-col items-center justify-center shrink-0`}
+                            >
+                              <FileText className="w-4 h-4" />
+                              <span className="text-[9px] font-black leading-none mt-0.5">
+                                {pendingDocMeta.extLabel}
+                              </span>
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">
+                              {pendingImage.name}
+                            </p>
+                            {pendingKind === 'image' ? (
+                              <p className="text-[11px] font-semibold text-emerald-700">
+                                ⚡ {formatFileSize(pendingImage.originalSize)} →{' '}
+                                {formatFileSize(pendingImage.compressedSize)}
+                              </p>
+                            ) : (
+                              <p className="text-[11px] font-semibold text-slate-500">
+                                {pendingKind === 'video' ? 'Video' : pendingDocMeta.extLabel} •{' '}
+                                {formatFileSize(pendingImage.originalSize)}
+                              </p>
+                            )}
+                          </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setPendingImage(null)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setPendingImage(null)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Live Link Metadata Preview in Composer */}
                   {(isLoadingLinkPreview || composerLinkPreview) && (
@@ -3339,11 +3699,18 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   )}
 
                   {/* Input Row */}
-                  <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+                  <form onSubmit={handleSendMessage} className="flex items-end gap-1.5 sm:gap-2">
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={CHAT_MEDIA_ACCEPT}
+                      onChange={handleSelectImage}
+                      className="hidden"
+                    />
+                    <input
+                      ref={docInputRef}
+                      type="file"
+                      accept={CHAT_DOCUMENT_ACCEPT}
                       onChange={handleSelectImage}
                       className="hidden"
                     />
@@ -3352,25 +3719,36 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                      className={`p-2.5 rounded-xl border transition-colors cursor-pointer shrink-0 ${
+                      className={`p-2 sm:p-2.5 rounded-xl border transition-colors cursor-pointer shrink-0 ${
                         showEmojiPicker
                           ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
                           : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
                       }`}
-                      title="Sisipkan Emoji / Ikon"
+                      title="Emoji"
                     >
                       <Smile className="w-5 h-5" />
                     </button>
 
-                    {/* Image Upload + Auto Compression Button */}
+                    {/* Photo & Video Upload Button */}
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={isCompressingImage || !!editingMessage}
-                      className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                      title="Kirim Gambar (Otomatis Dikompres)"
+                      disabled={isCompressingImage || isSending || !!editingMessage}
+                      className="p-2 sm:p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      title="Foto & Video"
                     >
                       <ImageIcon className="w-5 h-5" />
+                    </button>
+
+                    {/* Document Upload Button */}
+                    <button
+                      type="button"
+                      onClick={() => docInputRef.current?.click()}
+                      disabled={isCompressingImage || isSending || !!editingMessage}
+                      className="p-2 sm:p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      title="Dokumen (PDF, Word, Excel, ZIP)"
+                    >
+                      <Paperclip className="w-5 h-5" />
                     </button>
 
                     <textarea
@@ -3385,15 +3763,19 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                         }
                       }}
                       placeholder="Ketik pesan..."
-                      className="flex-1 px-3.5 py-2.5 text-xs sm:text-sm bg-slate-100 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none max-h-28"
+                      className="flex-1 min-w-0 px-3 sm:px-3.5 py-2.5 text-xs sm:text-sm bg-slate-100 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none max-h-28"
                     />
 
                     <button
                       type="submit"
-                      disabled={isSending || (!inputText.trim() && !pendingImage)}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer shrink-0"
+                      disabled={isSending || isCompressingImage || (!inputText.trim() && !pendingImage)}
+                      className="px-3.5 sm:px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer shrink-0"
                     >
-                      <Send className="w-4 h-4" />
+                      {isSending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
                       <span className="hidden sm:inline">
                         {editingMessage ? 'Simpan' : 'Kirim'}
                       </span>
@@ -4339,12 +4721,62 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         </div>
       )}
 
+      {/* MODAL 4B: IN-APP PDF DOCUMENT PREVIEW */}
+      {previewDocument && (
+        <div
+          onClick={() => setPreviewDocument(null)}
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-4xl w-full h-[86vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden"
+          >
+            <div className="px-4 py-3 bg-[#092147] text-white flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-amber-300 shrink-0" />
+                <span className="text-xs sm:text-sm font-bold truncate">
+                  {previewDocument.name}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleDownloadChatImage(previewDocument.url, previewDocument.name)
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDocument(null)}
+                  className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-100">
+              <iframe
+                src={previewDocument.url}
+                title={previewDocument.name}
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL 5: ADMIN CHAT FILE GALLERY */}
       {isAdminMonitor && showAdminGalleryModal && (() => {
         const q = adminGallerySearch.trim().toLowerCase();
         const filteredFiles = adminGalleryFiles.filter((item) => {
+          const itemIsVideo = Boolean(item.isVideo) || isVideoAttachment(item.fileUrl, item.fileName);
           if (adminGalleryFilter === 'image' && !item.isImage) return false;
-          if (adminGalleryFilter === 'file' && item.isImage) return false;
+          if (adminGalleryFilter === 'video' && !itemIsVideo) return false;
+          if (adminGalleryFilter === 'file' && (item.isImage || itemIsVideo)) return false;
           if (!q) return true;
           return (
             item.fileName.toLowerCase().includes(q) ||
@@ -4402,7 +4834,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     [
                       { id: 'all', label: 'Semua' },
                       { id: 'image', label: 'Gambar' },
-                      { id: 'file', label: 'File' },
+                      { id: 'video', label: 'Video' },
+                      { id: 'file', label: 'Dokumen' },
                     ] as const
                   ).map((tab) => (
                     <button
@@ -4462,14 +4895,55 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                               {item.formattedSize}
                             </span>
                           </button>
-                        ) : (
-                          <div className="relative h-36 bg-slate-100 flex flex-col items-center justify-center gap-2 p-3">
-                            <FileText className="w-10 h-10 text-slate-500" />
-                            <span className="px-2 py-0.5 rounded bg-slate-800 text-white text-[10px] font-bold">
+                        ) : Boolean(item.isVideo) || isVideoAttachment(item.fileUrl, item.fileName) ? (
+                          <div className="relative h-36 bg-slate-950 flex items-center justify-center overflow-hidden">
+                            <video
+                              src={item.fileUrl}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="w-full h-full object-contain"
+                            />
+                            <span className="absolute top-2 right-2 px-2 py-0.5 rounded bg-slate-950/75 text-white text-[10px] font-bold pointer-events-none">
                               {item.formattedSize}
                             </span>
                           </div>
-                        )}
+                        ) : (() => {
+                          const gDocMeta = getDocumentBadgeMeta(item.fileName, item.fileUrl);
+                          const gIsPdf = isPdfAttachment(item.fileUrl, item.fileName);
+                          return (
+                            <div className="relative h-36 bg-slate-50 flex flex-col items-center justify-center gap-2 p-3 border-b border-slate-100">
+                              <div
+                                className={`w-12 h-12 rounded-xl border ${gDocMeta.bgClass} ${gDocMeta.borderClass} ${gDocMeta.textClass} flex flex-col items-center justify-center`}
+                              >
+                                <FileText className="w-5 h-5" />
+                                <span className="text-[9px] font-black leading-none mt-0.5">
+                                  {gDocMeta.extLabel}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2 py-0.5 rounded bg-slate-800 text-white text-[10px] font-bold">
+                                  {item.formattedSize}
+                                </span>
+                                {gIsPdf && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPreviewDocument({
+                                        url: item.fileUrl,
+                                        name: item.fileName,
+                                      })
+                                    }
+                                    className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Lihat</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         <div className="p-3 flex-1 flex flex-col justify-between gap-2">
                           <div className="space-y-1 min-w-0">
