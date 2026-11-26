@@ -557,6 +557,294 @@ const WhatsAppVideoBubble: React.FC<{
   );
 };
 
+const LiveCameraCaptureModal: React.FC<{
+  onClose: () => void;
+  onFallbackFilePick: () => void;
+  onCapture: (captured: {
+    dataUrl: string;
+    name: string;
+    originalSize: number;
+    compressedSize: number;
+    kind: 'image';
+  }) => void;
+}> = ({ onClose, onFallbackFilePick, onCapture }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('user');
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<{
+    dataUrl: string;
+    bytes: number;
+  } | null>(null);
+
+  const stopStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const startCamera = useCallback(
+    async (preferredFacing: 'environment' | 'user') => {
+      stopStream();
+      setIsInitializing(true);
+      setCameraError(null);
+
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        setIsInitializing(false);
+        setCameraError('Browser atau perangkat tidak mendukung akses kamera langsung.');
+        return;
+      }
+
+      try {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: preferredFacing },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+        } catch {
+          // Fallback to any available video camera
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => {});
+        }
+        setIsInitializing(false);
+      } catch (err: any) {
+        setIsInitializing(false);
+        const errName = String(err?.name || '');
+        if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+          setCameraError('Izin akses kamera ditolak. Aktifkan izin kamera pada browser Anda.');
+        } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
+          setCameraError('Kamera tidak ditemukan pada perangkat ini.');
+        } else {
+          setCameraError('Kamera tidak dapat dibuka saat ini.');
+        }
+      }
+    },
+    [stopStream]
+  );
+
+  useEffect(() => {
+    if (!capturedPhoto) {
+      void startCamera(facingMode);
+    }
+    return () => {
+      stopStream();
+    };
+  }, [facingMode, capturedPhoto, startCamera, stopStream]);
+
+  const handleTakePhoto = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return;
+
+    const maxDim = 1280;
+    let targetW = video.videoWidth;
+    let targetH = video.videoHeight;
+    if (targetW > maxDim || targetH > maxDim) {
+      if (targetW >= targetH) {
+        targetH = Math.round((targetH * maxDim) / targetW);
+        targetW = maxDim;
+      } else {
+        targetW = Math.round((targetW * maxDim) / targetH);
+        targetH = maxDim;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (facingMode === 'user') {
+      ctx.translate(targetW, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, targetW, targetH);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const commaIdx = dataUrl.indexOf(',');
+    const approxBytes =
+      commaIdx >= 0 ? Math.floor(((dataUrl.length - commaIdx - 1) * 3) / 4) : 0;
+
+    stopStream();
+    setCapturedPhoto({ dataUrl, bytes: approxBytes });
+  };
+
+  const handleConfirmPhoto = () => {
+    if (!capturedPhoto) return;
+    const ts = new Date()
+      .toISOString()
+      .replace(/[-:T]/g, '')
+      .slice(0, 14);
+    onCapture({
+      dataUrl: capturedPhoto.dataUrl,
+      name: `kamera-${ts}.jpg`,
+      originalSize: capturedPhoto.bytes,
+      compressedSize: capturedPhoto.bytes,
+      kind: 'image',
+    });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5"
+      onClick={() => {
+        stopStream();
+        onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-xl rounded-2xl bg-[#111b21] text-white shadow-2xl border border-white/10 overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-4 py-3 bg-[#1f2c34] border-b border-white/10 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Camera className="w-5 h-5 text-rose-400" />
+            <h3 className="text-sm font-extrabold">Kamera</h3>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {!capturedPhoto && !cameraError && (
+              <button
+                type="button"
+                onClick={() =>
+                  setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
+                }
+                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                title="Ganti Kamera"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                stopStream();
+                onClose();
+              }}
+              className="p-2 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors cursor-pointer"
+              title="Tutup"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Viewfinder / Preview */}
+        <div className="relative bg-black aspect-[4/3] w-full flex items-center justify-center overflow-hidden">
+          {capturedPhoto ? (
+            <img
+              src={capturedPhoto.dataUrl}
+              alt="Hasil Kamera"
+              className="w-full h-full object-contain"
+            />
+          ) : cameraError ? (
+            <div className="p-6 text-center space-y-3 max-w-sm">
+              <Camera className="w-10 h-10 text-slate-500 mx-auto" />
+              <p className="text-sm font-semibold text-slate-200">{cameraError}</p>
+              <div className="flex items-center justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => void startCamera(facingMode)}
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer"
+                >
+                  Coba Lagi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopStream();
+                    onClose();
+                    onFallbackFilePick();
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
+                >
+                  Pilih File
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover ${
+                  facingMode === 'user' ? '-scale-x-100' : ''
+                }`}
+              />
+              {isInitializing && (
+                <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="w-7 h-7 animate-spin text-emerald-400" />
+                  <span className="text-xs font-semibold text-slate-300">
+                    Membuka kamera...
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Bottom Action Bar */}
+        <div className="px-5 py-4 bg-[#1f2c34] border-t border-white/10 flex items-center justify-center gap-3">
+          {capturedPhoto ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setCapturedPhoto(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Ulangi</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPhoto}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold inline-flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Gunakan Foto</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleTakePhoto}
+              disabled={isInitializing || Boolean(cameraError)}
+              aria-label="Ambil Foto"
+              className="w-16 h-16 rounded-full bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-900 ring-4 ring-white/25 shadow-xl flex items-center justify-center transition-transform active:scale-95 cursor-pointer disabled:cursor-not-allowed"
+            >
+              <Camera className="w-7 h-7" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   currentUserId,
   currentUserName,
@@ -613,6 +901,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [isChatInitialLoading, setIsChatInitialLoading] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showCameraModal, setShowCameraModal] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
   // Modals
@@ -1238,6 +1527,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           setShowGroupInfoModal(false);
           return;
         }
+        if (showCameraModal) {
+          setShowCameraModal(false);
+          return;
+        }
         if (showAttachMenu) {
           setShowAttachMenu(false);
           return;
@@ -1279,6 +1572,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     isForwardSelectMode,
     showCreateGroupModal,
     showGroupInfoModal,
+    showCameraModal,
     showAttachMenu,
     showEmojiPicker,
     editingMessage,
@@ -3985,7 +4279,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                             type="button"
                             onClick={() => {
                               setShowAttachMenu(false);
-                              cameraInputRef.current?.click();
+                              setShowCameraModal(true);
                             }}
                             className="w-full px-3.5 py-2.5 flex items-center gap-3 text-left text-sm font-medium hover:bg-white/10 transition-colors cursor-pointer"
                           >
@@ -5383,6 +5677,19 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* LIVE CAMERA CAPTURE MODAL */}
+      {showCameraModal && (
+        <LiveCameraCaptureModal
+          onClose={() => setShowCameraModal(false)}
+          onFallbackFilePick={() => cameraInputRef.current?.click()}
+          onCapture={(captured) => {
+            setPendingImage(captured);
+            setShowCameraModal(false);
+            setTimeout(() => composerInputRef.current?.focus(), 50);
+          }}
+        />
       )}
     </div>
   );
