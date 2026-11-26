@@ -16,6 +16,9 @@ import {
   ensureMysqlSchema,
   migrateFromSupabaseToMysql,
   generateMysqlSqlDump,
+  allocateAtomicProspectSequenceMysql,
+  syncProspectSequenceFloorMysql,
+  ensureProspectLetterNumberUniqueIndexMysql,
 } from './src/mysql.ts';
 import { MALE_AVATAR_URL, FEMALE_AVATAR_URL, getDefaultAvatar, resolveAvatarUrl, inferGenderFromName } from './src/avatars.ts';
 
@@ -1786,6 +1789,90 @@ export const sendSystemEmail = async (params: {
 };
 
 let prospectLetters: ProspectLetter[] = [];
+// Monotonic per-year sequence high-water mark & permanently reserved letter numbers (never decremented on delete)
+let prospectLetterSequences: Record<string, number> = {};
+let usedProspectLetterNumbers = new Set<string>();
+
+// In-process FIFO mutex queue so concurrent POST/PUT/DELETE prospect requests execute strictly sequentially
+let prospectMutationQueue: Promise<void> = Promise.resolve();
+const withProspectMutationLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const prev = prospectMutationQueue;
+  let release!: () => void;
+  prospectMutationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+};
+
+// Short-lived idempotency cache so accidental double-clicks / retries reuse the exact issued letter
+const recentProspectCreateRequests = new Map<string, { letter: ProspectLetter; expiresAt: number }>();
+const PROSPECT_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
+
+const pruneExpiredProspectCreateRequests = () => {
+  const nowMs = Date.now();
+  for (const [k, v] of recentProspectCreateRequests.entries()) {
+    if (v.expiresAt <= nowMs) {
+      recentProspectCreateRequests.delete(k);
+    }
+  }
+  while (recentProspectCreateRequests.size > 500) {
+    const oldestKey = recentProspectCreateRequests.keys().next().value;
+    if (!oldestKey) break;
+    recentProspectCreateRequests.delete(oldestKey);
+  }
+};
+
+const extractProspectLetterYearAndSeq = (
+  item: Pick<ProspectLetter, 'letterNumber' | 'sequenceNumber' | 'letterDate' | 'createdAt'>
+): { year: number | null; seq: number } => {
+  const rawNum = String(item.letterNumber || '').trim();
+  const suffixYearMatch = /\/(\d{4})$/.exec(rawNum);
+  const dateYear = Number(String(item.letterDate || item.createdAt || '').slice(0, 4));
+  const year =
+    suffixYearMatch && Number(suffixYearMatch[1]) >= 2000
+      ? Number(suffixYearMatch[1])
+      : Number.isFinite(dateYear) && dateYear >= 2000
+      ? dateYear
+      : null;
+
+  const seqFromNum = Number(item.sequenceNumber) || 0;
+  const prefixMatch = /^(\d+)\//.exec(rawNum);
+  const seqFromStr = prefixMatch ? Number(prefixMatch[1]) || 0 : 0;
+  return { year, seq: Math.max(0, seqFromNum, seqFromStr) };
+};
+
+const recordUsedProspectLetterMeta = (
+  item: Pick<ProspectLetter, 'letterNumber' | 'sequenceNumber' | 'letterDate' | 'createdAt'>
+) => {
+  const normalizedNumber = String(item.letterNumber || '').trim().toUpperCase();
+  if (normalizedNumber) {
+    usedProspectLetterNumbers.add(normalizedNumber);
+  }
+  const { year, seq } = extractProspectLetterYearAndSeq(item);
+  if (year && seq > 0) {
+    const yearKey = String(year);
+    prospectLetterSequences[yearKey] = Math.max(prospectLetterSequences[yearKey] || 0, seq);
+  }
+};
+
+const reconcileProspectLetterSequenceState = () => {
+  for (const item of prospectLetters) {
+    if (item) {
+      recordUsedProspectLetterMeta(item);
+    }
+  }
+};
+
+const isProspectLetterNumberTaken = (candidateNumber: string): boolean => {
+  const normalized = candidateNumber.trim().toUpperCase();
+  if (usedProspectLetterNumbers.has(normalized)) return true;
+  return prospectLetters.some((l) => String(l.letterNumber || '').trim().toUpperCase() === normalized);
+};
 
 const ROMAN_MONTHS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
@@ -1829,7 +1916,7 @@ const formatStructuredProspectAddress = (parts?: Partial<ProspectAddressParts> |
   return joined || String(fallbackRaw || '').trim();
 };
 
-const generateNextProspectLetterMeta = (dateObj: Date) => {
+const allocateUniqueProspectLetterMeta = async (dateObj: Date) => {
   // Use Asia/Jakarta (WIB, UTC+7) so Roman month & year always match Indonesian local date
   const jakartaMs = dateObj.getTime() + 7 * 60 * 60 * 1000;
   const jakartaDate = new Date(jakartaMs);
@@ -1837,21 +1924,36 @@ const generateNextProspectLetterMeta = (dateObj: Date) => {
   const monthIdx = jakartaDate.getUTCMonth();
   const day = jakartaDate.getUTCDate();
   const romanMonth = ROMAN_MONTHS[monthIdx] || 'I';
+  const yearKey = String(year);
 
-  const sameYearMaxSeq = prospectLetters.reduce((max, item) => {
-    const itemYear = Number(String(item.letterDate || item.createdAt || '').slice(0, 4));
-    if (itemYear === year) {
-      const seqFromNum = Number(item.sequenceNumber) || 0;
-      const prefixMatch = /^(\d+)\//.exec(String(item.letterNumber || '').trim());
-      const seqFromStr = prefixMatch ? Number(prefixMatch[1]) || 0 : 0;
-      return Math.max(max, seqFromNum, seqFromStr);
-    }
-    return max;
-  }, 0);
+  reconcileProspectLetterSequenceState();
+  const localFloorSeq = prospectLetterSequences[yearKey] || 0;
 
-  const nextSeq = sameYearMaxSeq + 1;
-  const paddedSeq = String(nextSeq).padStart(3, '0');
-  const letterNumber = `${paddedSeq}/ND/SPP/${romanMonth}/${year}`;
+  let nextSeq: number | null = null;
+  if (db) {
+    nextSeq = await allocateAtomicProspectSequenceMysql(year, localFloorSeq);
+  }
+  if (nextSeq === null || !Number.isFinite(nextSeq) || nextSeq <= localFloorSeq) {
+    nextSeq = localFloorSeq + 1;
+  }
+
+  // Defense-in-depth: guarantee candidate letterNumber has NEVER been used before (even if previously deleted)
+  let paddedSeq = String(nextSeq).padStart(3, '0');
+  let letterNumber = `${paddedSeq}/ND/SPP/${romanMonth}/${year}`;
+  while (isProspectLetterNumberTaken(letterNumber)) {
+    nextSeq += 1;
+    paddedSeq = String(nextSeq).padStart(3, '0');
+    letterNumber = `${paddedSeq}/ND/SPP/${romanMonth}/${year}`;
+  }
+
+  // Immediately lock this sequence & number in memory so it can never be reused
+  prospectLetterSequences[yearKey] = Math.max(prospectLetterSequences[yearKey] || 0, nextSeq);
+  usedProspectLetterNumbers.add(letterNumber.toUpperCase());
+
+  if (db) {
+    await syncProspectSequenceFloorMysql(year, nextSeq);
+  }
+
   const randomSuffix = crypto.randomBytes(3).toString('hex').toUpperCase();
   const verificationCode = `ND-SPP-${year}-${paddedSeq}-${randomSuffix}`;
   const letterDate = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -2014,26 +2116,36 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
   return Object.keys(out).length > 0 ? out : undefined;
 };
 
-const persistProspectLettersToMysql = async (latestItem?: ProspectLetter, deletedId?: string) => {
-  if (!db) return;
-  try {
-    await db.from('user_passwords').upsert([
-      { email: '__sys_prospect_letters__@ndtaxlaw.internal', password: JSON.stringify(prospectLetters) },
-    ]);
-  } catch (e) {
-    console.warn('[MySQL KV Prospect Letters Warning]', e);
-  }
+const persistProspectLettersToMysql = async (
+  latestItem?: ProspectLetter,
+  deletedId?: string
+): Promise<{ duplicateNumber: boolean }> => {
+  if (!db) return { duplicateNumber: false };
+
+  let duplicateNumber = false;
   const stripBusinessField = (item: ProspectLetter) => {
     const { businessField: _bf, ...rest } = item;
     return rest;
   };
+  const isDuplicateLetterNumberError = (err: any) => {
+    const msg = String(err?.message || '').toLowerCase();
+    const code = String(err?.code || '').toUpperCase();
+    return (
+      code === 'ER_DUP_ENTRY' ||
+      (msg.includes('duplicate entry') && (msg.includes('letternumber') || msg.includes('uniq_prospect_letters_number')))
+    );
+  };
+
   try {
     if (deletedId) {
       await db.from('prospect_letters').delete().eq('id', deletedId);
     } else if (latestItem) {
-      const { error } = await db.from('prospect_letters').upsert([latestItem]);
+      let { error } = await db.from('prospect_letters').upsert([latestItem]);
       if (error && String(error.message || '').toLowerCase().includes('businessfield')) {
-        await db.from('prospect_letters').upsert([stripBusinessField(latestItem)]);
+        ({ error } = await db.from('prospect_letters').upsert([stripBusinessField(latestItem)]));
+      }
+      if (error && isDuplicateLetterNumberError(error)) {
+        duplicateNumber = true;
       }
     } else if (prospectLetters.length > 0) {
       const { error } = await db.from('prospect_letters').upsert(prospectLetters);
@@ -2041,9 +2153,43 @@ const persistProspectLettersToMysql = async (latestItem?: ProspectLetter, delete
         await db.from('prospect_letters').upsert(prospectLetters.map(stripBusinessField));
       }
     }
-  } catch (e) {
-    console.warn('[MySQL prospect_letters Table Warning]', e);
+  } catch (e: any) {
+    if (isDuplicateLetterNumberError(e)) {
+      duplicateNumber = true;
+    } else {
+      console.warn('[MySQL prospect_letters Table Warning]', e);
+    }
   }
+
+  if (duplicateNumber) {
+    return { duplicateNumber: true };
+  }
+
+  try {
+    await db.from('user_passwords').upsert([
+      { email: '__sys_prospect_letters__@ndtaxlaw.internal', password: JSON.stringify(prospectLetters) },
+      {
+        email: '__sys_prospect_letter_sequences__@ndtaxlaw.internal',
+        password: JSON.stringify({
+          sequences: prospectLetterSequences,
+          usedNumbers: Array.from(usedProspectLetterNumbers),
+        }),
+      },
+    ]);
+  } catch (e) {
+    console.warn('[MySQL KV Prospect Letters Warning]', e);
+  }
+
+  // Ensure monotonic sequence floors are persisted in MySQL sequence table
+  for (const [yearKey, seqVal] of Object.entries(prospectLetterSequences)) {
+    const y = Number(yearKey);
+    const s = Number(seqVal);
+    if (Number.isFinite(y) && Number.isFinite(s) && s > 0) {
+      await syncProspectSequenceFloorMysql(y, s);
+    }
+  }
+
+  return { duplicateNumber: false };
 };
 
 let commissions: CommissionTransaction[] = [
@@ -2822,6 +2968,8 @@ export const saveDatabase = () => {
       chatRooms,
       chatMessages,
       prospectLetters,
+      prospectLetterSequences,
+      usedProspectLetterNumbers: Array.from(usedProspectLetterNumbers),
       userPasswords: passwordsObj,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), 'utf-8');
@@ -2953,6 +3101,21 @@ export const loadDatabase = () => {
         if (Array.isArray(data.commissions)) commissions = data.commissions;
         if (Array.isArray(data.notifications)) notifications = data.notifications;
         if (Array.isArray(data.prospectLetters)) prospectLetters = data.prospectLetters;
+        if (data.prospectLetterSequences && typeof data.prospectLetterSequences === 'object') {
+          for (const [yk, val] of Object.entries(data.prospectLetterSequences)) {
+            const n = Number(val) || 0;
+            if (n > 0) {
+              prospectLetterSequences[yk] = Math.max(prospectLetterSequences[yk] || 0, n);
+            }
+          }
+        }
+        if (Array.isArray(data.usedProspectLetterNumbers)) {
+          for (const num of data.usedProspectLetterNumbers) {
+            const norm = String(num || '').trim().toUpperCase();
+            if (norm) usedProspectLetterNumbers.add(norm);
+          }
+        }
+        reconcileProspectLetterSequenceState();
         console.log(`[Development Mode] Database lokal dimuat dari ${DB_FILE}`);
       }
     } else if (isProductionMode()) {
@@ -3064,6 +3227,23 @@ export const syncFromMysql = async () => {
         tableProspectLetters = dbProspects as ProspectLetter[];
       }
     } catch {}
+
+    // 7d. Monotonic Prospect Letter Sequence Table (Read high-water mark per year)
+    try {
+      const { data: dbSeqRows, error: errSeq } = await db
+        .from('prospect_letter_sequences')
+        .select('*');
+      if (!errSeq && Array.isArray(dbSeqRows)) {
+        for (const row of dbSeqRows as any[]) {
+          const yk = String(Number(row.seqYear) || '');
+          const lastSeq = Number(row.lastSequence) || 0;
+          if (yk && lastSeq > 0) {
+            prospectLetterSequences[yk] = Math.max(prospectLetterSequences[yk] || 0, lastSeq);
+          }
+        }
+      }
+    } catch {}
+    void ensureProspectLetterNumberUniqueIndexMysql();
 
     let kvChatRooms: ChatRoom[] = [];
     let kvChatMessages: ChatMessage[] = [];
@@ -3199,6 +3379,28 @@ export const syncFromMysql = async () => {
           } catch {}
           continue;
         }
+        if (emailLower === '__sys_prospect_letter_sequences__@ndtaxlaw.internal') {
+          try {
+            const parsedSeq = JSON.parse(row.password);
+            if (parsedSeq && typeof parsedSeq === 'object') {
+              if (parsedSeq.sequences && typeof parsedSeq.sequences === 'object') {
+                for (const [yk, val] of Object.entries(parsedSeq.sequences)) {
+                  const n = Number(val) || 0;
+                  if (n > 0) {
+                    prospectLetterSequences[yk] = Math.max(prospectLetterSequences[yk] || 0, n);
+                  }
+                }
+              }
+              if (Array.isArray(parsedSeq.usedNumbers)) {
+                for (const num of parsedSeq.usedNumbers) {
+                  const norm = String(num || '').trim().toUpperCase();
+                  if (norm) usedProspectLetterNumbers.add(norm);
+                }
+              }
+            }
+          } catch {}
+          continue;
+        }
         if (emailLower.startsWith('__sys_file_') && emailLower.endsWith('__@ndtaxlaw.internal')) {
           try {
             const parsedFile = JSON.parse(row.password);
@@ -3299,6 +3501,7 @@ export const syncFromMysql = async () => {
           (a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '')
         );
       }
+      reconcileProspectLetterSequenceState();
 
       // Ensure every Staff account has an encrypted password record in MySQL user_passwords
       for (const s of staffAccounts) {
@@ -9356,6 +9559,7 @@ app.post('/api/prospects', async (req: Request, res: Response) => {
       actorId,
       actorName,
       actorEmail,
+      clientRequestId: rawClientRequestId,
     } = req.body || {};
 
     const actorRole: 'mitra' | 'admin' | 'staff' =
@@ -9436,70 +9640,124 @@ app.post('/api/prospects', async (req: Request, res: Response) => {
       });
     }
 
-    // Enforce anti-duplicate rule: if another Mitra already created an offer letter for the same company, block creation!
-    const dupCheck = checkProspectCompanyDuplicates(companyName, prospectLetters, targetMitra.id);
-    if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
-      const conflict = dupCheck.exactMatches[0];
-      return res.status(409).json({
-        success: false,
-        code: 'COMPANY_ALREADY_CLAIMED',
-        message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} · ${conflict.mitraMemberCode}). Mitra lain tidak dapat membuat penawaran untuk perusahaan yang sama.`,
-        exactMatches: dupCheck.exactMatches,
+    const clientReqToken = String(rawClientRequestId || '').trim().slice(0, 80);
+    const idempotencyKey = clientReqToken
+      ? `${String(actorId || targetMitra.id)}::${targetMitra.id}::${clientReqToken}`
+      : '';
+
+    // Serialize all concurrent prospect creations strictly one-by-one (FIFO lock + atomic MySQL sequence)
+    const result = await withProspectMutationLock(async () => {
+      pruneExpiredProspectCreateRequests();
+      if (idempotencyKey) {
+        const cached = recentProspectCreateRequests.get(idempotencyKey);
+        if (cached && cached.expiresAt > Date.now()) {
+          return { status: 201, body: { success: true, message: `Surat penawaran ${cached.letter.letterNumber} untuk ${cached.letter.companyName} berhasil diterbitkan.`, data: cached.letter } };
+        }
+      }
+
+      // Enforce anti-duplicate rule INSIDE lock so simultaneous submissions for the same company cannot race
+      const dupCheck = checkProspectCompanyDuplicates(companyName, prospectLetters, targetMitra.id);
+      if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
+        const conflict = dupCheck.exactMatches[0];
+        return {
+          status: 409,
+          body: {
+            success: false,
+            code: 'COMPANY_ALREADY_CLAIMED',
+            message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} · ${conflict.mitraMemberCode}). Mitra lain tidak dapat membuat penawaran untuk perusahaan yang sama.`,
+            exactMatches: dupCheck.exactMatches,
+          },
+        };
+      }
+
+      // Letter body content is global across all Mitra
+      const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+
+      let createdLetter: ProspectLetter | null = null;
+      const MAX_ALLOC_ATTEMPTS = 5;
+
+      for (let attempt = 0; attempt < MAX_ALLOC_ATTEMPTS; attempt++) {
+        const now = new Date();
+        const { sequenceNumber, letterNumber, verificationCode, letterDate } = await allocateUniqueProspectLetterMeta(now);
+
+        const candidateLetter: ProspectLetter = {
+          id: `prsp-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+          letterNumber,
+          sequenceNumber,
+          verificationCode,
+          letterDate,
+          companyName,
+          businessField,
+          companyAddress: assembledAddress,
+          addressParts: parts,
+          mitraId: targetMitra.id,
+          mitraName: targetMitra.fullName,
+          mitraMemberCode: targetMitra.memberCode || '-',
+          mitraPhone: targetMitra.phone || '-',
+          mitraEmail: targetMitra.email || '-',
+          directorName: effectiveContent.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+          directorTitle: effectiveContent.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+          createdByRole: actorRole,
+          createdByName: String(actorName || targetMitra.fullName || 'Sistem').trim(),
+          createdById: String(actorId || targetMitra.id || '').trim(),
+          createdAt: now.toISOString(),
+        };
+
+        prospectLetters.unshift(candidateLetter);
+        const persistRes = await persistProspectLettersToMysql(candidateLetter);
+        if (persistRes.duplicateNumber) {
+          // Another worker claimed this exact number in MySQL: roll back memory entry and immediately allocate next number
+          prospectLetters.shift();
+          continue;
+        }
+
+        createdLetter = candidateLetter;
+        saveDatabase();
+        break;
+      }
+
+      if (!createdLetter) {
+        return {
+          status: 503,
+          body: {
+            success: false,
+            message: 'Sistem sedang memproses banyak penerbitan surat secara bersamaan. Silakan coba klik simpan kembali.',
+          },
+        };
+      }
+
+      if (idempotencyKey) {
+        recentProspectCreateRequests.set(idempotencyKey, {
+          letter: createdLetter,
+          expiresAt: Date.now() + PROSPECT_IDEMPOTENCY_TTL_MS,
+        });
+      }
+
+      recordActivity({
+        actorRole,
+        actorId: String(actorId || targetMitra.id),
+        actorName: String(actorName || targetMitra.fullName),
+        actorEmail: String(actorEmail || targetMitra.email),
+        actionType: 'prospect_create',
+        operation: 'CREATE',
+        targetEntity: `Surat Prospek ${createdLetter.letterNumber}`,
+        description:
+          actorRole === 'mitra'
+            ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${createdLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}).`
+            : `${actorRole === 'admin' ? 'Admin' : 'Staf'} (${actorName || 'Tim Operasional'}) membuat surat penawaran ${createdLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}) atas nama Mitra ${targetMitra.fullName}.`,
       });
-    }
 
-    // Letter body content is global across all Mitra
-    const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
-
-    const now = new Date();
-    const { sequenceNumber, letterNumber, verificationCode, letterDate } = generateNextProspectLetterMeta(now);
-
-    const newLetter: ProspectLetter = {
-      id: `prsp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      letterNumber,
-      sequenceNumber,
-      verificationCode,
-      letterDate,
-      companyName,
-      businessField,
-      companyAddress: assembledAddress,
-      addressParts: parts,
-      mitraId: targetMitra.id,
-      mitraName: targetMitra.fullName,
-      mitraMemberCode: targetMitra.memberCode || '-',
-      mitraPhone: targetMitra.phone || '-',
-      mitraEmail: targetMitra.email || '-',
-      directorName: effectiveContent.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
-      directorTitle: effectiveContent.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
-      createdByRole: actorRole,
-      createdByName: String(actorName || targetMitra.fullName || 'Sistem').trim(),
-      createdById: String(actorId || targetMitra.id || '').trim(),
-      createdAt: now.toISOString(),
-    };
-
-    prospectLetters.unshift(newLetter);
-    saveDatabase();
-    void persistProspectLettersToMysql(newLetter);
-
-    recordActivity({
-      actorRole,
-      actorId: String(actorId || targetMitra.id),
-      actorName: String(actorName || targetMitra.fullName),
-      actorEmail: String(actorEmail || targetMitra.email),
-      actionType: 'prospect_create',
-      operation: 'CREATE',
-      targetEntity: `Surat Prospek ${newLetter.letterNumber}`,
-      description:
-        actorRole === 'mitra'
-          ? `Mitra ${targetMitra.fullName} membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}).`
-          : `${actorRole === 'admin' ? 'Admin' : 'Staf'} (${actorName || 'Tim Operasional'}) membuat surat penawaran ${newLetter.letterNumber} untuk ${companyName} (Bidang: ${businessField}) atas nama Mitra ${targetMitra.fullName}.`,
+      return {
+        status: 201,
+        body: {
+          success: true,
+          message: `Surat penawaran ${createdLetter.letterNumber} untuk ${companyName} berhasil diterbitkan.`,
+          data: createdLetter,
+        },
+      };
     });
 
-    return res.status(201).json({
-      success: true,
-      message: `Surat penawaran ${newLetter.letterNumber} untuk ${companyName} berhasil diterbitkan.`,
-      data: newLetter,
-    });
+    return res.status(result.status).json(result.body);
   } catch (err: any) {
     console.error('[Prospect Create Error]', err);
     return res.status(500).json({
@@ -9527,146 +9785,180 @@ app.put('/api/prospects/:id', async (req: Request, res: Response) => {
     const actorRole: 'mitra' | 'admin' | 'staff' =
       rawActorRole === 'admin' || rawActorRole === 'staff' ? rawActorRole : 'mitra';
 
-    const idx = prospectLetters.findIndex((l) => l.id === id);
-    if (idx === -1) {
-      return res.status(404).json({ success: false, message: 'Data surat prospek tidak ditemukan.' });
-    }
-    const existing = prospectLetters[idx];
-
-    // Enforce strict ownership for Mitra role
-    if (actorRole === 'mitra') {
-      const normalizedActorId = String(actorId || '').trim();
-      if (!normalizedActorId || existing.mitraId !== normalizedActorId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Anda hanya dapat mengedit surat penawaran milik Anda sendiri.',
-        });
+    const result = await withProspectMutationLock(async () => {
+      const idx = prospectLetters.findIndex((l) => l.id === id);
+      if (idx === -1) {
+        return { status: 404, body: { success: false, message: 'Data surat prospek tidak ditemukan.' } };
       }
-    }
+      const existing = prospectLetters[idx];
 
-    const companyName =
-      rawCompanyName !== undefined
-        ? String(rawCompanyName || '').replace(/\s+/g, ' ').trim()
-        : existing.companyName;
-    if (companyName.length < 2 || companyName.length > 90) {
-      return res.status(400).json({
-        success: false,
-        message: 'Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter).',
-      });
-    }
+      // Enforce strict ownership for Mitra role
+      if (actorRole === 'mitra') {
+        const normalizedActorId = String(actorId || '').trim();
+        if (!normalizedActorId || existing.mitraId !== normalizedActorId) {
+          return {
+            status: 403,
+            body: {
+              success: false,
+              message: 'Anda hanya dapat mengedit surat penawaran milik Anda sendiri.',
+            },
+          };
+        }
+      }
 
-    const nextBusinessField =
-      rawBusinessField !== undefined
-        ? String(rawBusinessField || '').replace(/\s+/g, ' ').trim().slice(0, 100)
-        : existing.businessField || '';
-    if (rawBusinessField !== undefined && nextBusinessField.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'Bidang usaha wajib diisi (minimal 2 karakter).',
-      });
-    }
+      const companyName =
+        rawCompanyName !== undefined
+          ? String(rawCompanyName || '').replace(/\s+/g, ' ').trim()
+          : existing.companyName;
+      if (companyName.length < 2 || companyName.length > 90) {
+        return {
+          status: 400,
+          body: {
+            success: false,
+            message: 'Nama perusahaan wajib diisi (minimal 2 karakter dan maksimal 90 karakter).',
+          },
+        };
+      }
 
-    let nextParts: ProspectAddressParts | undefined = existing.addressParts;
-    let nextAddress = existing.companyAddress;
+      const nextBusinessField =
+        rawBusinessField !== undefined
+          ? String(rawBusinessField || '').replace(/\s+/g, ' ').trim().slice(0, 100)
+          : existing.businessField || '';
+      if (rawBusinessField !== undefined && nextBusinessField.length < 2) {
+        return {
+          status: 400,
+          body: {
+            success: false,
+            message: 'Bidang usaha wajib diisi (minimal 2 karakter).',
+          },
+        };
+      }
 
-    if (rawAddressParts && typeof rawAddressParts === 'object') {
-      const parts: ProspectAddressParts = {
-        street: String(rawAddressParts.street || '').replace(/\s+/g, ' ').trim().slice(0, 75),
-        village: String(rawAddressParts.village || '').replace(/\s+/g, ' ').trim().slice(0, 40),
-        district: String(rawAddressParts.district || '').replace(/\s+/g, ' ').trim().slice(0, 40),
-        cityType: rawAddressParts.cityType === 'Kab.' ? 'Kab.' : 'Kota',
-        city: String(rawAddressParts.city || '').replace(/\s+/g, ' ').trim().slice(0, 40),
-        province: String(rawAddressParts.province || '').replace(/\s+/g, ' ').trim().slice(0, 50),
-        postalCode: String(rawAddressParts.postalCode || '').replace(/[^\d]/g, '').slice(0, 5),
+      let nextParts: ProspectAddressParts | undefined = existing.addressParts;
+      let nextAddress = existing.companyAddress;
+
+      if (rawAddressParts && typeof rawAddressParts === 'object') {
+        const parts: ProspectAddressParts = {
+          street: String(rawAddressParts.street || '').replace(/\s+/g, ' ').trim().slice(0, 75),
+          village: String(rawAddressParts.village || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+          district: String(rawAddressParts.district || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+          cityType: rawAddressParts.cityType === 'Kab.' ? 'Kab.' : 'Kota',
+          city: String(rawAddressParts.city || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+          province: String(rawAddressParts.province || '').replace(/\s+/g, ' ').trim().slice(0, 50),
+          postalCode: String(rawAddressParts.postalCode || '').replace(/[^\d]/g, '').slice(0, 5),
+        };
+        if (!parts.street || !parts.village || !parts.district || !parts.city || !parts.province) {
+          return {
+            status: 400,
+            body: {
+              success: false,
+              message: 'Alamat perusahaan wajib dilengkapi berurutan (Jalan, Desa/Kelurahan, Kecamatan, Kab/Kota, dan Provinsi).',
+            },
+          };
+        }
+        nextParts = parts;
+        nextAddress = formatStructuredProspectAddress(parts, existing.companyAddress);
+      } else if (typeof rawCompanyAddress === 'string' && rawCompanyAddress.trim()) {
+        nextAddress = rawCompanyAddress.replace(/\s+/g, ' ').trim();
+      }
+
+      if (nextAddress.length < 10 || nextAddress.length > 220) {
+        return {
+          status: 400,
+          body: {
+            success: false,
+            message: 'Alamat perusahaan tidak valid atau terlalu panjang (maksimal 220 karakter).',
+          },
+        };
+      }
+
+      // Only Admin & Staf may reassign target Mitra or modify custom letter body content
+      let nextMitra = mitras.find((m) => m.id === existing.mitraId) || null;
+      if ((actorRole === 'admin' || actorRole === 'staff') && rawMitraId && String(rawMitraId).trim() !== existing.mitraId) {
+        const reassigned = mitras.find((m) => m.id === String(rawMitraId).trim());
+        if (!reassigned) {
+          return {
+            status: 404,
+            body: {
+              success: false,
+              message: 'Mitra tujuan tidak ditemukan.',
+            },
+          };
+        }
+        nextMitra = reassigned;
+      }
+
+      const effectiveMitraId = nextMitra ? nextMitra.id : existing.mitraId;
+      const dupCheck = checkProspectCompanyDuplicates(
+        companyName,
+        prospectLetters,
+        effectiveMitraId,
+        existing.id
+      );
+      if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
+        const conflict = dupCheck.exactMatches[0];
+        return {
+          status: 409,
+          body: {
+            success: false,
+            code: 'COMPANY_ALREADY_CLAIMED',
+            message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} · ${conflict.mitraMemberCode}). Tidak dapat menggunakan perusahaan yang sama.`,
+            exactMatches: dupCheck.exactMatches,
+          },
+        };
+      }
+
+      // Letter body content is managed globally via /api/prospects/template
+      const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+      const updatedLetter: ProspectLetter = {
+        ...existing,
+        // Explicitly keep issued numbering metadata immutable
+        letterNumber: existing.letterNumber,
+        sequenceNumber: existing.sequenceNumber,
+        verificationCode: existing.verificationCode,
+        letterDate: existing.letterDate,
+        companyName,
+        businessField: nextBusinessField || existing.businessField,
+        companyAddress: nextAddress,
+        addressParts: nextParts,
+        customContent: undefined,
+        mitraId: effectiveMitraId,
+        mitraName: nextMitra ? nextMitra.fullName : existing.mitraName,
+        mitraMemberCode: nextMitra ? nextMitra.memberCode || '-' : existing.mitraMemberCode,
+        mitraPhone: nextMitra ? nextMitra.phone || '-' : existing.mitraPhone,
+        mitraEmail: nextMitra ? nextMitra.email || '-' : existing.mitraEmail,
+        directorName: effectiveContent.directorName || existing.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+        directorTitle: effectiveContent.directorTitle || existing.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+        updatedAt: new Date().toISOString(),
       };
-      if (!parts.street || !parts.village || !parts.district || !parts.city || !parts.province) {
-        return res.status(400).json({
-          success: false,
-          message: 'Alamat perusahaan wajib dilengkapi berurutan (Jalan, Desa/Kelurahan, Kecamatan, Kab/Kota, dan Provinsi).',
-        });
-      }
-      nextParts = parts;
-      nextAddress = formatStructuredProspectAddress(parts, existing.companyAddress);
-    } else if (typeof rawCompanyAddress === 'string' && rawCompanyAddress.trim()) {
-      nextAddress = rawCompanyAddress.replace(/\s+/g, ' ').trim();
-    }
 
-    if (nextAddress.length < 10 || nextAddress.length > 220) {
-      return res.status(400).json({
-        success: false,
-        message: 'Alamat perusahaan tidak valid atau terlalu panjang (maksimal 220 karakter).',
+      prospectLetters[idx] = updatedLetter;
+      recordUsedProspectLetterMeta(updatedLetter);
+      saveDatabase();
+      await persistProspectLettersToMysql(updatedLetter);
+
+      recordActivity({
+        actorRole,
+        actorId: String(actorId || updatedLetter.mitraId),
+        actorName: String(actorName || updatedLetter.mitraName),
+        actorEmail: actorEmail ? String(actorEmail) : undefined,
+        actionType: 'prospect_update',
+        operation: 'UPDATE',
+        targetEntity: `Surat Prospek ${updatedLetter.letterNumber}`,
+        description: `Memperbarui surat penawaran ${updatedLetter.letterNumber} untuk ${updatedLetter.companyName} (Mitra: ${updatedLetter.mitraName}).`,
       });
-    }
 
-    // Only Admin & Staf may reassign target Mitra or modify custom letter body content
-    let nextMitra = mitras.find((m) => m.id === existing.mitraId) || null;
-    if ((actorRole === 'admin' || actorRole === 'staff') && rawMitraId && String(rawMitraId).trim() !== existing.mitraId) {
-      const reassigned = mitras.find((m) => m.id === String(rawMitraId).trim());
-      if (!reassigned) {
-        return res.status(404).json({
-          success: false,
-          message: 'Mitra tujuan tidak ditemukan.',
-        });
-      }
-      nextMitra = reassigned;
-    }
-
-    const effectiveMitraId = nextMitra ? nextMitra.id : existing.mitraId;
-    const dupCheck = checkProspectCompanyDuplicates(
-      companyName,
-      prospectLetters,
-      effectiveMitraId,
-      existing.id
-    );
-    if (dupCheck.blocked && dupCheck.exactMatches.length > 0) {
-      const conflict = dupCheck.exactMatches[0];
-      return res.status(409).json({
-        success: false,
-        code: 'COMPANY_ALREADY_CLAIMED',
-        message: `Perusahaan "${conflict.companyName}" sudah dibuatkan surat penawaran oleh Mitra lain (${conflict.mitraName} · ${conflict.mitraMemberCode}). Tidak dapat menggunakan perusahaan yang sama.`,
-        exactMatches: dupCheck.exactMatches,
-      });
-    }
-
-    // Letter body content is managed globally via /api/prospects/template
-    const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
-    const updatedLetter: ProspectLetter = {
-      ...existing,
-      companyName,
-      businessField: nextBusinessField || existing.businessField,
-      companyAddress: nextAddress,
-      addressParts: nextParts,
-      customContent: undefined,
-      mitraId: effectiveMitraId,
-      mitraName: nextMitra ? nextMitra.fullName : existing.mitraName,
-      mitraMemberCode: nextMitra ? nextMitra.memberCode || '-' : existing.mitraMemberCode,
-      mitraPhone: nextMitra ? nextMitra.phone || '-' : existing.mitraPhone,
-      mitraEmail: nextMitra ? nextMitra.email || '-' : existing.mitraEmail,
-      directorName: effectiveContent.directorName || existing.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
-      directorTitle: effectiveContent.directorTitle || existing.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
-      updatedAt: new Date().toISOString(),
-    };
-
-    prospectLetters[idx] = updatedLetter;
-    saveDatabase();
-    void persistProspectLettersToMysql(updatedLetter);
-
-    recordActivity({
-      actorRole,
-      actorId: String(actorId || updatedLetter.mitraId),
-      actorName: String(actorName || updatedLetter.mitraName),
-      actorEmail: actorEmail ? String(actorEmail) : undefined,
-      actionType: 'prospect_update',
-      operation: 'UPDATE',
-      targetEntity: `Surat Prospek ${updatedLetter.letterNumber}`,
-      description: `Memperbarui surat penawaran ${updatedLetter.letterNumber} untuk ${updatedLetter.companyName} (Mitra: ${updatedLetter.mitraName}).`,
+      return {
+        status: 200,
+        body: {
+          success: true,
+          message: `Surat penawaran ${updatedLetter.letterNumber} berhasil diperbarui.`,
+          data: updatedLetter,
+        },
+      };
     });
 
-    return res.json({
-      success: true,
-      message: `Surat penawaran ${updatedLetter.letterNumber} berhasil diperbarui.`,
-      data: updatedLetter,
-    });
+    return res.status(result.status).json(result.body);
   } catch (err: any) {
     console.error('[Prospect Update Error]', err);
     return res.status(500).json({
@@ -9683,38 +9975,50 @@ app.delete('/api/prospects/:id', async (req: Request, res: Response) => {
   const actorName = String(req.body?.actorName || req.query.actorName || 'Admin Operasional').trim();
   const actorEmail = String(req.body?.actorEmail || req.query.actorEmail || '').trim();
 
-  const idx = prospectLetters.findIndex((l) => l.id === id);
-  if (idx === -1) {
-    return res.status(404).json({ success: false, message: 'Data surat prospek tidak ditemukan.' });
-  }
-  const existing = prospectLetters[idx];
+  const result = await withProspectMutationLock(async () => {
+    const idx = prospectLetters.findIndex((l) => l.id === id);
+    if (idx === -1) {
+      return { status: 404, body: { success: false, message: 'Data surat prospek tidak ditemukan.' } };
+    }
+    const existing = prospectLetters[idx];
 
-  if (actorRoleRaw === 'mitra' && (!actorId || existing.mitraId !== actorId)) {
-    return res.status(403).json({
-      success: false,
-      message: 'Anda hanya dapat menghapus surat penawaran milik Anda sendiri.',
+    if (actorRoleRaw === 'mitra' && (!actorId || existing.mitraId !== actorId)) {
+      return {
+        status: 403,
+        body: {
+          success: false,
+          message: 'Anda hanya dapat menghapus surat penawaran milik Anda sendiri.',
+        },
+      };
+    }
+
+    // Permanently retain deleted letter's sequence & number so it can NEVER be reused
+    recordUsedProspectLetterMeta(existing);
+    prospectLetters.splice(idx, 1);
+    saveDatabase();
+    await persistProspectLettersToMysql(undefined, id);
+
+    recordActivity({
+      actorRole: actorRoleRaw === 'mitra' ? 'mitra' : actorRoleRaw === 'staff' ? 'staff' : 'admin',
+      actorId: actorId || undefined,
+      actorName,
+      actorEmail: actorEmail || undefined,
+      actionType: 'prospect_delete',
+      operation: 'DELETE',
+      targetEntity: `Surat Prospek ${existing.letterNumber}`,
+      description: `Menghapus surat penawaran ${existing.letterNumber} (${existing.companyName}) milik Mitra ${existing.mitraName}. Nomor surat tetap dicatat sebagai terpakai.`,
     });
-  }
 
-  prospectLetters.splice(idx, 1);
-  saveDatabase();
-  void persistProspectLettersToMysql(undefined, id);
-
-  recordActivity({
-    actorRole: actorRoleRaw === 'mitra' ? 'mitra' : actorRoleRaw === 'staff' ? 'staff' : 'admin',
-    actorId: actorId || undefined,
-    actorName,
-    actorEmail: actorEmail || undefined,
-    actionType: 'prospect_delete',
-    operation: 'DELETE',
-    targetEntity: `Surat Prospek ${existing.letterNumber}`,
-    description: `Menghapus surat penawaran ${existing.letterNumber} (${existing.companyName}) milik Mitra ${existing.mitraName}.`,
+    return {
+      status: 200,
+      body: {
+        success: true,
+        message: `Surat penawaran ${existing.letterNumber} berhasil dihapus.`,
+      },
+    };
   });
 
-  return res.json({
-    success: true,
-    message: `Surat penawaran ${existing.letterNumber} berhasil dihapus.`,
-  });
+  return res.status(result.status).json(result.body);
 });
 
 // ========================================================

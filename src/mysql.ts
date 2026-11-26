@@ -431,6 +431,7 @@ export const TABLE_DEFINITIONS: TableDef[] = [
       { name: 'verificationCode', sqlType: 'VARCHAR(128) NOT NULL', kind: 'string' },
       { name: 'letterDate', sqlType: 'VARCHAR(32) NOT NULL', kind: 'string' },
       { name: 'companyName', sqlType: 'VARCHAR(255) NOT NULL', kind: 'string' },
+      { name: 'businessField', sqlType: 'VARCHAR(191) NULL', kind: 'string' },
       { name: 'companyAddress', sqlType: 'TEXT NOT NULL', kind: 'string' },
       { name: 'addressParts', sqlType: 'LONGTEXT NULL', kind: 'json' },
       { name: 'customContent', sqlType: 'LONGTEXT NULL', kind: 'json' },
@@ -449,9 +450,20 @@ export const TABLE_DEFINITIONS: TableDef[] = [
       { name: 'created_at', sqlType: 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP', kind: 'string' },
     ],
     indexes: [
+      'UNIQUE INDEX `uniq_prospect_letters_number` (`letterNumber`)',
       'INDEX `idx_prospect_letters_mitra` (`mitraId`)',
       'INDEX `idx_prospect_letters_vcode` (`verificationCode`)',
       'INDEX `idx_prospect_letters_created` (`createdAt`)',
+    ],
+  },
+  {
+    table: 'prospect_letter_sequences',
+    label: 'Counter Nomor Surat Prospek (Atomic & Unik)',
+    primaryKey: 'seqYear',
+    columns: [
+      { name: 'seqYear', sqlType: 'INT NOT NULL PRIMARY KEY', kind: 'number' },
+      { name: 'lastSequence', sqlType: 'INT NOT NULL DEFAULT 0', kind: 'number' },
+      { name: 'updatedAt', sqlType: 'VARCHAR(64) NULL', kind: 'string' },
     ],
   },
 ];
@@ -1421,3 +1433,146 @@ export const generateMysqlSqlDump = async (): Promise<{
     };
   }
 };
+
+// ============================================================================
+// ATOMIC MONOTONIC PROSPECT LETTER SEQUENCE ALLOCATION (CONCURRENCY-SAFE)
+// ============================================================================
+
+let _prospectSeqTableEnsured = false;
+let _prospectUniqueIdxEnsured = false;
+
+const ensureProspectSequenceTableMysql = async (pool: Pool): Promise<void> => {
+  if (_prospectSeqTableEnsured) return;
+  const seqDef = TABLE_DEF_MAP.get('prospect_letter_sequences');
+  if (seqDef) {
+    await pool.query(buildCreateTableSql(seqDef));
+  }
+  _prospectSeqTableEnsured = true;
+};
+
+export const ensureProspectLetterNumberUniqueIndexMysql = async (): Promise<void> => {
+  if (_prospectUniqueIdxEnsured) return;
+  const pool = getMysqlPool();
+  const cfg = getMysqlConfig();
+  if (!pool || !cfg.isConfigured) return;
+
+  try {
+    await ensureProspectSequenceTableMysql(pool);
+    const [idxRows] = await pool.query<RowDataPacket[]>(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'prospect_letters' AND INDEX_NAME = 'uniq_prospect_letters_number'`,
+      [cfg.database]
+    );
+    if (idxRows.length === 0) {
+      // Only add UNIQUE index if no pre-existing duplicate rows would block ALTER TABLE
+      const [dupRows] = await pool.query<RowDataPacket[]>(
+        `SELECT letterNumber, COUNT(*) AS cnt FROM prospect_letters GROUP BY letterNumber HAVING cnt > 1 LIMIT 1`
+      );
+      if (dupRows.length === 0) {
+        await pool.query(
+          'ALTER TABLE `prospect_letters` ADD UNIQUE INDEX `uniq_prospect_letters_number` (`letterNumber`)'
+        );
+      }
+    }
+    _prospectUniqueIdxEnsured = true;
+  } catch (err) {
+    console.warn('[MySQL Prospect Unique Index Warning]', err);
+  }
+};
+
+export const syncProspectSequenceFloorMysql = async (year: number, minSeq: number): Promise<void> => {
+  const pool = getMysqlPool();
+  if (!pool || !isMysqlConfigured()) return;
+  const safeYear = Math.floor(Number(year));
+  const safeMin = Math.max(0, Math.floor(Number(minSeq) || 0));
+  if (!Number.isFinite(safeYear) || safeYear < 2000 || safeYear > 9999 || safeMin <= 0) return;
+
+  try {
+    await ensureProspectSequenceTableMysql(pool);
+    const nowIso = new Date().toISOString();
+    await pool.query(
+      `INSERT INTO \`prospect_letter_sequences\` (\`seqYear\`, \`lastSequence\`, \`updatedAt\`)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         \`lastSequence\` = GREATEST(\`lastSequence\`, VALUES(\`lastSequence\`)),
+         \`updatedAt\` = VALUES(\`updatedAt\`)`,
+      [safeYear, safeMin, nowIso]
+    );
+  } catch (err) {
+    console.warn('[MySQL Prospect Sequence Floor Sync Warning]', err);
+  }
+};
+
+export const allocateAtomicProspectSequenceMysql = async (
+  year: number,
+  minFloorSeq = 0
+): Promise<number | null> => {
+  const pool = getMysqlPool();
+  if (!pool || !isMysqlConfigured()) return null;
+
+  const safeYear = Math.floor(Number(year));
+  const safeFloor = Math.max(0, Math.floor(Number(minFloorSeq) || 0));
+  if (!Number.isFinite(safeYear) || safeYear < 2000 || safeYear > 9999) {
+    throw new Error('Tahun urutan surat tidak valid.');
+  }
+
+  await ensureProspectSequenceTableMysql(pool);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const nowIso = new Date().toISOString();
+    // Seed row if first letter of the year (idempotent under concurrent transactions)
+    await conn.query(
+      `INSERT IGNORE INTO \`prospect_letter_sequences\` (\`seqYear\`, \`lastSequence\`, \`updatedAt\`)
+       VALUES (?, ?, ?)`,
+      [safeYear, safeFloor, nowIso]
+    );
+
+    // Exclusive InnoDB row lock serializes simultaneous requests across connections/workers
+    const [lockedRows] = await conn.query<RowDataPacket[]>(
+      `SELECT \`lastSequence\` FROM \`prospect_letter_sequences\` WHERE \`seqYear\` = ? FOR UPDATE`,
+      [safeYear]
+    );
+    const lockedLastSeq = Number(lockedRows?.[0]?.lastSequence || 0);
+
+    // Also verify live max in prospect_letters so sequence never collides with existing rows
+    let dbMaxSeq = 0;
+    try {
+      const [maxRows] = await conn.query<RowDataPacket[]>(
+        `SELECT COALESCE(MAX(GREATEST(
+           COALESCE(\`sequenceNumber\`, 0),
+           CAST(SUBSTRING_INDEX(\`letterNumber\`, '/', 1) AS UNSIGNED)
+         )), 0) AS maxSeq
+         FROM \`prospect_letters\`
+         WHERE \`letterDate\` LIKE ? OR \`letterNumber\` LIKE ?`,
+        [`${safeYear}-%`, `%/${safeYear}`]
+      );
+      dbMaxSeq = Number(maxRows?.[0]?.maxSeq || 0);
+    } catch {
+      dbMaxSeq = 0;
+    }
+
+    const nextSeq = Math.max(lockedLastSeq, dbMaxSeq, safeFloor) + 1;
+
+    await conn.query(
+      `UPDATE \`prospect_letter_sequences\`
+       SET \`lastSequence\` = ?, \`updatedAt\` = ?
+       WHERE \`seqYear\` = ?`,
+      [nextSeq, nowIso, safeYear]
+    );
+
+    await conn.commit();
+    return nextSeq;
+  } catch (err) {
+    try {
+      await conn.rollback();
+    } catch {}
+    console.warn('[MySQL Atomic Prospect Sequence Warning]', err);
+    return null;
+  } finally {
+    conn.release();
+  }
+};
+

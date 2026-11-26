@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText,
   Plus,
@@ -202,6 +202,8 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   const [envelopeLetter, setEnvelopeLetter] = useState<ProspectLetter | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
+  const clientRequestIdRef = useRef('');
 
   // =========================================================================
   // 1. SERVER-SIDE DATATABLE: LETTERS (Mitra own letters OR Admin All Letters)
@@ -517,6 +519,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     }
     setEditingLetter(null);
     setFormError('');
+    clientRequestIdRef.current = `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     setCompanyName('');
     setBusinessField('');
     setCompanyCheck(EMPTY_COMPANY_CHECK);
@@ -570,6 +573,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLockRef.current || submitting) return;
     setFormError('');
 
     const trimmedCompany = companyName.replace(/\s+/g, ' ').trim();
@@ -622,11 +626,16 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       return;
     }
 
+    submitLockRef.current = true;
     setSubmitting(true);
     try {
       const isEdit = Boolean(editingLetter);
       const url = isEdit ? `/api/prospects/${encodeURIComponent(editingLetter!.id)}` : '/api/prospects';
       const method = isEdit ? 'PUT' : 'POST';
+
+      if (!isEdit && !clientRequestIdRef.current) {
+        clientRequestIdRef.current = `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      }
 
       const payload: Record<string, unknown> = {
         companyName: trimmedCompany,
@@ -637,6 +646,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         actorName: isAdminOrStaff ? currentUser?.name || 'Admin Operasional' : activeMitra.fullName,
         actorId: isAdminOrStaff ? currentUser?.id : activeMitra.id,
         actorEmail: isAdminOrStaff ? currentUser?.email : activeMitra.email,
+        ...(!isEdit ? { clientRequestId: clientRequestIdRef.current } : {}),
       };
 
       const res = await fetch(url, {
@@ -658,6 +668,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       }
 
       const savedLetter: ProspectLetter = json.data;
+      clientRequestIdRef.current = '';
       setIsFormOpen(false);
       setEditingLetter(null);
       triggerRefresh();
@@ -665,6 +676,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     } catch {
       setFormError('Terjadi kendala jaringan.');
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   };
