@@ -479,7 +479,11 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
 
     const maxLevel = pageTab === 4 ? 4 : 6;
     const measure = () => {
-      const availableH = frameEl.clientHeight || MAX_BODY_HEIGHT_PX;
+      const computed = window.getComputedStyle(frameEl);
+      const padV =
+        (parseFloat(computed.paddingTop || '0') || 0) +
+        (parseFloat(computed.paddingBottom || '0') || 0);
+      const availableH = Math.max(200, (frameEl.clientHeight || MAX_BODY_HEIGHT_PX) - padV);
       const contentH = Math.ceil(measureEl.scrollHeight);
       setFrameHeightPx(availableH);
       setBodyHeightPx(contentH);
@@ -988,63 +992,112 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
           </div>
         </div>
 
-        {/* Horizontal Margin & Padding Controls (mm) */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-          {([
-            { key: 'marginLeftMm', label: 'Margin Kiri', min: 10, max: 55, fallback: 30 },
-            { key: 'marginRightMm', label: 'Margin Kanan', min: 10, max: 55, fallback: 30 },
-            { key: 'paddingLeftMm', label: 'Padding Kiri', min: 0, max: 30, fallback: 0 },
-            { key: 'paddingRightMm', label: 'Padding Kanan', min: 0, max: 30, fallback: 0 },
-          ] as const).map((ctrl) => {
-            const currentVal = Number(value[ctrl.key] ?? ctrl.fallback);
-            return (
-              <div
-                key={ctrl.key}
-                className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"
+        {/* 4-Side Margin & Padding Controls (mm) */}
+        <div className="space-y-1.5 pt-2 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-extrabold text-slate-800 w-14 shrink-0">Margin</span>
+            {([
+              { key: 'marginTopMm', label: 'Atas', min: 15, max: 70, fallback: 40 },
+              { key: 'marginBottomMm', label: 'Bawah', min: 15, max: 70, fallback: 40 },
+              { key: 'marginLeftMm', label: 'Kiri', min: 10, max: 55, fallback: 30 },
+              { key: 'marginRightMm', label: 'Kanan', min: 10, max: 55, fallback: 30 },
+            ] as const).map((ctrl) => {
+              const currentVal = Number(value[ctrl.key] ?? ctrl.fallback);
+              return (
+                <div
+                  key={ctrl.key}
+                  className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"
+                >
+                  <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                    {ctrl.label}
+                  </span>
+                  <input
+                    type="number"
+                    min={ctrl.min}
+                    max={ctrl.max}
+                    step={1}
+                    value={Number.isFinite(currentVal) ? currentVal : ctrl.fallback}
+                    onChange={(e) => {
+                      const parsed = Number(e.target.value);
+                      if (!Number.isFinite(parsed)) return;
+                      const clamped = Math.min(ctrl.max, Math.max(ctrl.min, Math.round(parsed * 10) / 10));
+                      patch(ctrl.key, clamped);
+                    }}
+                    aria-label={`Margin ${ctrl.label} (mm)`}
+                    className="w-13 px-1 py-0.5 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#092147]/30"
+                  />
+                  <span className="text-[10px] font-semibold text-slate-500">mm</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-extrabold text-slate-800 w-14 shrink-0">Padding</span>
+            {([
+              { key: 'paddingTopMm', label: 'Atas', min: 0, max: 30, fallback: 0 },
+              { key: 'paddingBottomMm', label: 'Bawah', min: 0, max: 30, fallback: 0 },
+              { key: 'paddingLeftMm', label: 'Kiri', min: 0, max: 30, fallback: 0 },
+              { key: 'paddingRightMm', label: 'Kanan', min: 0, max: 30, fallback: 0 },
+            ] as const).map((ctrl) => {
+              const currentVal = Number(value[ctrl.key] ?? ctrl.fallback);
+              return (
+                <div
+                  key={ctrl.key}
+                  className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"
+                >
+                  <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                    {ctrl.label}
+                  </span>
+                  <input
+                    type="number"
+                    min={ctrl.min}
+                    max={ctrl.max}
+                    step={1}
+                    value={Number.isFinite(currentVal) ? currentVal : ctrl.fallback}
+                    onChange={(e) => {
+                      const parsed = Number(e.target.value);
+                      if (!Number.isFinite(parsed)) return;
+                      const clamped = Math.min(ctrl.max, Math.max(ctrl.min, Math.round(parsed * 10) / 10));
+                      patch(ctrl.key, clamped);
+                    }}
+                    aria-label={`Padding ${ctrl.label} (mm)`}
+                    className="w-13 px-1 py-0.5 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#092147]/30"
+                  />
+                  <span className="text-[10px] font-semibold text-slate-500">mm</span>
+                </div>
+              );
+            })}
+            {((value.marginTopMm ?? 40) !== 40 ||
+              (value.marginBottomMm ?? 40) !== 40 ||
+              (value.marginLeftMm ?? 30) !== 30 ||
+              (value.marginRightMm ?? 30) !== 30 ||
+              (value.paddingTopMm ?? 0) !== 0 ||
+              (value.paddingBottomMm ?? 0) !== 0 ||
+              (value.paddingLeftMm ?? 0) !== 0 ||
+              (value.paddingRightMm ?? 0) !== 0) && (
+              <button
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    marginTopMm: 40,
+                    marginBottomMm: 40,
+                    marginLeftMm: 30,
+                    marginRightMm: 30,
+                    paddingTopMm: 0,
+                    paddingBottomMm: 0,
+                    paddingLeftMm: 0,
+                    paddingRightMm: 0,
+                  })
+                }
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer"
               >
-                <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
-                  {ctrl.label}
-                </span>
-                <input
-                  type="number"
-                  min={ctrl.min}
-                  max={ctrl.max}
-                  step={1}
-                  value={Number.isFinite(currentVal) ? currentVal : ctrl.fallback}
-                  onChange={(e) => {
-                    const parsed = Number(e.target.value);
-                    if (!Number.isFinite(parsed)) return;
-                    const clamped = Math.min(ctrl.max, Math.max(ctrl.min, Math.round(parsed * 10) / 10));
-                    patch(ctrl.key, clamped);
-                  }}
-                  aria-label={`${ctrl.label} (mm)`}
-                  className="w-14 px-1.5 py-0.5 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#092147]/30"
-                />
-                <span className="text-[10px] font-semibold text-slate-500">mm</span>
-              </div>
-            );
-          })}
-          {((value.marginLeftMm ?? 30) !== 30 ||
-            (value.marginRightMm ?? 30) !== 30 ||
-            (value.paddingLeftMm ?? 0) !== 0 ||
-            (value.paddingRightMm ?? 0) !== 0) && (
-            <button
-              type="button"
-              onClick={() =>
-                onChange({
-                  ...value,
-                  marginLeftMm: 30,
-                  marginRightMm: 30,
-                  paddingLeftMm: 0,
-                  paddingRightMm: 0,
-                })
-              }
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset Spasi</span>
-            </button>
-          )}
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Spasi</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1093,7 +1146,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
               <div
                 style={{
                   position: 'absolute',
-                  bottom: '40mm',
+                  bottom: `${Math.min(70, Math.max(15, Number(value.marginBottomMm ?? 40) || 40))}mm`,
                   left: '16mm',
                   right: '16mm',
                   borderTop: `1.5px dashed ${isOverflowing ? '#e11d48' : '#d97706'}`,
@@ -1118,15 +1171,17 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
               </div>
             )}
 
-            {/* Editable A4 Body Content Area (Dynamic L/R Margin & Padding — mirrors ProspectLetterDocument 1:1) */}
+            {/* Editable A4 Body Content Area (Dynamic 4-Side Margin & Padding — mirrors ProspectLetterDocument 1:1) */}
             <div
               ref={bodyFrameRef}
               style={{
                 position: 'absolute',
-                top: '40mm',
-                bottom: '40mm',
+                top: `${Math.min(70, Math.max(15, Number(value.marginTopMm ?? 40) || 40))}mm`,
+                bottom: `${Math.min(70, Math.max(15, Number(value.marginBottomMm ?? 40) || 40))}mm`,
                 left: `${Math.min(55, Math.max(10, Number(value.marginLeftMm ?? 30) || 30))}mm`,
                 right: `${Math.min(55, Math.max(10, Number(value.marginRightMm ?? 30) || 30))}mm`,
+                paddingTop: `${Math.min(30, Math.max(0, Number(value.paddingTopMm ?? 0) || 0))}mm`,
+                paddingBottom: `${Math.min(30, Math.max(0, Number(value.paddingBottomMm ?? 0) || 0))}mm`,
                 paddingLeft: `${Math.min(30, Math.max(0, Number(value.paddingLeftMm ?? 0) || 0))}mm`,
                 paddingRight: `${Math.min(30, Math.max(0, Number(value.paddingRightMm ?? 0) || 0))}mm`,
                 boxSizing: 'border-box',

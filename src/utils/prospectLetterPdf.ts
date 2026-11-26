@@ -360,17 +360,21 @@ export async function generateProspectLetterPdf(
 
   const PAGE_W = 210;
   const PAGE_H = 297;
+  const MARGIN_TOP_VAL = Math.min(70, Math.max(15, Number(content.marginTopMm ?? 40) || 40));
+  const MARGIN_BOTTOM_VAL = Math.min(70, Math.max(15, Number(content.marginBottomMm ?? 40) || 40));
   const MARGIN_LEFT = Math.min(55, Math.max(10, Number(content.marginLeftMm ?? 30) || 30));
   const MARGIN_RIGHT = Math.min(55, Math.max(10, Number(content.marginRightMm ?? 30) || 30));
+  const PAD_TOP = Math.min(30, Math.max(0, Number(content.paddingTopMm ?? 0) || 0));
+  const PAD_BOTTOM = Math.min(30, Math.max(0, Number(content.paddingBottomMm ?? 0) || 0));
   const PAD_LEFT = Math.min(30, Math.max(0, Number(content.paddingLeftMm ?? 0) || 0));
   const PAD_RIGHT = Math.min(30, Math.max(0, Number(content.paddingRightMm ?? 0) || 0));
   const MARGIN_X = MARGIN_LEFT + PAD_LEFT;
   const RIGHT_EDGE_X = Math.max(MARGIN_X + 80, PAGE_W - (MARGIN_RIGHT + PAD_RIGHT));
-  const MARGIN_TOP = 40; // 4 cm top
-  const MARGIN_BOTTOM = 40; // 4 cm bottom
+  const MARGIN_TOP = MARGIN_TOP_VAL + PAD_TOP;
+  const MARGIN_BOTTOM = MARGIN_BOTTOM_VAL + PAD_BOTTOM;
   const CONTENT_W = RIGHT_EDGE_X - MARGIN_X;
-  const CONTENT_BOTTOM = PAGE_H - MARGIN_BOTTOM; // 257 mm
-  const CONTENT_H = CONTENT_BOTTOM - MARGIN_TOP; // 217 mm
+  const CONTENT_BOTTOM = Math.max(MARGIN_TOP + 120, PAGE_H - MARGIN_BOTTOM);
+  const CONTENT_H = CONTENT_BOTTOM - MARGIN_TOP;
 
   const useCustomAdminLogo = !isDefaultVerticalLogo(adminLogoUrl);
   const targetLogoSrc = useCustomAdminLogo ? String(adminLogoUrl).trim() : DEFAULT_EMBLEM_PNG;

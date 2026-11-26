@@ -385,8 +385,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
   const p4SigGapMm = [15, 11, 8, 6, 4][p4CompactLevel] || 15;
 
   const measureRef = mode !== 'print';
+  const marginTopMm = content.marginTopMm ?? 40;
+  const marginBottomMm = content.marginBottomMm ?? 40;
   const marginLeftMm = content.marginLeftMm ?? 30;
   const marginRightMm = content.marginRightMm ?? 30;
+  const paddingTopMm = content.paddingTopMm ?? 0;
+  const paddingBottomMm = content.paddingBottomMm ?? 0;
   const paddingLeftMm = content.paddingLeftMm ?? 0;
   const paddingRightMm = content.paddingRightMm ?? 0;
 
@@ -399,10 +403,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           ref={measureRef ? page1ContentRef : undefined}
           style={{
             position: 'absolute',
-            top: '40mm',
-            bottom: '40mm',
+            top: `${marginTopMm}mm`,
+            bottom: `${marginBottomMm}mm`,
             left: `${marginLeftMm}mm`,
             right: `${marginRightMm}mm`,
+            paddingTop: `${paddingTopMm}mm`,
+            paddingBottom: `${paddingBottomMm}mm`,
             paddingLeft: `${paddingLeftMm}mm`,
             paddingRight: `${paddingRightMm}mm`,
             boxSizing: 'border-box',
@@ -540,10 +546,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           ref={measureRef ? page2ContentRef : undefined}
           style={{
             position: 'absolute',
-            top: '40mm',
-            bottom: '40mm',
+            top: `${marginTopMm}mm`,
+            bottom: `${marginBottomMm}mm`,
             left: `${marginLeftMm}mm`,
             right: `${marginRightMm}mm`,
+            paddingTop: `${paddingTopMm}mm`,
+            paddingBottom: `${paddingBottomMm}mm`,
             paddingLeft: `${paddingLeftMm}mm`,
             paddingRight: `${paddingRightMm}mm`,
             boxSizing: 'border-box',
@@ -651,10 +659,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           ref={measureRef ? page3ContentRef : undefined}
           style={{
             position: 'absolute',
-            top: '40mm',
-            bottom: '40mm',
+            top: `${marginTopMm}mm`,
+            bottom: `${marginBottomMm}mm`,
             left: `${marginLeftMm}mm`,
             right: `${marginRightMm}mm`,
+            paddingTop: `${paddingTopMm}mm`,
+            paddingBottom: `${paddingBottomMm}mm`,
             paddingLeft: `${paddingLeftMm}mm`,
             paddingRight: `${paddingRightMm}mm`,
             boxSizing: 'border-box',
@@ -767,10 +777,12 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
           ref={measureRef ? page4ContentRef : undefined}
           style={{
             position: 'absolute',
-            top: '40mm',
-            bottom: '40mm',
+            top: `${marginTopMm}mm`,
+            bottom: `${marginBottomMm}mm`,
             left: `${marginLeftMm}mm`,
             right: `${marginRightMm}mm`,
+            paddingTop: `${paddingTopMm}mm`,
+            paddingBottom: `${paddingBottomMm}mm`,
             paddingLeft: `${paddingLeftMm}mm`,
             paddingRight: `${paddingRightMm}mm`,
             boxSizing: 'border-box',

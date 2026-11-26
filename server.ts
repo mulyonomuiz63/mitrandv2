@@ -2121,12 +2121,20 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
     if (!Number.isFinite(n)) return undefined;
     return Math.min(max, Math.max(min, Math.round(n * 10) / 10));
   };
+  const mTop = cleanMm(src.marginTopMm, 15, 70);
+  const mBottom = cleanMm(src.marginBottomMm, 15, 70);
   const mLeft = cleanMm(src.marginLeftMm, 10, 55);
   const mRight = cleanMm(src.marginRightMm, 10, 55);
+  const pTop = cleanMm(src.paddingTopMm, 0, 30);
+  const pBottom = cleanMm(src.paddingBottomMm, 0, 30);
   const pLeft = cleanMm(src.paddingLeftMm, 0, 30);
   const pRight = cleanMm(src.paddingRightMm, 0, 30);
+  if (mTop !== undefined) out.marginTopMm = mTop;
+  if (mBottom !== undefined) out.marginBottomMm = mBottom;
   if (mLeft !== undefined) out.marginLeftMm = mLeft;
   if (mRight !== undefined) out.marginRightMm = mRight;
+  if (pTop !== undefined) out.paddingTopMm = pTop;
+  if (pBottom !== undefined) out.paddingBottomMm = pBottom;
   if (pLeft !== undefined) out.paddingLeftMm = pLeft;
   if (pRight !== undefined) out.paddingRightMm = pRight;
 
@@ -2139,6 +2147,17 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
     const trimEach = Math.ceil((excess / 2) * 10) / 10;
     if (out.paddingLeftMm !== undefined) out.paddingLeftMm = Math.max(0, Math.round((effPL - trimEach) * 10) / 10);
     if (out.paddingRightMm !== undefined) out.paddingRightMm = Math.max(0, Math.round((effPR - trimEach) * 10) / 10);
+  }
+
+  const effMT = out.marginTopMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.marginTopMm;
+  const effMB = out.marginBottomMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.marginBottomMm;
+  const effPT = out.paddingTopMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.paddingTopMm;
+  const effPB = out.paddingBottomMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.paddingBottomMm;
+  if (effMT + effMB + effPT + effPB > 170) {
+    const excess = effMT + effMB + effPT + effPB - 170;
+    const trimEach = Math.ceil((excess / 2) * 10) / 10;
+    if (out.paddingTopMm !== undefined) out.paddingTopMm = Math.max(0, Math.round((effPT - trimEach) * 10) / 10);
+    if (out.paddingBottomMm !== undefined) out.paddingBottomMm = Math.max(0, Math.round((effPB - trimEach) * 10) / 10);
   }
 
   return Object.keys(out).length > 0 ? out : undefined;
