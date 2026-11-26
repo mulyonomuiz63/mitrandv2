@@ -28,13 +28,19 @@ interface LetterHeaderProps {
   inlineLogo?: { isCustom: boolean; dataUrl: string } | null;
 }
 
-const LetterHeader: React.FC<LetterHeaderProps> = ({ logoUrl, inlineLogo }) => {
+const LetterHeader: React.FC<LetterHeaderProps & { marginLeftMm?: number }> = ({
+  logoUrl,
+  inlineLogo,
+  marginLeftMm = 30,
+}) => {
   const trimmed = String(logoUrl || '').trim();
   const isCustomUploadedLogo = inlineLogo
     ? inlineLogo.isCustom
     : Boolean(trimmed && trimmed !== DEFAULT_VERTICAL_SVG);
   const customLogoSrc = inlineLogo?.isCustom ? inlineLogo.dataUrl : trimmed;
   const defaultEmblemSrc = inlineLogo && !inlineLogo.isCustom ? inlineLogo.dataUrl : DEFAULT_EMBLEM_PNG;
+  const safeLeft = Math.min(55, Math.max(10, Number(marginLeftMm) || 30));
+  const defaultLogoLeft = Math.max(6, safeLeft - 4);
 
   if (isCustomUploadedLogo) {
     return (
@@ -42,7 +48,7 @@ const LetterHeader: React.FC<LetterHeaderProps> = ({ logoUrl, inlineLogo }) => {
         style={{
           position: 'absolute',
           top: '7.5mm',
-          left: '30mm',
+          left: `${safeLeft}mm`,
           height: '25mm',
           maxWidth: '58mm',
           display: 'flex',
@@ -71,7 +77,7 @@ const LetterHeader: React.FC<LetterHeaderProps> = ({ logoUrl, inlineLogo }) => {
       style={{
         position: 'absolute',
         top: '7mm',
-        left: '26mm',
+        left: `${defaultLogoLeft}mm`,
         width: '34mm',
         textAlign: 'center',
         pointerEvents: 'none',
@@ -379,20 +385,27 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
   const p4SigGapMm = [15, 11, 8, 6, 4][p4CompactLevel] || 15;
 
   const measureRef = mode !== 'print';
+  const marginLeftMm = content.marginLeftMm ?? 30;
+  const marginRightMm = content.marginRightMm ?? 30;
+  const paddingLeftMm = content.paddingLeftMm ?? 0;
+  const paddingRightMm = content.paddingRightMm ?? 0;
 
   return (
     <>
       {/* PAGE 1 */}
       <A4PageFrame mode={mode}>
-        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} />
+        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
         <div
           ref={measureRef ? page1ContentRef : undefined}
           style={{
             position: 'absolute',
             top: '40mm',
             bottom: '40mm',
-            left: '30mm',
-            right: '30mm',
+            left: `${marginLeftMm}mm`,
+            right: `${marginRightMm}mm`,
+            paddingLeft: `${paddingLeftMm}mm`,
+            paddingRight: `${paddingRightMm}mm`,
+            boxSizing: 'border-box',
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: p1BodyFont,
             lineHeight: p1LH,
@@ -522,15 +535,18 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
 
       {/* PAGE 2 */}
       <A4PageFrame mode={mode}>
-        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} />
+        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
         <div
           ref={measureRef ? page2ContentRef : undefined}
           style={{
             position: 'absolute',
             top: '40mm',
             bottom: '40mm',
-            left: '30mm',
-            right: '30mm',
+            left: `${marginLeftMm}mm`,
+            right: `${marginRightMm}mm`,
+            paddingLeft: `${paddingLeftMm}mm`,
+            paddingRight: `${paddingRightMm}mm`,
+            boxSizing: 'border-box',
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: p2BodyFont,
             lineHeight: p2LH,
@@ -630,15 +646,18 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
 
       {/* PAGE 3 */}
       <A4PageFrame mode={mode}>
-        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} />
+        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
         <div
           ref={measureRef ? page3ContentRef : undefined}
           style={{
             position: 'absolute',
             top: '40mm',
             bottom: '40mm',
-            left: '30mm',
-            right: '30mm',
+            left: `${marginLeftMm}mm`,
+            right: `${marginRightMm}mm`,
+            paddingLeft: `${paddingLeftMm}mm`,
+            paddingRight: `${paddingRightMm}mm`,
+            boxSizing: 'border-box',
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: p3BodyFont,
             lineHeight: p3LH,
@@ -743,15 +762,18 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
 
       {/* PAGE 4 */}
       <A4PageFrame mode={mode}>
-        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} />
+        <LetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
         <div
           ref={measureRef ? page4ContentRef : undefined}
           style={{
             position: 'absolute',
             top: '40mm',
             bottom: '40mm',
-            left: '30mm',
-            right: '30mm',
+            left: `${marginLeftMm}mm`,
+            right: `${marginRightMm}mm`,
+            paddingLeft: `${paddingLeftMm}mm`,
+            paddingRight: `${paddingRightMm}mm`,
+            boxSizing: 'border-box',
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '11pt',
             lineHeight: p4LH,

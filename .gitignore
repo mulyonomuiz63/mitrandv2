@@ -8,6 +8,8 @@ coverage/
 .aistudio/
 data/
 public/uploads/
+public/uploads/chat/
+dist/uploads/
 uploads/
 database.json
 *.db

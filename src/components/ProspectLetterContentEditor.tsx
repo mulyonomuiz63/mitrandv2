@@ -14,6 +14,7 @@ import {
   RemoveFormatting,
   Building2,
   MapPin,
+  RotateCcw,
 } from 'lucide-react';
 import {
   ProspectLetterComparisonRow,
@@ -238,9 +239,14 @@ const RichEditableField: React.FC<RichEditableFieldProps> = ({
   );
 };
 
-const EditorHeaderLogo: React.FC<{ logoUrl?: string }> = ({ logoUrl }) => {
+const EditorHeaderLogo: React.FC<{ logoUrl?: string; marginLeftMm?: number }> = ({
+  logoUrl,
+  marginLeftMm = 30,
+}) => {
   const trimmed = String(logoUrl || '').trim();
   const isCustomUploadedLogo = Boolean(trimmed && trimmed !== DEFAULT_VERTICAL_SVG);
+  const safeLeft = Math.min(55, Math.max(10, Number(marginLeftMm) || 30));
+  const defaultLogoLeft = Math.max(6, safeLeft - 4);
 
   if (isCustomUploadedLogo) {
     return (
@@ -248,7 +254,7 @@ const EditorHeaderLogo: React.FC<{ logoUrl?: string }> = ({ logoUrl }) => {
         style={{
           position: 'absolute',
           top: '7.5mm',
-          left: '30mm',
+          left: `${safeLeft}mm`,
           height: '25mm',
           maxWidth: '58mm',
           display: 'flex',
@@ -277,7 +283,7 @@ const EditorHeaderLogo: React.FC<{ logoUrl?: string }> = ({ logoUrl }) => {
       style={{
         position: 'absolute',
         top: '7mm',
-        left: '26mm',
+        left: `${defaultLogoLeft}mm`,
         width: '34mm',
         textAlign: 'center',
         pointerEvents: 'none',
@@ -981,6 +987,65 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
             </button>
           </div>
         </div>
+
+        {/* Horizontal Margin & Padding Controls (mm) */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          {([
+            { key: 'marginLeftMm', label: 'Margin Kiri', min: 10, max: 55, fallback: 30 },
+            { key: 'marginRightMm', label: 'Margin Kanan', min: 10, max: 55, fallback: 30 },
+            { key: 'paddingLeftMm', label: 'Padding Kiri', min: 0, max: 30, fallback: 0 },
+            { key: 'paddingRightMm', label: 'Padding Kanan', min: 0, max: 30, fallback: 0 },
+          ] as const).map((ctrl) => {
+            const currentVal = Number(value[ctrl.key] ?? ctrl.fallback);
+            return (
+              <div
+                key={ctrl.key}
+                className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"
+              >
+                <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+                  {ctrl.label}
+                </span>
+                <input
+                  type="number"
+                  min={ctrl.min}
+                  max={ctrl.max}
+                  step={1}
+                  value={Number.isFinite(currentVal) ? currentVal : ctrl.fallback}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value);
+                    if (!Number.isFinite(parsed)) return;
+                    const clamped = Math.min(ctrl.max, Math.max(ctrl.min, Math.round(parsed * 10) / 10));
+                    patch(ctrl.key, clamped);
+                  }}
+                  aria-label={`${ctrl.label} (mm)`}
+                  className="w-14 px-1.5 py-0.5 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#092147]/30"
+                />
+                <span className="text-[10px] font-semibold text-slate-500">mm</span>
+              </div>
+            );
+          })}
+          {((value.marginLeftMm ?? 30) !== 30 ||
+            (value.marginRightMm ?? 30) !== 30 ||
+            (value.paddingLeftMm ?? 0) !== 0 ||
+            (value.paddingRightMm ?? 0) !== 0) && (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  ...value,
+                  marginLeftMm: 30,
+                  marginRightMm: 30,
+                  paddingLeftMm: 0,
+                  paddingRightMm: 0,
+                })
+              }
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Spasi</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Live A4 Paper Sheet Stage */}
@@ -1021,7 +1086,7 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
               }}
             >
             {/* Header Logo */}
-            <EditorHeaderLogo logoUrl={logoUrl} />
+            <EditorHeaderLogo logoUrl={logoUrl} marginLeftMm={value.marginLeftMm ?? 30} />
 
             {/* Red Dashed Bottom Margin Guide when near or over limit */}
             {(isOverflowing || isNearLimit) && (
@@ -1053,15 +1118,18 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
               </div>
             )}
 
-            {/* Editable A4 Body Content Area (Exact 30mm L/R, 40mm Top/Bottom — mirrors ProspectLetterDocument 1:1) */}
+            {/* Editable A4 Body Content Area (Dynamic L/R Margin & Padding — mirrors ProspectLetterDocument 1:1) */}
             <div
               ref={bodyFrameRef}
               style={{
                 position: 'absolute',
                 top: '40mm',
                 bottom: '40mm',
-                left: '30mm',
-                right: '30mm',
+                left: `${Math.min(55, Math.max(10, Number(value.marginLeftMm ?? 30) || 30))}mm`,
+                right: `${Math.min(55, Math.max(10, Number(value.marginRightMm ?? 30) || 30))}mm`,
+                paddingLeft: `${Math.min(30, Math.max(0, Number(value.paddingLeftMm ?? 0) || 0))}mm`,
+                paddingRight: `${Math.min(30, Math.max(0, Number(value.paddingRightMm ?? 0) || 0))}mm`,
+                boxSizing: 'border-box',
                 overflow: 'visible',
                 fontFamily: 'Arial, Helvetica, sans-serif',
                 fontSize: activeBodyFont,

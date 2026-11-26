@@ -179,7 +179,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-slate-900 font-display">
               {userRole === 'mitra'
-                ? `Dashboard Kinerja Mitra — ${activeMitra.fullName}`
+                ? 'Dashboard'
                 : 'Dashboard Analitik & Laporan Kinerja'}
             </h1>
           </div>

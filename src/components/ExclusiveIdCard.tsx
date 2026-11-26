@@ -478,7 +478,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
       <div className="mb-5 sm:mb-6">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-display">
-            Kartu Identitas Eksklusif Mitra
+            Kartu Identitas
           </h1>
         </div>
       </div>

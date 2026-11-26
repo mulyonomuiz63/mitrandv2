@@ -909,7 +909,9 @@ export interface ActivityLogItem {
     | 'commission_scheme_update'
     | 'prospect_create'
     | 'prospect_update'
-    | 'prospect_delete';
+    | 'prospect_delete'
+    | 'chat_file_delete'
+    | 'chat_reset';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
   targetEntity: string;
   description: string;
@@ -1617,6 +1619,12 @@ export interface ProspectLetterContent {
   footerLeftLines: string[];
   footerRightTitle: string;
   footerRightLines: string[];
+
+  // Page Horizontal Layout (mm)
+  marginLeftMm: number;
+  marginRightMm: number;
+  paddingLeftMm: number;
+  paddingRightMm: number;
 }
 
 export const DEFAULT_PROSPECT_LETTER_CONTENT: ProspectLetterContent = {
@@ -1801,6 +1809,10 @@ export const DEFAULT_PROSPECT_LETTER_CONTENT: ProspectLetterContent = {
     'Email: jakarta@ndtaxandlaw.com',
     'Website: www.ndtaxandlaw.com',
   ],
+  marginLeftMm: 30,
+  marginRightMm: 30,
+  paddingLeftMm: 0,
+  paddingRightMm: 0,
 };
 
 export function resolveProspectLetterContent(
@@ -1933,6 +1945,22 @@ export function resolveProspectLetterContent(
       footerLeftLines: strLines(override.footerLeftLines, base.footerLeftLines),
       footerRightTitle: str(override.footerRightTitle, base.footerRightTitle),
       footerRightLines: strLines(override.footerRightLines, base.footerRightLines),
+      marginLeftMm: (() => {
+        const n = Number(override.marginLeftMm);
+        return Number.isFinite(n) ? Math.min(55, Math.max(10, Math.round(n * 10) / 10)) : base.marginLeftMm;
+      })(),
+      marginRightMm: (() => {
+        const n = Number(override.marginRightMm);
+        return Number.isFinite(n) ? Math.min(55, Math.max(10, Math.round(n * 10) / 10)) : base.marginRightMm;
+      })(),
+      paddingLeftMm: (() => {
+        const n = Number(override.paddingLeftMm);
+        return Number.isFinite(n) ? Math.min(30, Math.max(0, Math.round(n * 10) / 10)) : base.paddingLeftMm;
+      })(),
+      paddingRightMm: (() => {
+        const n = Number(override.paddingRightMm);
+        return Number.isFinite(n) ? Math.min(30, Math.max(0, Math.round(n * 10) / 10)) : base.paddingRightMm;
+      })(),
     };
   };
 

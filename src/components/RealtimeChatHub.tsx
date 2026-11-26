@@ -39,6 +39,10 @@ import {
   ChevronUp,
   Save,
   Download,
+  FolderOpen,
+  RotateCcw,
+  FileText,
+  RefreshCw,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -310,6 +314,50 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [showAllPinnedList, setShowAllPinnedList] = useState(false);
   const [pinningMessageId, setPinningMessageId] = useState<string | null>(null);
 
+  // Admin Chat File Gallery & Admin Chat Reset
+  const [showAdminGalleryModal, setShowAdminGalleryModal] = useState(false);
+  const [adminGalleryFiles, setAdminGalleryFiles] = useState<
+    Array<{
+      id: string;
+      messageId: string;
+      roomId: string;
+      roomName: string;
+      roomType: 'direct' | 'group';
+      senderId: string;
+      senderName: string;
+      senderRole: string;
+      fileUrl: string;
+      fileName: string;
+      isImage: boolean;
+      byteSize: number;
+      formattedSize: string;
+      caption: string;
+      createdAt: string;
+    }>
+  >([]);
+  const [adminGallerySummary, setAdminGallerySummary] = useState<{
+    totalFiles: number;
+    totalBytes: number;
+    totalFormattedSize: string;
+  }>({ totalFiles: 0, totalBytes: 0, totalFormattedSize: '0 B' });
+  const [isLoadingAdminGallery, setIsLoadingAdminGallery] = useState(false);
+  const [adminGallerySearch, setAdminGallerySearch] = useState('');
+  const [adminGalleryFilter, setAdminGalleryFilter] = useState<'all' | 'image' | 'file'>('all');
+  const [deletingGalleryId, setDeletingGalleryId] = useState<string | null>(null);
+
+  const [showAdminResetModal, setShowAdminResetModal] = useState(false);
+  const [selectedResetPeriod, setSelectedResetPeriod] = useState<'3m' | '6m' | '1y' | 'all'>('3m');
+  const [adminResetStats, setAdminResetStats] = useState<
+    Record<'3m' | '6m' | '1y' | 'all', { messages: number; files: number; totalBytes: number; formattedSize: string }>
+  >({
+    '3m': { messages: 0, files: 0, totalBytes: 0, formattedSize: '0 B' },
+    '6m': { messages: 0, files: 0, totalBytes: 0, formattedSize: '0 B' },
+    '1y': { messages: 0, files: 0, totalBytes: 0, formattedSize: '0 B' },
+    all: { messages: 0, files: 0, totalBytes: 0, formattedSize: '0 B' },
+  });
+  const [isLoadingResetStats, setIsLoadingResetStats] = useState(false);
+  const [isExecutingReset, setIsExecutingReset] = useState(false);
+
   // Real-Time In-App Chat Notification Toast (Personal Chat, Group Chat & Added to Group)
   const [chatToast, setChatToast] = useState<{
     id: string;
@@ -549,6 +597,156 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     const pollInterval = setInterval(fetchChatState, 8000);
     return () => clearInterval(pollInterval);
   }, [fetchChatState]);
+
+  const loadAdminChatFiles = useCallback(async () => {
+    if (!isAdminMonitor) return;
+    setIsLoadingAdminGallery(true);
+    try {
+      const qs = new URLSearchParams({
+        actorRole: currentUserRole,
+        actorId: currentUserId,
+      });
+      const res = await fetch(`/api/chat/admin/files?${qs.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        setAdminGalleryFiles(Array.isArray(json.data) ? json.data : []);
+        if (json.summary) {
+          setAdminGallerySummary(json.summary);
+        }
+      }
+    } catch {
+      // Ignore fetch errors
+    } finally {
+      setIsLoadingAdminGallery(false);
+    }
+  }, [isAdminMonitor, currentUserRole, currentUserId]);
+
+  const loadAdminResetStats = useCallback(async () => {
+    if (!isAdminMonitor) return;
+    setIsLoadingResetStats(true);
+    try {
+      const qs = new URLSearchParams({
+        actorRole: currentUserRole,
+        actorId: currentUserId,
+      });
+      const res = await fetch(`/api/chat/admin/reset-stats?${qs.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.stats) {
+          setAdminResetStats(json.stats);
+        }
+      }
+    } catch {
+      // Ignore fetch errors
+    } finally {
+      setIsLoadingResetStats(false);
+    }
+  }, [isAdminMonitor, currentUserRole, currentUserId]);
+
+  const handleOpenAdminGallery = () => {
+    setShowAdminGalleryModal(true);
+    void loadAdminChatFiles();
+  };
+
+  const handleOpenAdminReset = () => {
+    setShowAdminResetModal(true);
+    void loadAdminResetStats();
+  };
+
+  const handleAdminDeleteChatFile = async (item: { messageId: string; fileName: string }) => {
+    if (!isAdminMonitor || deletingGalleryId) return;
+    const ok = await confirm({
+      title: 'Hapus File Chat',
+      message: `Hapus "${item.fileName}" secara permanen dari server?`,
+      confirmText: 'Hapus',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    setDeletingGalleryId(item.messageId);
+    try {
+      const res = await fetch(`/api/chat/admin/files/${encodeURIComponent(item.messageId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorRole: currentUserRole,
+          actorId: currentUserId,
+          actorName: currentUserName,
+        }),
+      });
+      if (res.ok) {
+        await Promise.all([loadAdminChatFiles(), fetchChatState()]);
+        showAlert({
+          type: 'success',
+          title: 'File Dihapus',
+          message: `"${item.fileName}" berhasil dihapus.`,
+        });
+      }
+    } finally {
+      setDeletingGalleryId(null);
+    }
+  };
+
+  const handleAdminResetChat = async () => {
+    if (!isAdminMonitor || isExecutingReset) return;
+    const targetStat = adminResetStats[selectedResetPeriod];
+    const periodLabel =
+      selectedResetPeriod === '3m'
+        ? '> 3 Bulan Lalu'
+        : selectedResetPeriod === '6m'
+        ? '> 6 Bulan Lalu'
+        : selectedResetPeriod === '1y'
+        ? '> 1 Tahun Lalu'
+        : 'Semua Chat';
+
+    const ok = await confirm({
+      title: `Reset Chat (${periodLabel})`,
+      message: `${targetStat.messages} pesan & ${targetStat.files} file (${targetStat.formattedSize}) akan dihapus permanen.`,
+      confirmText: 'Reset Chat',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    setIsExecutingReset(true);
+    try {
+      const res = await fetch('/api/chat/admin/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          period: selectedResetPeriod,
+          actorRole: currentUserRole,
+          actorId: currentUserId,
+          actorName: currentUserName,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        await Promise.all([fetchChatState(), loadAdminResetStats()]);
+        setShowAdminResetModal(false);
+        showAlert({
+          type: 'success',
+          title: 'Reset Chat Berhasil',
+          message: `${json.deletedMessages || 0} pesan & ${json.deletedFiles || 0} file dihapus.`,
+        });
+      } else {
+        showAlert({
+          type: 'error',
+          title: 'Gagal Reset Chat',
+          message: json.message || 'Gagal memproses reset chat.',
+        });
+      }
+    } catch {
+      showAlert({
+        type: 'error',
+        title: 'Gagal Reset Chat',
+        message: 'Terjadi kesalahan koneksi server.',
+      });
+    } finally {
+      setIsExecutingReset(false);
+    }
+  };
 
   // Connect WebSocket for instant real-time updates
   useEffect(() => {
@@ -1871,6 +2069,28 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               <BellRing className="w-3.5 h-3.5 text-amber-300" />
               <span className="hidden md:inline">Tes Nada</span>
             </button>
+          )}
+
+          {isAdminMonitor && (
+            <>
+              <button
+                type="button"
+                onClick={handleOpenAdminGallery}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-sky-500/20 hover:bg-sky-500/30 text-sky-100 border border-sky-400/30 transition-all cursor-pointer"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-sky-300" />
+                <span>Galeri File</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenAdminReset}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 border border-rose-400/35 transition-all cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-300" />
+                <span>Reset Chat</span>
+              </button>
+            </>
           )}
 
           {isAdminMonitor && onToggleChatEnabled && (
@@ -4115,6 +4335,271 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             >
               <X className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: ADMIN CHAT FILE GALLERY */}
+      {isAdminMonitor && showAdminGalleryModal && (() => {
+        const q = adminGallerySearch.trim().toLowerCase();
+        const filteredFiles = adminGalleryFiles.filter((item) => {
+          if (adminGalleryFilter === 'image' && !item.isImage) return false;
+          if (adminGalleryFilter === 'file' && item.isImage) return false;
+          if (!q) return true;
+          return (
+            item.fileName.toLowerCase().includes(q) ||
+            item.senderName.toLowerCase().includes(q) ||
+            item.roomName.toLowerCase().includes(q)
+          );
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
+            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[88vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-3.5 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <FolderOpen className="w-5 h-5 text-amber-300 shrink-0" />
+                  <h3 className="text-sm sm:text-base font-extrabold truncate">
+                    Galeri File Chat
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-md bg-white/15 text-[11px] font-bold text-amber-200 whitespace-nowrap">
+                    {adminGallerySummary.totalFiles} file • {adminGallerySummary.totalFormattedSize}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void loadAdminChatFiles()}
+                    disabled={isLoadingAdminGallery}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer disabled:opacity-50"
+                    title="Muat ulang"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isLoadingAdminGallery ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminGalleryModal(false)}
+                    className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={adminGallerySearch}
+                    onChange={(e) => setAdminGallerySearch(e.target.value)}
+                    placeholder="Cari nama file, pengirim, atau grup..."
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl">
+                  {(
+                    [
+                      { id: 'all', label: 'Semua' },
+                      { id: 'image', label: 'Gambar' },
+                      { id: 'file', label: 'File' },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAdminGalleryFilter(tab.id)}
+                      className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        adminGalleryFilter === tab.id
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+                {isLoadingAdminGallery ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {Array.from({ length: 6 }).map((_, idx) => (
+                      <div key={idx} className="rounded-xl border border-slate-200 p-3 space-y-2">
+                        <Skeleton className="w-full h-32 rounded-lg" />
+                        <Skeleton className="w-3/4 h-3.5" />
+                        <Skeleton className="w-1/2 h-3" />
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredFiles.length === 0 ? (
+                  <div className="py-16 text-center text-slate-400 space-y-2">
+                    <FolderOpen className="w-10 h-10 mx-auto text-slate-300" />
+                    <p className="text-sm font-semibold text-slate-500">Belum ada file chat</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {filteredFiles.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col shadow-xs hover:shadow-md transition-shadow"
+                      >
+                        {item.isImage ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLightboxImage({ url: item.fileUrl, name: item.fileName })
+                            }
+                            className="relative h-36 bg-slate-100 overflow-hidden group cursor-pointer"
+                          >
+                            <img
+                              src={item.fileUrl}
+                              alt={item.fileName}
+                              loading="lazy"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                            <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/75 text-white text-[10px] font-bold">
+                              {item.formattedSize}
+                            </span>
+                          </button>
+                        ) : (
+                          <div className="relative h-36 bg-slate-100 flex flex-col items-center justify-center gap-2 p-3">
+                            <FileText className="w-10 h-10 text-slate-500" />
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-white text-[10px] font-bold">
+                              {item.formattedSize}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="p-3 flex-1 flex flex-col justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <p
+                              className="text-xs font-bold text-slate-900 truncate"
+                              title={item.fileName}
+                            >
+                              {item.fileName}
+                            </p>
+                            <p className="text-[11px] font-semibold text-emerald-700 truncate">
+                              {item.senderName} • {item.roomName}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {new Date(item.createdAt).toLocaleString('id-ID', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDownloadChatImage(item.fileUrl, item.fileName)
+                              }
+                              className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Unduh</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingGalleryId === item.messageId}
+                              onClick={() => void handleAdminDeleteChatFile(item)}
+                              className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Hapus</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL 6: ADMIN RESET CHAT BY AGE */}
+      {isAdminMonitor && showAdminResetModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3.5 bg-gradient-to-r from-rose-700 to-rose-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-rose-200" />
+                <h3 className="text-sm sm:text-base font-extrabold">Reset Chat</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminResetModal(false)}
+                className="p-1 rounded-lg text-white/80 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              {(
+                [
+                  { id: '3m', label: '> 3 Bulan Lalu' },
+                  { id: '6m', label: '> 6 Bulan Lalu' },
+                  { id: '1y', label: '> 1 Tahun Lalu' },
+                  { id: 'all', label: 'Semua Chat' },
+                ] as const
+              ).map((opt) => {
+                const st = adminResetStats[opt.id];
+                const isSelected = selectedResetPeriod === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setSelectedResetPeriod(opt.id)}
+                    className={`w-full px-4 py-3 rounded-xl border-2 flex items-center justify-between gap-3 text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-rose-600 bg-rose-50/70'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <span className="text-xs sm:text-sm font-extrabold text-slate-900">
+                      {opt.label}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                      {isLoadingResetStats
+                        ? '...'
+                        : `${st.messages} pesan • ${st.files} file (${st.formattedSize})`}
+                    </span>
+                  </button>
+                );
+              })}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminResetModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    isExecutingReset ||
+                    isLoadingResetStats ||
+                    adminResetStats[selectedResetPeriod].messages === 0
+                  }
+                  onClick={() => void handleAdminResetChat()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-xs font-extrabold cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isExecutingReset ? 'Memproses...' : 'Reset Chat'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -744,7 +744,9 @@ export interface ActivityLogItem {
     | 'commission_scheme_update'
     | 'prospect_create'
     | 'prospect_update'
-    | 'prospect_delete';
+    | 'prospect_delete'
+    | 'chat_file_delete'
+    | 'chat_reset';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
   targetEntity: string;
   description: string;
@@ -2113,6 +2115,32 @@ const sanitizeProspectLetterContent = (raw: unknown): Partial<ProspectLetterCont
   const fr = cleanLines(src.footerRightLines, 6);
   if (fr) out.footerRightLines = fr;
 
+  const cleanMm = (val: unknown, min: number, max: number): number | undefined => {
+    if (val === undefined || val === null || val === '') return undefined;
+    const n = Number(val);
+    if (!Number.isFinite(n)) return undefined;
+    return Math.min(max, Math.max(min, Math.round(n * 10) / 10));
+  };
+  const mLeft = cleanMm(src.marginLeftMm, 10, 55);
+  const mRight = cleanMm(src.marginRightMm, 10, 55);
+  const pLeft = cleanMm(src.paddingLeftMm, 0, 30);
+  const pRight = cleanMm(src.paddingRightMm, 0, 30);
+  if (mLeft !== undefined) out.marginLeftMm = mLeft;
+  if (mRight !== undefined) out.marginRightMm = mRight;
+  if (pLeft !== undefined) out.paddingLeftMm = pLeft;
+  if (pRight !== undefined) out.paddingRightMm = pRight;
+
+  const effML = out.marginLeftMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.marginLeftMm;
+  const effMR = out.marginRightMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.marginRightMm;
+  const effPL = out.paddingLeftMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.paddingLeftMm;
+  const effPR = out.paddingRightMm ?? DEFAULT_PROSPECT_LETTER_CONTENT.paddingRightMm;
+  if (effML + effMR + effPL + effPR > 130) {
+    const excess = effML + effMR + effPL + effPR - 130;
+    const trimEach = Math.ceil((excess / 2) * 10) / 10;
+    if (out.paddingLeftMm !== undefined) out.paddingLeftMm = Math.max(0, Math.round((effPL - trimEach) * 10) / 10);
+    if (out.paddingRightMm !== undefined) out.paddingRightMm = Math.max(0, Math.round((effPR - trimEach) * 10) / 10);
+  }
+
   return Object.keys(out).length > 0 ? out : undefined;
 };
 
@@ -3401,26 +3429,33 @@ export const syncFromMysql = async () => {
           } catch {}
           continue;
         }
-        if (emailLower.startsWith('__sys_file_') && emailLower.endsWith('__@ndtaxlaw.internal')) {
+        if (
+          (emailLower.startsWith('__sys_file_') || emailLower.startsWith('__sys_chat_file_')) &&
+          emailLower.endsWith('__@ndtaxlaw.internal')
+        ) {
           try {
             const parsedFile = JSON.parse(row.password);
             if (parsedFile && parsedFile.fileName && parsedFile.base64) {
-              const safeName = path.basename(parsedFile.fileName);
-              const buf = Buffer.from(parsedFile.base64, 'base64');
-              const pubDir = path.join(__dirname, 'public', 'uploads', 'marketing-tools');
-              const dataDir = path.join(DATA_DIR, 'uploads', 'marketing-tools');
-              const homeDir = path.join(os.homedir(), '.ndtaxandlaw_storage', 'uploads', 'marketing-tools');
-              const distBase = path.join(__dirname, 'dist');
-              const restoreDirs = [pubDir, dataDir, homeDir];
-              if (fs.existsSync(distBase)) {
-                restoreDirs.push(path.join(distBase, 'uploads', 'marketing-tools'));
-              }
-              for (const dir of restoreDirs) {
-                try {
-                  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                  const target = path.join(dir, safeName);
-                  if (!fs.existsSync(target)) fs.writeFileSync(target, buf);
-                } catch {}
+              const safeName = path.basename(String(parsedFile.fileName));
+              if (safeName && safeName !== '.' && safeName !== '..') {
+                const isChatBucket =
+                  emailLower.startsWith('__sys_chat_file_') || parsedFile.bucket === 'chat';
+                const subFolder = isChatBucket ? 'chat' : 'marketing-tools';
+                const buf = Buffer.from(parsedFile.base64, 'base64');
+                const homeDir = path.join(os.homedir(), '.ndtaxandlaw_storage', 'uploads', subFolder);
+                const dataDir = path.join(DATA_DIR, 'uploads', subFolder);
+                const pubDir = path.join(__dirname, 'public', 'uploads', subFolder);
+                // Never write uploaded files into dist/uploads (keeps build artifacts & git pulls clean)
+                for (const dir of [homeDir, dataDir, pubDir]) {
+                  try {
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    const resolvedBase = path.resolve(dir);
+                    const target = path.resolve(resolvedBase, safeName);
+                    if (target.startsWith(resolvedBase + path.sep) && !fs.existsSync(target)) {
+                      fs.writeFileSync(target, buf);
+                    }
+                  } catch {}
+                }
               }
             }
           } catch {}
@@ -6021,6 +6056,7 @@ app.delete('/api/mitra/:id', async (req: Request, res: Response) => {
   if (db) {
     try {
       await db.from('mitras').delete().eq('id', id);
+      await db.from('notifications').delete().eq('mitraId', id);
       if (normalizedEmail) {
         await db.from('user_passwords').delete().eq('email', normalizedEmail);
       }
@@ -6414,7 +6450,12 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
 });
 
 // ========================================================
-// 2. MARKETING TOOLS ENDPOINTS & PERMANENT HOSTING FILE STORAGE
+// 2. MARKETING TOOLS & CHAT PERMANENT HOSTING FILE STORAGE
+//    - Primary storage lives OUTSIDE the git repository (~/.ndtaxandlaw_storage/uploads/...)
+//      so existing production files remain 100% safe across git pull / npm run build / redeploy
+//      and local development uploads are never tracked or pushed to Git.
+//    - Deleted or replaced files are removed from ALL disk locations (including legacy dist/uploads)
+//      and MySQL binary backups so unused files never accumulate on the server.
 // ========================================================
 const MARKETING_UPLOADS_DIR = path.join(__dirname, 'public', 'uploads', 'marketing-tools');
 const DATA_UPLOADS_DIR = path.join(DATA_DIR, 'uploads', 'marketing-tools');
@@ -6424,8 +6465,26 @@ const PERSISTENT_HOME_UPLOADS_DIR = path.join(
   'uploads',
   'marketing-tools'
 );
+const LEGACY_DIST_MARKETING_UPLOADS_DIR = path.join(__dirname, 'dist', 'uploads', 'marketing-tools');
 
-for (const dir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR]) {
+const CHAT_PUBLIC_UPLOADS_DIR = path.join(__dirname, 'public', 'uploads', 'chat');
+const CHAT_DATA_UPLOADS_DIR = path.join(DATA_DIR, 'uploads', 'chat');
+const CHAT_HOME_UPLOADS_DIR = path.join(
+  os.homedir(),
+  '.ndtaxandlaw_storage',
+  'uploads',
+  'chat'
+);
+const LEGACY_DIST_CHAT_UPLOADS_DIR = path.join(__dirname, 'dist', 'uploads', 'chat');
+
+for (const dir of [
+  PERSISTENT_HOME_UPLOADS_DIR,
+  DATA_UPLOADS_DIR,
+  MARKETING_UPLOADS_DIR,
+  CHAT_HOME_UPLOADS_DIR,
+  CHAT_DATA_UPLOADS_DIR,
+  CHAT_PUBLIC_UPLOADS_DIR,
+]) {
   try {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -6433,35 +6492,48 @@ for (const dir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLO
   } catch {}
 }
 
-// Cross-sync any files between PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR, MARKETING_UPLOADS_DIR, and dist/uploads on startup so no uploaded file is ever deleted or lost during production updates/rebuilds
-try {
-  const distBaseDir = path.join(__dirname, 'dist');
-  const syncDirs = [PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR, MARKETING_UPLOADS_DIR];
-  if (fs.existsSync(distBaseDir)) {
-    const distUploadsDir = path.join(distBaseDir, 'uploads', 'marketing-tools');
-    try {
-      if (!fs.existsSync(distUploadsDir)) fs.mkdirSync(distUploadsDir, { recursive: true });
-      syncDirs.push(distUploadsDir);
-    } catch {}
-  }
-  for (const srcDir of syncDirs) {
-    if (fs.existsSync(srcDir)) {
+// Strict path confinement helper preventing path traversal on any upload filename
+const resolveConfinedFilePath = (baseDir: string, rawFileName: string): string | null => {
+  const safeName = path.basename(String(rawFileName || '').trim());
+  if (!safeName || safeName === '.' || safeName === '..') return null;
+  const resolvedBase = path.resolve(baseDir);
+  const resolvedTarget = path.resolve(resolvedBase, safeName);
+  if (!resolvedTarget.startsWith(resolvedBase + path.sep)) return null;
+  return resolvedTarget;
+};
+
+// One-way safe startup rescue: preserve any pre-existing live server files into persistent OS home storage
+// (NEVER writes back into dist/uploads so deleted files cannot resurrect and build output stays clean)
+const rescueLegacyUploadsToPersistentHome = (homeDir: string, legacySourceDirs: string[]) => {
+  try {
+    if (!fs.existsSync(homeDir)) fs.mkdirSync(homeDir, { recursive: true });
+    for (const srcDir of legacySourceDirs) {
+      if (!fs.existsSync(srcDir)) continue;
       for (const file of fs.readdirSync(srcDir)) {
-        const srcPath = path.join(srcDir, file);
-        if (!fs.statSync(srcPath).isFile()) continue;
-        for (const destDir of syncDirs) {
-          if (destDir === srcDir) continue;
-          const destPath = path.join(destDir, file);
+        const srcPath = resolveConfinedFilePath(srcDir, file);
+        const destPath = resolveConfinedFilePath(homeDir, file);
+        if (!srcPath || !destPath) continue;
+        try {
+          if (!fs.statSync(srcPath).isFile()) continue;
           if (!fs.existsSync(destPath)) {
-            try {
-              fs.copyFileSync(srcPath, destPath);
-            } catch {}
+            fs.copyFileSync(srcPath, destPath);
           }
-        }
+        } catch {}
       }
     }
-  }
-} catch {}
+  } catch {}
+};
+
+rescueLegacyUploadsToPersistentHome(PERSISTENT_HOME_UPLOADS_DIR, [
+  DATA_UPLOADS_DIR,
+  MARKETING_UPLOADS_DIR,
+  LEGACY_DIST_MARKETING_UPLOADS_DIR,
+]);
+rescueLegacyUploadsToPersistentHome(CHAT_HOME_UPLOADS_DIR, [
+  CHAT_DATA_UPLOADS_DIR,
+  CHAT_PUBLIC_UPLOADS_DIR,
+  LEGACY_DIST_CHAT_UPLOADS_DIR,
+]);
 
 const getMimeTypeFromExt = (filename: string): string => {
   const lower = filename.toLowerCase();
@@ -6469,40 +6541,203 @@ const getMimeTypeFromExt = (filename: string): string => {
   if (lower.endsWith('.png')) return 'image/png';
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
   if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
   if (lower.endsWith('.svg')) return 'image/svg+xml';
   if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.doc')) return 'application/msword';
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
+  if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint';
+  if (lower.endsWith('.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (lower.endsWith('.csv')) return 'text/csv; charset=utf-8';
+  if (lower.endsWith('.txt')) return 'text/plain; charset=utf-8';
+  if (lower.endsWith('.zip')) return 'application/zip';
+  if (lower.endsWith('.rar')) return 'application/vnd.rar';
   return 'application/octet-stream';
 };
 
-// Self-healing static file handler: restores missing files from persistent OS storage or MySQL Cloud automatically
-app.get('/uploads/marketing-tools/:filename', async (req: Request, res: Response) => {
-  const safeName = path.basename(String(req.params.filename || ''));
-  if (!safeName) {
+type HostedUploadBucket = 'marketing-tools' | 'chat';
+
+const getUploadBucketDirs = (bucket: HostedUploadBucket) => {
+  if (bucket === 'chat') {
+    return {
+      homeDir: CHAT_HOME_UPLOADS_DIR,
+      dataDir: CHAT_DATA_UPLOADS_DIR,
+      publicDir: CHAT_PUBLIC_UPLOADS_DIR,
+      legacyDistDir: LEGACY_DIST_CHAT_UPLOADS_DIR,
+      cloudKeyPrefix: '__sys_chat_file_',
+      urlPrefix: '/uploads/chat/',
+    };
+  }
+  return {
+    homeDir: PERSISTENT_HOME_UPLOADS_DIR,
+    dataDir: DATA_UPLOADS_DIR,
+    publicDir: MARKETING_UPLOADS_DIR,
+    legacyDistDir: LEGACY_DIST_MARKETING_UPLOADS_DIR,
+    cloudKeyPrefix: '__sys_file_',
+    urlPrefix: '/uploads/marketing-tools/',
+  };
+};
+
+const parseHostedUploadUrl = (
+  rawUrl?: string | null
+): { bucket: HostedUploadBucket; fileName: string; normalizedUrl: string } | null => {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return null;
+  let pathOnly = trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      pathOnly = new URL(trimmed).pathname;
+    } catch {
+      return null;
+    }
+  }
+  pathOnly = pathOnly.split('?')[0].split('#')[0];
+  if (pathOnly.startsWith('/uploads/chat/')) {
+    const fileName = path.basename(decodeURIComponent(pathOnly.slice('/uploads/chat/'.length)));
+    if (!fileName || fileName === '.' || fileName === '..') return null;
+    return { bucket: 'chat', fileName, normalizedUrl: `/uploads/chat/${fileName}` };
+  }
+  if (pathOnly.startsWith('/uploads/marketing-tools/')) {
+    const fileName = path.basename(decodeURIComponent(pathOnly.slice('/uploads/marketing-tools/'.length)));
+    if (!fileName || fileName === '.' || fileName === '..') return null;
+    return { bucket: 'marketing-tools', fileName, normalizedUrl: `/uploads/marketing-tools/${fileName}` };
+  }
+  return null;
+};
+
+const isHostedUploadUrlStillReferenced = (targetNormalizedUrl: string): boolean => {
+  const matchesUrl = (candidate?: string | null): boolean => {
+    const parsed = parseHostedUploadUrl(candidate);
+    return Boolean(parsed && parsed.normalizedUrl === targetNormalizedUrl);
+  };
+  if (marketingTools.some((t) => matchesUrl(t.downloadUrl) || matchesUrl(t.thumbnailUrl))) {
+    return true;
+  }
+  if (chatMessages.some((m) => !m.isDeleted && matchesUrl(m.imageUrl))) {
+    return true;
+  }
+  if (chatRooms.some((r) => matchesUrl(r.avatarUrl))) {
+    return true;
+  }
+  if (mitras.some((m) => matchesUrl(m.avatarUrl) || matchesUrl(m.ktpFileUrl))) {
+    return true;
+  }
+  if (staffAccounts.some((s) => matchesUrl(s.avatarUrl))) {
+    return true;
+  }
+  if (matchesUrl(appSettings.logoUrl) || matchesUrl(adminAccount.avatarUrl)) {
+    return true;
+  }
+  return false;
+};
+
+const deleteHostedUploadFile = async (
+  rawUrl?: string | null,
+  options?: { force?: boolean }
+): Promise<boolean> => {
+  const parsed = parseHostedUploadUrl(rawUrl);
+  if (!parsed) return false;
+  if (!options?.force && isHostedUploadUrlStillReferenced(parsed.normalizedUrl)) {
+    return false;
+  }
+
+  const dirs = getUploadBucketDirs(parsed.bucket);
+  let removedAny = false;
+  for (const dir of [dirs.homeDir, dirs.dataDir, dirs.publicDir, dirs.legacyDistDir]) {
+    const confined = resolveConfinedFilePath(dir, parsed.fileName);
+    if (!confined) continue;
+    try {
+      if (fs.existsSync(confined) && fs.statSync(confined).isFile()) {
+        fs.unlinkSync(confined);
+        removedAny = true;
+      }
+    } catch {}
+  }
+
+  if (db) {
+    const lowerName = parsed.fileName.toLowerCase();
+    const candidateKeys = Array.from(
+      new Set([
+        `${dirs.cloudKeyPrefix}${lowerName}__@ndtaxlaw.internal`,
+        `__sys_file_${lowerName}__@ndtaxlaw.internal`,
+        `__sys_chat_file_${lowerName}__@ndtaxlaw.internal`,
+      ])
+    );
+    try {
+      await db.from('user_passwords').delete().in('email', candidateKeys);
+    } catch {}
+  }
+
+  return removedAny;
+};
+
+const getHostedUploadByteSize = (rawUrl?: string | null): number => {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return 0;
+  if (trimmed.startsWith('data:')) {
+    const commaIdx = trimmed.indexOf(',');
+    if (commaIdx === -1) return 0;
+    const base64Len = trimmed.length - commaIdx - 1;
+    return Math.max(0, Math.floor((base64Len * 3) / 4));
+  }
+  const parsed = parseHostedUploadUrl(trimmed);
+  if (!parsed) return 0;
+  const dirs = getUploadBucketDirs(parsed.bucket);
+  for (const dir of [dirs.homeDir, dirs.dataDir, dirs.publicDir, dirs.legacyDistDir]) {
+    const confined = resolveConfinedFilePath(dir, parsed.fileName);
+    if (!confined) continue;
+    try {
+      if (fs.existsSync(confined)) {
+        const st = fs.statSync(confined);
+        if (st.isFile()) return st.size;
+      }
+    } catch {}
+  }
+  return 0;
+};
+
+const serveHostedUploadFile = async (
+  bucket: HostedUploadBucket,
+  req: Request,
+  res: Response
+) => {
+  const safeName = path.basename(String(req.params.filename || '').trim());
+  if (!safeName || safeName === '.' || safeName === '..') {
     return res.status(404).end();
   }
 
-  const primaryPath = path.join(MARKETING_UPLOADS_DIR, safeName);
-  const homeBackupPath = path.join(PERSISTENT_HOME_UPLOADS_DIR, safeName);
-  const dataBackupPath = path.join(DATA_UPLOADS_DIR, safeName);
-
-  // 1. Check primary public/uploads/marketing-tools
-  if (fs.existsSync(primaryPath)) {
-    res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
-    res.setHeader('Cache-Control', 'public, max-age=604800');
-    return res.sendFile(primaryPath);
+  const dirs = getUploadBucketDirs(bucket);
+  const homePath = resolveConfinedFilePath(dirs.homeDir, safeName);
+  const dataPath = resolveConfinedFilePath(dirs.dataDir, safeName);
+  const pubPath = resolveConfinedFilePath(dirs.publicDir, safeName);
+  const legacyDistPath = resolveConfinedFilePath(dirs.legacyDistDir, safeName);
+  if (!homePath) {
+    return res.status(404).end();
   }
 
-  // 2. Self-heal from persistent OS home storage or data/uploads storage
-  for (const candidate of [homeBackupPath, dataBackupPath]) {
-    if (fs.existsSync(candidate)) {
+  // 1. Primary persistent OS home storage (immune to git pull / rebuild)
+  if (fs.existsSync(homePath)) {
+    res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    return res.sendFile(homePath);
+  }
+
+  // 2. Self-heal from secondary/legacy local directories into persistent OS home storage
+  for (const candidate of [dataPath, pubPath, legacyDistPath]) {
+    if (candidate && fs.existsSync(candidate)) {
       try {
-        if (!fs.existsSync(MARKETING_UPLOADS_DIR)) {
-          fs.mkdirSync(MARKETING_UPLOADS_DIR, { recursive: true });
+        if (!fs.existsSync(dirs.homeDir)) {
+          fs.mkdirSync(dirs.homeDir, { recursive: true });
         }
-        fs.copyFileSync(candidate, primaryPath);
+        fs.copyFileSync(candidate, homePath);
         res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
         res.setHeader('Cache-Control', 'public, max-age=604800');
-        return res.sendFile(primaryPath);
+        return res.sendFile(homePath);
       } catch {
         res.setHeader('Content-Type', getMimeTypeFromExt(safeName));
         return res.sendFile(candidate);
@@ -6510,24 +6745,34 @@ app.get('/uploads/marketing-tools/:filename', async (req: Request, res: Response
     }
   }
 
-  // 3. Self-heal from MySQL Cloud backup if server disk was wiped during redeploy/git pull
+  // 3. Self-heal from MySQL Cloud backup if server disk was wiped during redeploy
   if (db) {
     try {
-      const cloudKey = `__sys_file_${safeName.toLowerCase()}__@ndtaxlaw.internal`;
-      const { data } = await db
+      const lowerName = safeName.toLowerCase();
+      const cloudKey = `${dirs.cloudKeyPrefix}${lowerName}__@ndtaxlaw.internal`;
+      const fallbackKey =
+        bucket === 'chat'
+          ? `__sys_file_${lowerName}__@ndtaxlaw.internal`
+          : `__sys_chat_file_${lowerName}__@ndtaxlaw.internal`;
+      const { data: rows } = await db
         .from('user_passwords')
-        .select('password')
-        .eq('email', cloudKey)
-        .maybeSingle();
+        .select('email, password')
+        .in('email', [cloudKey, fallbackKey]);
 
-      if (data?.password) {
-        const parsed = JSON.parse(data.password);
+      const matched = Array.isArray(rows)
+        ? rows.find((r: any) => String(r?.email || '').toLowerCase() === cloudKey) || rows[0]
+        : null;
+
+      if (matched?.password) {
+        const parsed = JSON.parse(matched.password);
         if (parsed?.base64) {
           const buf = Buffer.from(parsed.base64, 'base64');
-          for (const dir of [MARKETING_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR, DATA_UPLOADS_DIR]) {
+          for (const dir of [dirs.homeDir, dirs.dataDir, dirs.publicDir]) {
+            const target = resolveConfinedFilePath(dir, safeName);
+            if (!target) continue;
             try {
               if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(path.join(dir, safeName), buf);
+              fs.writeFileSync(target, buf);
             } catch {}
           }
           res.setHeader('Content-Type', parsed.mime || getMimeTypeFromExt(safeName));
@@ -6539,8 +6784,18 @@ app.get('/uploads/marketing-tools/:filename', async (req: Request, res: Response
   }
 
   return res.status(404).json({ success: false, message: 'File tidak ditemukan.' });
+};
+
+// Self-healing static file handlers: restore missing files from persistent OS storage or MySQL Cloud automatically
+app.get('/uploads/marketing-tools/:filename', async (req: Request, res: Response) => {
+  return serveHostedUploadFile('marketing-tools', req, res);
 });
 
+app.get('/uploads/chat/:filename', async (req: Request, res: Response) => {
+  return serveHostedUploadFile('chat', req, res);
+});
+
+app.use('/uploads', express.static(path.join(os.homedir(), '.ndtaxandlaw_storage', 'uploads'), { maxAge: '7d' }));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), { maxAge: '7d' }));
 
 const formatFileSizeServer = (bytes: number): string => {
@@ -6586,7 +6841,8 @@ const persistMarketingToolsToCloud = async () => {
 const saveDataUrlToHostingServer = (
   dataUrl: string,
   originalName: string,
-  fallbackExt: string
+  fallbackExt: string,
+  bucket: HostedUploadBucket = 'marketing-tools'
 ): {
   hostedUrl: string;
   savedBytes: number;
@@ -6605,41 +6861,50 @@ const saveDataUrlToHostingServer = (
   if (mime.includes('pdf')) ext = 'pdf';
   else if (mime.includes('svg')) ext = 'svg';
   else if (mime.includes('webp')) ext = 'webp';
+  else if (mime.includes('gif')) ext = 'gif';
   else if (mime.includes('png')) ext = 'png';
   else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
   else if (mime.includes('mp4') || mime.includes('video')) ext = 'mp4';
+  else if (mime.includes('spreadsheetml') || mime.includes('excel')) ext = 'xlsx';
+  else if (mime.includes('wordprocessingml')) ext = 'docx';
+  else if (mime.includes('msword')) ext = 'doc';
+  else if (mime.includes('presentationml')) ext = 'pptx';
+  else if (mime.includes('zip')) ext = 'zip';
+  else if (mime.includes('csv')) ext = 'csv';
+  else if (mime.includes('text/plain')) ext = 'txt';
 
   const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
-  const safeBaseName = String(originalName || 'materi-marketing')
+  const safeBaseName = String(originalName || (bucket === 'chat' ? 'chat-file' : 'materi-marketing'))
     .replace(/\.[^/.]+$/, '')
     .replace(/[^a-zA-Z0-9-_]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 60) || 'materi-marketing';
+    .slice(0, 60) || (bucket === 'chat' ? 'chat-file' : 'materi-marketing');
 
   const fileName = `${Date.now()}-${safeBaseName}.${ext}`;
+  const dirs = getUploadBucketDirs(bucket);
 
-  // Write to all persistent directories (public/uploads, data/uploads, OS home .ndtaxandlaw_storage, and dist/uploads if present)
-  const targetDirs = [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR];
-  const distBase = path.join(__dirname, 'dist');
-  if (fs.existsSync(distBase)) {
-    targetDirs.push(path.join(distBase, 'uploads', 'marketing-tools'));
-  }
+  // Write to persistent OS home storage (primary, outside git repo) + git-ignored local mirrors.
+  // Never write to dist/uploads/ so build artifacts stay clean and deleted files never resurrect.
+  const targetDirs = [dirs.homeDir, dirs.dataDir, dirs.publicDir];
   for (const targetDir of targetDirs) {
+    const confinedTarget = resolveConfinedFilePath(targetDir, fileName);
+    if (!confinedTarget) continue;
     try {
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
       }
-      fs.writeFileSync(path.join(targetDir, fileName), optimizedBuffer);
+      fs.writeFileSync(confinedTarget, optimizedBuffer);
     } catch {}
   }
 
   let cloudSyncPromise: Promise<any> | undefined;
   // Also back up file binary in MySQL Cloud so even a fresh VPS/container redeploy restores it
   if (db && optimizedBuffer.length <= 18 * 1024 * 1024) {
-    const cloudKey = `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`;
+    const cloudKey = `${dirs.cloudKeyPrefix}${fileName.toLowerCase()}__@ndtaxlaw.internal`;
     const cloudPayload = JSON.stringify({
       fileName,
+      bucket,
       mime: getMimeTypeFromExt(fileName),
       base64: optimizedBuffer.toString('base64'),
       savedAt: new Date().toISOString(),
@@ -6652,7 +6917,7 @@ const saveDataUrlToHostingServer = (
   }
 
   return {
-    hostedUrl: `/uploads/marketing-tools/${fileName}`,
+    hostedUrl: `${dirs.urlPrefix}${fileName}`,
     savedBytes: optimizedBuffer.length,
     originalBytes,
     formattedSize: formatFileSizeServer(optimizedBuffer.length),
@@ -6666,7 +6931,7 @@ app.post('/api/marketing-tools/upload', async (req: Request, res: Response) => {
     if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
       return res.status(400).json({ success: false, message: 'Data file tidak valid.' });
     }
-    const saved = saveDataUrlToHostingServer(dataUrl, fileName || 'materi', fileType || 'pdf');
+    const saved = saveDataUrlToHostingServer(dataUrl, fileName || 'materi', fileType || 'pdf', 'marketing-tools');
     if (!saved) {
       return res.status(400).json({ success: false, message: 'Gagal memproses format file.' });
     }
@@ -6703,6 +6968,7 @@ app.get('/api/marketing-tools', async (req: Request, res: Response) => {
       ]);
 
       let kvTools: MarketingTool[] = [];
+      const hasKvSnapshot = Boolean(kvData?.password);
       if (kvData?.password) {
         try {
           const parsed = JSON.parse(kvData.password);
@@ -6710,7 +6976,7 @@ app.get('/api/marketing-tools', async (req: Request, res: Response) => {
         } catch {}
       }
 
-      if ((!tableErr && Array.isArray(tableData) && tableData.length > 0) || kvTools.length > 0) {
+      if (!tableErr || hasKvSnapshot) {
         const merged = new Map<string, MarketingTool>();
         for (const t of [...(Array.isArray(tableData) ? tableData : []), ...kvTools]) {
           if (t && t.id && !merged.has(t.id)) {
@@ -6744,17 +7010,20 @@ app.post('/api/marketing-tools', async (req: Request, res: Response) => {
 
   // If a raw base64 dataUrl was passed directly, save it to the hosting server automatically
   if (typeof finalDownloadUrl === 'string' && finalDownloadUrl.startsWith('data:')) {
-    const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, fileType || 'pdf');
+    const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, fileType || 'pdf', 'marketing-tools');
     if (saved) {
+      if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
       finalDownloadUrl = saved.hostedUrl;
       finalFileSize = saved.formattedSize;
       if (fileType === 'png' || fileType === 'jpg') {
         finalThumbnailUrl = saved.hostedUrl;
       }
     }
-  } else if (typeof finalThumbnailUrl === 'string' && finalThumbnailUrl.startsWith('data:')) {
-    const savedThumb = saveDataUrlToHostingServer(finalThumbnailUrl, `${title}-thumb`, 'jpg');
+  }
+  if (typeof finalThumbnailUrl === 'string' && finalThumbnailUrl.startsWith('data:')) {
+    const savedThumb = saveDataUrlToHostingServer(finalThumbnailUrl, `${title}-thumb`, 'jpg', 'marketing-tools');
     if (savedThumb) {
+      if (savedThumb.cloudSyncPromise) await savedThumb.cloudSyncPromise;
       finalThumbnailUrl = savedThumb.hostedUrl;
     }
   }
@@ -6830,6 +7099,9 @@ app.put('/api/marketing-tools/:id', async (req: Request, res: Response) => {
   }
 
   const existing = marketingTools[idx];
+  const prevDownloadUrl = existing.downloadUrl;
+  const prevThumbnailUrl = existing.thumbnailUrl;
+
   const {
     title,
     category,
@@ -6857,17 +7129,20 @@ app.put('/api/marketing-tools/:id', async (req: Request, res: Response) => {
       : existing.thumbnailUrl || '';
 
   if (typeof finalDownloadUrl === 'string' && finalDownloadUrl.startsWith('data:')) {
-    const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, nextFileType);
+    const saved = saveDataUrlToHostingServer(finalDownloadUrl, title, nextFileType, 'marketing-tools');
     if (saved) {
+      if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
       finalDownloadUrl = saved.hostedUrl;
       finalFileSize = saved.formattedSize;
       if (nextFileType === 'png' || nextFileType === 'jpg') {
         finalThumbnailUrl = saved.hostedUrl;
       }
     }
-  } else if (typeof finalThumbnailUrl === 'string' && finalThumbnailUrl.startsWith('data:')) {
-    const savedThumb = saveDataUrlToHostingServer(finalThumbnailUrl, `${title}-thumb`, 'jpg');
+  }
+  if (typeof finalThumbnailUrl === 'string' && finalThumbnailUrl.startsWith('data:')) {
+    const savedThumb = saveDataUrlToHostingServer(finalThumbnailUrl, `${title}-thumb`, 'jpg', 'marketing-tools');
     if (savedThumb) {
+      if (savedThumb.cloudSyncPromise) await savedThumb.cloudSyncPromise;
       finalThumbnailUrl = savedThumb.hostedUrl;
     }
   }
@@ -6896,6 +7171,14 @@ app.put('/api/marketing-tools/:id', async (req: Request, res: Response) => {
   };
 
   marketingTools[idx] = updatedTool;
+
+  // Automatically remove replaced/unused old files from server disk & MySQL backup
+  const newUrls = new Set([updatedTool.downloadUrl, updatedTool.thumbnailUrl].filter(Boolean));
+  for (const oldUrl of Array.from(new Set([prevDownloadUrl, prevThumbnailUrl].filter(Boolean)))) {
+    if (oldUrl && !newUrls.has(oldUrl)) {
+      await deleteHostedUploadFile(oldUrl);
+    }
+  }
 
   recordActivity({
     actorRole: 'admin',
@@ -6930,24 +7213,10 @@ app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
   const target = marketingTools.find((t) => t.id === id);
   marketingTools = marketingTools.filter((t) => t.id !== id);
 
-  // Clean up hosted file from all disk locations and cloud backup if explicitly deleted by Admin
-  if (target?.downloadUrl && target.downloadUrl.startsWith('/uploads/marketing-tools/')) {
-    const fileName = path.basename(target.downloadUrl);
-    for (const dir of [MARKETING_UPLOADS_DIR, DATA_UPLOADS_DIR, PERSISTENT_HOME_UPLOADS_DIR]) {
-      const filePath = path.join(dir, fileName);
-      if (fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-        } catch {}
-      }
-    }
-    if (db) {
-      try {
-        await db
-          .from('user_passwords')
-          .delete()
-          .eq('email', `__sys_file_${fileName.toLowerCase()}__@ndtaxlaw.internal`);
-      } catch {}
+  // Clean up both download file and thumbnail file from all server disk locations & MySQL backup
+  if (target) {
+    for (const oldUrl of Array.from(new Set([target.downloadUrl, target.thumbnailUrl].filter(Boolean)))) {
+      await deleteHostedUploadFile(oldUrl);
     }
   }
 
@@ -10637,6 +10906,8 @@ const syncChatFromMysql = async () => {
     const tableMsgs: ChatMessage[] = !errCM && Array.isArray(dbMsgs) ? (dbMsgs as ChatMessage[]) : [];
     let kvRooms: ChatRoom[] = [];
     let kvMsgs: ChatMessage[] = [];
+    let hasKvRooms = false;
+    let hasKvMsgs = false;
 
     if (!errKV && Array.isArray(kvRows)) {
       for (const row of kvRows) {
@@ -10644,19 +10915,29 @@ const syncChatFromMysql = async () => {
         if (key === '__sys_chat_rooms__@ndtaxlaw.internal' && row.password) {
           try {
             const parsed = JSON.parse(row.password);
-            if (Array.isArray(parsed)) kvRooms = parsed;
+            if (Array.isArray(parsed)) {
+              kvRooms = parsed;
+              hasKvRooms = true;
+            }
           } catch {}
         } else if (key === '__sys_chat_messages__@ndtaxlaw.internal' && row.password) {
           try {
             const parsed = JSON.parse(row.password);
-            if (Array.isArray(parsed)) kvMsgs = parsed;
+            if (Array.isArray(parsed)) {
+              kvMsgs = parsed;
+              hasKvMsgs = true;
+            }
           } catch {}
         }
       }
     }
 
+    // In production/MySQL authoritative sync: do NOT re-union stale in-memory rows when MySQL succeeded,
+    // so Admin Chat Reset & deleted attachments are never resurrected from RAM.
+    const roomSources: ChatRoom[] =
+      !errCR || hasKvRooms ? [...tableRooms, ...kvRooms] : [...chatRooms];
     const mergedRooms = new Map<string, ChatRoom>();
-    for (const r of [...chatRooms, ...tableRooms, ...kvRooms]) {
+    for (const r of roomSources) {
       if (!r || !r.id) continue;
       if (isProductionMode() && LEGACY_SEEDED_CHAT_ROOM_IDS.has(r.id)) continue;
       const prev = mergedRooms.get(r.id);
@@ -10668,8 +10949,10 @@ const syncChatFromMysql = async () => {
       (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
     );
 
+    const msgSources: ChatMessage[] =
+      !errCM || hasKvMsgs ? [...tableMsgs, ...kvMsgs] : [...chatMessages];
     const mergedMsgs = new Map<string, ChatMessage>();
-    for (const m of [...chatMessages, ...tableMsgs, ...kvMsgs]) {
+    for (const m of msgSources) {
       if (!m || !m.id) continue;
       if (isProductionMode() && LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id)) continue;
       const prev = mergedMsgs.get(m.id);
@@ -11050,9 +11333,11 @@ app.post('/api/chat/rooms/group', async (req: Request, res: Response) => {
     const saved = saveDataUrlToHostingServer(
       finalAvatarUrl,
       `group-avatar-${Date.now()}`,
-      'jpg'
+      'jpg',
+      'chat'
     );
     if (saved) {
+      if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
       finalAvatarUrl = saved.hostedUrl;
     }
   }
@@ -11092,6 +11377,7 @@ app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
     return res.status(404).json({ message: 'Ruang grup tidak ditemukan.' });
   }
 
+  const prevAvatarUrl = room.avatarUrl;
   const {
     name,
     description,
@@ -11116,13 +11402,19 @@ app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
       const saved = saveDataUrlToHostingServer(
         nextAvatar,
         `group-avatar-${room.id}-${Date.now()}`,
-        'jpg'
+        'jpg',
+        'chat'
       );
       if (saved) {
+        if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
         nextAvatar = saved.hostedUrl;
       }
     }
     room.avatarUrl = nextAvatar;
+  }
+
+  if (prevAvatarUrl && prevAvatarUrl !== room.avatarUrl) {
+    await deleteHostedUploadFile(prevAvatarUrl);
   }
 
   const prevIds = Array.isArray(room.participantIds) ? [...room.participantIds] : [];
@@ -11240,14 +11532,21 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
   }
 
   let finalImageUrl: string | undefined = imageUrl ? String(imageUrl) : undefined;
+  let resolvedCompressedSize: number | undefined = imageCompressedSize ? Number(imageCompressedSize) : undefined;
   if (finalImageUrl && finalImageUrl.startsWith('data:')) {
+    const extFromName = String(imageName || '').includes('.')
+      ? String(imageName).split('.').pop() || 'jpg'
+      : 'jpg';
     const saved = saveDataUrlToHostingServer(
       finalImageUrl,
-      imageName || `chat-img-${Date.now()}`,
-      'jpg'
+      imageName || `chat-file-${Date.now()}`,
+      extFromName,
+      'chat'
     );
     if (saved) {
+      if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
       finalImageUrl = saved.hostedUrl;
+      if (!resolvedCompressedSize) resolvedCompressedSize = saved.savedBytes;
     }
   }
 
@@ -11272,7 +11571,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     imageUrl: finalImageUrl,
     imageName: imageName ? String(imageName) : undefined,
     imageOriginalSize: imageOriginalSize ? Number(imageOriginalSize) : undefined,
-    imageCompressedSize: imageCompressedSize ? Number(imageCompressedSize) : undefined,
+    imageCompressedSize: resolvedCompressedSize,
     linkPreview: resolvedLinkPreview,
     replyTo: replyTo || undefined,
     forwardedFrom: forwardedFrom ? String(forwardedFrom) : undefined,
@@ -11284,11 +11583,67 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
 
   room.updatedAt = nowIso;
   room.lastMessageAt = nowIso;
+  room.lastMessageSenderId = newMsg.senderId;
   room.lastMessageSenderName = newMsg.senderName;
   room.lastMessageText =
-    cleanText || (finalImageUrl ? '📷 Mengirim gambar terkompresi' : 'Pesan baru');
+    cleanText || (finalImageUrl ? '📷 Mengirim lampiran' : 'Pesan baru');
 
   await persistChatToCloud(room, newMsg);
+
+  // Persist compact per-room+recipient chat notification in MySQL notifications table (no table bloat)
+  const recipientIds = (room.participantIds || []).filter((pid) => pid !== newMsg.senderId);
+  const previewSnippet = (cleanText || (finalImageUrl ? `Lampiran: ${newMsg.imageName || 'File'}` : 'Pesan baru')).slice(0, 140);
+  const chatNotifsToUpsert: NotificationItem[] = [];
+  const staffRecipientExists = recipientIds.some((pid) => staffAccounts.some((s) => s.id === pid));
+
+  for (const pid of recipientIds) {
+    const isMitraRecipient = mitras.some((m) => m.id === pid);
+    if (!isMitraRecipient) continue;
+    const notifId = `notif-chat-${room.id}-${pid}`.slice(0, 185);
+    const chatNotif: NotificationItem = {
+      id: notifId,
+      title: room.type === 'group' ? `Pesan Grup: ${room.name}` : `Pesan Baru dari ${newMsg.senderName}`,
+      message: room.type === 'group' ? `${newMsg.senderName}: ${previewSnippet}` : previewSnippet,
+      type: 'chat',
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: 'mitra',
+      mitraId: pid,
+    };
+    const existIdx = notifications.findIndex((n) => n.id === notifId);
+    if (existIdx !== -1) notifications.splice(existIdx, 1);
+    notifications.unshift(chatNotif);
+    chatNotifsToUpsert.push(chatNotif);
+  }
+
+  if (staffRecipientExists) {
+    const staffNotifId = `notif-chat-${room.id}-staff`.slice(0, 185);
+    const staffChatNotif: NotificationItem = {
+      id: staffNotifId,
+      title: room.type === 'group' ? `Pesan Grup: ${room.name}` : `Pesan Chat dari ${newMsg.senderName}`,
+      message: room.type === 'group' ? `${newMsg.senderName}: ${previewSnippet}` : previewSnippet,
+      type: 'chat',
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: 'admin_staff',
+    };
+    const existIdx = notifications.findIndex((n) => n.id === staffNotifId);
+    if (existIdx !== -1) notifications.splice(existIdx, 1);
+    notifications.unshift(staffChatNotif);
+    chatNotifsToUpsert.push(staffChatNotif);
+  }
+
+  if (chatNotifsToUpsert.length > 0) {
+    if (db) {
+      try {
+        await db.from('notifications').upsert(chatNotifsToUpsert.map(toDbNotification));
+      } catch (e) {
+        console.warn('MySQL upsert chat notification warning:', e);
+      }
+    }
+    saveDatabase();
+  }
+
   broadcastChatEvent({
     type: 'chat:message_created',
     message: newMsg,
@@ -11416,16 +11771,25 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
     });
   }
 
+  const prevImageUrl = msg.imageUrl;
+
   msg.isDeleted = true;
   msg.deletedAt = new Date().toISOString();
   msg.text = '';
   msg.imageUrl = undefined;
+  msg.imageName = undefined;
+  msg.imageOriginalSize = undefined;
+  msg.imageCompressedSize = undefined;
   msg.linkPreview = undefined;
   msg.reactions = [];
   msg.isPinned = false;
   msg.pinnedAt = undefined;
   msg.pinnedBy = undefined;
   msg.pinnedByName = undefined;
+
+  if (prevImageUrl) {
+    await deleteHostedUploadFile(prevImageUrl);
+  }
 
   const room = chatRooms.find((r) => r.id === msg.roomId);
   if (room) {
@@ -11505,6 +11869,409 @@ app.put('/api/chat/settings', async (req: Request, res: Response) => {
       ...appSettings,
       smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
     },
+  });
+});
+
+// ========================================================
+// ADMIN CHAT FILE GALLERY & CHAT RETENTION RESET ENDPOINTS
+// ========================================================
+const verifyAdminChatActor = (req: Request): boolean => {
+  const role = String(
+    req.body?.actorRole || req.query.actorRole || req.headers['x-actor-role'] || ''
+  )
+    .trim()
+    .toLowerCase();
+  if (role !== 'admin') return false;
+
+  const actorId = String(req.body?.actorId || req.query.actorId || '').trim();
+  const actorEmail = String(req.body?.actorEmail || req.query.actorEmail || '')
+    .trim()
+    .toLowerCase();
+
+  // Reject if actorId belongs to a known mitra or staff account
+  if (actorId) {
+    const isMitra = mitras.some((m) => m.id === actorId);
+    const isStaff = staffAccounts.some((s) => s.id === actorId);
+    if (isMitra || isStaff) return false;
+  }
+  if (actorEmail && actorEmail !== adminAccount.email.toLowerCase()) {
+    const isMitraEmail = mitras.some((m) => m.email.toLowerCase() === actorEmail);
+    const isStaffEmail = staffAccounts.some((s) => s.email.toLowerCase() === actorEmail);
+    if (isMitraEmail || isStaffEmail) return false;
+  }
+  return true;
+};
+
+const computeChatResetCutoffMs = (period: string): number | null => {
+  const now = new Date();
+  if (period === 'all') return Number.POSITIVE_INFINITY;
+  if (period === '3m') {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - 3);
+    return d.getTime();
+  }
+  if (period === '6m') {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - 6);
+    return d.getTime();
+  }
+  if (period === '1y') {
+    const d = new Date(now);
+    d.setFullYear(d.getFullYear() - 1);
+    return d.getTime();
+  }
+  return null;
+};
+
+const isImageAttachmentUrl = (url: string, fileName?: string): boolean => {
+  const target = `${url} ${fileName || ''}`.toLowerCase();
+  if (url.startsWith('data:image/')) return true;
+  return /\.(png|jpe?g|webp|gif|svg)(\b|\?|$)/i.test(target);
+};
+
+// GET Admin Chat File Gallery (Lists all active files/images shared across all chat rooms)
+app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
+  if (!verifyAdminChatActor(req)) {
+    return res.status(403).json({ success: false, message: 'Akses khusus Administrator.' });
+  }
+
+  if (db && (isProductionMode() || chatMessages.length === 0)) {
+    await syncChatFromMysql();
+  }
+
+  const roomMap = new Map<string, ChatRoom>(chatRooms.map((r) => [r.id, r]));
+  const items: Array<{
+    id: string;
+    messageId: string;
+    roomId: string;
+    roomName: string;
+    roomType: 'direct' | 'group';
+    senderId: string;
+    senderName: string;
+    senderRole: string;
+    fileUrl: string;
+    fileName: string;
+    isImage: boolean;
+    byteSize: number;
+    formattedSize: string;
+    caption: string;
+    createdAt: string;
+  }> = [];
+
+  let totalBytes = 0;
+
+  for (const msg of chatMessages) {
+    if (msg.isDeleted || !msg.imageUrl) continue;
+    if (isProductionMode() && LEGACY_SEEDED_CHAT_MSG_IDS.has(msg.id)) continue;
+
+    const room = roomMap.get(msg.roomId);
+    const parsed = parseHostedUploadUrl(msg.imageUrl);
+    const diskSize = getHostedUploadByteSize(msg.imageUrl);
+    const byteSize = diskSize > 0 ? diskSize : Number(msg.imageCompressedSize || msg.imageOriginalSize || 0);
+    totalBytes += byteSize;
+
+    const resolvedName =
+      msg.imageName ||
+      parsed?.fileName ||
+      `lampiran-${msg.id}.jpg`;
+
+    items.push({
+      id: msg.id,
+      messageId: msg.id,
+      roomId: msg.roomId,
+      roomName: room?.name || msg.roomId,
+      roomType: room?.type === 'group' ? 'group' : 'direct',
+      senderId: msg.senderId,
+      senderName: msg.senderName,
+      senderRole: msg.senderRole,
+      fileUrl: msg.imageUrl,
+      fileName: resolvedName,
+      isImage: isImageAttachmentUrl(msg.imageUrl, resolvedName),
+      byteSize,
+      formattedSize: formatFileSizeServer(byteSize),
+      caption: msg.text || '',
+      createdAt: msg.createdAt,
+    });
+  }
+
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return res.json({
+    success: true,
+    data: items,
+    summary: {
+      totalFiles: items.length,
+      totalBytes,
+      totalFormattedSize: formatFileSizeServer(totalBytes),
+    },
+  });
+});
+
+// DELETE Admin Delete Single Chat File (Removes physical file from server + clears attachment in MySQL)
+app.delete('/api/chat/admin/files/:messageId', async (req: Request, res: Response) => {
+  if (!verifyAdminChatActor(req)) {
+    return res.status(403).json({ success: false, message: 'Akses khusus Administrator.' });
+  }
+
+  if (db && (isProductionMode() || chatMessages.length === 0)) {
+    await syncChatFromMysql();
+  }
+
+  const { messageId } = req.params;
+  const msg = chatMessages.find((m) => m.id === messageId);
+  if (!msg || !msg.imageUrl) {
+    return res.status(404).json({ success: false, message: 'File chat tidak ditemukan.' });
+  }
+
+  const oldUrl = msg.imageUrl;
+  const oldName = msg.imageName || parseHostedUploadUrl(oldUrl)?.fileName || messageId;
+
+  msg.imageUrl = undefined;
+  msg.imageName = undefined;
+  msg.imageOriginalSize = undefined;
+  msg.imageCompressedSize = undefined;
+  if (!msg.text) {
+    msg.isDeleted = true;
+    msg.deletedAt = new Date().toISOString();
+  }
+
+  await deleteHostedUploadFile(oldUrl);
+
+  const room = chatRooms.find((r) => r.id === msg.roomId);
+  if (room) {
+    const latestRoomMsg = chatMessages
+      .filter((m) => m.roomId === room.id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    if (latestRoomMsg && latestRoomMsg.id === msg.id) {
+      room.lastMessageText = msg.text || 'Lampiran dihapus oleh Admin';
+    }
+  }
+
+  await persistChatToCloud(room, msg);
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: String(req.body?.actorId || req.query.actorId || adminAccount.id),
+    actorName: String(req.body?.actorName || req.query.actorName || adminAccount.name),
+    actorEmail: String(req.body?.actorEmail || req.query.actorEmail || adminAccount.email),
+    actionType: 'chat_file_delete',
+    operation: 'DELETE',
+    targetEntity: 'Galeri File Chat',
+    description: `Admin menghapus file chat "${oldName}" dari ruang ${room?.name || msg.roomId}.`,
+  });
+
+  broadcastChatEvent({ type: 'chat:message_updated', message: msg, room });
+  broadcastChatEvent({ type: 'chat:sync' });
+
+  return res.json({
+    success: true,
+    deletedMessageId: msg.id,
+  });
+});
+
+// GET Admin Chat Reset Stats (Live preview counts per retention period)
+app.get('/api/chat/admin/reset-stats', async (req: Request, res: Response) => {
+  if (!verifyAdminChatActor(req)) {
+    return res.status(403).json({ success: false, message: 'Akses khusus Administrator.' });
+  }
+
+  if (db && (isProductionMode() || chatMessages.length === 0)) {
+    await syncChatFromMysql();
+  }
+
+  const activeMsgs = isProductionMode()
+    ? chatMessages.filter((m) => !LEGACY_SEEDED_CHAT_MSG_IDS.has(m.id))
+    : chatMessages;
+
+  const countFor = (period: '3m' | '6m' | '1y' | 'all') => {
+    const cutoff = computeChatResetCutoffMs(period);
+    if (cutoff === null) return { messages: 0, files: 0, totalBytes: 0, formattedSize: '0 B' };
+    let messages = 0;
+    let files = 0;
+    let totalBytes = 0;
+    for (const m of activeMsgs) {
+      const ts = new Date(m.createdAt || 0).getTime();
+      if (period === 'all' || (Number.isFinite(ts) && ts < cutoff)) {
+        messages++;
+        if (m.imageUrl && !m.isDeleted) {
+          files++;
+          const sz = getHostedUploadByteSize(m.imageUrl) || Number(m.imageCompressedSize || 0);
+          totalBytes += sz;
+        }
+      }
+    }
+    return {
+      messages,
+      files,
+      totalBytes,
+      formattedSize: formatFileSizeServer(totalBytes),
+    };
+  };
+
+  return res.json({
+    success: true,
+    stats: {
+      '3m': countFor('3m'),
+      '6m': countFor('6m'),
+      '1y': countFor('1y'),
+      all: countFor('all'),
+    },
+  });
+});
+
+// POST Admin Reset Chat by Age (Deletes messages in MySQL, cleans up attachment files on server disk, updates rooms & notifies clients)
+app.post('/api/chat/admin/reset', async (req: Request, res: Response) => {
+  if (!verifyAdminChatActor(req)) {
+    return res.status(403).json({ success: false, message: 'Akses khusus Administrator.' });
+  }
+
+  const period = String(req.body?.period || '').trim().toLowerCase();
+  const cutoffMs = computeChatResetCutoffMs(period);
+  if (cutoffMs === null) {
+    return res.status(400).json({ success: false, message: 'Periode reset tidak valid.' });
+  }
+
+  if (db && (isProductionMode() || chatMessages.length === 0)) {
+    await syncChatFromMysql();
+  }
+
+  const toDelete: ChatMessage[] = [];
+  const toKeep: ChatMessage[] = [];
+
+  for (const m of chatMessages) {
+    const ts = new Date(m.createdAt || 0).getTime();
+    if (period === 'all' || (Number.isFinite(ts) && ts < cutoffMs)) {
+      toDelete.push(m);
+    } else {
+      toKeep.push(m);
+    }
+  }
+
+  const deletedMessageIds = toDelete.map((m) => m.id);
+  const candidateFileUrls = Array.from(
+    new Set(toDelete.map((m) => m.imageUrl).filter((u): u is string => Boolean(u)))
+  );
+
+  // Update in-memory messages first so reference check inside deleteHostedUploadFile sees only remaining messages
+  chatMessages = toKeep;
+
+  let deletedFilesCount = 0;
+  for (const fileUrl of candidateFileUrls) {
+    const removed = await deleteHostedUploadFile(fileUrl);
+    if (removed) deletedFilesCount++;
+  }
+
+  // Recompute lastMessage metadata for every room
+  const remainingByRoom = new Map<string, ChatMessage[]>();
+  for (const m of chatMessages) {
+    const arr = remainingByRoom.get(m.roomId) || [];
+    arr.push(m);
+    remainingByRoom.set(m.roomId, arr);
+  }
+
+  const removedRoomIds: string[] = [];
+  const updatedRooms: ChatRoom[] = [];
+  for (const room of chatRooms) {
+    const msgs = remainingByRoom.get(room.id) || [];
+    if (msgs.length > 0) {
+      const last = msgs[msgs.length - 1];
+      room.lastMessageAt = last.createdAt;
+      room.lastMessageSenderId = last.senderId;
+      room.lastMessageSenderName = last.senderName;
+      room.lastMessageText = last.isDeleted
+        ? '🚫 Pesan telah ditarik'
+        : last.text || (last.imageUrl ? '📷 Mengirim lampiran' : 'Pesan baru');
+      room.updatedAt = last.createdAt;
+      updatedRooms.push(room);
+    } else if (room.type === 'group') {
+      room.lastMessageText = '';
+      room.lastMessageAt = undefined;
+      room.lastMessageSenderId = undefined;
+      room.lastMessageSenderName = undefined;
+      updatedRooms.push(room);
+    } else {
+      // Empty direct room after reset
+      removedRoomIds.push(room.id);
+    }
+  }
+  chatRooms = updatedRooms;
+
+  // Clean matching chat notifications
+  const deletedChatNotifIds: string[] = [];
+  notifications = notifications.filter((n) => {
+    if (n.type !== 'chat') return true;
+    const ts = new Date(n.timestamp || 0).getTime();
+    if (period === 'all' || (Number.isFinite(ts) && ts < cutoffMs)) {
+      deletedChatNotifIds.push(n.id);
+      return false;
+    }
+    return true;
+  });
+
+  // Persist deletions & authoritative snapshots to MySQL
+  if (db) {
+    try {
+      const CHUNK = 200;
+      for (let i = 0; i < deletedMessageIds.length; i += CHUNK) {
+        await db.from('chat_messages').delete().in('id', deletedMessageIds.slice(i, i + CHUNK));
+      }
+      for (let i = 0; i < removedRoomIds.length; i += CHUNK) {
+        await db.from('chat_rooms').delete().in('id', removedRoomIds.slice(i, i + CHUNK));
+      }
+      if (chatRooms.length > 0) {
+        await db.from('chat_rooms').upsert(chatRooms);
+      }
+      for (let i = 0; i < deletedChatNotifIds.length; i += CHUNK) {
+        await db.from('notifications').delete().in('id', deletedChatNotifIds.slice(i, i + CHUNK));
+      }
+    } catch (e) {
+      console.warn('MySQL chat reset table delete warning:', e);
+    }
+    try {
+      await db.from('user_passwords').upsert([
+        {
+          email: '__sys_chat_rooms__@ndtaxlaw.internal',
+          password: JSON.stringify(chatRooms),
+        },
+        {
+          email: '__sys_chat_messages__@ndtaxlaw.internal',
+          password: JSON.stringify(chatMessages),
+        },
+      ]);
+    } catch (e) {
+      console.warn('MySQL chat reset KV sync warning:', e);
+    }
+  }
+
+  saveDatabase();
+
+  const periodLabel =
+    period === '3m'
+      ? '> 3 bulan lalu'
+      : period === '6m'
+      ? '> 6 bulan lalu'
+      : period === '1y'
+      ? '> 1 tahun lalu'
+      : 'semua riwayat chat';
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: String(req.body?.actorId || adminAccount.id),
+    actorName: String(req.body?.actorName || adminAccount.name),
+    actorEmail: String(req.body?.actorEmail || adminAccount.email),
+    actionType: 'chat_reset',
+    operation: 'DELETE',
+    targetEntity: 'Reset Chat',
+    description: `Admin mereset chat (${periodLabel}): ${deletedMessageIds.length} pesan & ${deletedFilesCount} file dihapus permanen.`,
+  });
+
+  broadcastChatEvent({ type: 'chat:sync' });
+
+  return res.json({
+    success: true,
+    deletedMessages: deletedMessageIds.length,
+    deletedFiles: deletedFilesCount,
+    deletedRooms: removedRoomIds.length,
   });
 });
 

@@ -301,7 +301,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 font-display">
-            {userRole === 'admin' ? 'Monitoring Transaksi & Pencairan Komisi' : 'Komisi & Bonus Mitra'}
+            {userRole === 'admin' ? 'Monitoring Transaksi & Pencairan Komisi' : 'Komisi & Bonus'}
           </h1>
         </div>
 

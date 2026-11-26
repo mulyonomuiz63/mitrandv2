@@ -360,10 +360,15 @@ export async function generateProspectLetterPdf(
 
   const PAGE_W = 210;
   const PAGE_H = 297;
-  const MARGIN_X = 30; // 3 cm left & right
+  const MARGIN_LEFT = Math.min(55, Math.max(10, Number(content.marginLeftMm ?? 30) || 30));
+  const MARGIN_RIGHT = Math.min(55, Math.max(10, Number(content.marginRightMm ?? 30) || 30));
+  const PAD_LEFT = Math.min(30, Math.max(0, Number(content.paddingLeftMm ?? 0) || 0));
+  const PAD_RIGHT = Math.min(30, Math.max(0, Number(content.paddingRightMm ?? 0) || 0));
+  const MARGIN_X = MARGIN_LEFT + PAD_LEFT;
+  const RIGHT_EDGE_X = Math.max(MARGIN_X + 80, PAGE_W - (MARGIN_RIGHT + PAD_RIGHT));
   const MARGIN_TOP = 40; // 4 cm top
   const MARGIN_BOTTOM = 40; // 4 cm bottom
-  const CONTENT_W = PAGE_W - MARGIN_X * 2; // 150 mm
+  const CONTENT_W = RIGHT_EDGE_X - MARGIN_X;
   const CONTENT_BOTTOM = PAGE_H - MARGIN_BOTTOM; // 257 mm
   const CONTENT_H = CONTENT_BOTTOM - MARGIN_TOP; // 217 mm
 
@@ -391,11 +396,11 @@ export async function generateProspectLetterPdf(
         drawH = maxH;
         drawW = drawH * ratio;
       }
-      const drawX = MARGIN_X;
+      const drawX = MARGIN_LEFT;
       const drawY = 7.5 + (maxH - drawH) / 2;
       doc.addImage(loadedLogo.dataUrl, 'PNG', drawX, drawY, drawW, drawH, undefined, 'FAST');
     } else {
-      const logoCenterX = MARGIN_X + 12;
+      const logoCenterX = MARGIN_LEFT + 12;
       if (loadedLogo) {
         doc.addImage(loadedLogo.dataUrl, 'PNG', logoCenterX - 9, 6.5, 18, 18, undefined, 'FAST');
       }
@@ -563,7 +568,7 @@ export async function generateProspectLetterPdf(
   doc.setFontSize(p1Layout.bodyFontSize);
   doc.setTextColor(0, 0, 0);
 
-  doc.text(content.dateLine, PAGE_W - MARGIN_X, y, { align: 'right' });
+  doc.text(content.dateLine, RIGHT_EDGE_X, y, { align: 'right' });
   y += p1Layout.lh;
 
   const metaRows: Array<[string, string, string, string]> = [
@@ -898,8 +903,9 @@ export async function generateProspectLetterPdf(
   y = drawWrapped(interpolateCompanyName(content.closingPara, companyText), MARGIN_X, y, CONTENT_W, p4LH, 'left');
 
   y += 17;
-  const leftCenterX = MARGIN_X + 34;
-  const rightCenterX = PAGE_W - MARGIN_X - 34;
+  const sigOffset = Math.min(34, Math.max(22, CONTENT_W * 0.24));
+  const leftCenterX = MARGIN_X + sigOffset;
+  const rightCenterX = RIGHT_EDGE_X - sigOffset;
 
   doc.setFont('helvetica', isLineBold(rawContent.directorSignHeading) ? 'bold' : 'normal');
   doc.setFontSize(11);
