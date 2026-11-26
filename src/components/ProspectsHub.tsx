@@ -722,7 +722,12 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     setDownloadingId(letter.id);
     try {
       const latestTemplate = await fetchLatestMasterTemplate();
-      await downloadProspectLetterPdfFromView(letter, logoUrl, latestTemplate);
+      await downloadProspectLetterPdfFromView(
+        letter,
+        logoUrl,
+        latestTemplate,
+        settings?.logoBarcodeUrl
+      );
     } catch (err) {
       console.error('Download PDF failed:', err);
     } finally {
@@ -1872,6 +1877,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                 value={templateDraft}
                 onChange={setTemplateDraft}
                 logoUrl={logoUrl}
+                logoBarcodeUrl={settings?.logoBarcodeUrl}
               />
             </div>
 
@@ -1915,6 +1921,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       <ProspectLetterPreviewModal
         letter={previewLetter}
         logoUrl={logoUrl}
+        logoBarcodeUrl={settings?.logoBarcodeUrl}
         masterTemplate={masterTemplate}
         onClose={() => setPreviewLetter(null)}
       />

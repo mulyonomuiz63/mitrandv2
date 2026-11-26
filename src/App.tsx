@@ -1498,6 +1498,7 @@ export default function App() {
                 officeAddress={settings?.officeAddress}
                 logoUrl={settings?.logoUrl}
                 logoHorizontalUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
+                logoBarcodeUrl={settings?.logoBarcodeUrl}
                 onOpenClientSelfRegister={
                   settings?.allowClientSelfRegister !== false
                     ? (refCode) => {

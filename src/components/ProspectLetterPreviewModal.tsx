@@ -14,6 +14,7 @@ import { ProspectLetterDocument } from './ProspectLetterDocument';
 interface ProspectLetterPreviewModalProps {
   letter: ProspectLetter | null;
   logoUrl?: string;
+  logoBarcodeUrl?: string;
   masterTemplate?: Partial<ProspectLetterContent> | null;
   onClose: () => void;
 }
@@ -21,6 +22,7 @@ interface ProspectLetterPreviewModalProps {
 export const ProspectLetterPreviewModal: React.FC<ProspectLetterPreviewModalProps> = ({
   letter,
   logoUrl,
+  logoBarcodeUrl,
   masterTemplate,
   onClose,
 }) => {
@@ -31,8 +33,8 @@ export const ProspectLetterPreviewModal: React.FC<ProspectLetterPreviewModalProp
     if (!letter) return;
     let active = true;
     Promise.all([
-      generateQrDataUrl(buildDirectorQrUrl(letter)),
-      generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode)),
+      generateQrDataUrl(buildDirectorQrUrl(letter), logoBarcodeUrl),
+      generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode), logoBarcodeUrl),
     ])
       .then(([dUrl, mUrl]) => {
         if (!active) return;
@@ -43,7 +45,7 @@ export const ProspectLetterPreviewModal: React.FC<ProspectLetterPreviewModalProp
     return () => {
       active = false;
     };
-  }, [letter]);
+  }, [letter, logoBarcodeUrl]);
 
   if (!letter) return null;
 

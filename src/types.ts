@@ -813,6 +813,7 @@ export interface AppSettings {
   logoUrl?: string;
   logoVerticalUrl?: string;
   logoHorizontalUrl?: string;
+  logoBarcodeUrl?: string;
   activeLogoType?: 'vertical' | 'horizontal';
   appVersion?: string;
   copyrightText?: string;

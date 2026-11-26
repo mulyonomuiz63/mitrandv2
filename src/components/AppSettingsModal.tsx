@@ -33,6 +33,7 @@ import {
   Trash2,
   ListChecks
 } from 'lucide-react';
+import { DEFAULT_BARCODE_LOGO_URL, generateQrWithLogoDataUrl } from '../utils/qrWithLogo';
 import {
   AppSettings,
   EmailLogItem,
@@ -92,6 +93,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
     logoUrl: '/assets/aistudio/logo_nd_vertikal.svg',
     logoVerticalUrl: '/assets/aistudio/logo_nd_vertikal.svg',
     logoHorizontalUrl: '/assets/aistudio/logo_c3fdb6de.png',
+    logoBarcodeUrl: DEFAULT_BARCODE_LOGO_URL,
     activeLogoType: 'vertical',
     appVersion: 'v2.5.0',
     copyrightText: 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.',
@@ -143,6 +145,28 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
       setActiveTabState(controlledTab);
     }
   }, [controlledTab]);
+
+  const [logoEditorTab, setLogoEditorTab] = useState<'vertical' | 'horizontal' | 'barcode'>('vertical');
+  const [barcodeQrPreview, setBarcodeQrPreview] = useState<string>('');
+
+  useEffect(() => {
+    if (logoEditorTab !== 'barcode') return;
+    let active = true;
+    generateQrWithLogoDataUrl('https://mitra.ndtaxandlaw.com', {
+      width: 240,
+      margin: 1,
+      darkColor: '#092147',
+      lightColor: '#FFFFFF',
+      logoUrl: settings.logoBarcodeUrl || DEFAULT_BARCODE_LOGO_URL,
+    })
+      .then((url) => {
+        if (active) setBarcodeQrPreview(url);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [logoEditorTab, settings.logoBarcodeUrl]);
 
   // Registered Mitras & Client Deals for Usage Protection Check
   const [registeredMitras, setRegisteredMitras] = useState<Mitra[]>([]);
@@ -278,10 +302,13 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               (fetched.logoUrl === resolvedHoriz && fetched.logoUrl !== resolvedVert
                 ? 'horizontal'
                 : 'vertical');
+            const resolvedBarcode = fetched.logoBarcodeUrl || DEFAULT_BARCODE_LOGO_URL;
+            setLogoEditorTab(resolvedActiveType);
             setSettings({
               ...fetched,
               logoVerticalUrl: resolvedVert,
               logoHorizontalUrl: resolvedHoriz,
+              logoBarcodeUrl: resolvedBarcode,
               activeLogoType: resolvedActiveType,
               logoUrl: resolvedActiveType === 'horizontal' ? resolvedHoriz : resolvedVert,
               specializationEnabled: fetched.specializationEnabled ?? true,
@@ -876,10 +903,11 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                         Logo
                       </h4>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={async () => {
+                          setLogoEditorTab('vertical');
                           const targetUrl =
                             settings.logoVerticalUrl || '/assets/aistudio/logo_nd_vertikal.svg';
                           const nextSettings: AppSettings = {
@@ -905,7 +933,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           } catch {}
                         }}
                         className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          (settings.activeLogoType || 'vertical') === 'vertical'
+                          logoEditorTab === 'vertical'
                             ? 'bg-blue-900 text-white border-blue-900'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
@@ -914,7 +942,19 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                       </button>
                       <button
                         type="button"
+                        onClick={() => setLogoEditorTab('barcode')}
+                        className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
+                          logoEditorTab === 'barcode'
+                            ? 'bg-blue-900 text-white border-blue-900'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        Logo Barcode
+                      </button>
+                      <button
+                        type="button"
                         onClick={async () => {
+                          setLogoEditorTab('horizontal');
                           const targetUrl =
                             settings.logoHorizontalUrl || '/assets/aistudio/logo_c3fdb6de.png';
                           const nextSettings: AppSettings = {
@@ -940,7 +980,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           } catch {}
                         }}
                         className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          settings.activeLogoType === 'horizontal'
+                          logoEditorTab === 'horizontal'
                             ? 'bg-blue-900 text-white border-blue-900'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
@@ -952,30 +992,62 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                     <div className="flex flex-col items-center justify-center p-4 bg-[#071B3B] rounded-xl border border-amber-400/30 min-h-[110px]">
-                      <img
-                        key={`${settings.activeLogoType || 'vertical'}-${
-                          settings.activeLogoType === 'horizontal'
-                            ? settings.logoHorizontalUrl || settings.logoUrl
-                            : settings.logoVerticalUrl || settings.logoUrl
-                        }`}
-                        src={
-                          (settings.activeLogoType === 'horizontal'
-                            ? settings.logoHorizontalUrl || settings.logoUrl
-                            : settings.logoVerticalUrl || settings.logoUrl) ||
-                          '/assets/aistudio/logo_nd_vertikal.svg'
-                        }
-                        alt="Preview Logo NDTAXANDLAW"
-                        className="max-h-20 w-auto object-contain"
-                      />
+                      {logoEditorTab === 'barcode' ? (
+                        <div className="flex items-center justify-center gap-3">
+                          <div className="bg-white p-1.5 rounded-lg shadow-xs border border-amber-300/60">
+                            {barcodeQrPreview ? (
+                              <img
+                                src={barcodeQrPreview}
+                                alt="Preview Barcode Logo ND"
+                                className="w-20 h-20 object-contain"
+                              />
+                            ) : (
+                              <img
+                                src={settings.logoBarcodeUrl || DEFAULT_BARCODE_LOGO_URL}
+                                alt="Preview Logo Barcode"
+                                className="w-20 h-20 object-contain p-2"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <img
+                          key={`${logoEditorTab}-${
+                            logoEditorTab === 'horizontal'
+                              ? settings.logoHorizontalUrl || settings.logoUrl
+                              : settings.logoVerticalUrl || settings.logoUrl
+                          }`}
+                          src={
+                            (logoEditorTab === 'horizontal'
+                              ? settings.logoHorizontalUrl || settings.logoUrl
+                              : settings.logoVerticalUrl || settings.logoUrl) ||
+                            '/assets/aistudio/logo_nd_vertikal.svg'
+                          }
+                          alt="Preview Logo NDTAXANDLAW"
+                          className="max-h-20 w-auto object-contain"
+                        />
+                      )}
                       <span className="text-[10px] text-amber-200/80 mt-2 font-medium">
-                        Preview {settings.activeLogoType === 'horizontal' ? 'Logo Horizontal' : 'Logo Vertikal'} Aktif
+                        Preview{' '}
+                        {logoEditorTab === 'barcode'
+                          ? 'Logo Barcode'
+                          : logoEditorTab === 'horizontal'
+                            ? 'Logo Horizontal'
+                            : 'Logo Vertikal'}{' '}
+                        Aktif
                       </span>
                     </div>
 
                     <div className="sm:col-span-2 space-y-3">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Upload File {settings.activeLogoType === 'horizontal' ? 'Logo Horizontal' : 'Logo Vertikal'} (PNG / SVG / WEBP / JPG)
+                          Upload File{' '}
+                          {logoEditorTab === 'barcode'
+                            ? 'Logo Barcode'
+                            : logoEditorTab === 'horizontal'
+                              ? 'Logo Horizontal'
+                              : 'Logo Vertikal'}{' '}
+                          (PNG / SVG / WEBP / JPG)
                         </label>
                         <div className="flex items-center gap-2">
                           <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-blue-50 text-blue-900 border border-slate-300 rounded-lg text-xs font-bold transition-colors shadow-2xs shrink-0">
@@ -989,7 +1061,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                                 const file = e.target.files?.[0];
                                 e.target.value = '';
                                 if (!file) return;
-                                const activeMode = settings.activeLogoType || 'vertical';
+                                const activeSlot = logoEditorTab;
                                 let newLogoUrl = '';
                                 try {
                                   const { compressAndUploadFile } = await import('../utils/fileCompressor');
@@ -1009,14 +1081,20 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                                   });
                                 }
                                 if (!newLogoUrl) return;
-                                const nextSettings: AppSettings = {
-                                  ...settings,
-                                  activeLogoType: activeMode,
-                                  logoUrl: newLogoUrl,
-                                  ...(activeMode === 'horizontal'
-                                    ? { logoHorizontalUrl: newLogoUrl }
-                                    : { logoVerticalUrl: newLogoUrl }),
-                                };
+                                const nextSettings: AppSettings =
+                                  activeSlot === 'barcode'
+                                    ? {
+                                        ...settings,
+                                        logoBarcodeUrl: newLogoUrl,
+                                      }
+                                    : {
+                                        ...settings,
+                                        activeLogoType: activeSlot,
+                                        logoUrl: newLogoUrl,
+                                        ...(activeSlot === 'horizontal'
+                                          ? { logoHorizontalUrl: newLogoUrl }
+                                          : { logoVerticalUrl: newLogoUrl }),
+                                      };
                                 setSettings(nextSettings);
                                 try {
                                   const res = await fetch('/api/settings', {
@@ -1031,12 +1109,15 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                                   if (json?.success && json?.data) {
                                     setSettings((prev) => ({
                                       ...prev,
-                                      logoUrl: json.data.logoUrl || newLogoUrl,
+                                      logoUrl: json.data.logoUrl || prev.logoUrl,
                                       logoVerticalUrl:
                                         json.data.logoVerticalUrl || nextSettings.logoVerticalUrl,
                                       logoHorizontalUrl:
                                         json.data.logoHorizontalUrl || nextSettings.logoHorizontalUrl,
-                                      activeLogoType: json.data.activeLogoType || activeMode,
+                                      logoBarcodeUrl:
+                                        json.data.logoBarcodeUrl || nextSettings.logoBarcodeUrl,
+                                      activeLogoType:
+                                        json.data.activeLogoType || nextSettings.activeLogoType,
                                     }));
                                     if (onSettingsSaved) {
                                       onSettingsSaved(json.data);
@@ -1049,21 +1130,29 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                           <input
                             type="text"
                             value={
-                              (settings.activeLogoType === 'horizontal'
-                                ? settings.logoHorizontalUrl || settings.logoUrl
-                                : settings.logoVerticalUrl || settings.logoUrl) ||
-                              '/assets/aistudio/logo_nd_vertikal.svg'
+                              logoEditorTab === 'barcode'
+                                ? settings.logoBarcodeUrl || DEFAULT_BARCODE_LOGO_URL
+                                : (logoEditorTab === 'horizontal'
+                                    ? settings.logoHorizontalUrl || settings.logoUrl
+                                    : settings.logoVerticalUrl || settings.logoUrl) ||
+                                  '/assets/aistudio/logo_nd_vertikal.svg'
                             }
                             onChange={(e) => {
                               const val = e.target.value;
-                              const activeMode = settings.activeLogoType || 'vertical';
-                              setSettings({
-                                ...settings,
-                                logoUrl: val,
-                                ...(activeMode === 'horizontal'
-                                  ? { logoHorizontalUrl: val }
-                                  : { logoVerticalUrl: val }),
-                              });
+                              if (logoEditorTab === 'barcode') {
+                                setSettings({
+                                  ...settings,
+                                  logoBarcodeUrl: val,
+                                });
+                              } else {
+                                setSettings({
+                                  ...settings,
+                                  logoUrl: val,
+                                  ...(logoEditorTab === 'horizontal'
+                                    ? { logoHorizontalUrl: val }
+                                    : { logoVerticalUrl: val }),
+                                });
+                              }
                             }}
                             placeholder="URL logo"
                             className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"

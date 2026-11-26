@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import QRCode from 'qrcode';
+import { generateQrWithLogoDataUrl } from '../utils/qrWithLogo';
 import { 
   Download, 
   Printer, 
@@ -105,6 +105,7 @@ interface ExclusiveIdCardProps {
   officeAddress?: string;
   logoUrl?: string;
   logoHorizontalUrl?: string;
+  logoBarcodeUrl?: string;
 }
 
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
@@ -120,6 +121,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   officeAddress = 'Menara Kadin Indonesia Lt. 24, Jl. H.R. Rasuna Said, Jakarta Selatan 12950',
   logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
   logoHorizontalUrl,
+  logoBarcodeUrl,
 }) => {
   const confirm = useConfirm();
   const [isFlipped, setIsFlipped] = useState(false);
@@ -171,14 +173,12 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
 
   useEffect(() => {
     let active = true;
-    QRCode.toDataURL(mitraVerificationLink, {
-      width: 360,
+    generateQrWithLogoDataUrl(mitraVerificationLink, {
+      width: 480,
       margin: 1,
-      errorCorrectionLevel: 'M',
-      color: {
-        dark: '#092147',
-        light: '#FFFFFF',
-      },
+      darkColor: '#092147',
+      lightColor: '#FFFFFF',
+      logoUrl: logoBarcodeUrl,
     })
       .then((url) => {
         if (active) setQrDataUrl(url);
@@ -187,7 +187,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
     return () => {
       active = false;
     };
-  }, [mitraVerificationLink]);
+  }, [mitraVerificationLink, logoBarcodeUrl]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;

@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import QRCode from 'qrcode';
+import { generateQrWithLogoDataUrl } from './qrWithLogo';
 import {
   ProspectAddressParts,
   ProspectLetter,
@@ -229,15 +229,16 @@ export async function resolveInlineProspectLogo(
   };
 }
 
-export async function generateQrDataUrl(content: string): Promise<string> {
-  return QRCode.toDataURL(content, {
+export async function generateQrDataUrl(
+  content: string,
+  barcodeLogoUrl?: string
+): Promise<string> {
+  return generateQrWithLogoDataUrl(content, {
     width: 640,
     margin: 1,
-    errorCorrectionLevel: 'M',
-    color: {
-      dark: '#092147',
-      light: '#FFFFFF',
-    },
+    darkColor: '#092147',
+    lightColor: '#FFFFFF',
+    logoUrl: barcodeLogoUrl,
   });
 }
 
@@ -253,7 +254,8 @@ export async function generateProspectLetterPdf(
   letter: ProspectLetter,
   mode: 'download' | 'bloburl' = 'download',
   adminLogoUrl?: string,
-  masterTemplate?: Partial<ProspectLetterContent> | null
+  masterTemplate?: Partial<ProspectLetterContent> | null,
+  barcodeLogoUrl?: string
 ): Promise<string | void> {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -383,8 +385,8 @@ export async function generateProspectLetterPdf(
     loadRasterizedLogoPng(targetLogoSrc).then((res) =>
       res || (useCustomAdminLogo ? loadRasterizedLogoPng(DEFAULT_EMBLEM_PNG) : null)
     ),
-    generateQrDataUrl(buildDirectorQrUrl(letter)),
-    generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode)),
+    generateQrDataUrl(buildDirectorQrUrl(letter), barcodeLogoUrl),
+    generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode), barcodeLogoUrl),
   ]);
   const hasCustomLogoRendered = Boolean(useCustomAdminLogo && loadedLogo && cachedLogos.has(targetLogoSrc));
 

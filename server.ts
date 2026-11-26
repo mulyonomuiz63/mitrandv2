@@ -660,6 +660,7 @@ export interface AppSettings {
   logoUrl?: string;
   logoVerticalUrl?: string;
   logoHorizontalUrl?: string;
+  logoBarcodeUrl?: string;
   activeLogoType?: 'vertical' | 'horizontal';
   appVersion?: string;
   copyrightText?: string;
@@ -1321,6 +1322,7 @@ let appSettings: AppSettings = {
   logoUrl: '/assets/aistudio/logo_nd_vertikal.svg',
   logoVerticalUrl: '/assets/aistudio/logo_nd_vertikal.svg',
   logoHorizontalUrl: '/assets/aistudio/logo_c3fdb6de.png',
+  logoBarcodeUrl: '/assets/aistudio/logo_kotak_5ecb05e4.png',
   activeLogoType: 'vertical',
   appVersion: 'v2.5.0',
   copyrightText: 'Hak Cipta © 2026 NDTAXANDLAW. Seluruh Hak Dilindungi.',
@@ -6649,7 +6651,13 @@ const isHostedUploadUrlStillReferenced = (targetNormalizedUrl: string): boolean 
   if (staffAccounts.some((s) => matchesUrl(s.avatarUrl))) {
     return true;
   }
-  if (matchesUrl(appSettings.logoUrl) || matchesUrl(adminAccount.avatarUrl)) {
+  if (
+    matchesUrl(appSettings.logoUrl) ||
+    matchesUrl(appSettings.logoVerticalUrl) ||
+    matchesUrl(appSettings.logoHorizontalUrl) ||
+    matchesUrl(appSettings.logoBarcodeUrl) ||
+    matchesUrl(adminAccount.avatarUrl)
+  ) {
     return true;
   }
   return false;
@@ -8865,6 +8873,13 @@ app.get('/api/settings', async (req: Request, res: Response) => {
       logoMigrated = true;
     }
   }
+  if (appSettings.logoBarcodeUrl && appSettings.logoBarcodeUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(appSettings.logoBarcodeUrl, 'logo-barcode-nd', 'png');
+    if (saved?.hostedUrl) {
+      appSettings.logoBarcodeUrl = saved.hostedUrl;
+      logoMigrated = true;
+    }
+  }
   if (!appSettings.logoVerticalUrl) {
     appSettings.logoVerticalUrl =
       appSettings.logoUrl && appSettings.logoUrl !== '/assets/aistudio/logo_c3fdb6de.png'
@@ -8876,6 +8891,9 @@ app.get('/api/settings', async (req: Request, res: Response) => {
       appSettings.logoUrl === '/assets/aistudio/logo_c3fdb6de.png'
         ? appSettings.logoUrl
         : '/assets/aistudio/logo_c3fdb6de.png';
+  }
+  if (!appSettings.logoBarcodeUrl) {
+    appSettings.logoBarcodeUrl = '/assets/aistudio/logo_kotak_5ecb05e4.png';
   }
   if (!appSettings.activeLogoType) {
     appSettings.activeLogoType =
@@ -8897,6 +8915,13 @@ app.get('/api/settings', async (req: Request, res: Response) => {
 });
 
 app.put('/api/settings', async (req: Request, res: Response) => {
+  const prevLogoUrls = [
+    appSettings.logoUrl,
+    appSettings.logoVerticalUrl,
+    appSettings.logoHorizontalUrl,
+    appSettings.logoBarcodeUrl,
+  ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
+
   const updates = { ...(req.body || {}) };
   if (updates.smtpPassword === '••••••••••••••••') {
     delete updates.smtpPassword;
@@ -8913,12 +8938,20 @@ app.put('/api/settings', async (req: Request, res: Response) => {
     const saved = saveDataUrlToHostingServer(updates.logoHorizontalUrl, 'logo-horizontal-nd', 'png');
     if (saved?.hostedUrl) updates.logoHorizontalUrl = saved.hostedUrl;
   }
+  if (typeof updates.logoBarcodeUrl === 'string' && updates.logoBarcodeUrl.startsWith('data:')) {
+    const saved = saveDataUrlToHostingServer(updates.logoBarcodeUrl, 'logo-barcode-nd', 'png');
+    if (saved?.hostedUrl) updates.logoBarcodeUrl = saved.hostedUrl;
+  }
   const previousEnv = appSettings.appEnvironment;
   appSettings = { ...appSettings, ...updates };
   if (appSettings.activeLogoType === 'horizontal' && appSettings.logoHorizontalUrl) {
     appSettings.logoUrl = appSettings.logoHorizontalUrl;
   } else if (appSettings.activeLogoType === 'vertical' && appSettings.logoVerticalUrl) {
     appSettings.logoUrl = appSettings.logoVerticalUrl;
+  }
+
+  for (const oldLogoUrl of Array.from(new Set(prevLogoUrls))) {
+    await deleteHostedUploadFile(oldLogoUrl);
   }
 
   // Jika beralih ke mode production, langsung sinkronkan penuh dari MySQL (tanpa dummy lokal)

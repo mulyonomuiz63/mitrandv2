@@ -29,11 +29,13 @@ import {
   normalizeHexColor,
   serializeRichDomElement,
 } from '../utils/prospectRichText';
+import { generateQrWithLogoDataUrl } from '../utils/qrWithLogo';
 
 interface ProspectLetterContentEditorProps {
   value: ProspectLetterContent;
   onChange: (next: ProspectLetterContent) => void;
   logoUrl?: string;
+  logoBarcodeUrl?: string;
 }
 
 const DEFAULT_VERTICAL_SVG = '/assets/aistudio/logo_nd_vertikal.svg';
@@ -328,8 +330,10 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
   value,
   onChange,
   logoUrl,
+  logoBarcodeUrl,
 }) => {
   const [pageTab, setPageTab] = useState<1 | 2 | 3 | 4>(1);
+  const [sampleQrDataUrl, setSampleQrDataUrl] = useState<string>('');
   const stageRef = useRef<HTMLDivElement | null>(null);
   const bodyFrameRef = useRef<HTMLDivElement | null>(null);
   const bodyMeasureRef = useRef<HTMLDivElement | null>(null);
@@ -338,6 +342,24 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
   const [bodyHeightPx, setBodyHeightPx] = useState(0);
   const [frameHeightPx, setFrameHeightPx] = useState(MAX_BODY_HEIGHT_PX);
   const [formatState, setFormatState] = useState<ActiveFormatState>(DEFAULT_FORMAT_STATE);
+
+  useEffect(() => {
+    let active = true;
+    generateQrWithLogoDataUrl('https://mitra.ndtaxandlaw.com/?verify=ND-PREVIEW', {
+      width: 240,
+      margin: 1,
+      darkColor: '#092147',
+      lightColor: '#FFFFFF',
+      logoUrl: logoBarcodeUrl,
+    })
+      .then((url) => {
+        if (active) setSampleQrDataUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [logoBarcodeUrl]);
   // Mirror ProspectLetterDocument's exact per-page auto-compact levels so Edit matches View 1:1
   const [compactLevels, setCompactLevels] = useState<{ 1: number; 2: number; 3: number; 4: number }>({
     1: 0,
@@ -2108,23 +2130,31 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
-                          <div
-                            style={{
-                              width: '27mm',
-                              height: '27mm',
-                              border: '1px dashed #94a3b8',
-                              backgroundColor: '#f8fafc',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: '#64748b',
-                              fontSize: '7.5pt',
-                            }}
-                          >
-                            <QrCode style={{ width: '26px', height: '26px', marginBottom: '2px' }} />
-                            <span>QR Direktur</span>
-                          </div>
+                          {sampleQrDataUrl ? (
+                            <img
+                              src={sampleQrDataUrl}
+                              alt="Preview QR Direktur"
+                              style={{ width: '27mm', height: '27mm', objectFit: 'contain' }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '27mm',
+                                height: '27mm',
+                                border: '1px dashed #94a3b8',
+                                backgroundColor: '#f8fafc',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#64748b',
+                                fontSize: '7.5pt',
+                              }}
+                            >
+                              <QrCode style={{ width: '26px', height: '26px', marginBottom: '2px' }} />
+                              <span>QR Direktur</span>
+                            </div>
+                          )}
                         </div>
                         <div style={{ fontSize: '9.5pt', color: '#999999', marginBottom: '3.5mm' }}>
                           Ditandatangani secara elektronik
@@ -2167,23 +2197,31 @@ export const ProspectLetterContentEditor: React.FC<ProspectLetterContentEditorPr
                           />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4mm' }}>
-                          <div
-                            style={{
-                              width: '27mm',
-                              height: '27mm',
-                              border: '1px dashed #94a3b8',
-                              backgroundColor: '#f8fafc',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: '#64748b',
-                              fontSize: '7.5pt',
-                            }}
-                          >
-                            <QrCode style={{ width: '26px', height: '26px', marginBottom: '2px' }} />
-                            <span>QR Mitra</span>
-                          </div>
+                          {sampleQrDataUrl ? (
+                            <img
+                              src={sampleQrDataUrl}
+                              alt="Preview QR Mitra"
+                              style={{ width: '27mm', height: '27mm', objectFit: 'contain' }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '27mm',
+                                height: '27mm',
+                                border: '1px dashed #94a3b8',
+                                backgroundColor: '#f8fafc',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#64748b',
+                                fontSize: '7.5pt',
+                              }}
+                            >
+                              <QrCode style={{ width: '26px', height: '26px', marginBottom: '2px' }} />
+                              <span>QR Mitra</span>
+                            </div>
+                          )}
                         </div>
                         <div style={{ fontSize: '9.5pt', color: '#999999', marginBottom: '3.5mm' }}>
                           Ditandatangani secara elektronik

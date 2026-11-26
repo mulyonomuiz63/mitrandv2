@@ -1039,10 +1039,11 @@ async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 3.5): Promi
 export async function downloadProspectLetterPdfFromView(
   letter: ProspectLetter,
   adminLogoUrl?: string,
-  masterTemplate?: Partial<ProspectLetterContent> | null
+  masterTemplate?: Partial<ProspectLetterContent> | null,
+  barcodeLogoUrl?: string
 ): Promise<void> {
   if (typeof document === 'undefined') {
-    await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate);
+    await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate, barcodeLogoUrl);
     return;
   }
 
@@ -1052,8 +1053,8 @@ export async function downloadProspectLetterPdfFromView(
   try {
     const [inlineLogo, directorQr, mitraQr] = await Promise.all([
       resolveInlineProspectLogo(adminLogoUrl),
-      generateQrDataUrl(buildDirectorQrUrl(letter)),
-      generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode)),
+      generateQrDataUrl(buildDirectorQrUrl(letter), barcodeLogoUrl),
+      generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode), barcodeLogoUrl),
     ]);
 
     container = document.createElement('div');
@@ -1130,7 +1131,7 @@ export async function downloadProspectLetterPdfFromView(
     triggerPdfBlobDownload(doc, fileName);
   } catch (err) {
     console.warn('[Prospect PDF View Capture Fallback]', err);
-    await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate);
+    await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate, barcodeLogoUrl);
   } finally {
     if (root) {
       try {
