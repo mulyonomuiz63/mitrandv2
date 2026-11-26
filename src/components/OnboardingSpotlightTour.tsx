@@ -61,7 +61,7 @@ export const OnboardingSpotlightTour: React.FC<OnboardingSpotlightTourProps> = (
         {
           targetAttr: 'tour-nav-marketing',
           badgeText: 'PANDUAN MITRA • MATERI PEMASARAN',
-          title: 'Tools Marketing & Pelatihan',
+          title: 'Tools Marketing',
           description:
             'Unduh materi resmi seperti Company Profile, brosur layanan pajak, proposal penawaran, dan panduan edukasi untuk memudahkan Anda melakukan pitching ke calon klien.',
         },

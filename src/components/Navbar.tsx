@@ -562,7 +562,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     }`}
                   >
                     <Briefcase className="w-3.5 h-3.5 shrink-0" />
-                    <span>Tools Marketing &amp; Pelatihan</span>
+                    <span>Tools Marketing</span>
                   </button>
 
                   <button
@@ -771,7 +771,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_20px_rgba(15,23,42,0.1)] px-1.5 py-1.5"
       >
         {currentRole === 'mitra' ? (
-          <div className="max-w-lg mx-auto grid grid-cols-6 gap-0.5 items-center">
+          <div className="max-w-lg mx-auto grid grid-cols-5 gap-1 items-center">
             <button
               type="button"
               data-tour="tour-nav-dashboard"
@@ -802,31 +802,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               type="button"
-              data-tour="tour-action-input-client"
-              onClick={() => {
-                if (activeMitra.status === 'verified' && onOpenClientInput) {
-                  onOpenClientInput();
-                }
-              }}
-              disabled={activeMitra.status !== 'verified'}
-              className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl shadow-sm font-bold ${
-                activeMitra.status === 'verified'
-                  ? 'bg-blue-700 text-white'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span className="text-[9px] mt-0.5 truncate">+ Klien</span>
-            </button>
-
-            <button
-              type="button"
               data-tour="tour-nav-prospects"
               onClick={() => onTabChange('prospects')}
-              className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl shadow-sm font-bold transition-all ${
                 activeTab === 'prospects'
-                  ? 'text-blue-700 bg-blue-50 font-bold'
-                  : 'text-slate-500 hover:text-slate-900'
+                  ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 ring-1 ring-amber-400/50'
+                  : 'bg-blue-700 text-white hover:bg-blue-800'
               }`}
             >
               <FileText className="w-4 h-4" />

@@ -447,7 +447,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       <div className="max-w-7xl mx-auto py-5 sm:py-6 px-3 sm:px-6 lg:px-8">
         <div className="mb-5 sm:mb-6">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-display">
-            Tools Marketing &amp; Materi Pelatihan
+            Tools Marketing
           </h1>
         </div>
 
@@ -524,7 +524,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded uppercase tracking-wider">
-                  KATALOG TOOLS MARKETING &amp; PELATIHAN (BELUM AKTIF)
+                  KATALOG TOOLS MARKETING (BELUM AKTIF)
                 </span>
                 <span className="text-xs text-slate-400">
                   Menunggu Persetujuan (Approve) Admin
@@ -570,7 +570,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   : 'Status: Sedang Dalam Verifikasi Admin'}
               </span>
               <h3 className="text-base font-bold text-slate-900 font-display">
-                Tools Marketing &amp; Materi Pelatihan Belum Tersedia
+                Tools Marketing Belum Tersedia
               </h3>
               <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
                 {isMitraRejected ? (
@@ -626,7 +626,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 font-display">
-            Tools Marketing &amp; Materi Pelatihan
+            Tools Marketing
           </h1>
         </div>
 

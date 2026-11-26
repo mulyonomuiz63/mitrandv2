@@ -46,22 +46,22 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
   const cleanCompany = String(companyName || '').trim();
   const cleanAddress = String(companyAddress || '').trim();
 
-  // Adaptive font sizing so long company names stay cleanly inside the 84.5mm x 40.5mm rounded box
+  // Adaptive font sizing so Pimpinan/Manajemen + company name + optional address stay cleanly inside 84mm x 40mm box
   const companyFontSize = includeAddress
     ? cleanCompany.length > 60
-      ? '9pt'
+      ? '8.8pt'
       : cleanCompany.length > 38
-      ? '10pt'
-      : '11pt'
+      ? '9.6pt'
+      : '10.5pt'
     : cleanCompany.length > 72
     ? '9.5pt'
     : cleanCompany.length > 52
     ? '10.5pt'
     : cleanCompany.length > 32
-    ? '11.5pt'
-    : '12.5pt';
+    ? '11pt'
+    : '11.5pt';
 
-  const addressFontSize = cleanAddress.length > 140 ? '7.5pt' : cleanAddress.length > 95 ? '8pt' : '8.5pt';
+  const addressFontSize = cleanAddress.length > 140 ? '7.2pt' : cleanAddress.length > 95 ? '7.8pt' : '8.2pt';
 
   const isPrint = mode === 'print';
   const isCapture = mode === 'capture';
@@ -213,7 +213,7 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
           border: '1pt solid #1F4E79',
           borderRadius: '6.65mm',
           backgroundColor: '#FFFFFF',
-          padding: '5.4mm 4.7mm 4.5mm 4.7mm',
+          padding: '4.6mm 4.7mm 3.8mm 4.7mm',
           boxSizing: 'border-box',
           overflow: 'hidden',
           display: 'flex',
@@ -229,7 +229,7 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
             color: '#1F4E79',
             letterSpacing: '0.1px',
             lineHeight: 1.15,
-            marginBottom: '2.2mm',
+            marginBottom: '1.3mm',
           }}
         >
           KEPADA YTH:
@@ -240,7 +240,19 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
             fontSize: companyFontSize,
             fontWeight: 700,
             color: '#1F4E79',
-            lineHeight: 1.28,
+            lineHeight: 1.24,
+            marginBottom: '0.5mm',
+          }}
+        >
+          Pimpinan/Manajemen
+        </div>
+        <div
+          style={{
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: companyFontSize,
+            fontWeight: 700,
+            color: '#1F4E79',
+            lineHeight: 1.24,
             wordBreak: 'break-word',
           }}
         >
@@ -253,8 +265,8 @@ const ProspectEnvelopeSheet: React.FC<ProspectEnvelopeSheetProps> = ({
               fontSize: addressFontSize,
               fontWeight: 400,
               color: '#1F4E79',
-              lineHeight: 1.28,
-              marginTop: '1.5mm',
+              lineHeight: 1.25,
+              marginTop: '1.2mm',
               wordBreak: 'break-word',
             }}
           >
@@ -434,18 +446,30 @@ async function generateEnvelopePdfVectorFallback(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(31, 78, 121);
-  doc.text('KEPADA YTH:', boxX + 4.7, boxY + 9);
+  doc.text('KEPADA YTH:', boxX + 4.7, boxY + 8.2);
 
   const companyName = String(letter.companyName || '').trim();
-  const companySize = companyName.length > 52 ? 10 : companyName.length > 32 ? 11 : 12;
+  const companySize = includeAddress
+    ? companyName.length > 52
+      ? 9.2
+      : companyName.length > 32
+      ? 9.8
+      : 10.5
+    : companyName.length > 52
+    ? 10
+    : companyName.length > 32
+    ? 10.8
+    : 11.5;
   doc.setFontSize(companySize);
+  doc.text('Pimpinan/Manajemen', boxX + 4.7, boxY + 13.3);
+  const companyStartY = boxY + 13.3 + companySize * 0.44 + 0.6;
   const companyLines: string[] = doc.splitTextToSize(companyName, boxW - 9.4);
-  doc.text(companyLines, boxX + 4.7, boxY + 15.2);
+  doc.text(companyLines, boxX + 4.7, companyStartY);
 
   if (includeAddress && letter.companyAddress) {
-    const afterCompanyY = boxY + 15.2 + companyLines.length * (companySize * 0.45) + 1.5;
+    const afterCompanyY = companyStartY + companyLines.length * (companySize * 0.44) + 1.2;
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.2);
+    doc.setFontSize(8);
     const addrLines: string[] = doc.splitTextToSize(letter.companyAddress, boxW - 9.4);
     doc.text(addrLines.slice(0, 4), boxX + 4.7, afterCompanyY);
   }
