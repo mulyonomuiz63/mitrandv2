@@ -4,7 +4,9 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
+import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
+import ffmpegStatic from 'ffmpeg-static';
 import nodemailer from 'nodemailer';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
@@ -6571,6 +6573,12 @@ const ALLOWED_CHAT_ATTACHMENT_EXTS = new Set([
   'mov',
   'm4v',
   '3gp',
+  'mp3',
+  'wav',
+  'm4a',
+  'ogg',
+  'aac',
+  'opus',
   'pdf',
   'doc',
   'docx',
@@ -6590,6 +6598,167 @@ const ALLOWED_CHAT_ATTACHMENT_EXTS = new Set([
 ]);
 const MAX_CHAT_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
+const RESOLVED_FFMPEG_BIN: string =
+  typeof ffmpegStatic === 'string' && ffmpegStatic.trim() && fs.existsSync(ffmpegStatic)
+    ? ffmpegStatic
+    : 'ffmpeg';
+
+const checkedWebVideoCache = new Set<string>();
+const inFlightVideoTranscodes = new Map<string, Promise<void>>();
+
+const bufferLikelyNeedsWebVideoTranscode = (buf: Buffer, ext: string): boolean => {
+  const lowerExt = ext.toLowerCase();
+  if (lowerExt === 'mov' || lowerExt === '3gp' || lowerExt === 'm4v') return true;
+  // Detect HEVC/H.265 or Dolby Vision sample entries (hvc1, hev1, dvh1, dvhe) which Chrome Desktop plays as audio-only black screen
+  return (
+    buf.includes(Buffer.from('hvc1')) ||
+    buf.includes(Buffer.from('hev1')) ||
+    buf.includes(Buffer.from('dvh1')) ||
+    buf.includes(Buffer.from('dvhe'))
+  );
+};
+
+const transcodeVideoBufferToWebMp4 = async (
+  rawBuffer: Buffer,
+  sourceExt: string
+): Promise<{ buffer: Buffer; ext: string; transcoded: boolean }> => {
+  const cleanExt = sourceExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+  const uniqueId = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const inPath = path.join(os.tmpdir(), `nd-vid-in-${uniqueId}.${cleanExt}`);
+  const outPath = path.join(os.tmpdir(), `nd-vid-out-${uniqueId}.mp4`);
+
+  try {
+    fs.writeFileSync(inPath, rawBuffer);
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        RESOLVED_FFMPEG_BIN,
+        [
+          '-y',
+          '-i',
+          inPath,
+          '-map',
+          '0:v:0',
+          '-map',
+          '0:a:0?',
+          '-c:v',
+          'libx264',
+          '-pix_fmt',
+          'yuv420p',
+          '-profile:v',
+          'main',
+          '-level',
+          '4.0',
+          '-preset',
+          'veryfast',
+          '-crf',
+          '24',
+          '-vf',
+          "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          '-ac',
+          '2',
+          '-movflags',
+          '+faststart',
+          outPath,
+        ],
+        { timeout: 90_000, maxBuffer: 10 * 1024 * 1024 },
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+
+    if (fs.existsSync(outPath)) {
+      const outBuf = fs.readFileSync(outPath);
+      if (outBuf.length > 1024) {
+        return { buffer: outBuf, ext: 'mp4', transcoded: true };
+      }
+    }
+  } catch (err) {
+    console.warn('Chat video web-MP4 transcode fallback to original:', (err as Error)?.message || err);
+  } finally {
+    try {
+      if (fs.existsSync(inPath)) fs.unlinkSync(inPath);
+    } catch {}
+    try {
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+    } catch {}
+  }
+
+  return { buffer: rawBuffer, ext: cleanExt, transcoded: false };
+};
+
+const maybeAutoHealExistingChatVideo = async (
+  bucket: HostedUploadBucket,
+  safeName: string,
+  filePath: string
+): Promise<void> => {
+  if (bucket !== 'chat') return;
+  const lower = safeName.toLowerCase();
+  if (!/\.(mp4|mov|m4v|3gp)$/.test(lower)) return;
+  if (checkedWebVideoCache.has(lower)) return;
+
+  const existingTask = inFlightVideoTranscodes.get(lower);
+  if (existingTask) {
+    await existingTask;
+    return;
+  }
+
+  const task = (async () => {
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile() || stat.size === 0 || stat.size > MAX_CHAT_ATTACHMENT_BYTES) {
+        checkedWebVideoCache.add(lower);
+        return;
+      }
+      const rawBuf = fs.readFileSync(filePath);
+      const ext = lower.split('.').pop() || 'mp4';
+      if (!bufferLikelyNeedsWebVideoTranscode(rawBuf, ext)) {
+        checkedWebVideoCache.add(lower);
+        return;
+      }
+
+      const result = await transcodeVideoBufferToWebMp4(rawBuf, ext);
+      if (result.transcoded && result.buffer.length > 1024) {
+        const dirs = getUploadBucketDirs('chat');
+        for (const dir of [dirs.homeDir, dirs.dataDir, dirs.publicDir]) {
+          const target = resolveConfinedFilePath(dir, safeName);
+          if (!target) continue;
+          try {
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(target, result.buffer);
+          } catch {}
+        }
+        if (db && result.buffer.length <= 18 * 1024 * 1024) {
+          const cloudKey = `${dirs.cloudKeyPrefix}${lower}__@ndtaxlaw.internal`;
+          const cloudPayload = JSON.stringify({
+            fileName: safeName,
+            bucket: 'chat',
+            mime: 'video/mp4',
+            base64: result.buffer.toString('base64'),
+            savedAt: new Date().toISOString(),
+          });
+          await Promise.resolve(
+            db.from('user_passwords').upsert([{ email: cloudKey, password: cloudPayload }])
+          ).catch(() => {});
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      checkedWebVideoCache.add(lower);
+      inFlightVideoTranscodes.delete(lower);
+    }
+  })();
+
+  inFlightVideoTranscodes.set(lower, task);
+  await task;
+};
+
 const getMimeTypeFromExt = (filename: string): string => {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.pdf')) return 'application/pdf';
@@ -6600,11 +6769,15 @@ const getMimeTypeFromExt = (filename: string): string => {
   if (lower.endsWith('.svg')) return 'image/svg+xml';
   if (lower.endsWith('.mp4')) return 'video/mp4';
   if (lower.endsWith('.webm')) return 'video/webm';
-  if (lower.endsWith('.mov')) return 'video/quicktime';
-  if (lower.endsWith('.m4v')) return 'video/x-m4v';
-  if (lower.endsWith('.3gp')) return 'video/3gpp';
+  if (lower.endsWith('.mov')) return 'video/mp4';
+  if (lower.endsWith('.m4v')) return 'video/mp4';
+  if (lower.endsWith('.3gp')) return 'video/mp4';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
   if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.ogg')) return 'audio/ogg';
+  if (lower.endsWith('.aac')) return 'audio/aac';
+  if (lower.endsWith('.opus')) return 'audio/opus';
   if (lower.endsWith('.doc')) return 'application/msword';
   if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
@@ -6807,6 +6980,7 @@ const serveHostedUploadFile = async (
 
   // 1. Primary persistent OS home storage (immune to git pull / rebuild; res.sendFile natively handles HTTP Range 206 video streaming)
   if (fs.existsSync(homePath)) {
+    await maybeAutoHealExistingChatVideo(bucket, safeName, homePath);
     applyUploadHeaders(getMimeTypeFromExt(safeName));
     return res.sendFile(homePath);
   }
@@ -6819,6 +6993,7 @@ const serveHostedUploadFile = async (
           fs.mkdirSync(dirs.homeDir, { recursive: true });
         }
         fs.copyFileSync(candidate, homePath);
+        await maybeAutoHealExistingChatVideo(bucket, safeName, homePath);
         applyUploadHeaders(getMimeTypeFromExt(safeName));
         return res.sendFile(homePath);
       } catch {
@@ -6858,11 +7033,13 @@ const serveHostedUploadFile = async (
               fs.writeFileSync(target, buf);
             } catch {}
           }
-          const resolvedMime = parsed.mime || getMimeTypeFromExt(safeName);
-          applyUploadHeaders(resolvedMime);
           if (fs.existsSync(homePath)) {
+            await maybeAutoHealExistingChatVideo(bucket, safeName, homePath);
+            applyUploadHeaders(getMimeTypeFromExt(safeName));
             return res.sendFile(homePath);
           }
+          const resolvedMime = parsed.mime || getMimeTypeFromExt(safeName);
+          applyUploadHeaders(resolvedMime);
           const rangeHeader = req.headers.range;
           if (rangeHeader && buf.length > 0) {
             const m = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
@@ -6958,7 +7135,15 @@ const saveDataUrlToHostingServer = (
   else if (mime.includes('video/quicktime')) ext = 'mov';
   else if (mime.includes('video/3gpp')) ext = '3gp';
   else if (mime.includes('video/x-m4v')) ext = 'm4v';
-  else if (mime.includes('mp4') || mime.includes('video')) ext = 'mp4';
+  else if (mime.includes('video/mp4') || mime.startsWith('video/')) ext = 'mp4';
+  else if (mime.includes('audio/mpeg') || mime.includes('audio/mp3')) ext = 'mp3';
+  else if (mime.includes('audio/wav') || mime.includes('audio/x-wav')) ext = 'wav';
+  else if (mime.includes('audio/mp4') || mime.includes('audio/x-m4a') || mime.includes('audio/m4a')) ext = 'm4a';
+  else if (mime.includes('audio/ogg')) ext = 'ogg';
+  else if (mime.includes('audio/aac')) ext = 'aac';
+  else if (mime.includes('audio/opus')) ext = 'opus';
+  else if (mime.startsWith('audio/')) ext = ['mp3', 'wav', 'm4a', 'ogg', 'aac', 'opus'].includes(ext) ? ext : 'mp3';
+  else if (mime.includes('mp4')) ext = 'mp4';
   else if (mime.includes('spreadsheetml')) ext = 'xlsx';
   else if (mime.includes('ms-excel') || mime.includes('excel')) ext = ext === 'xlsx' ? 'xlsx' : 'xls';
   else if (mime.includes('wordprocessingml')) ext = 'docx';
@@ -11664,26 +11849,58 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
   }
 
   let finalImageUrl: string | undefined = imageUrl ? String(imageUrl) : undefined;
+  let finalImageName: string | undefined = imageName ? String(imageName) : undefined;
   let resolvedCompressedSize: number | undefined = imageCompressedSize ? Number(imageCompressedSize) : undefined;
   if (finalImageUrl && finalImageUrl.startsWith('data:')) {
-    const extFromName = String(imageName || '').includes('.')
-      ? String(imageName).split('.').pop() || 'pdf'
+    const extFromName = String(finalImageName || '').includes('.')
+      ? (String(finalImageName).split('.').pop() || 'pdf').toLowerCase()
       : 'jpg';
+    const isUploadedVideo =
+      finalImageUrl.toLowerCase().startsWith('data:video/') ||
+      ['mp4', 'webm', 'mov', 'm4v', '3gp'].includes(extFromName);
+
+    let dataUrlToSave = finalImageUrl;
+    let extToSave = extFromName;
+
+    if (isUploadedVideo) {
+      const m = /^data:([^;]+);base64,(.+)$/i.exec(finalImageUrl);
+      if (m) {
+        const rawVidBuf = Buffer.from(m[2], 'base64');
+        if (rawVidBuf.length <= MAX_CHAT_ATTACHMENT_BYTES) {
+          const transcoded = await transcodeVideoBufferToWebMp4(rawVidBuf, extFromName);
+          if (transcoded.transcoded) {
+            dataUrlToSave = `data:video/mp4;base64,${transcoded.buffer.toString('base64')}`;
+            extToSave = 'mp4';
+            resolvedCompressedSize = transcoded.buffer.length;
+            if (finalImageName && !finalImageName.toLowerCase().endsWith('.mp4')) {
+              finalImageName = finalImageName.replace(/\.[^/.]+$/, '') + '.mp4';
+            }
+          }
+        }
+      }
+    }
+
     const saved = saveDataUrlToHostingServer(
-      finalImageUrl,
-      imageName || `chat-file-${Date.now()}`,
-      extFromName,
+      dataUrlToSave,
+      finalImageName || `chat-file-${Date.now()}`,
+      extToSave,
       'chat'
     );
     if (!saved) {
       return res.status(400).json({
         message:
-          'Format file tidak didukung atau ukuran melebihi batas maksimal 30 MB. Mendukung gambar, video (MP4/WEBM/MOV), dan dokumen (PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP/RAR).',
+          'Format file tidak didukung atau ukuran melebihi batas maksimal 30 MB. Mendukung gambar, video, audio, dan dokumen.',
       });
     }
     if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
     finalImageUrl = saved.hostedUrl;
-    if (!resolvedCompressedSize) resolvedCompressedSize = saved.savedBytes;
+    if (isUploadedVideo) {
+      const savedBase = path.basename(saved.hostedUrl).toLowerCase();
+      checkedWebVideoCache.add(savedBase);
+    }
+    if (!resolvedCompressedSize || resolvedCompressedSize > saved.savedBytes) {
+      resolvedCompressedSize = saved.savedBytes;
+    }
   }
 
   let resolvedLinkPreview: ChatLinkPreview | undefined = linkPreview;
@@ -11705,7 +11922,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     senderAvatar: String(senderAvatar || MALE_AVATAR_URL),
     text: cleanText,
     imageUrl: finalImageUrl,
-    imageName: imageName ? String(imageName) : undefined,
+    imageName: finalImageName,
     imageOriginalSize: imageOriginalSize ? Number(imageOriginalSize) : undefined,
     imageCompressedSize: resolvedCompressedSize,
     linkPreview: resolvedLinkPreview,
@@ -11723,11 +11940,16 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
   const isVidAttachment = finalImageUrl
     ? isVideoAttachmentUrl(finalImageUrl, newMsg.imageName)
     : false;
+  const isAudAttachment = finalImageUrl
+    ? isAudioAttachmentUrl(finalImageUrl, newMsg.imageName)
+    : false;
   const attachmentPreviewText = finalImageUrl
     ? isImgAttachment
       ? '📷 Mengirim gambar'
       : isVidAttachment
       ? '🎬 Mengirim video'
+      : isAudAttachment
+      ? '🎵 Mengirim audio'
       : `📄 ${newMsg.imageName || 'Mengirim dokumen'}`
     : 'Pesan baru';
 
@@ -11748,6 +11970,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
         ? '📷 Mengirim gambar'
         : isVidAttachment
         ? '🎬 Mengirim video'
+        : isAudAttachment
+        ? '🎵 Mengirim audio'
         : `📄 Dokumen: ${newMsg.imageName || 'File'}`
       : 'Pesan baru')
   ).slice(0, 140);
@@ -12093,7 +12317,13 @@ const isVideoAttachmentUrl = (url: string, fileName?: string): boolean => {
   return /\.(mp4|webm|mov|m4v|3gp)(\b|\?|$)/i.test(target);
 };
 
-// GET Admin Chat File Gallery (Lists all active files/images/videos shared across all chat rooms)
+const isAudioAttachmentUrl = (url: string, fileName?: string): boolean => {
+  const target = `${url} ${fileName || ''}`.toLowerCase();
+  if (url.startsWith('data:audio/')) return true;
+  return /\.(mp3|wav|m4a|ogg|aac|opus)(\b|\?|$)/i.test(target);
+};
+
+// GET Admin Chat File Gallery (Lists all active files/images/videos/audio shared across all chat rooms)
 app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
   if (!verifyAdminChatActor(req)) {
     return res.status(403).json({ success: false, message: 'Akses khusus Administrator.' });
@@ -12117,6 +12347,7 @@ app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
     fileName: string;
     isImage: boolean;
     isVideo: boolean;
+    isAudio: boolean;
     byteSize: number;
     formattedSize: string;
     caption: string;
@@ -12153,6 +12384,7 @@ app.get('/api/chat/admin/files', async (req: Request, res: Response) => {
       fileName: resolvedName,
       isImage: isImageAttachmentUrl(msg.imageUrl, resolvedName),
       isVideo: isVideoAttachmentUrl(msg.imageUrl, resolvedName),
+      isAudio: isAudioAttachmentUrl(msg.imageUrl, resolvedName),
       byteSize,
       formattedSize: formatFileSizeServer(byteSize),
       caption: msg.text || '',
@@ -12352,6 +12584,8 @@ app.post('/api/chat/admin/reset', async (req: Request, res: Response) => {
               ? '📷 Mengirim gambar'
               : isVideoAttachmentUrl(last.imageUrl, last.imageName)
               ? '🎬 Mengirim video'
+              : isAudioAttachmentUrl(last.imageUrl, last.imageName)
+              ? '🎵 Mengirim audio'
               : `📄 ${last.imageName || 'Mengirim dokumen'}`
             : 'Pesan baru');
       room.updatedAt = last.createdAt;

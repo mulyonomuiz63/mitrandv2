@@ -46,6 +46,8 @@ import {
   Paperclip,
   Film,
   Loader2,
+  Play,
+  Headphones,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -248,6 +250,8 @@ const CHAT_MEDIA_ACCEPT =
   'image/*,video/mp4,video/webm,video/quicktime,video/x-m4v,video/3gpp,video/*';
 const CHAT_DOCUMENT_ACCEPT =
   '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp,.zip,.rar,.7z,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/zip';
+const CHAT_AUDIO_ACCEPT =
+  'audio/*,.mp3,.wav,.m4a,.ogg,.aac,.opus,audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/aac';
 const MAX_CHAT_FILE_BYTES = 30 * 1024 * 1024;
 const ALLOWED_CHAT_EXTS = new Set([
   'jpg',
@@ -260,6 +264,12 @@ const ALLOWED_CHAT_EXTS = new Set([
   'mov',
   'm4v',
   '3gp',
+  'mp3',
+  'wav',
+  'm4a',
+  'ogg',
+  'aac',
+  'opus',
   'pdf',
   'doc',
   'docx',
@@ -278,7 +288,7 @@ const ALLOWED_CHAT_EXTS = new Set([
   '7z',
 ]);
 
-type ChatAttachmentKind = 'image' | 'video' | 'document';
+type ChatAttachmentKind = 'image' | 'video' | 'audio' | 'document';
 
 function isImageAttachment(url?: string, name?: string): boolean {
   const safeUrl = String(url || '').trim();
@@ -296,12 +306,20 @@ function isVideoAttachment(url?: string, name?: string): boolean {
   return /\.(mp4|webm|mov|m4v|3gp)(\b|\?|$)/i.test(target);
 }
 
-function getVideoMimeType(url?: string, name?: string): string {
-  const target = `${url || ''} ${name || ''}`.toLowerCase();
-  if (target.includes('video/webm') || /\.webm(\b|\?|$)/i.test(target)) return 'video/webm';
-  if (target.includes('video/quicktime') || /\.mov(\b|\?|$)/i.test(target)) return 'video/mp4';
-  if (target.includes('video/3gpp') || /\.3gp(\b|\?|$)/i.test(target)) return 'video/3gpp';
-  return 'video/mp4';
+function isAudioAttachment(url?: string, name?: string): boolean {
+  const safeUrl = String(url || '').trim();
+  if (!safeUrl) return false;
+  if (safeUrl.startsWith('data:audio/')) return true;
+  const target = `${safeUrl} ${name || ''}`.toLowerCase();
+  return /\.(mp3|wav|m4a|ogg|aac|opus)(\b|\?|$)/i.test(target);
+}
+
+function formatVideoDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const total = Math.floor(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 function isPdfAttachment(url?: string, name?: string): boolean {
@@ -315,6 +333,7 @@ function isPdfAttachment(url?: string, name?: string): boolean {
 function getAttachmentKind(url?: string, name?: string): ChatAttachmentKind {
   if (isImageAttachment(url, name)) return 'image';
   if (isVideoAttachment(url, name)) return 'video';
+  if (isAudioAttachment(url, name)) return 'audio';
   return 'document';
 }
 
@@ -322,6 +341,7 @@ function getAttachmentSummaryText(url?: string, name?: string): string {
   const kind = getAttachmentKind(url, name);
   if (kind === 'image') return '📷 Mengirim gambar';
   if (kind === 'video') return '🎬 Mengirim video';
+  if (kind === 'audio') return '🎵 Mengirim audio';
   return `📄 ${name || 'Mengirim dokumen'}`;
 }
 
@@ -329,6 +349,7 @@ function getAttachmentPrefixIcon(url?: string, name?: string): string {
   const kind = getAttachmentKind(url, name);
   if (kind === 'image') return '📷 ';
   if (kind === 'video') return '🎬 ';
+  if (kind === 'audio') return '🎵 ';
   return '📄 ';
 }
 
@@ -406,6 +427,136 @@ function readFileToDataUrl(file: File): Promise<string> {
   });
 }
 
+const WhatsAppVideoBubble: React.FC<{
+  url: string;
+  fileName?: string;
+  fileSize?: number;
+  onDownload: () => void;
+}> = ({ url, fileName, fileSize, onDownload }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [durationLabel, setDurationLabel] = useState('');
+  const [isHd, setIsHd] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const handlePlayClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const el = videoRef.current;
+    if (!el) return;
+    setHasStarted(true);
+    setIsPlaying(true);
+    const playPromise = el.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        setIsPlaying(false);
+      });
+    }
+  };
+
+  return (
+    <div
+      className="mb-1.5"
+      onClick={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchMove={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+    >
+      <div className="relative group/vid rounded-xl overflow-hidden bg-slate-950 border border-black/15 max-w-[260px] sm:max-w-[290px]">
+        <video
+          ref={videoRef}
+          key={url}
+          src={`${url}#t=0.05`}
+          controls={hasStarted}
+          playsInline
+          preload="metadata"
+          controlsList="nodownload"
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            if (Number.isFinite(v.duration) && v.duration > 0) {
+              setDurationLabel(formatVideoDuration(v.duration));
+            }
+            if (v.videoWidth >= 720 || v.videoHeight >= 720) {
+              setIsHd(true);
+            }
+          }}
+          onPlay={() => {
+            setHasStarted(true);
+            setIsPlaying(true);
+          }}
+          onEnded={() => {
+            setIsPlaying(false);
+            setHasStarted(false);
+            if (videoRef.current) {
+              try {
+                videoRef.current.currentTime = 0.05;
+              } catch {}
+            }
+          }}
+          onError={() => setLoadFailed(true)}
+          className="block w-full min-w-[210px] min-h-[135px] max-h-[380px] object-contain bg-slate-950"
+        />
+
+        {!hasStarted && !loadFailed && (
+          <button
+            type="button"
+            onClick={handlePlayClick}
+            aria-label="Putar video"
+            className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/55 via-black/10 to-black/15 cursor-pointer group/play"
+          >
+            <span className="w-14 h-14 rounded-full bg-black/55 group-hover/play:bg-black/75 backdrop-blur-[2px] flex items-center justify-center text-white shadow-xl ring-1 ring-white/25 transition-transform duration-150 group-hover/play:scale-105">
+              <Play className="w-7 h-7 fill-white text-white ml-0.5" />
+            </span>
+
+            <span className="absolute bottom-2 left-2.5 flex items-center gap-1.5 text-[11px] font-bold text-white drop-shadow">
+              {isHd && (
+                <span className="px-1 py-0.5 rounded-[4px] bg-white/90 text-slate-900 text-[9px] font-black leading-none tracking-tight">
+                  HD
+                </span>
+              )}
+              <span>{durationLabel || (fileSize ? formatFileSize(fileSize) : 'Video')}</span>
+            </span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload();
+          }}
+          title={`Unduh ${fileName || 'video'}`}
+          className={`absolute top-2 right-2 p-1.5 rounded-full bg-black/55 hover:bg-black/80 text-white backdrop-blur-[2px] transition-opacity cursor-pointer z-10 ${
+            isPlaying ? 'opacity-0 group-hover/vid:opacity-100' : 'opacity-85 hover:opacity-100'
+          }`}
+        >
+          <Download className="w-3.5 h-3.5" />
+        </button>
+
+        {loadFailed && (
+          <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center gap-2 p-4 text-center">
+            <Film className="w-7 h-7 text-slate-400" />
+            <p className="text-xs font-semibold text-white truncate max-w-full">
+              {fileName || 'Video'}
+            </p>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownload();
+              }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Unduh Video</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   currentUserId,
   currentUserName,
@@ -461,6 +612,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const [isLoadingLinkPreview, setIsLoadingLinkPreview] = useState(false);
   const [isChatInitialLoading, setIsChatInitialLoading] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
   // Modals
@@ -500,6 +652,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       fileName: string;
       isImage: boolean;
       isVideo?: boolean;
+      isAudio?: boolean;
       byteSize: number;
       formattedSize: string;
       caption: string;
@@ -513,7 +666,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   }>({ totalFiles: 0, totalBytes: 0, totalFormattedSize: '0 B' });
   const [isLoadingAdminGallery, setIsLoadingAdminGallery] = useState(false);
   const [adminGallerySearch, setAdminGallerySearch] = useState('');
-  const [adminGalleryFilter, setAdminGalleryFilter] = useState<'all' | 'image' | 'video' | 'file'>('all');
+  const [adminGalleryFilter, setAdminGalleryFilter] = useState<'all' | 'image' | 'video' | 'audio' | 'file'>('all');
   const [deletingGalleryId, setDeletingGalleryId] = useState<string | null>(null);
 
   const [showAdminResetModal, setShowAdminResetModal] = useState(false);
@@ -579,6 +732,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const docInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const attachMenuRef = useRef<HTMLDivElement | null>(null);
   const newGroupAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const editGroupAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1082,6 +1238,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           setShowGroupInfoModal(false);
           return;
         }
+        if (showAttachMenu) {
+          setShowAttachMenu(false);
+          return;
+        }
         if (showEmojiPicker) {
           setShowEmojiPicker(false);
           return;
@@ -1119,10 +1279,27 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     isForwardSelectMode,
     showCreateGroupModal,
     showGroupInfoModal,
+    showAttachMenu,
     showEmojiPicker,
     editingMessage,
     replyingTo,
   ]);
+
+  // Close attachment popover when clicking outside
+  useEffect(() => {
+    if (!showAttachMenu) return;
+    const handlePointerDown = (ev: MouseEvent | TouchEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(ev.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [showAttachMenu]);
 
   // Detect URL in composer and fetch WhatsApp-style link metadata preview
   useEffect(() => {
@@ -1647,17 +1824,21 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     const isVid =
       file.type.startsWith('video/') ||
       ['mp4', 'webm', 'mov', 'm4v', '3gp'].includes(ext);
+    const isAud =
+      file.type.startsWith('audio/') ||
+      ['mp3', 'wav', 'm4a', 'ogg', 'aac', 'opus'].includes(ext);
 
-    if (!isImg && !isVid && !ALLOWED_CHAT_EXTS.has(ext)) {
+    if (!isImg && !isVid && !isAud && !ALLOWED_CHAT_EXTS.has(ext)) {
       showAlert({
         type: 'warning',
         title: 'Format File Tidak Didukung',
         message:
-          'Format yang didukung: Gambar, Video (MP4, WEBM, MOV), serta Dokumen (PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT, CSV, ZIP/RAR).',
+          'Format yang didukung: Gambar, Video, Audio, serta Dokumen (PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP/RAR).',
       });
       return;
     }
 
+    setShowAttachMenu(false);
     setIsCompressingImage(true);
     try {
       if (isImg) {
@@ -1673,7 +1854,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           name: file.name,
           originalSize: file.size,
           compressedSize: file.size,
-          kind: isVid ? 'video' : 'document',
+          kind: isVid ? 'video' : isAud ? 'audio' : 'document',
         });
       }
     } catch {
@@ -3186,6 +3367,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                       ? '📷 [Gambar] '
                                       : isVideoAttachment(msg.replyTo.imageUrl)
                                       ? '🎬 [Video] '
+                                      : isAudioAttachment(msg.replyTo.imageUrl)
+                                      ? '🎵 [Audio] '
                                       : '📄 [Dokumen] '
                                     : ''}
                                   {msg.replyTo.text}
@@ -3250,52 +3433,67 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                   }
 
                                   if (attachKind === 'video') {
-                                    const videoMime = getVideoMimeType(msg.imageUrl, msg.imageName);
+                                    return (
+                                      <WhatsAppVideoBubble
+                                        url={msg.imageUrl!}
+                                        fileName={msg.imageName}
+                                        fileSize={msg.imageCompressedSize || msg.imageOriginalSize}
+                                        onDownload={() =>
+                                          handleDownloadChatImage(
+                                            msg.imageUrl!,
+                                            msg.imageName || 'video-chat.mp4'
+                                          )
+                                        }
+                                      />
+                                    );
+                                  }
+
+                                  if (attachKind === 'audio') {
+                                    const audioName = msg.imageName || 'Audio';
+                                    const audioSize = msg.imageCompressedSize || msg.imageOriginalSize;
                                     return (
                                       <div
-                                        className="mb-2"
+                                        className="mb-2 p-2.5 rounded-xl bg-black/[0.04] border border-black/10 min-w-[230px] max-w-[310px] space-y-2"
                                         onClick={(e) => e.stopPropagation()}
                                         onTouchStart={(e) => e.stopPropagation()}
                                         onTouchMove={(e) => e.stopPropagation()}
                                         onTouchEnd={(e) => e.stopPropagation()}
                                       >
-                                        <div className="rounded-xl overflow-hidden border border-black/15 bg-black">
-                                          <video
-                                            key={msg.imageUrl}
-                                            controls
-                                            playsInline
-                                            preload="auto"
-                                            controlsList="nodownload"
-                                            className="block max-h-72 w-full min-w-[220px] max-w-[320px] bg-black"
-                                          >
-                                            <source src={msg.imageUrl} type={videoMime} />
-                                            <source src={msg.imageUrl} />
-                                          </video>
-                                        </div>
-                                        <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-slate-600">
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <Film className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                            <span className="truncate font-semibold">
-                                              {msg.imageName || 'Video'}
-                                            </span>
-                                            {(msg.imageCompressedSize || msg.imageOriginalSize) && (
-                                              <span className="text-[10px] text-slate-500 shrink-0">
-                                                • {formatFileSize(msg.imageCompressedSize || msg.imageOriginalSize || 0)}
-                                              </span>
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="w-9 h-9 rounded-full bg-orange-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                            <Headphones className="w-4 h-4" />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <p
+                                              className="text-xs font-bold text-slate-900 truncate"
+                                              title={audioName}
+                                            >
+                                              {audioName}
+                                            </p>
+                                            {audioSize && (
+                                              <p className="text-[10px] font-semibold text-slate-500">
+                                                {formatFileSize(audioSize)}
+                                              </p>
                                             )}
                                           </div>
                                           <button
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              handleDownloadChatImage(msg.imageUrl!, msg.imageName || 'video-chat.mp4');
+                                              handleDownloadChatImage(msg.imageUrl!, audioName);
                                             }}
-                                            className="p-1 rounded-lg hover:bg-black/10 text-slate-700 shrink-0 cursor-pointer"
-                                            title="Unduh Video"
+                                            className="p-1.5 rounded-lg hover:bg-black/10 text-slate-700 shrink-0 cursor-pointer"
+                                            title="Unduh Audio"
                                           >
                                             <Download className="w-3.5 h-3.5" />
                                           </button>
                                         </div>
+                                        <audio
+                                          src={msg.imageUrl}
+                                          controls
+                                          preload="metadata"
+                                          className="w-full h-9"
+                                        />
                                       </div>
                                     );
                                   }
@@ -3604,6 +3802,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                                 VIDEO
                               </span>
                             </div>
+                          ) : pendingKind === 'audio' ? (
+                            <div className="w-12 h-12 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center shrink-0">
+                              <Headphones className="w-5 h-5" />
+                            </div>
                           ) : (
                             <div
                               className={`w-12 h-12 rounded-lg border ${pendingDocMeta.bgClass} ${pendingDocMeta.borderClass} ${pendingDocMeta.textClass} flex flex-col items-center justify-center shrink-0`}
@@ -3625,8 +3827,12 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                               </p>
                             ) : (
                               <p className="text-[11px] font-semibold text-slate-500">
-                                {pendingKind === 'video' ? 'Video' : pendingDocMeta.extLabel} •{' '}
-                                {formatFileSize(pendingImage.originalSize)}
+                                {pendingKind === 'video'
+                                  ? 'Video'
+                                  : pendingKind === 'audio'
+                                  ? 'Audio'
+                                  : pendingDocMeta.extLabel}{' '}
+                                • {formatFileSize(pendingImage.originalSize)}
                               </p>
                             )}
                           </div>
@@ -3733,11 +3939,97 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       onChange={handleSelectImage}
                       className="hidden"
                     />
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      capture="environment"
+                      onChange={handleSelectImage}
+                      className="hidden"
+                    />
+                    <input
+                      ref={audioInputRef}
+                      type="file"
+                      accept={CHAT_AUDIO_ACCEPT}
+                      onChange={handleSelectImage}
+                      className="hidden"
+                    />
+
+                    {/* WhatsApp-style Paperclip Attachment Menu */}
+                    <div ref={attachMenuRef} className="relative shrink-0">
+                      {showAttachMenu && (
+                        <div className="absolute bottom-full left-0 mb-2.5 z-40 w-48 rounded-2xl bg-[#1f2c34] text-white shadow-2xl border border-white/10 py-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAttachMenu(false);
+                              docInputRef.current?.click();
+                            }}
+                            className="w-full px-3.5 py-2.5 flex items-center gap-3 text-left text-sm font-medium hover:bg-white/10 transition-colors cursor-pointer"
+                          >
+                            <FileText className="w-5 h-5 text-violet-400 shrink-0" />
+                            <span>Dokumen</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAttachMenu(false);
+                              fileInputRef.current?.click();
+                            }}
+                            className="w-full px-3.5 py-2.5 flex items-center gap-3 text-left text-sm font-medium hover:bg-white/10 transition-colors cursor-pointer"
+                          >
+                            <ImageIcon className="w-5 h-5 text-sky-400 shrink-0" />
+                            <span>Foto &amp; Video</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAttachMenu(false);
+                              cameraInputRef.current?.click();
+                            }}
+                            className="w-full px-3.5 py-2.5 flex items-center gap-3 text-left text-sm font-medium hover:bg-white/10 transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-5 h-5 text-rose-500 shrink-0" />
+                            <span>Kamera</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAttachMenu(false);
+                              audioInputRef.current?.click();
+                            }}
+                            className="w-full px-3.5 py-2.5 flex items-center gap-3 text-left text-sm font-medium hover:bg-white/10 transition-colors cursor-pointer"
+                          >
+                            <Headphones className="w-5 h-5 text-orange-400 shrink-0" />
+                            <span>Audio</span>
+                          </button>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAttachMenu((prev) => !prev);
+                          setShowEmojiPicker(false);
+                        }}
+                        disabled={isCompressingImage || isSending || !!editingMessage}
+                        className={`p-2 sm:p-2.5 rounded-xl border transition-colors cursor-pointer disabled:opacity-50 ${
+                          showAttachMenu
+                            ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                            : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600'
+                        }`}
+                        title="Lampirkan"
+                      >
+                        <Paperclip className="w-5 h-5" />
+                      </button>
+                    </div>
 
                     {/* Emoji Button */}
                     <button
                       type="button"
-                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      onClick={() => {
+                        setShowEmojiPicker((prev) => !prev);
+                        setShowAttachMenu(false);
+                      }}
                       className={`p-2 sm:p-2.5 rounded-xl border transition-colors cursor-pointer shrink-0 ${
                         showEmojiPicker
                           ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
@@ -3746,28 +4038,6 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       title="Emoji"
                     >
                       <Smile className="w-5 h-5" />
-                    </button>
-
-                    {/* Photo & Video Upload Button */}
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isCompressingImage || isSending || !!editingMessage}
-                      className="p-2 sm:p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                      title="Foto & Video"
-                    >
-                      <ImageIcon className="w-5 h-5" />
-                    </button>
-
-                    {/* Document Upload Button */}
-                    <button
-                      type="button"
-                      onClick={() => docInputRef.current?.click()}
-                      disabled={isCompressingImage || isSending || !!editingMessage}
-                      className="p-2 sm:p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                      title="Dokumen (PDF, Word, Excel, ZIP)"
-                    >
-                      <Paperclip className="w-5 h-5" />
                     </button>
 
                     <textarea
@@ -4793,9 +5063,11 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         const q = adminGallerySearch.trim().toLowerCase();
         const filteredFiles = adminGalleryFiles.filter((item) => {
           const itemIsVideo = Boolean(item.isVideo) || isVideoAttachment(item.fileUrl, item.fileName);
+          const itemIsAudio = Boolean(item.isAudio) || isAudioAttachment(item.fileUrl, item.fileName);
           if (adminGalleryFilter === 'image' && !item.isImage) return false;
           if (adminGalleryFilter === 'video' && !itemIsVideo) return false;
-          if (adminGalleryFilter === 'file' && (item.isImage || itemIsVideo)) return false;
+          if (adminGalleryFilter === 'audio' && !itemIsAudio) return false;
+          if (adminGalleryFilter === 'file' && (item.isImage || itemIsVideo || itemIsAudio)) return false;
           if (!q) return true;
           return (
             item.fileName.toLowerCase().includes(q) ||
@@ -4854,6 +5126,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       { id: 'all', label: 'Semua' },
                       { id: 'image', label: 'Gambar' },
                       { id: 'video', label: 'Video' },
+                      { id: 'audio', label: 'Audio' },
                       { id: 'file', label: 'Dokumen' },
                     ] as const
                   ).map((tab) => (
@@ -4917,13 +5190,28 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                         ) : Boolean(item.isVideo) || isVideoAttachment(item.fileUrl, item.fileName) ? (
                           <div className="relative h-36 bg-slate-950 flex items-center justify-center overflow-hidden">
                             <video
-                              src={item.fileUrl}
+                              src={`${item.fileUrl}#t=0.05`}
                               controls
                               playsInline
                               preload="metadata"
                               className="w-full h-full object-contain"
                             />
                             <span className="absolute top-2 right-2 px-2 py-0.5 rounded bg-slate-950/75 text-white text-[10px] font-bold pointer-events-none">
+                              {item.formattedSize}
+                            </span>
+                          </div>
+                        ) : Boolean(item.isAudio) || isAudioAttachment(item.fileUrl, item.fileName) ? (
+                          <div className="relative h-36 bg-orange-50/70 flex flex-col items-center justify-center gap-2.5 p-3 border-b border-orange-100">
+                            <div className="w-11 h-11 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-xs">
+                              <Headphones className="w-5 h-5" />
+                            </div>
+                            <audio
+                              src={item.fileUrl}
+                              controls
+                              preload="metadata"
+                              className="w-full h-8"
+                            />
+                            <span className="absolute top-2 right-2 px-2 py-0.5 rounded bg-slate-900/80 text-white text-[10px] font-bold">
                               {item.formattedSize}
                             </span>
                           </div>
