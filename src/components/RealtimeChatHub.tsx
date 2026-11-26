@@ -47,7 +47,9 @@ import {
   Film,
   Loader2,
   Play,
+  Pause,
   Headphones,
+  Scissors,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -253,6 +255,9 @@ const CHAT_DOCUMENT_ACCEPT =
 const CHAT_AUDIO_ACCEPT =
   'audio/*,.mp3,.wav,.m4a,.ogg,.aac,.opus,audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/aac';
 const MAX_CHAT_FILE_BYTES = 30 * 1024 * 1024;
+const MAX_RAW_VIDEO_FILE_BYTES = 250 * 1024 * 1024;
+const MAX_CHAT_VIDEO_DURATION_SEC = 120;
+const VIDEO_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 const ALLOWED_CHAT_EXTS = new Set([
   'jpg',
   'jpeg',
@@ -427,6 +432,33 @@ function readFileToDataUrl(file: File): Promise<string> {
   });
 }
 
+function readVideoDuration(objectUrl: string): Promise<number> {
+  return new Promise((resolve) => {
+    const vid = document.createElement('video');
+    let settled = false;
+    const finish = (val: number) => {
+      if (settled) return;
+      settled = true;
+      vid.removeAttribute('src');
+      vid.load();
+      resolve(Number.isFinite(val) && val > 0 ? val : 0);
+    };
+    const timer = setTimeout(() => finish(0), 6000);
+    vid.preload = 'metadata';
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.onloadedmetadata = () => {
+      clearTimeout(timer);
+      finish(vid.duration);
+    };
+    vid.onerror = () => {
+      clearTimeout(timer);
+      finish(0);
+    };
+    vid.src = objectUrl;
+  });
+}
+
 const WhatsAppVideoBubble: React.FC<{
   url: string;
   fileName?: string;
@@ -434,11 +466,59 @@ const WhatsAppVideoBubble: React.FC<{
   onDownload: () => void;
 }> = ({ url, fileName, fileSize, onDownload }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const [durationLabel, setDurationLabel] = useState('');
   const [isHd, setIsHd] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
+
+  const MAX_AUTO_RETRIES = 5;
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setHasStarted(false);
+    setIsReady(false);
+    setLoadFailed(false);
+    setRetryAttempt(0);
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [url]);
+
+  const resolvedSrc = useMemo(() => {
+    const cleanUrl = url;
+    if (retryAttempt === 0) return `${cleanUrl}#t=0.05`;
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    if (retryAttempt <= 2) return `${cleanUrl}${sep}v=${retryAttempt}#t=0.05`;
+    return `${cleanUrl}${sep}v=${retryAttempt}`;
+  }, [url, retryAttempt]);
+
+  const handleVideoError = () => {
+    if (retryAttempt < MAX_AUTO_RETRIES) {
+      const delays = [450, 950, 1700, 2600, 3800];
+      const delay = delays[retryAttempt] ?? 2000;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        setRetryAttempt((prev) => prev + 1);
+      }, delay);
+    } else {
+      setLoadFailed(true);
+    }
+  };
+
+  const handleManualReload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    setLoadFailed(false);
+    setIsReady(false);
+    setRetryAttempt((prev) => prev + 1);
+  };
 
   const handlePlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -465,24 +545,38 @@ const WhatsAppVideoBubble: React.FC<{
       <div className="relative group/vid rounded-xl overflow-hidden bg-slate-950 border border-black/15 max-w-[260px] sm:max-w-[290px]">
         <video
           ref={videoRef}
-          key={url}
-          src={`${url}#t=0.05`}
+          key={`${url}-${retryAttempt}`}
+          src={resolvedSrc}
           controls={hasStarted}
           playsInline
-          preload="metadata"
+          preload="auto"
           controlsList="nodownload"
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
+            setLoadFailed(false);
             if (Number.isFinite(v.duration) && v.duration > 0) {
               setDurationLabel(formatVideoDuration(v.duration));
             }
             if (v.videoWidth >= 720 || v.videoHeight >= 720) {
               setIsHd(true);
             }
+            if (v.videoWidth > 0) {
+              setIsReady(true);
+            }
+          }}
+          onLoadedData={() => {
+            setLoadFailed(false);
+            setIsReady(true);
+          }}
+          onCanPlay={() => {
+            setLoadFailed(false);
+            setIsReady(true);
           }}
           onPlay={() => {
             setHasStarted(true);
             setIsPlaying(true);
+            setIsReady(true);
+            setLoadFailed(false);
           }}
           onEnded={() => {
             setIsPlaying(false);
@@ -493,11 +587,18 @@ const WhatsAppVideoBubble: React.FC<{
               } catch {}
             }
           }}
-          onError={() => setLoadFailed(true)}
+          onError={handleVideoError}
           className="block w-full min-w-[210px] min-h-[135px] max-h-[380px] object-contain bg-slate-950"
         />
 
-        {!hasStarted && !loadFailed && (
+        {!isReady && !loadFailed && (
+          <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center gap-2 pointer-events-none">
+            <Loader2 className="w-7 h-7 animate-spin text-emerald-400" />
+            <span className="text-[11px] font-semibold text-slate-300">Memuat video...</span>
+          </div>
+        )}
+
+        {isReady && !hasStarted && !loadFailed && (
           <button
             type="button"
             onClick={handlePlayClick}
@@ -539,19 +640,266 @@ const WhatsAppVideoBubble: React.FC<{
             <p className="text-xs font-semibold text-white truncate max-w-full">
               {fileName || 'Video'}
             </p>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDownload();
-              }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Unduh Video</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleManualReload}
+                className="px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Muat Ulang</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDownload();
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh</span>
+              </button>
+            </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+const VideoTrimModal: React.FC<{
+  file: File;
+  previewUrl: string;
+  totalDurationSec: number;
+  initialStartSec: number;
+  initialEndSec: number;
+  autoTriggered: boolean;
+  onCancel: () => void;
+  onConfirm: (startSec: number, endSec: number) => void;
+}> = ({
+  file,
+  previewUrl,
+  totalDurationSec,
+  initialStartSec,
+  initialEndSec,
+  autoTriggered,
+  onCancel,
+  onConfirm,
+}) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const safeTotal = Math.max(1, totalDurationSec);
+  const [startSec, setStartSec] = useState(() => Math.max(0, Math.min(initialStartSec, safeTotal - 1)));
+  const [endSec, setEndSec] = useState(() =>
+    Math.min(safeTotal, Math.max(initialStartSec + 1, Math.min(initialEndSec, initialStartSec + MAX_CHAT_VIDEO_DURATION_SEC)))
+  );
+  const [currentTime, setCurrentTime] = useState(startSec);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+
+  const selectedDuration = Math.max(1, endSec - startSec);
+  const startPercent = (startSec / safeTotal) * 100;
+  const widthPercent = Math.max(1, ((endSec - startSec) / safeTotal) * 100);
+  const playheadPercent = Math.max(0, Math.min(100, (currentTime / safeTotal) * 100));
+
+  const seekVideoTo = (sec: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      v.currentTime = sec;
+      setCurrentTime(sec);
+    } catch {}
+  };
+
+  const handleStartChange = (nextStartRaw: number) => {
+    const clampedStart = Math.max(0, Math.min(nextStartRaw, safeTotal - 1));
+    let nextEnd = endSec;
+    if (clampedStart >= nextEnd - 1) {
+      nextEnd = Math.min(safeTotal, clampedStart + 1);
+    }
+    if (nextEnd - clampedStart > MAX_CHAT_VIDEO_DURATION_SEC) {
+      nextEnd = Math.min(safeTotal, clampedStart + MAX_CHAT_VIDEO_DURATION_SEC);
+    }
+    setStartSec(clampedStart);
+    setEndSec(nextEnd);
+    seekVideoTo(clampedStart);
+  };
+
+  const handleEndChange = (nextEndRaw: number) => {
+    const clampedEnd = Math.max(1, Math.min(nextEndRaw, safeTotal));
+    let nextStart = startSec;
+    if (clampedEnd <= nextStart + 1) {
+      nextStart = Math.max(0, clampedEnd - 1);
+    }
+    if (clampedEnd - nextStart > MAX_CHAT_VIDEO_DURATION_SEC) {
+      nextStart = Math.max(0, clampedEnd - MAX_CHAT_VIDEO_DURATION_SEC);
+    }
+    setStartSec(nextStart);
+    setEndSec(clampedEnd);
+    seekVideoTo(clampedEnd);
+  };
+
+  const togglePreviewPlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (isPlayingPreview) {
+      v.pause();
+      setIsPlayingPreview(false);
+    } else {
+      if (v.currentTime < startSec || v.currentTime >= endSec - 0.15) {
+        v.currentTime = startSec;
+      }
+      v.play().then(() => setIsPlayingPreview(true)).catch(() => {});
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-xl rounded-2xl bg-[#111b21] text-white shadow-2xl border border-white/10 overflow-hidden flex flex-col max-h-[92vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-4 py-3 bg-[#1f2c34] border-b border-white/10 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Scissors className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className="min-w-0">
+              <h3 className="text-sm font-extrabold truncate">Potong Video</h3>
+              {autoTriggered && (
+                <p className="text-[11px] text-amber-300 font-semibold truncate">
+                  Maksimal 2:00 • Pilih bagian video yang ingin dikirim
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="p-2 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Video Preview */}
+        <div className="relative bg-black flex items-center justify-center max-h-[45vh] overflow-hidden">
+          <video
+            ref={videoRef}
+            src={previewUrl}
+            playsInline
+            preload="auto"
+            onLoadedMetadata={() => seekVideoTo(startSec)}
+            onTimeUpdate={(e) => {
+              const t = e.currentTarget.currentTime;
+              setCurrentTime(t);
+              if (t >= endSec) {
+                e.currentTarget.currentTime = startSec;
+              }
+            }}
+            onPause={() => setIsPlayingPreview(false)}
+            onPlay={() => setIsPlayingPreview(true)}
+            onClick={togglePreviewPlay}
+            className="w-full max-h-[45vh] object-contain cursor-pointer"
+          />
+          <button
+            type="button"
+            onClick={togglePreviewPlay}
+            className="absolute bottom-3 left-3 px-3 py-1.5 rounded-full bg-black/70 hover:bg-black/85 text-white text-xs font-bold inline-flex items-center gap-1.5 backdrop-blur-xs cursor-pointer"
+          >
+            {isPlayingPreview ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-white" />}
+            <span>{formatVideoDuration(currentTime) || '0:00'}</span>
+          </button>
+          <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-emerald-600/90 text-white text-[11px] font-extrabold">
+            {formatVideoDuration(selectedDuration)} / 2:00
+          </span>
+        </div>
+
+        {/* Trim Controls */}
+        <div className="p-4 bg-[#1f2c34] border-t border-white/10 space-y-3.5">
+          {/* Visual Selected Range Bar */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+              <span>Mulai: {formatVideoDuration(startSec) || '0:00'}</span>
+              <span className="text-emerald-400">
+                Potongan: {formatVideoDuration(selectedDuration)}
+              </span>
+              <span>Selesai: {formatVideoDuration(endSec)}</span>
+            </div>
+            <div className="relative h-3 rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className="absolute top-0 bottom-0 bg-emerald-500/85 rounded-full"
+                style={{ left: `${startPercent}%`, width: `${widthPercent}%` }}
+              />
+              <div
+                className="absolute top-0 bottom-0 w-1 bg-white shadow"
+                style={{ left: `${playheadPercent}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                <span>Titik Mulai</span>
+                <span className="font-mono text-emerald-300">
+                  {formatVideoDuration(startSec) || '0:00'}
+                </span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(1, Math.floor(safeTotal - 1))}
+                step={1}
+                value={Math.floor(startSec)}
+                onChange={(e) => handleStartChange(Number(e.target.value))}
+                className="w-full accent-emerald-500 cursor-pointer"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                <span>Titik Selesai</span>
+                <span className="font-mono text-emerald-300">
+                  {formatVideoDuration(endSec)}
+                </span>
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={Math.max(1, Math.ceil(safeTotal))}
+                step={1}
+                value={Math.min(Math.ceil(safeTotal), Math.ceil(endSec))}
+                onChange={(e) => handleEndChange(Number(e.target.value))}
+                className="w-full accent-emerald-500 cursor-pointer"
+              />
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
+            <span className="text-[11px] text-slate-400 truncate">
+              {file.name} • {formatFileSize(file.size)}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => onConfirm(startSec, endSec)}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Gunakan Potongan</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -890,6 +1238,22 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     compressedSize: number;
     name: string;
     kind?: ChatAttachmentKind;
+    rawFile?: File;
+    durationSec?: number;
+    trimStartSec?: number;
+    trimEndSec?: number;
+  } | null>(null);
+  const [videoTrimDraft, setVideoTrimDraft] = useState<{
+    file: File;
+    previewUrl: string;
+    totalDurationSec: number;
+    initialStartSec: number;
+    initialEndSec: number;
+    autoTriggered: boolean;
+  } | null>(null);
+  const [videoUploadStatus, setVideoUploadStatus] = useState<{
+    label: string;
+    percent: number;
   } | null>(null);
   const [previewDocument, setPreviewDocument] = useState<{
     url: string;
@@ -1527,6 +1891,13 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           setShowGroupInfoModal(false);
           return;
         }
+        if (videoTrimDraft) {
+          if (videoTrimDraft.previewUrl.startsWith('blob:') && videoTrimDraft.previewUrl !== pendingImage?.dataUrl) {
+            URL.revokeObjectURL(videoTrimDraft.previewUrl);
+          }
+          setVideoTrimDraft(null);
+          return;
+        }
         if (showCameraModal) {
           setShowCameraModal(false);
           return;
@@ -1572,6 +1943,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     isForwardSelectMode,
     showCreateGroupModal,
     showGroupInfoModal,
+    videoTrimDraft,
+    pendingImage,
     showCameraModal,
     showAttachMenu,
     showEmojiPicker,
@@ -2094,20 +2467,22 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   };
 
-  // File/Image/Video/Document selection + automatic compression for images
+  const clearPendingAttachment = useCallback(() => {
+    setPendingImage((prev) => {
+      if (prev?.dataUrl?.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(prev.dataUrl);
+        } catch {}
+      }
+      return null;
+    });
+  }, []);
+
+  // File/Image/Video/Audio/Document selection + automatic compression & 2-minute video trimmer
   const handleSelectImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-
-    if (file.size > MAX_CHAT_FILE_BYTES) {
-      showAlert({
-        type: 'warning',
-        title: 'Ukuran File Terlalu Besar',
-        message: 'Ukuran maksimal file yang dapat dikirim di chat adalah 30 MB.',
-      });
-      return;
-    }
 
     const ext = file.name.includes('.')
       ? (file.name.split('.').pop() || '').toLowerCase()
@@ -2132,23 +2507,69 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       return;
     }
 
+    if (isVid) {
+      if (file.size > MAX_RAW_VIDEO_FILE_BYTES) {
+        showAlert({
+          type: 'warning',
+          title: 'Ukuran Video Terlalu Besar',
+          message: 'Ukuran maksimal video sumber adalah 250 MB.',
+        });
+        return;
+      }
+    } else if (file.size > MAX_CHAT_FILE_BYTES) {
+      showAlert({
+        type: 'warning',
+        title: 'Ukuran File Terlalu Besar',
+        message: 'Ukuran maksimal file yang dapat dikirim di chat adalah 30 MB.',
+      });
+      return;
+    }
+
     setShowAttachMenu(false);
     setIsCompressingImage(true);
     try {
       if (isImg) {
+        clearPendingAttachment();
         const compressed = await compressImageFile(file, 1024, 0.72);
         setPendingImage({
           ...compressed,
           kind: 'image',
         });
+      } else if (isVid) {
+        const previewUrl = URL.createObjectURL(file);
+        const durationSec = await readVideoDuration(previewUrl);
+        if (durationSec > MAX_CHAT_VIDEO_DURATION_SEC) {
+          setVideoTrimDraft({
+            file,
+            previewUrl,
+            totalDurationSec: durationSec,
+            initialStartSec: 0,
+            initialEndSec: MAX_CHAT_VIDEO_DURATION_SEC,
+            autoTriggered: true,
+          });
+        } else {
+          clearPendingAttachment();
+          setPendingImage({
+            dataUrl: previewUrl,
+            name: file.name,
+            originalSize: file.size,
+            compressedSize: file.size,
+            kind: 'video',
+            rawFile: file,
+            durationSec: durationSec > 0 ? durationSec : undefined,
+            trimStartSec: 0,
+            trimEndSec: durationSec > 0 ? durationSec : undefined,
+          });
+        }
       } else {
+        clearPendingAttachment();
         const dataUrl = await readFileToDataUrl(file);
         setPendingImage({
           dataUrl,
           name: file.name,
           originalSize: file.size,
           compressedSize: file.size,
-          kind: isVid ? 'video' : isAud ? 'audio' : 'document',
+          kind: isAud ? 'audio' : 'document',
         });
       }
     } catch {
@@ -2203,6 +2624,90 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           setComposerLinkPreview(null);
         }
       } else {
+        let attachmentUrlToSend = pendingImage?.dataUrl;
+        let attachmentNameToSend = pendingImage?.name;
+        let attachmentOriginalSize = pendingImage?.originalSize;
+        let attachmentCompressedSize = pendingImage?.compressedSize;
+
+        // Chunked binary upload + server-side trim & adaptive compression for videos
+        if (pendingImage?.kind === 'video' && pendingImage.rawFile) {
+          const rawFile = pendingImage.rawFile;
+          const uploadId = `vid-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          const totalChunks = Math.max(1, Math.ceil(rawFile.size / VIDEO_UPLOAD_CHUNK_BYTES));
+
+          setVideoUploadStatus({ label: 'Mengunggah video...', percent: 5 });
+
+          for (let i = 0; i < totalChunks; i++) {
+            const startByte = i * VIDEO_UPLOAD_CHUNK_BYTES;
+            const endByte = Math.min(rawFile.size, startByte + VIDEO_UPLOAD_CHUNK_BYTES);
+            const chunkBlob = rawFile.slice(startByte, endByte);
+
+            const chunkRes = await fetch(
+              `/api/chat/upload-video/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${i}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/octet-stream',
+                  'x-skip-crud-alert': 'true',
+                },
+                body: chunkBlob,
+              }
+            );
+            if (!chunkRes.ok) {
+              const errJson = await chunkRes.json().catch(() => null);
+              showAlert({
+                type: 'error',
+                title: 'Gagal Mengunggah Video',
+                message: errJson?.message || 'Gagal mengunggah potongan video ke server.',
+              });
+              return;
+            }
+
+            const uploadPct = Math.round(((i + 1) / totalChunks) * 75);
+            setVideoUploadStatus({
+              label: `Mengunggah video ${uploadPct}%...`,
+              percent: uploadPct,
+            });
+          }
+
+          setVideoUploadStatus({
+            label: 'Memotong & mengompres video...',
+            percent: 88,
+          });
+
+          const finRes = await fetch('/api/chat/upload-video/finalize', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-skip-crud-alert': 'true',
+            },
+            body: JSON.stringify({
+              uploadId,
+              fileName: pendingImage.name,
+              trimStartSec: pendingImage.trimStartSec ?? 0,
+              trimEndSec: pendingImage.trimEndSec,
+              senderRole: currentUserRole === 'staff' ? 'staff' : 'mitra',
+            }),
+          });
+
+          if (!finRes.ok) {
+            const errJson = await finRes.json().catch(() => null);
+            showAlert({
+              type: 'error',
+              title: 'Gagal Memproses Video',
+              message: errJson?.message || 'Gagal mengompres atau memotong video.',
+            });
+            return;
+          }
+
+          const uploaded = await finRes.json();
+          attachmentUrlToSend = uploaded.hostedUrl;
+          attachmentNameToSend = uploaded.fileName || pendingImage.name;
+          attachmentOriginalSize = uploaded.originalBytes || pendingImage.originalSize;
+          attachmentCompressedSize = uploaded.savedBytes || pendingImage.compressedSize;
+          setVideoUploadStatus({ label: 'Mengirim ke chat...', percent: 98 });
+        }
+
         // Send new message
         const res = await fetch('/api/chat/messages', {
           method: 'POST',
@@ -2218,10 +2723,10 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
             senderRole: currentUserRole === 'staff' ? 'staff' : 'mitra',
             senderAvatar: currentUserAvatar,
             text: trimmed,
-            imageUrl: pendingImage?.dataUrl,
-            imageName: pendingImage?.name,
-            imageOriginalSize: pendingImage?.originalSize,
-            imageCompressedSize: pendingImage?.compressedSize,
+            imageUrl: attachmentUrlToSend,
+            imageName: attachmentNameToSend,
+            imageOriginalSize: attachmentOriginalSize,
+            imageCompressedSize: attachmentCompressedSize,
             replyTo: replyingTo || undefined,
             linkPreview: composerLinkPreview || undefined,
           }),
@@ -2255,7 +2760,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           }
           setInputText('');
           setReplyingTo(null);
-          setPendingImage(null);
+          clearPendingAttachment();
           setComposerLinkPreview(null);
           setShowEmojiPicker(false);
         } else {
@@ -2268,6 +2773,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         }
       }
     } finally {
+      setVideoUploadStatus(null);
       setIsSending(false);
     }
   };
@@ -4075,69 +4581,130 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                     const pendingKind =
                       pendingImage.kind || getAttachmentKind(pendingImage.dataUrl, pendingImage.name);
                     const pendingDocMeta = getDocumentBadgeMeta(pendingImage.name, pendingImage.dataUrl);
+                    const hasTrimRange =
+                      pendingKind === 'video' &&
+                      pendingImage.trimEndSec !== undefined &&
+                      pendingImage.durationSec !== undefined &&
+                      ((pendingImage.trimStartSec ?? 0) > 0 ||
+                        pendingImage.trimEndSec < pendingImage.durationSec - 0.5);
                     return (
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          {pendingKind === 'image' ? (
-                            <img
-                              src={pendingImage.dataUrl}
-                              alt={pendingImage.name}
-                              className="w-12 h-12 rounded-lg object-cover border border-slate-300 shrink-0"
-                            />
-                          ) : pendingKind === 'video' ? (
-                            <div className="relative w-14 h-12 rounded-lg overflow-hidden bg-slate-950 border border-slate-300 shrink-0">
-                              <video
-                                src={pendingImage.dataUrl}
-                                muted
-                                playsInline
-                                className="w-full h-full object-cover"
-                              />
-                              <span className="absolute bottom-0.5 right-0.5 px-1 rounded bg-black/75 text-white text-[8px] font-bold">
-                                VIDEO
-                              </span>
-                            </div>
-                          ) : pendingKind === 'audio' ? (
-                            <div className="w-12 h-12 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center shrink-0">
-                              <Headphones className="w-5 h-5" />
-                            </div>
-                          ) : (
-                            <div
-                              className={`w-12 h-12 rounded-lg border ${pendingDocMeta.bgClass} ${pendingDocMeta.borderClass} ${pendingDocMeta.textClass} flex flex-col items-center justify-center shrink-0`}
-                            >
-                              <FileText className="w-4 h-4" />
-                              <span className="text-[9px] font-black leading-none mt-0.5">
-                                {pendingDocMeta.extLabel}
-                              </span>
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-800 truncate">
-                              {pendingImage.name}
-                            </p>
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
                             {pendingKind === 'image' ? (
-                              <p className="text-[11px] font-semibold text-emerald-700">
-                                ⚡ {formatFileSize(pendingImage.originalSize)} →{' '}
-                                {formatFileSize(pendingImage.compressedSize)}
-                              </p>
+                              <img
+                                src={pendingImage.dataUrl}
+                                alt={pendingImage.name}
+                                className="w-12 h-12 rounded-lg object-cover border border-slate-300 shrink-0"
+                              />
+                            ) : pendingKind === 'video' ? (
+                              <div className="relative w-14 h-12 rounded-lg overflow-hidden bg-slate-950 border border-slate-300 shrink-0">
+                                <video
+                                  src={`${pendingImage.dataUrl}#t=0.05`}
+                                  muted
+                                  playsInline
+                                  className="w-full h-full object-cover"
+                                />
+                                <span className="absolute bottom-0.5 right-0.5 px-1 rounded bg-black/75 text-white text-[8px] font-bold">
+                                  VIDEO
+                                </span>
+                              </div>
+                            ) : pendingKind === 'audio' ? (
+                              <div className="w-12 h-12 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center shrink-0">
+                                <Headphones className="w-5 h-5" />
+                              </div>
                             ) : (
-                              <p className="text-[11px] font-semibold text-slate-500">
-                                {pendingKind === 'video'
-                                  ? 'Video'
-                                  : pendingKind === 'audio'
-                                  ? 'Audio'
-                                  : pendingDocMeta.extLabel}{' '}
-                                • {formatFileSize(pendingImage.originalSize)}
-                              </p>
+                              <div
+                                className={`w-12 h-12 rounded-lg border ${pendingDocMeta.bgClass} ${pendingDocMeta.borderClass} ${pendingDocMeta.textClass} flex flex-col items-center justify-center shrink-0`}
+                              >
+                                <FileText className="w-4 h-4" />
+                                <span className="text-[9px] font-black leading-none mt-0.5">
+                                  {pendingDocMeta.extLabel}
+                                </span>
+                              </div>
                             )}
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">
+                                {pendingImage.name}
+                              </p>
+                              {pendingKind === 'image' ? (
+                                <p className="text-[11px] font-semibold text-emerald-700">
+                                  ⚡ {formatFileSize(pendingImage.originalSize)} →{' '}
+                                  {formatFileSize(pendingImage.compressedSize)}
+                                </p>
+                              ) : pendingKind === 'video' ? (
+                                <p className="text-[11px] font-semibold text-slate-500">
+                                  {hasTrimRange
+                                    ? `✂️ ${formatVideoDuration(pendingImage.trimStartSec ?? 0) || '0:00'}–${formatVideoDuration(pendingImage.trimEndSec!)}`
+                                    : pendingImage.durationSec
+                                    ? `🎬 ${formatVideoDuration(pendingImage.durationSec)}`
+                                    : 'Video'}{' '}
+                                  • {formatFileSize(pendingImage.originalSize)} • Kompres otomatis
+                                </p>
+                              ) : (
+                                <p className="text-[11px] font-semibold text-slate-500">
+                                  {pendingKind === 'audio' ? 'Audio' : pendingDocMeta.extLabel} •{' '}
+                                  {formatFileSize(pendingImage.originalSize)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {pendingKind === 'video' &&
+                              pendingImage.rawFile &&
+                              (pendingImage.durationSec || 0) > 2 &&
+                              !isSending && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setVideoTrimDraft({
+                                      file: pendingImage.rawFile!,
+                                      previewUrl: pendingImage.dataUrl,
+                                      totalDurationSec: pendingImage.durationSec!,
+                                      initialStartSec: pendingImage.trimStartSec ?? 0,
+                                      initialEndSec:
+                                        pendingImage.trimEndSec ??
+                                        Math.min(
+                                          pendingImage.durationSec!,
+                                          MAX_CHAT_VIDEO_DURATION_SEC
+                                        ),
+                                      autoTriggered: false,
+                                    })
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  title="Potong Bagian Video"
+                                >
+                                  <Scissors className="w-3.5 h-3.5" />
+                                  <span>Potong</span>
+                                </button>
+                              )}
+                            <button
+                              type="button"
+                              disabled={isSending}
+                              onClick={clearPendingAttachment}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer disabled:opacity-40"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setPendingImage(null)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        {videoUploadStatus && (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-800">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                {videoUploadStatus.label}
+                              </span>
+                              <span>{videoUploadStatus.percent}%</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-emerald-100 overflow-hidden">
+                              <div
+                                className="h-full bg-emerald-600 transition-all duration-300"
+                                style={{ width: `${videoUploadStatus.percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -5685,8 +6252,57 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           onClose={() => setShowCameraModal(false)}
           onFallbackFilePick={() => cameraInputRef.current?.click()}
           onCapture={(captured) => {
+            clearPendingAttachment();
             setPendingImage(captured);
             setShowCameraModal(false);
+            setTimeout(() => composerInputRef.current?.focus(), 50);
+          }}
+        />
+      )}
+
+      {/* INTERACTIVE VIDEO TRIM MODAL (MAX 2 MINUTES) */}
+      {videoTrimDraft && (
+        <VideoTrimModal
+          file={videoTrimDraft.file}
+          previewUrl={videoTrimDraft.previewUrl}
+          totalDurationSec={videoTrimDraft.totalDurationSec}
+          initialStartSec={videoTrimDraft.initialStartSec}
+          initialEndSec={videoTrimDraft.initialEndSec}
+          autoTriggered={videoTrimDraft.autoTriggered}
+          onCancel={() => {
+            if (
+              videoTrimDraft.previewUrl.startsWith('blob:') &&
+              videoTrimDraft.previewUrl !== pendingImage?.dataUrl
+            ) {
+              try {
+                URL.revokeObjectURL(videoTrimDraft.previewUrl);
+              } catch {}
+            }
+            setVideoTrimDraft(null);
+          }}
+          onConfirm={(startSec, endSec) => {
+            const draft = videoTrimDraft;
+            if (
+              pendingImage?.dataUrl &&
+              pendingImage.dataUrl !== draft.previewUrl &&
+              pendingImage.dataUrl.startsWith('blob:')
+            ) {
+              try {
+                URL.revokeObjectURL(pendingImage.dataUrl);
+              } catch {}
+            }
+            setPendingImage({
+              dataUrl: draft.previewUrl,
+              name: draft.file.name,
+              originalSize: draft.file.size,
+              compressedSize: draft.file.size,
+              kind: 'video',
+              rawFile: draft.file,
+              durationSec: draft.totalDurationSec,
+              trimStartSec: startSec,
+              trimEndSec: endSec,
+            });
+            setVideoTrimDraft(null);
             setTimeout(() => composerInputRef.current?.focus(), 50);
           }}
         />

@@ -6597,6 +6597,26 @@ const ALLOWED_CHAT_ATTACHMENT_EXTS = new Set([
   '7z',
 ]);
 const MAX_CHAT_ATTACHMENT_BYTES = 30 * 1024 * 1024;
+const MAX_CHAT_VIDEO_DURATION_SEC = 120;
+const MAX_RAW_VIDEO_UPLOAD_BYTES = 250 * 1024 * 1024;
+const VIDEO_UPLOAD_CHUNK_MAX_BYTES = 10 * 1024 * 1024;
+
+const atomicWriteFileSync = (targetPath: string, data: Buffer) => {
+  const dir = path.dirname(targetPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = `${targetPath}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  try {
+    fs.writeFileSync(tmpPath, data);
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    fs.writeFileSync(targetPath, data);
+  }
+};
 
 const RESOLVED_FFMPEG_BIN: string =
   typeof ffmpegStatic === 'string' && ffmpegStatic.trim() && fs.existsSync(ffmpegStatic)
@@ -6618,53 +6638,106 @@ const bufferLikelyNeedsWebVideoTranscode = (buf: Buffer, ext: string): boolean =
   );
 };
 
-const transcodeVideoBufferToWebMp4 = async (
-  rawBuffer: Buffer,
-  sourceExt: string
-): Promise<{ buffer: Buffer; ext: string; transcoded: boolean }> => {
-  const cleanExt = sourceExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+const transcodeVideoFileToWebMp4 = async (
+  inPath: string,
+  options?: {
+    trimStartSec?: number;
+    trimEndSec?: number;
+    maxDurationSec?: number;
+    rawByteSize?: number;
+  }
+): Promise<{ buffer: Buffer; ext: string; transcoded: boolean; clippedDurationSec: number }> => {
+  const maxDur = Math.max(1, Math.min(MAX_CHAT_VIDEO_DURATION_SEC, Number(options?.maxDurationSec || MAX_CHAT_VIDEO_DURATION_SEC)));
+  const startSec = Number.isFinite(Number(options?.trimStartSec))
+    ? Math.max(0, Number(options?.trimStartSec))
+    : 0;
+  const rawEndSec = Number.isFinite(Number(options?.trimEndSec))
+    ? Number(options?.trimEndSec)
+    : undefined;
+  const clippedDurationSec =
+    rawEndSec !== undefined && rawEndSec > startSec
+      ? Math.min(maxDur, Math.max(0.5, rawEndSec - startSec))
+      : maxDur;
+
+  let rawBytes = Number(options?.rawByteSize || 0);
+  if (!rawBytes) {
+    try {
+      rawBytes = fs.statSync(inPath).size;
+    } catch {}
+  }
+
+  // Adaptive resolution & bitrate so even 2-minute or large 150MB phone videos compress cleanly under ~12 MB
+  let maxDim = 1280;
+  let crf = '24';
+  let maxrate = '1800k';
+  let bufsize = '3600k';
+  let audioBitrate = '128k';
+
+  if (clippedDurationSec > 75) {
+    maxDim = 854;
+    crf = '27';
+    maxrate = '750k';
+    bufsize = '1500k';
+    audioBitrate = '96k';
+  } else if (clippedDurationSec > 35 || rawBytes > 20 * 1024 * 1024) {
+    maxDim = 960;
+    crf = '26';
+    maxrate = '1100k';
+    bufsize = '2200k';
+    audioBitrate = '96k';
+  }
+
   const uniqueId = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const inPath = path.join(os.tmpdir(), `nd-vid-in-${uniqueId}.${cleanExt}`);
   const outPath = path.join(os.tmpdir(), `nd-vid-out-${uniqueId}.mp4`);
 
+  const args: string[] = ['-y'];
+  if (startSec > 0.01) {
+    args.push('-ss', startSec.toFixed(2));
+  }
+  args.push(
+    '-i',
+    inPath,
+    '-t',
+    clippedDurationSec.toFixed(2),
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0?',
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    '-profile:v',
+    'main',
+    '-level',
+    '4.0',
+    '-preset',
+    'veryfast',
+    '-crf',
+    crf,
+    '-maxrate',
+    maxrate,
+    '-bufsize',
+    bufsize,
+    '-vf',
+    `scale='min(${maxDim},iw)':'min(${maxDim},ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
+    '-c:a',
+    'aac',
+    '-b:a',
+    audioBitrate,
+    '-ac',
+    '2',
+    '-movflags',
+    '+faststart',
+    outPath
+  );
+
   try {
-    fs.writeFileSync(inPath, rawBuffer);
     await new Promise<void>((resolve, reject) => {
       execFile(
         RESOLVED_FFMPEG_BIN,
-        [
-          '-y',
-          '-i',
-          inPath,
-          '-map',
-          '0:v:0',
-          '-map',
-          '0:a:0?',
-          '-c:v',
-          'libx264',
-          '-pix_fmt',
-          'yuv420p',
-          '-profile:v',
-          'main',
-          '-level',
-          '4.0',
-          '-preset',
-          'veryfast',
-          '-crf',
-          '24',
-          '-vf',
-          "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
-          '-c:a',
-          'aac',
-          '-b:a',
-          '128k',
-          '-ac',
-          '2',
-          '-movflags',
-          '+faststart',
-          outPath,
-        ],
-        { timeout: 90_000, maxBuffer: 10 * 1024 * 1024 },
+        args,
+        { timeout: 180_000, maxBuffer: 10 * 1024 * 1024 },
         (err) => {
           if (err) return reject(err);
           resolve();
@@ -6675,21 +6748,52 @@ const transcodeVideoBufferToWebMp4 = async (
     if (fs.existsSync(outPath)) {
       const outBuf = fs.readFileSync(outPath);
       if (outBuf.length > 1024) {
-        return { buffer: outBuf, ext: 'mp4', transcoded: true };
+        return { buffer: outBuf, ext: 'mp4', transcoded: true, clippedDurationSec };
       }
     }
   } catch (err) {
-    console.warn('Chat video web-MP4 transcode fallback to original:', (err as Error)?.message || err);
+    console.warn('Chat video web-MP4 transcode fallback:', (err as Error)?.message || err);
   } finally {
-    try {
-      if (fs.existsSync(inPath)) fs.unlinkSync(inPath);
-    } catch {}
     try {
       if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
     } catch {}
   }
 
-  return { buffer: rawBuffer, ext: cleanExt, transcoded: false };
+  return {
+    buffer: fs.existsSync(inPath) ? fs.readFileSync(inPath) : Buffer.alloc(0),
+    ext: path.extname(inPath).replace(/^\./, '').toLowerCase() || 'mp4',
+    transcoded: false,
+    clippedDurationSec,
+  };
+};
+
+const transcodeVideoBufferToWebMp4 = async (
+  rawBuffer: Buffer,
+  sourceExt: string,
+  options?: { trimStartSec?: number; trimEndSec?: number }
+): Promise<{ buffer: Buffer; ext: string; transcoded: boolean }> => {
+  const cleanExt = sourceExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+  const uniqueId = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const inPath = path.join(os.tmpdir(), `nd-vid-in-${uniqueId}.${cleanExt}`);
+
+  try {
+    fs.writeFileSync(inPath, rawBuffer);
+    const res = await transcodeVideoFileToWebMp4(inPath, {
+      trimStartSec: options?.trimStartSec,
+      trimEndSec: options?.trimEndSec,
+      maxDurationSec: MAX_CHAT_VIDEO_DURATION_SEC,
+      rawByteSize: rawBuffer.length,
+    });
+    return {
+      buffer: res.buffer.length > 0 ? res.buffer : rawBuffer,
+      ext: res.transcoded ? 'mp4' : cleanExt,
+      transcoded: res.transcoded,
+    };
+  } finally {
+    try {
+      if (fs.existsSync(inPath)) fs.unlinkSync(inPath);
+    } catch {}
+  }
 };
 
 const maybeAutoHealExistingChatVideo = async (
@@ -6729,8 +6833,7 @@ const maybeAutoHealExistingChatVideo = async (
           const target = resolveConfinedFilePath(dir, safeName);
           if (!target) continue;
           try {
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(target, result.buffer);
+            atomicWriteFileSync(target, result.buffer);
           } catch {}
         }
         if (db && result.buffer.length <= 18 * 1024 * 1024) {
@@ -7105,6 +7208,78 @@ const persistMarketingToolsToCloud = async () => {
   }
 };
 
+const saveBufferToHostingServer = (
+  rawBuffer: Buffer,
+  originalName: string,
+  extInput: string,
+  bucket: HostedUploadBucket = 'marketing-tools',
+  originalBytesOverride?: number
+): {
+  hostedUrl: string;
+  fileName: string;
+  savedBytes: number;
+  originalBytes: number;
+  formattedSize: string;
+  cloudSyncPromise?: Promise<any>;
+} | null => {
+  const ext = extInput.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+  const originalBytes = originalBytesOverride || rawBuffer.length;
+
+  if (bucket === 'chat') {
+    if (rawBuffer.length > MAX_CHAT_ATTACHMENT_BYTES) return null;
+    if (!ALLOWED_CHAT_ATTACHMENT_EXTS.has(ext)) return null;
+  }
+
+  const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
+  const safeBaseName = String(originalName || (bucket === 'chat' ? 'chat-file' : 'materi-marketing'))
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60) || (bucket === 'chat' ? 'chat-file' : 'materi-marketing');
+
+  const fileName = `${Date.now()}-${safeBaseName}.${ext}`;
+  const dirs = getUploadBucketDirs(bucket);
+
+  // Write atomically to persistent OS home storage (primary, outside git repo) + git-ignored local mirrors.
+  // Never write to dist/uploads/ so build artifacts stay clean and deleted files never resurrect.
+  const targetDirs = [dirs.homeDir, dirs.dataDir, dirs.publicDir];
+  for (const targetDir of targetDirs) {
+    const confinedTarget = resolveConfinedFilePath(targetDir, fileName);
+    if (!confinedTarget) continue;
+    try {
+      atomicWriteFileSync(confinedTarget, optimizedBuffer);
+    } catch {}
+  }
+
+  let cloudSyncPromise: Promise<any> | undefined;
+  // Also back up file binary in MySQL Cloud so even a fresh VPS/container redeploy restores it
+  if (db && optimizedBuffer.length <= 18 * 1024 * 1024) {
+    const cloudKey = `${dirs.cloudKeyPrefix}${fileName.toLowerCase()}__@ndtaxlaw.internal`;
+    const cloudPayload = JSON.stringify({
+      fileName,
+      bucket,
+      mime: getMimeTypeFromExt(fileName),
+      base64: optimizedBuffer.toString('base64'),
+      savedAt: new Date().toISOString(),
+    });
+    cloudSyncPromise = Promise.resolve(
+      db
+        .from('user_passwords')
+        .upsert([{ email: cloudKey, password: cloudPayload }])
+    ).catch(() => {});
+  }
+
+  return {
+    hostedUrl: `${dirs.urlPrefix}${fileName}`,
+    fileName,
+    savedBytes: optimizedBuffer.length,
+    originalBytes,
+    formattedSize: formatFileSizeServer(optimizedBuffer.length),
+    cloudSyncPromise,
+  };
+};
+
 const saveDataUrlToHostingServer = (
   dataUrl: string,
   originalName: string,
@@ -7122,7 +7297,6 @@ const saveDataUrlToHostingServer = (
   const mime = match[1].toLowerCase();
   const base64Data = match[2];
   const rawBuffer = Buffer.from(base64Data, 'base64');
-  const originalBytes = rawBuffer.length;
 
   let ext = fallbackExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
   if (mime.includes('pdf')) ext = 'pdf';
@@ -7160,61 +7334,7 @@ const saveDataUrlToHostingServer = (
   else if (mime.includes('csv')) ext = 'csv';
   else if (mime.includes('text/plain')) ext = 'txt';
 
-  if (bucket === 'chat') {
-    if (originalBytes > MAX_CHAT_ATTACHMENT_BYTES) return null;
-    if (!ALLOWED_CHAT_ATTACHMENT_EXTS.has(ext)) return null;
-  }
-
-  const optimizedBuffer = compressBinaryBuffer(rawBuffer, ext);
-  const safeBaseName = String(originalName || (bucket === 'chat' ? 'chat-file' : 'materi-marketing'))
-    .replace(/\.[^/.]+$/, '')
-    .replace(/[^a-zA-Z0-9-_]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60) || (bucket === 'chat' ? 'chat-file' : 'materi-marketing');
-
-  const fileName = `${Date.now()}-${safeBaseName}.${ext}`;
-  const dirs = getUploadBucketDirs(bucket);
-
-  // Write to persistent OS home storage (primary, outside git repo) + git-ignored local mirrors.
-  // Never write to dist/uploads/ so build artifacts stay clean and deleted files never resurrect.
-  const targetDirs = [dirs.homeDir, dirs.dataDir, dirs.publicDir];
-  for (const targetDir of targetDirs) {
-    const confinedTarget = resolveConfinedFilePath(targetDir, fileName);
-    if (!confinedTarget) continue;
-    try {
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-      fs.writeFileSync(confinedTarget, optimizedBuffer);
-    } catch {}
-  }
-
-  let cloudSyncPromise: Promise<any> | undefined;
-  // Also back up file binary in MySQL Cloud so even a fresh VPS/container redeploy restores it
-  if (db && optimizedBuffer.length <= 18 * 1024 * 1024) {
-    const cloudKey = `${dirs.cloudKeyPrefix}${fileName.toLowerCase()}__@ndtaxlaw.internal`;
-    const cloudPayload = JSON.stringify({
-      fileName,
-      bucket,
-      mime: getMimeTypeFromExt(fileName),
-      base64: optimizedBuffer.toString('base64'),
-      savedAt: new Date().toISOString(),
-    });
-    cloudSyncPromise = Promise.resolve(
-      db
-        .from('user_passwords')
-        .upsert([{ email: cloudKey, password: cloudPayload }])
-    ).catch(() => {});
-  }
-
-  return {
-    hostedUrl: `${dirs.urlPrefix}${fileName}`,
-    savedBytes: optimizedBuffer.length,
-    originalBytes,
-    formattedSize: formatFileSizeServer(optimizedBuffer.length),
-    cloudSyncPromise,
-  };
+  return saveBufferToHostingServer(rawBuffer, originalName, ext, bucket);
 };
 
 app.post('/api/marketing-tools/upload', async (req: Request, res: Response) => {
@@ -11758,6 +11878,149 @@ app.put('/api/chat/rooms/:id', async (req: Request, res: Response) => {
   }
 
   res.json(room);
+});
+
+// Chunked raw binary video upload (supports up to 250 MB source files without hitting Nginx/Cloudflare body limits)
+const resolveSafeVideoUploadTempPath = (uploadIdRaw: string): string | null => {
+  const cleanId = String(uploadIdRaw || '').trim();
+  if (!/^[a-zA-Z0-9_-]{8,64}$/.test(cleanId)) return null;
+  return path.join(os.tmpdir(), `nd-vid-upload-${cleanId}.part`);
+};
+
+app.post('/api/chat/upload-video/chunk', async (req: Request, res: Response) => {
+  const uploadId = String(req.query.uploadId || '').trim();
+  const chunkIndex = Number(req.query.chunkIndex ?? 0);
+  const partPath = resolveSafeVideoUploadTempPath(uploadId);
+  if (!partPath || !Number.isInteger(chunkIndex) || chunkIndex < 0) {
+    return res.status(400).json({ message: 'Parameter upload video tidak valid.' });
+  }
+
+  try {
+    const chunks: Buffer[] = [];
+    let chunkBytes = 0;
+    await new Promise<void>((resolve, reject) => {
+      req.on('data', (chunk: Buffer) => {
+        chunkBytes += chunk.length;
+        if (chunkBytes > VIDEO_UPLOAD_CHUNK_MAX_BYTES) {
+          reject(new Error('CHUNK_TOO_LARGE'));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve());
+      req.on('error', (err) => reject(err));
+    });
+
+    const buf = Buffer.concat(chunks);
+    const existingSize =
+      chunkIndex > 0 && fs.existsSync(partPath) ? fs.statSync(partPath).size : 0;
+    if (existingSize + buf.length > MAX_RAW_VIDEO_UPLOAD_BYTES) {
+      try {
+        if (fs.existsSync(partPath)) fs.unlinkSync(partPath);
+      } catch {}
+      return res.status(413).json({
+        message: 'Ukuran video mentah maksimal 250 MB.',
+      });
+    }
+
+    if (chunkIndex === 0) {
+      fs.writeFileSync(partPath, buf);
+    } else {
+      fs.appendFileSync(partPath, buf);
+    }
+
+    return res.json({
+      success: true,
+      chunkIndex,
+      receivedBytes: existingSize + buf.length,
+    });
+  } catch (err: any) {
+    return res.status(400).json({
+      message:
+        err?.message === 'CHUNK_TOO_LARGE'
+          ? 'Potongan unggahan terlalu besar.'
+          : 'Gagal menerima potongan video.',
+    });
+  }
+});
+
+app.post('/api/chat/upload-video/finalize', async (req: Request, res: Response) => {
+  const { uploadId, fileName, trimStartSec, trimEndSec, senderRole } = req.body || {};
+  if (senderRole === 'admin') {
+    return res.status(403).json({ message: 'Admin berada dalam Mode Monitoring.' });
+  }
+
+  const partPath = resolveSafeVideoUploadTempPath(String(uploadId || ''));
+  if (!partPath || !fs.existsSync(partPath)) {
+    return res.status(400).json({ message: 'File unggahan video tidak ditemukan atau sudah kedaluwarsa.' });
+  }
+
+  try {
+    const rawStat = fs.statSync(partPath);
+    const originalBytes = rawStat.size;
+    if (originalBytes <= 0 || originalBytes > MAX_RAW_VIDEO_UPLOAD_BYTES) {
+      return res.status(400).json({ message: 'Ukuran video tidak valid (maksimal 250 MB).' });
+    }
+
+    const rawName = String(fileName || `video-${Date.now()}.mp4`).trim();
+    const rawExt = rawName.includes('.')
+      ? (rawName.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '')
+      : 'mp4';
+
+    const startNum = Number.isFinite(Number(trimStartSec)) ? Math.max(0, Number(trimStartSec)) : 0;
+    const endNum = Number.isFinite(Number(trimEndSec)) ? Number(trimEndSec) : undefined;
+
+    const transcoded = await transcodeVideoFileToWebMp4(partPath, {
+      trimStartSec: startNum,
+      trimEndSec: endNum,
+      maxDurationSec: MAX_CHAT_VIDEO_DURATION_SEC,
+      rawByteSize: originalBytes,
+    });
+
+    if (!transcoded.buffer || transcoded.buffer.length === 0) {
+      return res.status(500).json({ message: 'Gagal memproses video.' });
+    }
+
+    const finalExt = transcoded.transcoded ? 'mp4' : rawExt;
+    const finalDisplayName =
+      finalExt === 'mp4' && !rawName.toLowerCase().endsWith('.mp4')
+        ? rawName.replace(/\.[^/.]+$/, '') + '.mp4'
+        : rawName;
+
+    const saved = saveBufferToHostingServer(
+      transcoded.buffer,
+      finalDisplayName,
+      finalExt,
+      'chat',
+      originalBytes
+    );
+    if (!saved) {
+      return res.status(400).json({
+        message: 'Video hasil kompresi masih melebihi batas maksimal 30 MB. Silakan perpendek durasi potongan video.',
+      });
+    }
+
+    if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
+    checkedWebVideoCache.add(saved.fileName.toLowerCase());
+
+    return res.json({
+      success: true,
+      hostedUrl: saved.hostedUrl,
+      fileName: finalDisplayName,
+      originalBytes,
+      savedBytes: saved.savedBytes,
+      formattedSize: saved.formattedSize,
+      transcoded: transcoded.transcoded,
+    });
+  } catch (err) {
+    console.error('Finalize video upload error:', err);
+    return res.status(500).json({ message: 'Terjadi kesalahan saat memotong & mengompres video.' });
+  } finally {
+    try {
+      if (fs.existsSync(partPath)) fs.unlinkSync(partPath);
+    } catch {}
+  }
 });
 
 // POST Send Chat Message (Supports text, compressed image, quote reply, social forward, and auto link metadata)
