@@ -1376,7 +1376,11 @@ export default function App() {
   }
 
   return (
-    <div className="portal-root min-h-screen w-full overflow-x-hidden pb-20 md:pb-0 bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900 transition-colors duration-300">
+    <div
+      className={`portal-root min-h-screen w-full overflow-x-hidden ${
+        activeTab === 'chat' ? 'pb-[72px] md:pb-0' : 'pb-20 md:pb-0'
+      } bg-slate-50 text-slate-800 flex flex-col justify-between selection:bg-blue-100 selection:text-blue-900 transition-colors duration-300`}
+    >
       <div className="w-full min-w-0">
         {/* Navigation Bar */}
         <Navbar
@@ -1457,7 +1461,7 @@ export default function App() {
         )}
 
         {/* Main Content Viewport */}
-        <main className={activeTab === 'chat' ? 'pb-3' : 'pb-16'}>
+        <main className={activeTab === 'chat' ? 'pb-1 md:pb-3' : 'pb-6 md:pb-16'}>
           {activeTab === 'dashboard' && (
             <AnalyticsDashboard
               salesHistory={salesHistory}
@@ -1664,7 +1668,7 @@ export default function App() {
           )}
 
           {activeTab === 'chat' && (
-            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3">
+            <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 pt-2 md:pt-3">
               <RealtimeChatHub
                 currentUserId={
                   currentRole === 'mitra'
@@ -1757,8 +1761,8 @@ export default function App() {
         />
       )}
 
-      {/* Corporate Modern Footer */}
-      <footer className="bg-white border-t border-slate-200 py-5 text-xs text-slate-500">
+      {/* Corporate Modern Footer (Hidden on Mobile so Chat & Portal views have full vertical space) */}
+      <footer className="hidden md:block bg-white border-t border-slate-200 py-5 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img

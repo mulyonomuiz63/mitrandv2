@@ -2017,7 +2017,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         </div>
       )}
       {/* Simple Top Header Bar: Icon + Chat - ND TAX AND LAW + Ringtone Toggle */}
-      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl px-4 py-2.5 shadow-md border border-emerald-700/40 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-xl px-3 md:px-4 py-2 md:py-2.5 shadow-md border border-emerald-700/40 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
             <MessageSquare className="w-5 h-5 text-emerald-300" />
@@ -2112,8 +2112,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
         </div>
       </div>
 
-      {/* Main WhatsApp-Style Split Container — Full viewport fit on Desktop & Tablet, adaptive on Mobile */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden grid grid-cols-1 md:grid-cols-12 h-[calc(100dvh-225px)] sm:h-[calc(100dvh-235px)] min-h-[380px] max-h-[760px]">
+      {/* Main WhatsApp-Style Split Container — Full viewport fit on Desktop & Tablet, expanded downward on Mobile */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden grid grid-cols-1 md:grid-cols-12 h-[calc(100dvh-180px)] sm:h-[calc(100dvh-185px)] md:h-[calc(100dvh-230px)] min-h-[440px] md:max-h-[760px]">
         {/* LEFT SIDEBAR: Rooms, Groups & Participant Directory */}
         <div
           className={`md:col-span-5 lg:col-span-4 border-r border-slate-200 flex flex-col bg-slate-50/60 h-full overflow-hidden ${
