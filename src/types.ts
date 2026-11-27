@@ -950,6 +950,11 @@ export interface ActivityLogItem {
     | 'prospect_create'
     | 'prospect_update'
     | 'prospect_delete'
+    | 'sph_create'
+    | 'sph_update'
+    | 'sph_approve'
+    | 'sph_reject'
+    | 'sph_delete'
     | 'chat_file_delete'
     | 'chat_reset';
   operation: 'LOGIN' | 'CREATE' | 'UPDATE' | 'DELETE';
@@ -2093,6 +2098,82 @@ export interface ProspectMitraSummaryRow {
   recentCompanies: string[];
 }
 
+export type SphServiceKey = 'accounting' | 'tax' | 'finance' | 'legal' | 'other';
 
+export type SphTurnoverTierId =
+  | 'up_to_1b'
+  | '1b_to_2b'
+  | '2b_to_4_8b'
+  | '4_8b_to_15b'
+  | 'above_15b';
 
+export type SphVolumeTierId = '0_50' | '51_100' | '101_200' | 'above_200';
 
+export type SphApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface SphScopeItem {
+  idText: string;
+  enText: string;
+}
+
+export interface SphServiceSelection {
+  serviceKey: SphServiceKey;
+  serviceId?: string;
+  serviceNameId: string;
+  serviceNameEn: string;
+  unitType: 'journal' | 'transaction' | 'package';
+  turnoverTierId: SphTurnoverTierId;
+  turnoverLabelId: string;
+  turnoverLabelEn: string;
+  volumeTierId: SphVolumeTierId;
+  volumeLabelId: string;
+  volumeLabelEn: string;
+  defaultMonthlyPrice: number;
+  monthlyPrice: number;
+  isNegotiation: boolean;
+  scopeItems: SphScopeItem[];
+}
+
+export interface SphDocument {
+  id: string;
+  sphNumber: string;
+  sequenceNumber: number;
+  sphDate: string; // YYYY-MM-DD
+  prospectLetterId: string;
+  prospectLetterNumber: string;
+  companyName: string;
+  companyAddress: string;
+  businessField?: string;
+  clientSignerName?: string;
+  clientSignerTitleId?: string;
+  clientSignerTitleEn?: string;
+  mitraId: string;
+  mitraName: string;
+  mitraMemberCode: string;
+  mitraPhone: string;
+  mitraEmail: string;
+  directorName: string;
+  directorTitleId: string;
+  directorTitleEn: string;
+  pricingSystem: 'monthly_subscription';
+  services: SphServiceSelection[];
+  normalTotalMonthly: number;
+  discountType: 'none' | 'amount' | 'percent' | 'special_package';
+  discountValue: number;
+  discountAmount: number;
+  finalTotalMonthly: number;
+  durationMonths: number;
+  notes?: string;
+  status: SphApprovalStatus;
+  approvedAt?: string;
+  approvedBy?: string;
+  approvalNote?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  rejectionReason?: string;
+  createdByRole: 'mitra' | 'admin' | 'staff';
+  createdByName: string;
+  createdById?: string;
+  createdAt: string;
+  updatedAt?: string;
+}

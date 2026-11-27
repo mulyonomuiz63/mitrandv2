@@ -50,6 +50,7 @@ import {
   Pause,
   Headphones,
   Scissors,
+  LogOut,
 } from 'lucide-react';
 import {
   ChatParticipant,
@@ -2303,12 +2304,16 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
     }
   }, [showGroupInfoModal, selectedRoom]);
 
-  // Staff can always edit group description & group profile photo; group creator can also edit
+  // Only Admin & Staf can manage (add/remove) group members; Mitra can only view members & leave themselves
+  const canManageGroupMembers = currentUserRole === 'admin' || currentUserRole === 'staff';
+
+  // Admin & Staf can edit group description & group profile photo; group creator can also edit
   const canEditSelectedGroup = Boolean(
     selectedRoom &&
       selectedRoom.type === 'group' &&
-      !isAdminMonitor &&
-      (currentUserRole === 'staff' || selectedRoom.createdBy === currentUserId)
+      (currentUserRole === 'admin' ||
+        currentUserRole === 'staff' ||
+        selectedRoom.createdBy === currentUserId)
   );
 
   // Start or open a direct 1-on-1 chat with a participant
@@ -3083,9 +3088,9 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       .join('\n\n');
   };
 
-  // Update group members (for existing group)
+  // Update group members (for existing group) — ONLY Admin & Staf
   const handleToggleExistingGroupMember = async (memberId: string) => {
-    if (!selectedRoom || selectedRoom.type !== 'group' || isAdminMonitor) return;
+    if (!selectedRoom || selectedRoom.type !== 'group' || !canManageGroupMembers) return;
     const exists = selectedRoom.participantIds.includes(memberId);
     if (exists && selectedRoom.participantIds.length <= 2) {
       showAlert({
@@ -3109,6 +3114,7 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
           participantIds: nextIds,
           actorId: currentUserId,
           actorName: currentUserName,
+          actorRole: currentUserRole,
         }),
       });
       if (res.ok) {
@@ -3117,6 +3123,43 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
       }
     } catch {
       // ignore
+    }
+  };
+
+  // Self-leave group (Mitra can leave a group by themselves without removing others)
+  const [isLeavingGroup, setIsLeavingGroup] = useState(false);
+  const handleLeaveSelectedGroup = async () => {
+    if (!selectedRoom || selectedRoom.type !== 'group') return;
+    if (!selectedRoom.participantIds.includes(currentUserId)) return;
+    const ok = await confirm({
+      title: 'Keluar dari Grup?',
+      message: `Anda yakin ingin keluar dari grup "${selectedRoom.name}"? Anda tidak akan menerima pesan lagi dari grup ini.`,
+      confirmText: 'Ya, Keluar Grup',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    setIsLeavingGroup(true);
+    try {
+      const res = await fetch(`/api/chat/rooms/${encodeURIComponent(selectedRoom.id)}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUserId,
+          userName: currentUserName,
+        }),
+      });
+      if (res.ok) {
+        const leftRoomId = selectedRoom.id;
+        setShowGroupInfoModal(false);
+        setRooms((prev) => prev.filter((r) => r.id !== leftRoomId));
+        setSelectedRoomId(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLeavingGroup(false);
     }
   };
 
@@ -5315,7 +5358,11 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                       Pengaturan Profil &amp; Deskripsi Grup
                     </span>
                     <span className="px-2 py-0.5 rounded bg-teal-100 text-teal-800 text-[9px] font-bold">
-                      {currentUserRole === 'staff' ? 'Akses Staf' : 'Pembuat Grup'}
+                      {currentUserRole === 'admin'
+                        ? 'Akses Admin'
+                        : currentUserRole === 'staff'
+                        ? 'Akses Staf'
+                        : 'Pembuat Grup'}
                     </span>
                   </div>
 
@@ -5438,21 +5485,20 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                   </p>
                 </div>
 
-                {!isAdminMonitor && (
-                  <input
-                    type="text"
-                    value={groupInfoMemberSearch}
-                    onChange={(e) => setGroupInfoMemberSearch(e.target.value)}
-                    placeholder="Cari Mitra / Staf..."
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
-                  />
-                )}
+                <input
+                  type="text"
+                  value={groupInfoMemberSearch}
+                  onChange={(e) => setGroupInfoMemberSearch(e.target.value)}
+                  placeholder="Cari Mitra / Staf..."
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg mb-2 outline-none"
+                />
 
                 <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl px-3">
                   {participants
                     .filter((p) => {
                       const isMember = selectedRoom.participantIds.includes(p.id);
-                      if (isAdminMonitor && !isMember) return false;
+                      // Mitra only sees registered group members; Admin & Staf can see all to add/remove
+                      if (!canManageGroupMembers && !isMember) return false;
                       const q = groupInfoMemberSearch.trim().toLowerCase();
                       if (!q) return true;
                       return (
@@ -5484,11 +5530,11 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                             </div>
                           </div>
 
-                          {!isAdminMonitor ? (
+                          {canManageGroupMembers ? (
                             <button
                               type="button"
                               onClick={() => handleToggleExistingGroupMember(p.id)}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer shrink-0 ${
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer shrink-0 transition-colors ${
                                 isMember
                                   ? 'bg-emerald-100 text-emerald-800 hover:bg-rose-100 hover:text-rose-700'
                                   : 'bg-slate-100 text-slate-700 hover:bg-emerald-600 hover:text-white'
@@ -5497,8 +5543,8 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
                               {isMember ? '✓ Anggota' : '+ Tambahkan'}
                             </button>
                           ) : (
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0">
-                              Anggota
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/70 text-[10px] font-bold shrink-0 select-none">
+                              ✓ Anggota
                             </span>
                           )}
                         </div>
@@ -5508,7 +5554,26 @@ export const RealtimeChatHub: React.FC<RealtimeChatHubProps> = ({
               </div>
             </div>
 
-            <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              {currentUserRole === 'mitra' &&
+              selectedRoom.participantIds.includes(currentUserId) ? (
+                <button
+                  type="button"
+                  disabled={isLeavingGroup}
+                  onClick={handleLeaveSelectedGroup}
+                  className="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isLeavingGroup ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <LogOut className="w-3.5 h-3.5" />
+                  )}
+                  <span>Keluar dari Grup</span>
+                </button>
+              ) : (
+                <div />
+              )}
+
               <button
                 type="button"
                 onClick={() => setShowGroupInfoModal(false)}

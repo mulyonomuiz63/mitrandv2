@@ -21,7 +21,7 @@ export type CommissionsSubTab = 'referrals' | 'transactions' | 'payouts';
 
 export type StaffSectionKey = 'staff_list' | 'add_staff' | 'admin_profile';
 
-export type ProspectsSubTab = 'mitra_summary' | 'all_letters';
+export type ProspectsSubTab = 'mitra_summary' | 'all_letters' | 'sph_requests';
 
 export type SettingsTabKey = 'general' | 'forms' | 'environment' | 'mysql' | 'smtp' | 'oauth' | 'ai';
 

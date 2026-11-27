@@ -77,13 +77,45 @@ function readInitialHashNav(): Partial<AppHistoryState> | null {
   return parseHashToNavState(window.location.hash);
 }
 
+const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 menit tanpa aktivitas -> auto logout
+const SESSION_LAST_ACTIVITY_KEY = 'nd_session_last_activity';
+
+function isStoredSessionExpired(): boolean {
+  try {
+    const rawTs = localStorage.getItem(SESSION_LAST_ACTIVITY_KEY);
+    if (!rawTs) return false;
+    const lastTs = Number(rawTs);
+    if (!Number.isFinite(lastTs) || lastTs <= 0) return false;
+    return Date.now() - lastTs >= SESSION_IDLE_TIMEOUT_MS;
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const initialHashNav = useMemo(() => readInitialHashNav(), []);
+
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(() => {
+    try {
+      if (localStorage.getItem('nd_auth_user') && isStoredSessionExpired()) {
+        return 'Sesi Anda telah berakhir otomatis karena tidak ada aktivitas selama 10 menit. Silakan login kembali.';
+      }
+    } catch {}
+    return null;
+  });
 
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
       const saved = localStorage.getItem('nd_auth_user');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      if (isStoredSessionExpired()) {
+        localStorage.removeItem('nd_auth_user');
+        localStorage.removeItem('nd_active_tab');
+        localStorage.removeItem('nd_cached_active_mitra');
+        localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
+        return null;
+      }
+      return JSON.parse(saved);
     } catch {
       return null;
     }
@@ -102,6 +134,7 @@ export default function App() {
     } catch {}
 
     const hashNav = readInitialHashNav();
+    if (sessionExpiredMessage) return 'auth';
     if (hashNav?.viewMode === 'landing') return 'landing';
     if (hashNav?.viewMode === 'auth') return hasSavedUser ? 'portal' : 'auth';
     if (hashNav?.viewMode === 'portal') return hasSavedUser ? 'portal' : 'auth';
@@ -1198,9 +1231,11 @@ export default function App() {
   const handleLoginSuccess = (user: AuthUser) => {
     replaceNextHistoryRef.current = true;
     applyModalState(null);
+    setSessionExpiredMessage(null);
     setCurrentUser(user);
     try {
       localStorage.setItem('nd_auth_user', JSON.stringify(user));
+      localStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(Date.now()));
     } catch {}
 
     if (user.role === 'admin') {
@@ -1225,18 +1260,115 @@ export default function App() {
     fetchData();
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback((options?: { expiredByIdle?: boolean }) => {
     replaceNextHistoryRef.current = true;
     applyModalState(null);
     setPendingChatRoomId(null);
     setCurrentUser(null);
-    setViewMode('landing');
+    if (options?.expiredByIdle) {
+      setSessionExpiredMessage(
+        'Sesi Anda telah berakhir otomatis karena tidak ada aktivitas selama 10 menit. Silakan login kembali.'
+      );
+      setAuthInitialMode('login');
+      setViewMode('auth');
+    } else {
+      setSessionExpiredMessage(null);
+      setViewMode('landing');
+    }
     try {
       localStorage.removeItem('nd_auth_user');
       localStorage.removeItem('nd_active_tab');
       localStorage.removeItem('nd_cached_active_mitra');
+      localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
     } catch {}
-  };
+  }, [applyModalState]);
+
+  // Automatic 10-minute inactivity logout (persisted across tabs, reloads, and sleep)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let lastActivityMs = Date.now();
+    try {
+      const savedTs = Number(localStorage.getItem(SESSION_LAST_ACTIVITY_KEY));
+      if (Number.isFinite(savedTs) && savedTs > 0) {
+        if (Date.now() - savedTs >= SESSION_IDLE_TIMEOUT_MS) {
+          handleLogout({ expiredByIdle: true });
+          return;
+        }
+        lastActivityMs = savedTs;
+      } else {
+        localStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(lastActivityMs));
+      }
+    } catch {}
+
+    let lastStorageWriteMs = lastActivityMs;
+
+    const recordUserActivity = () => {
+      const now = Date.now();
+      lastActivityMs = now;
+      if (now - lastStorageWriteMs >= 5000) {
+        lastStorageWriteMs = now;
+        try {
+          localStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(now));
+        } catch {}
+      }
+    };
+
+    const checkSessionIdle = () => {
+      try {
+        const storedTs = Number(localStorage.getItem(SESSION_LAST_ACTIVITY_KEY));
+        if (Number.isFinite(storedTs) && storedTs > lastActivityMs) {
+          lastActivityMs = storedTs;
+        }
+      } catch {}
+
+      if (Date.now() - lastActivityMs >= SESSION_IDLE_TIMEOUT_MS) {
+        handleLogout({ expiredByIdle: true });
+      }
+    };
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === 'nd_auth_user' && !e.newValue) {
+        handleLogout();
+      } else if (e.key === SESSION_LAST_ACTIVITY_KEY && e.newValue) {
+        const parsed = Number(e.newValue);
+        if (Number.isFinite(parsed) && parsed > lastActivityMs) {
+          lastActivityMs = parsed;
+        }
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSessionIdle();
+      }
+    };
+
+    const activityEvents: (keyof WindowEventMap)[] = [
+      'mousedown',
+      'mousemove',
+      'keydown',
+      'scroll',
+      'touchstart',
+      'pointerdown',
+      'click',
+    ];
+    for (const evt of activityEvents) {
+      window.addEventListener(evt, recordUserActivity, { passive: true });
+    }
+    window.addEventListener('storage', handleStorageSync);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const intervalId = window.setInterval(checkSessionIdle, 10000);
+
+    return () => {
+      for (const evt of activityEvents) {
+        window.removeEventListener(evt, recordUserActivity);
+      }
+      window.removeEventListener('storage', handleStorageSync);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [currentUser, handleLogout]);
 
   // Role is strictly locked to the authenticated user's role
   const handleRoleChange = (_newRole: 'admin' | 'mitra') => {
@@ -1365,6 +1497,19 @@ export default function App() {
   if (viewMode === 'auth' || !currentUser) {
     return (
       <div className="relative">
+        {sessionExpiredMessage && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-amber-50 border border-amber-300 shadow-lg flex items-start justify-between gap-3 text-xs text-amber-950">
+            <span className="font-semibold leading-relaxed">{sessionExpiredMessage}</span>
+            <button
+              type="button"
+              onClick={() => setSessionExpiredMessage(null)}
+              className="text-amber-700 hover:text-amber-950 font-bold shrink-0 cursor-pointer"
+              aria-label="Tutup pemberitahuan"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <AuthView
           onLoginSuccess={handleLoginSuccess}
           onRegisterSubmit={async (formData) => {
@@ -1413,7 +1558,7 @@ export default function App() {
           onOpenNotifications={() => setIsNotifDrawerOpen(true)}
           onOpenProfile={() => setIsProfileOpen(true)}
           onOpenRegister={() => setIsRegisterOpen(true)}
-          onLogout={handleLogout}
+          onLogout={() => handleLogout()}
           currentUser={currentUser}
           onViewLandingPage={() => setViewMode('landing')}
           onOpenServicesModal={() => setIsServicesModalOpen(true)}

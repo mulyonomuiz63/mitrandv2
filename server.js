@@ -4768,6 +4768,56 @@ var sendSystemEmail = async (params) => {
 var prospectLetters = [];
 var prospectLetterSequences = {};
 var usedProspectLetterNumbers = /* @__PURE__ */ new Set();
+var sphDocuments = [];
+var sphSequences = {};
+var reconcileSphSequenceState = () => {
+  for (const item of sphDocuments) {
+    if (!item) continue;
+    const rawNum = String(item.sphNumber || "").trim();
+    const suffixYearMatch = /\/(\d{4})$/.exec(rawNum);
+    const dateYear = Number(String(item.sphDate || item.createdAt || "").slice(0, 4));
+    const year = suffixYearMatch && Number(suffixYearMatch[1]) >= 2e3 ? Number(suffixYearMatch[1]) : Number.isFinite(dateYear) && dateYear >= 2e3 ? dateYear : null;
+    const prefixMatch = /^(\d+)\//.exec(rawNum);
+    const seq = Math.max(0, Number(item.sequenceNumber) || 0, prefixMatch ? Number(prefixMatch[1]) || 0 : 0);
+    if (year && seq > 0) {
+      const yk = String(year);
+      sphSequences[yk] = Math.max(sphSequences[yk] || 0, seq);
+    }
+  }
+};
+var persistSphDocumentsToCloud = async () => {
+  if (!db) return;
+  try {
+    await db.from("user_passwords").upsert([
+      {
+        email: "__sys_sph_documents__@ndtaxlaw.internal",
+        password: JSON.stringify({ items: sphDocuments, sequences: sphSequences })
+      }
+    ]);
+  } catch (e) {
+    console.warn("MySQL KV sph_documents backup warning:", e);
+  }
+};
+var allocateUniqueSphMeta = (dateObj) => {
+  const jakartaMs = dateObj.getTime() + 7 * 60 * 60 * 1e3;
+  const jakartaDate = new Date(jakartaMs);
+  const year = jakartaDate.getUTCFullYear();
+  const monthIdx = jakartaDate.getUTCMonth();
+  const day = jakartaDate.getUTCDate();
+  const romanMonth = ROMAN_MONTHS[monthIdx] || "I";
+  const yearKey = String(year);
+  reconcileSphSequenceState();
+  let nextSeq = (sphSequences[yearKey] || 0) + 1;
+  let candidate = `${String(nextSeq).padStart(3, "0")}/ND/SPH/${romanMonth}/${year}`;
+  const taken = new Set(sphDocuments.map((s) => String(s.sphNumber || "").trim().toUpperCase()));
+  while (taken.has(candidate.toUpperCase())) {
+    nextSeq += 1;
+    candidate = `${String(nextSeq).padStart(3, "0")}/ND/SPH/${romanMonth}/${year}`;
+  }
+  sphSequences[yearKey] = nextSeq;
+  const sphDate = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { sequenceNumber: nextSeq, sphNumber: candidate, sphDate };
+};
 var prospectMutationQueue = Promise.resolve();
 var withProspectMutationLock = async (fn) => {
   const prev = prospectMutationQueue;
@@ -5749,6 +5799,8 @@ var saveDatabase = () => {
       prospectLetters,
       prospectLetterSequences,
       usedProspectLetterNumbers: Array.from(usedProspectLetterNumbers),
+      sphDocuments,
+      sphSequences,
       userPasswords: passwordsObj
     };
     fs3.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), "utf-8");
@@ -5780,6 +5832,7 @@ var loadDatabase = () => {
       chatRooms = [];
       chatMessages = [];
       prospectLetters = [];
+      sphDocuments = [];
       cleanupLocalDatabaseFileInProduction();
       console.log("[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Database MySQL 100%.");
       return;
@@ -5848,6 +5901,7 @@ var loadDatabase = () => {
         chatRooms = [];
         chatMessages = [];
         prospectLetters = [];
+        sphDocuments = [];
         cleanupLocalDatabaseFileInProduction();
         console.log("[Production Mode] Hanya terhubung ke Database MySQL (penyimpanan lokal dinonaktifkan).");
       } else {
@@ -5878,7 +5932,15 @@ var loadDatabase = () => {
             if (norm) usedProspectLetterNumbers.add(norm);
           }
         }
+        if (Array.isArray(data.sphDocuments)) sphDocuments = data.sphDocuments;
+        if (data.sphSequences && typeof data.sphSequences === "object") {
+          for (const [yk, val] of Object.entries(data.sphSequences)) {
+            const n = Number(val) || 0;
+            if (n > 0) sphSequences[yk] = Math.max(sphSequences[yk] || 0, n);
+          }
+        }
         reconcileProspectLetterSequenceState();
+        reconcileSphSequenceState();
         console.log(`[Development Mode] Database lokal dimuat dari ${DB_FILE}`);
       }
     } else if (isProductionMode()) {
@@ -5894,6 +5956,7 @@ var loadDatabase = () => {
       chatRooms = [];
       chatMessages = [];
       prospectLetters = [];
+      sphDocuments = [];
       cleanupLocalDatabaseFileInProduction();
     }
   } catch (err) {
@@ -6150,6 +6213,27 @@ var syncFromMysql = async () => {
                   if (norm) usedProspectLetterNumbers.add(norm);
                 }
               }
+            }
+          } catch {
+          }
+          continue;
+        }
+        if (emailLower === "__sys_sph_documents__@ndtaxlaw.internal") {
+          try {
+            const parsedSph = JSON.parse(row.password);
+            if (parsedSph && typeof parsedSph === "object") {
+              if (Array.isArray(parsedSph.items)) {
+                sphDocuments = parsedSph.items;
+              }
+              if (parsedSph.sequences && typeof parsedSph.sequences === "object") {
+                for (const [yk, val] of Object.entries(parsedSph.sequences)) {
+                  const n = Number(val) || 0;
+                  if (n > 0) {
+                    sphSequences[yk] = Math.max(sphSequences[yk] || 0, n);
+                  }
+                }
+              }
+              reconcileSphSequenceState();
             }
           } catch {
           }
@@ -12802,6 +12886,49 @@ app.get("/api/datatables/:resource", async (req, res) => {
       if (!search) return true;
       return (row.mitraName || "").toLowerCase().includes(search) || (row.memberCode || "").toLowerCase().includes(search) || (row.referralCode || "").toLowerCase().includes(search) || (row.phone || "").toLowerCase().includes(search) || (row._allCompanyNames || "").includes(search);
     }).map(({ _allCompanyNames, _latestTs, ...publicRow }) => publicRow);
+  } else if (resource === "sph") {
+    const mitraIdFilter = String(req.query.mitraId || "").trim();
+    const prospectLetterIdFilter = String(req.query.prospectLetterId || "").trim();
+    let scoped = [...sphDocuments].sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    if (mitraIdFilter && mitraIdFilter !== "all") {
+      scoped = scoped.filter((s) => s.mitraId === mitraIdFilter);
+    }
+    if (prospectLetterIdFilter) {
+      scoped = scoped.filter((s) => s.prospectLetterId === prospectLetterIdFilter);
+    }
+    const counts = {
+      total: scoped.length,
+      pending: scoped.filter((s) => s.status === "pending").length,
+      approved: scoped.filter((s) => s.status === "approved").length,
+      rejected: scoped.filter((s) => s.status === "rejected").length
+    };
+    let filtered = scoped;
+    if (status && status !== "all") {
+      filtered = filtered.filter((s) => s.status === status);
+    }
+    if (search) {
+      filtered = filtered.filter(
+        (s) => s.sphNumber.toLowerCase().includes(search) || s.companyName.toLowerCase().includes(search) || s.mitraName.toLowerCase().includes(search) || s.mitraMemberCode.toLowerCase().includes(search) || s.prospectLetterNumber.toLowerCase().includes(search) || s.services.some((sv) => sv.serviceNameId.toLowerCase().includes(search))
+      );
+    }
+    const totalItemsSph = filtered.length;
+    const totalPagesSph = Math.max(1, Math.ceil(totalItemsSph / perPage));
+    const safePageSph = Math.min(page, totalPagesSph);
+    const startSph = (safePageSph - 1) * perPage;
+    return res.json({
+      success: true,
+      data: filtered.slice(startSph, startSph + perPage),
+      counts,
+      meta: {
+        page: safePageSph,
+        perPage,
+        totalItems: totalItemsSph,
+        totalPages: totalPagesSph,
+        totalAll: scoped.length
+      }
+    });
   } else {
     return res.status(404).json({ success: false, message: "Resource DataTables tidak ditemukan." });
   }
@@ -13367,6 +13494,585 @@ app.delete("/api/prospects/:id", async (req, res) => {
     };
   });
   return res.status(result.status).json(result.body);
+});
+var sanitizeSphServices = (rawServices) => {
+  if (!Array.isArray(rawServices)) return [];
+  const validKeys = /* @__PURE__ */ new Set(["accounting", "tax", "finance", "legal", "other"]);
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const item of rawServices) {
+    if (!item || typeof item !== "object") continue;
+    const s = item;
+    const key = String(s.serviceKey || "").trim();
+    if (!validKeys.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    const monthlyPrice = Math.max(0, Math.round(Number(s.monthlyPrice) || 0));
+    const defaultMonthlyPrice = Math.max(0, Math.round(Number(s.defaultMonthlyPrice) || 0));
+    const scopeItems = Array.isArray(s.scopeItems) ? s.scopeItems.filter((sc) => sc && (sc.idText || sc.enText)).map((sc) => ({
+      idText: String(sc.idText || "").trim(),
+      enText: String(sc.enText || sc.idText || "").trim()
+    })) : [];
+    const unitType = s.unitType === "transaction" ? "transaction" : s.unitType === "package" ? "package" : "journal";
+    out.push({
+      serviceKey: key,
+      serviceId: s.serviceId ? String(s.serviceId) : void 0,
+      serviceNameId: String(s.serviceNameId || "Jasa Bulanan").trim(),
+      serviceNameEn: String(s.serviceNameEn || "Monthly Service").trim(),
+      unitType,
+      turnoverTierId: s.turnoverTierId || "up_to_1b",
+      turnoverLabelId: String(s.turnoverLabelId || "Rp0 - Rp1 Miliar").trim(),
+      turnoverLabelEn: String(s.turnoverLabelEn || "Rp0 - Rp1 Billion").trim(),
+      volumeTierId: s.volumeTierId || "0_50",
+      volumeLabelId: String(s.volumeLabelId || "0-50 Jurnal/Bulan").trim(),
+      volumeLabelEn: String(s.volumeLabelEn || "0-50 Journals/Month").trim(),
+      defaultMonthlyPrice,
+      monthlyPrice,
+      isNegotiation: Boolean(s.isNegotiation),
+      scopeItems
+    });
+  }
+  return out;
+};
+var computeSphCounts = (list) => {
+  let pending = 0;
+  let approved = 0;
+  let rejected = 0;
+  for (const s of list) {
+    if (s.status === "approved") approved += 1;
+    else if (s.status === "rejected") rejected += 1;
+    else pending += 1;
+  }
+  return { total: list.length, pending, approved, rejected };
+};
+app.get("/api/sph", async (req, res) => {
+  if (db) {
+    await syncFromMysql();
+  }
+  const prospectLetterId = String(req.query.prospectLetterId || "").trim();
+  const mitraId = String(req.query.mitraId || "").trim();
+  const status = String(req.query.status || "").trim();
+  const search = String(req.query.search || "").trim().toLowerCase();
+  let list = [...sphDocuments].sort(
+    (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+  if (prospectLetterId) {
+    list = list.filter((s) => s.prospectLetterId === prospectLetterId);
+  }
+  if (mitraId) {
+    list = list.filter((s) => s.mitraId === mitraId);
+  }
+  const counts = computeSphCounts(list);
+  if (status && status !== "all") {
+    list = list.filter((s) => s.status === status);
+  }
+  if (search) {
+    list = list.filter(
+      (s) => s.sphNumber.toLowerCase().includes(search) || s.companyName.toLowerCase().includes(search) || s.mitraName.toLowerCase().includes(search) || s.prospectLetterNumber.toLowerCase().includes(search) || s.services.some((sv) => sv.serviceNameId.toLowerCase().includes(search))
+    );
+  }
+  return res.json({ success: true, data: list, counts });
+});
+app.post("/api/sph", async (req, res) => {
+  try {
+    if (db) {
+      await syncFromMysql();
+    }
+    const {
+      prospectLetterId,
+      services: rawServices,
+      discountType: rawDiscountType,
+      discountValue: rawDiscountValue,
+      durationMonths: rawDuration,
+      clientSignerName,
+      clientSignerTitleId,
+      clientSignerTitleEn,
+      notes,
+      autoApprove,
+      actorRole: rawActorRole,
+      actorName,
+      actorId,
+      actorEmail
+    } = req.body || {};
+    const actorRole = rawActorRole === "admin" ? "admin" : rawActorRole === "staff" ? "staff" : "mitra";
+    const letter = prospectLetters.find((l) => l.id === String(prospectLetterId || "").trim());
+    if (!letter) {
+      return res.status(404).json({
+        success: false,
+        message: "Surat penawaran prospek referensi tidak ditemukan."
+      });
+    }
+    if (actorRole === "mitra" && actorId && letter.mitraId !== String(actorId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Anda hanya dapat membuat SPH untuk surat penawaran milik Anda sendiri."
+      });
+    }
+    const sanitizedServices = sanitizeSphServices(rawServices);
+    if (sanitizedServices.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Pilih minimal 1 layanan bulanan untuk membuat SPH."
+      });
+    }
+    if (sanitizedServices.some((s) => s.monthlyPrice <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Setiap layanan yang dipilih wajib memiliki nominal harga bulanan lebih dari Rp0."
+      });
+    }
+    const normalTotalMonthly = sanitizedServices.reduce((sum, s) => sum + s.monthlyPrice, 0);
+    const discountType = rawDiscountType === "percent" || rawDiscountType === "amount" || rawDiscountType === "special_package" ? rawDiscountType : "none";
+    const numericDiscountInput = Math.max(0, Number(rawDiscountValue) || 0);
+    let discountValue = 0;
+    let discountAmount = 0;
+    let finalTotalMonthly = normalTotalMonthly;
+    if (discountType === "percent") {
+      discountValue = Math.min(90, numericDiscountInput);
+      discountAmount = Math.round(normalTotalMonthly * discountValue / 100);
+      finalTotalMonthly = Math.max(0, normalTotalMonthly - discountAmount);
+    } else if (discountType === "amount") {
+      discountValue = Math.min(normalTotalMonthly, Math.round(numericDiscountInput));
+      discountAmount = discountValue;
+      finalTotalMonthly = Math.max(0, normalTotalMonthly - discountAmount);
+    } else if (discountType === "special_package") {
+      const pkg = numericDiscountInput > 0 ? Math.min(normalTotalMonthly, Math.round(numericDiscountInput)) : normalTotalMonthly;
+      discountValue = pkg;
+      discountAmount = Math.max(0, normalTotalMonthly - pkg);
+      finalTotalMonthly = pkg;
+    }
+    if (finalTotalMonthly <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Total harga akhir penawaran harus lebih dari Rp0."
+      });
+    }
+    const durationMonths = Math.max(1, Math.min(60, Math.round(Number(rawDuration) || 12)));
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    const { sequenceNumber, sphNumber, sphDate } = allocateUniqueSphMeta(/* @__PURE__ */ new Date());
+    const isAdminAutoApprove = (actorRole === "admin" || actorRole === "staff") && Boolean(autoApprove);
+    const resolvedMaster = resolveProspectLetterContent(void 0, appSettings.prospectLetterTemplate);
+    const newSph = {
+      id: `sph-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      sphNumber,
+      sequenceNumber,
+      sphDate,
+      prospectLetterId: letter.id,
+      prospectLetterNumber: letter.letterNumber,
+      mitraId: letter.mitraId,
+      mitraName: letter.mitraName,
+      mitraMemberCode: letter.mitraMemberCode,
+      mitraPhone: letter.mitraPhone,
+      mitraEmail: letter.mitraEmail,
+      companyName: letter.companyName,
+      companyAddress: letter.companyAddress,
+      businessField: letter.businessField,
+      pricingSystem: "monthly_subscription",
+      services: sanitizedServices,
+      normalTotalMonthly,
+      discountType,
+      discountValue,
+      discountAmount,
+      finalTotalMonthly,
+      durationMonths,
+      directorName: resolvedMaster.directorName || letter.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+      directorTitleId: resolvedMaster.directorTitle || letter.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+      directorTitleEn: "Managing Director",
+      clientSignerName: clientSignerName ? String(clientSignerName).trim().slice(0, 100) : "",
+      clientSignerTitleId: clientSignerTitleId ? String(clientSignerTitleId).trim().slice(0, 100) : "",
+      clientSignerTitleEn: clientSignerTitleEn ? String(clientSignerTitleEn).trim().slice(0, 100) : "",
+      notes: notes ? String(notes).trim().slice(0, 600) : "",
+      status: isAdminAutoApprove ? "approved" : "pending",
+      approvedAt: isAdminAutoApprove ? nowIso : void 0,
+      approvedBy: isAdminAutoApprove ? String(actorName || "Admin Operasional") : void 0,
+      createdByRole: actorRole,
+      createdByName: String(actorName || letter.mitraName),
+      createdById: actorId ? String(actorId) : void 0,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+    sphDocuments.unshift(newSph);
+    saveDatabase();
+    await persistSphDocumentsToCloud();
+    const serviceSummary = sanitizedServices.map((s) => s.serviceNameId).join(" + ");
+    const notif = isAdminAutoApprove ? {
+      id: `notif-mtr-${newSph.mitraId}-${Date.now()}`,
+      title: "SPH Baru Diterbitkan & Disetujui",
+      message: `SPH ${newSph.sphNumber} untuk ${newSph.companyName} (${serviceSummary}) telah dibuat & disetujui Admin. Dokumen PDF SPH siap diunduh.`,
+      type: "client_deal",
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: "mitra",
+      mitraId: newSph.mitraId
+    } : {
+      id: `notif-adm-sph-${Date.now()}`,
+      title: "Pengajuan SPH Baru Menunggu Persetujuan",
+      message: `Mitra ${newSph.mitraName} mengajukan SPH ${newSph.sphNumber} untuk ${newSph.companyName} (${serviceSummary}, Rp${newSph.finalTotalMonthly.toLocaleString("id-ID")}/bln). Mohon tinjau & approve/tolak.`,
+      type: "client_deal",
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: "admin_staff"
+    };
+    notifications.unshift(notif);
+    saveDatabase();
+    if (db) {
+      try {
+        await db.from("notifications").insert([toDbNotification(notif)]);
+      } catch (e) {
+        console.warn("MySQL SPH notification insert warning:", e);
+      }
+    }
+    recordActivity({
+      actorRole,
+      actorId: String(actorId || letter.mitraId),
+      actorName: String(actorName || letter.mitraName),
+      actorEmail: actorEmail ? String(actorEmail) : void 0,
+      actionType: "sph_create",
+      operation: "CREATE",
+      targetEntity: `SPH ${newSph.sphNumber}`,
+      description: `Membuat SPH ${newSph.sphNumber} untuk ${newSph.companyName} (${serviceSummary}) senilai Rp${newSph.finalTotalMonthly.toLocaleString("id-ID")}/bln.`
+    });
+    return res.status(201).json({
+      success: true,
+      message: isAdminAutoApprove ? `SPH ${newSph.sphNumber} berhasil dibuat dan langsung disetujui.` : `Pengajuan SPH ${newSph.sphNumber} berhasil dikirim ke Admin untuk persetujuan.`,
+      data: newSph
+    });
+  } catch (err) {
+    console.error("[SPH Create Error]", err);
+    return res.status(500).json({ success: false, message: "Gagal membuat SPH." });
+  }
+});
+app.put("/api/sph/:id", async (req, res) => {
+  try {
+    if (db) {
+      await syncFromMysql();
+    }
+    const { id } = req.params;
+    const idx = sphDocuments.findIndex((s) => s.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Data SPH tidak ditemukan." });
+    }
+    const existing = sphDocuments[idx];
+    const {
+      services: rawServices,
+      discountType: rawDiscountType,
+      discountValue: rawDiscountValue,
+      durationMonths: rawDuration,
+      clientSignerName,
+      clientSignerTitleId,
+      clientSignerTitleEn,
+      notes,
+      autoApprove,
+      actorRole: rawActorRole,
+      actorName,
+      actorId,
+      actorEmail
+    } = req.body || {};
+    const actorRole = rawActorRole === "admin" ? "admin" : rawActorRole === "staff" ? "staff" : "mitra";
+    if (actorRole === "mitra") {
+      if (!actorId || existing.mitraId !== String(actorId)) {
+        return res.status(403).json({
+          success: false,
+          message: "Anda hanya dapat mengubah SPH milik Anda sendiri."
+        });
+      }
+      if (existing.status === "approved") {
+        return res.status(400).json({
+          success: false,
+          message: "SPH yang sudah disetujui Admin tidak dapat diubah lagi. Buat SPH baru jika memerlukan penawaran berbeda."
+        });
+      }
+    }
+    const sanitizedServices = sanitizeSphServices(rawServices);
+    if (sanitizedServices.length === 0 || sanitizedServices.some((s) => s.monthlyPrice <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Pilih minimal 1 layanan bulanan dengan nominal harga lebih dari Rp0."
+      });
+    }
+    const normalTotalMonthly = sanitizedServices.reduce((sum, s) => sum + s.monthlyPrice, 0);
+    const discountType = rawDiscountType === "percent" || rawDiscountType === "amount" || rawDiscountType === "special_package" ? rawDiscountType : "none";
+    const numericDiscountInput = Math.max(0, Number(rawDiscountValue) || 0);
+    let discountValue = 0;
+    let discountAmount = 0;
+    let finalTotalMonthly = normalTotalMonthly;
+    if (discountType === "percent") {
+      discountValue = Math.min(90, numericDiscountInput);
+      discountAmount = Math.round(normalTotalMonthly * discountValue / 100);
+      finalTotalMonthly = Math.max(0, normalTotalMonthly - discountAmount);
+    } else if (discountType === "amount") {
+      discountValue = Math.min(normalTotalMonthly, Math.round(numericDiscountInput));
+      discountAmount = discountValue;
+      finalTotalMonthly = Math.max(0, normalTotalMonthly - discountAmount);
+    } else if (discountType === "special_package") {
+      const pkg = numericDiscountInput > 0 ? Math.min(normalTotalMonthly, Math.round(numericDiscountInput)) : normalTotalMonthly;
+      discountValue = pkg;
+      discountAmount = Math.max(0, normalTotalMonthly - pkg);
+      finalTotalMonthly = pkg;
+    }
+    if (finalTotalMonthly <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Total harga akhir penawaran harus lebih dari Rp0."
+      });
+    }
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    const isAdminAutoApprove = (actorRole === "admin" || actorRole === "staff") && Boolean(autoApprove);
+    const nextStatus = actorRole === "mitra" ? "pending" : isAdminAutoApprove ? "approved" : existing.status;
+    const updated = {
+      ...existing,
+      services: sanitizedServices,
+      normalTotalMonthly,
+      discountType,
+      discountValue,
+      discountAmount,
+      finalTotalMonthly,
+      durationMonths: Math.max(1, Math.min(60, Math.round(Number(rawDuration) || existing.durationMonths || 12))),
+      clientSignerName: clientSignerName !== void 0 ? String(clientSignerName).trim().slice(0, 100) : existing.clientSignerName,
+      clientSignerTitleId: clientSignerTitleId !== void 0 ? String(clientSignerTitleId).trim().slice(0, 100) : existing.clientSignerTitleId,
+      clientSignerTitleEn: clientSignerTitleEn !== void 0 ? String(clientSignerTitleEn).trim().slice(0, 100) : existing.clientSignerTitleEn,
+      notes: notes !== void 0 ? String(notes).trim().slice(0, 600) : existing.notes,
+      status: nextStatus,
+      rejectionReason: nextStatus === "pending" || nextStatus === "approved" ? void 0 : existing.rejectionReason,
+      rejectedAt: nextStatus === "pending" || nextStatus === "approved" ? void 0 : existing.rejectedAt,
+      rejectedBy: nextStatus === "pending" || nextStatus === "approved" ? void 0 : existing.rejectedBy,
+      approvedAt: nextStatus === "approved" ? existing.approvedAt || nowIso : void 0,
+      approvedBy: nextStatus === "approved" ? existing.approvedBy || String(actorName || "Admin Operasional") : void 0,
+      updatedAt: nowIso
+    };
+    sphDocuments[idx] = updated;
+    saveDatabase();
+    await persistSphDocumentsToCloud();
+    if (actorRole === "mitra") {
+      const notif = {
+        id: `notif-adm-sph-rev-${Date.now()}`,
+        title: "Revisi Pengajuan SPH dari Mitra",
+        message: `Mitra ${updated.mitraName} mengajukan ulang revisi SPH ${updated.sphNumber} untuk ${updated.companyName} (Rp${updated.finalTotalMonthly.toLocaleString("id-ID")}/bln).`,
+        type: "client_deal",
+        timestamp: nowIso,
+        isRead: false,
+        targetAudience: "admin_staff"
+      };
+      notifications.unshift(notif);
+      saveDatabase();
+      if (db) {
+        try {
+          await db.from("notifications").insert([toDbNotification(notif)]);
+        } catch {
+        }
+      }
+    }
+    recordActivity({
+      actorRole,
+      actorId: String(actorId || updated.mitraId),
+      actorName: String(actorName || updated.mitraName),
+      actorEmail: actorEmail ? String(actorEmail) : void 0,
+      actionType: "sph_update",
+      operation: "UPDATE",
+      targetEntity: `SPH ${updated.sphNumber}`,
+      description: `Memperbarui SPH ${updated.sphNumber} (${updated.companyName}) menjadi Rp${updated.finalTotalMonthly.toLocaleString("id-ID")}/bln.`
+    });
+    return res.json({
+      success: true,
+      message: actorRole === "mitra" ? `Revisi SPH ${updated.sphNumber} berhasil dikirim ulang ke Admin.` : `SPH ${updated.sphNumber} berhasil diperbarui.`,
+      data: updated
+    });
+  } catch (err) {
+    console.error("[SPH Update Error]", err);
+    return res.status(500).json({ success: false, message: "Gagal memperbarui SPH." });
+  }
+});
+app.put("/api/sph/:id/approve", async (req, res) => {
+  try {
+    if (db) {
+      await syncFromMysql();
+    }
+    const { id } = req.params;
+    const { actorRole, actorName, actorId, actorEmail } = req.body || {};
+    if (actorRole === "mitra") {
+      return res.status(403).json({
+        success: false,
+        message: "Hanya Admin atau Staf yang dapat menyetujui SPH."
+      });
+    }
+    const idx = sphDocuments.findIndex((s) => s.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Data SPH tidak ditemukan." });
+    }
+    const existing = sphDocuments[idx];
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    const approverName = String(actorName || "Admin Operasional").trim();
+    const approved = {
+      ...existing,
+      status: "approved",
+      approvedAt: nowIso,
+      approvedBy: approverName,
+      rejectionReason: void 0,
+      rejectedAt: void 0,
+      rejectedBy: void 0,
+      updatedAt: nowIso
+    };
+    sphDocuments[idx] = approved;
+    saveDatabase();
+    await persistSphDocumentsToCloud();
+    const notif = {
+      id: `notif-mtr-${approved.mitraId}-${Date.now()}`,
+      title: "SPH Disetujui \u2014 Siap Diunduh",
+      message: `Pengajuan SPH ${approved.sphNumber} untuk ${approved.companyName} telah disetujui oleh ${approverName}. Anda kini dapat mengunduh PDF SPH resmi.`,
+      type: "verification",
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: "mitra",
+      mitraId: approved.mitraId
+    };
+    notifications.unshift(notif);
+    saveDatabase();
+    if (db) {
+      try {
+        await db.from("notifications").insert([toDbNotification(notif)]);
+      } catch {
+      }
+    }
+    recordActivity({
+      actorRole: actorRole === "staff" ? "staff" : "admin",
+      actorId: actorId ? String(actorId) : void 0,
+      actorName: approverName,
+      actorEmail: actorEmail ? String(actorEmail) : void 0,
+      actionType: "sph_approve",
+      operation: "UPDATE",
+      targetEntity: `SPH ${approved.sphNumber}`,
+      description: `Menyetujui (Approve) SPH ${approved.sphNumber} untuk ${approved.companyName} milik Mitra ${approved.mitraName}.`
+    });
+    return res.json({
+      success: true,
+      message: `SPH ${approved.sphNumber} berhasil disetujui. Mitra kini dapat mengunduh PDF SPH.`,
+      data: approved
+    });
+  } catch (err) {
+    console.error("[SPH Approve Error]", err);
+    return res.status(500).json({ success: false, message: "Gagal menyetujui SPH." });
+  }
+});
+app.put("/api/sph/:id/reject", async (req, res) => {
+  try {
+    if (db) {
+      await syncFromMysql();
+    }
+    const { id } = req.params;
+    const { rejectionReason, actorRole, actorName, actorId, actorEmail } = req.body || {};
+    if (actorRole === "mitra") {
+      return res.status(403).json({
+        success: false,
+        message: "Hanya Admin atau Staf yang dapat menolak SPH."
+      });
+    }
+    const cleanReason = String(rejectionReason || "").trim();
+    if (cleanReason.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: "Alasan penolakan wajib diisi agar Mitra mengetahui informasi revisinya."
+      });
+    }
+    const idx = sphDocuments.findIndex((s) => s.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Data SPH tidak ditemukan." });
+    }
+    const existing = sphDocuments[idx];
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    const rejectorName = String(actorName || "Admin Operasional").trim();
+    const rejected = {
+      ...existing,
+      status: "rejected",
+      rejectionReason: cleanReason.slice(0, 800),
+      rejectedAt: nowIso,
+      rejectedBy: rejectorName,
+      approvedAt: void 0,
+      approvedBy: void 0,
+      updatedAt: nowIso
+    };
+    sphDocuments[idx] = rejected;
+    saveDatabase();
+    await persistSphDocumentsToCloud();
+    const notif = {
+      id: `notif-mtr-${rejected.mitraId}-${Date.now()}`,
+      title: "Pengajuan SPH Ditolak Admin",
+      message: `SPH ${rejected.sphNumber} untuk ${rejected.companyName} ditolak oleh ${rejectorName}. Alasan: ${rejected.rejectionReason}`,
+      type: "verification",
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: "mitra",
+      mitraId: rejected.mitraId
+    };
+    notifications.unshift(notif);
+    saveDatabase();
+    if (db) {
+      try {
+        await db.from("notifications").insert([toDbNotification(notif)]);
+      } catch {
+      }
+    }
+    recordActivity({
+      actorRole: actorRole === "staff" ? "staff" : "admin",
+      actorId: actorId ? String(actorId) : void 0,
+      actorName: rejectorName,
+      actorEmail: actorEmail ? String(actorEmail) : void 0,
+      actionType: "sph_reject",
+      operation: "UPDATE",
+      targetEntity: `SPH ${rejected.sphNumber}`,
+      description: `Menolak SPH ${rejected.sphNumber} untuk ${rejected.companyName} milik Mitra ${rejected.mitraName}. Alasan: ${rejected.rejectionReason}`
+    });
+    return res.json({
+      success: true,
+      message: `SPH ${rejected.sphNumber} telah ditolak dan alasan dikirimkan ke Mitra.`,
+      data: rejected
+    });
+  } catch (err) {
+    console.error("[SPH Reject Error]", err);
+    return res.status(500).json({ success: false, message: "Gagal menolak SPH." });
+  }
+});
+app.delete("/api/sph/:id", async (req, res) => {
+  try {
+    if (db) {
+      await syncFromMysql();
+    }
+    const { id } = req.params;
+    const actorRoleRaw = String(req.body?.actorRole || req.query.actorRole || "admin").trim();
+    const actorId = String(req.body?.actorId || req.query.actorId || "").trim();
+    const actorName = String(req.body?.actorName || req.query.actorName || "Admin Operasional").trim();
+    const actorEmail = String(req.body?.actorEmail || req.query.actorEmail || "").trim();
+    const idx = sphDocuments.findIndex((s) => s.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Data SPH tidak ditemukan." });
+    }
+    const existing = sphDocuments[idx];
+    if (actorRoleRaw === "mitra" && (!actorId || existing.mitraId !== actorId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Anda hanya dapat menghapus SPH milik Anda sendiri."
+      });
+    }
+    reconcileSphSequenceState();
+    sphDocuments.splice(idx, 1);
+    saveDatabase();
+    await persistSphDocumentsToCloud();
+    recordActivity({
+      actorRole: actorRoleRaw === "mitra" ? "mitra" : actorRoleRaw === "staff" ? "staff" : "admin",
+      actorId: actorId || void 0,
+      actorName,
+      actorEmail: actorEmail || void 0,
+      actionType: "sph_delete",
+      operation: "DELETE",
+      targetEntity: `SPH ${existing.sphNumber}`,
+      description: `Menghapus SPH ${existing.sphNumber} (${existing.companyName}) milik Mitra ${existing.mitraName}.`
+    });
+    return res.json({
+      success: true,
+      message: `SPH ${existing.sphNumber} berhasil dihapus.`
+    });
+  } catch (err) {
+    console.error("[SPH Delete Error]", err);
+    return res.status(500).json({ success: false, message: "Gagal menghapus SPH." });
+  }
 });
 app.get("/api/analytics/monthly", async (req, res) => {
   if (db) {
@@ -14260,8 +14966,35 @@ app.put("/api/chat/rooms/:id", async (req, res) => {
     removeAvatar,
     participantIds,
     actorId,
-    actorName
+    actorName,
+    actorRole
   } = req.body;
+  const cleanActorId = String(actorId || "").trim();
+  const isVerifiedAdminOrStaff = actorRole === "admin" || actorRole === "staff" || cleanActorId === adminAccount.id || staffAccounts.some((s) => s.id === cleanActorId);
+  const isVerifiedMitra = !isVerifiedAdminOrStaff && mitras.some((m) => m.id === cleanActorId);
+  const prevIds = Array.isArray(room.participantIds) ? [...room.participantIds] : [];
+  let newlyAddedIds = [];
+  if (Array.isArray(participantIds)) {
+    const nextIds = Array.from(new Set(participantIds.map(String)));
+    const added = nextIds.filter((pid) => !prevIds.includes(pid));
+    const removed = prevIds.filter((pid) => !nextIds.includes(pid));
+    const membershipChanged = added.length > 0 || removed.length > 0;
+    if (membershipChanged) {
+      if (isVerifiedMitra || !isVerifiedAdminOrStaff && actorRole === "mitra") {
+        const isOnlySelfLeave = added.length === 0 && removed.length === 1 && removed[0] === cleanActorId;
+        if (!isOnlySelfLeave) {
+          return res.status(403).json({
+            message: "Hanya Admin/Staf yang dapat menambah atau mengeluarkan anggota grup. Mitra hanya dapat keluar dari grup secara mandiri."
+          });
+        }
+      }
+      if (nextIds.length < 1) {
+        return res.status(400).json({ message: "Grup harus memiliki minimal 1 anggota." });
+      }
+      newlyAddedIds = added;
+      room.participantIds = nextIds;
+    }
+  }
   if (name !== void 0 && String(name).trim()) {
     room.name = String(name).trim();
   }
@@ -14289,20 +15022,13 @@ app.put("/api/chat/rooms/:id", async (req, res) => {
   if (prevAvatarUrl && prevAvatarUrl !== room.avatarUrl) {
     await deleteHostedUploadFile(prevAvatarUrl);
   }
-  const prevIds = Array.isArray(room.participantIds) ? [...room.participantIds] : [];
-  let newlyAddedIds = [];
-  if (Array.isArray(participantIds) && participantIds.length >= 2) {
-    const nextIds = Array.from(new Set(participantIds.map(String)));
-    newlyAddedIds = nextIds.filter((pid) => !prevIds.includes(pid));
-    room.participantIds = nextIds;
-  }
   room.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   if (newlyAddedIds.length > 0) {
     await notifyMembersAddedToGroup(
       room,
       newlyAddedIds,
       String(actorId || "system"),
-      String(actorName || "Staf Operasional"),
+      String(actorName || "Admin Operasional"),
       false
     );
   } else {
@@ -14310,6 +15036,62 @@ app.put("/api/chat/rooms/:id", async (req, res) => {
     broadcastChatEvent({ type: "chat:room_updated", room });
   }
   res.json(room);
+});
+app.post("/api/chat/rooms/:id/leave", async (req, res) => {
+  const { id } = req.params;
+  const room = chatRooms.find((r) => r.id === id);
+  if (!room || room.type !== "group") {
+    return res.status(404).json({ success: false, message: "Ruang grup tidak ditemukan." });
+  }
+  const userId = String(req.body?.userId || "").trim();
+  const userName = String(req.body?.userName || "").trim();
+  if (!userId) {
+    return res.status(400).json({ success: false, message: "Identitas pengguna tidak valid." });
+  }
+  const prevIds = Array.isArray(room.participantIds) ? room.participantIds.map(String) : [];
+  if (!prevIds.includes(userId)) {
+    return res.status(400).json({ success: false, message: "Anda sudah bukan anggota grup ini." });
+  }
+  room.participantIds = prevIds.filter((pid) => pid !== userId);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const resolvedMitra = mitras.find((m) => m.id === userId);
+  const resolvedStaff = staffAccounts.find((s) => s.id === userId);
+  const safeName = userName || resolvedMitra?.fullName || resolvedStaff?.name || "Anggota";
+  const leaveText = `\u{1F44B} ${safeName} keluar dari grup.`;
+  const sysMsg = {
+    id: `msg-sys-leave-${Date.now()}-${Math.floor(Math.random() * 1e4)}`,
+    roomId: room.id,
+    senderId: userId,
+    senderName: safeName,
+    senderRole: resolvedStaff ? "staff" : "mitra",
+    senderAvatar: resolvedMitra?.avatarUrl || resolvedStaff?.avatarUrl || MALE_AVATAR_URL,
+    text: leaveText,
+    reactions: [],
+    createdAt: nowIso,
+    isSystemMessage: true
+  };
+  chatMessages.push(sysMsg);
+  room.updatedAt = nowIso;
+  room.lastMessageAt = nowIso;
+  room.lastMessageSenderId = userId;
+  room.lastMessageSenderName = safeName;
+  room.lastMessageText = leaveText;
+  await persistChatToCloud(room, sysMsg);
+  saveDatabase();
+  broadcastChatEvent({
+    type: "chat:message_created",
+    message: sysMsg,
+    room
+  });
+  broadcastChatEvent({
+    type: "chat:room_updated",
+    room
+  });
+  return res.json({
+    success: true,
+    message: `Anda berhasil keluar dari grup "${room.name}".`,
+    room
+  });
 });
 var resolveSafeVideoUploadTempPath = (uploadIdRaw) => {
   const cleanId = String(uploadIdRaw || "").trim();

@@ -22,6 +22,11 @@ import {
   AlertTriangle,
   ShieldAlert,
   Info,
+  FileSpreadsheet,
+  MoreVertical,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -32,6 +37,8 @@ import {
   ProspectLetter,
   ProspectLetterContent,
   ProspectMitraSummaryRow,
+  ServiceItem,
+  SphDocument,
   isMitraDataIncomplete,
   resolveProspectLetterContent,
 } from '../types';
@@ -41,6 +48,7 @@ import {
   assembleStructuredAddress,
   formatIndonesianLetterDate,
 } from '../utils/prospectLetterPdf';
+import { formatSphCurrencyId } from '../utils/sphCatalog';
 import type { ProspectCompanyCheckResult } from '../utils/prospectCompanyMatcher';
 import {
   ServerDataTableFooter,
@@ -52,6 +60,14 @@ import { ProspectLetterPreviewModal } from './ProspectLetterPreviewModal';
 import { ProspectEnvelopeModal } from './ProspectEnvelopeModal';
 import { ProspectLetterContentEditor } from './ProspectLetterContentEditor';
 import { downloadProspectLetterPdfFromView } from './ProspectLetterDocument';
+import { downloadSphPdfFromView } from './SphDocumentView';
+import {
+  SphFormModal,
+  SphManagerModal,
+  SphPreviewModal,
+  SphRejectModal,
+  getSphStatusBadge,
+} from './SphModals';
 import { useConfirm } from './ConfirmDialogModal';
 import { resolveAvatarUrl } from '../avatars';
 
@@ -60,6 +76,7 @@ interface ProspectsHubProps {
   currentUser: AuthUser | null;
   activeMitra: Mitra;
   allMitras: Mitra[];
+  services?: ServiceItem[];
   settings?: AppSettings | null;
   isProfileIncomplete?: boolean;
   onOpenProfileEdit?: () => void;
@@ -124,6 +141,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   currentUser,
   activeMitra,
   allMitras,
+  services,
   settings,
   isProfileIncomplete,
   onOpenProfileEdit,
@@ -197,13 +215,120 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     };
   }, [refreshTick]);
 
-  // Preview, Envelope & PDF download state
+  // Preview, Envelope, SPH & Dropdown Action Menu state
   const [previewLetter, setPreviewLetter] = useState<ProspectLetter | null>(null);
   const [envelopeLetter, setEnvelopeLetter] = useState<ProspectLetter | null>(null);
+  const [sphManagerLetter, setSphManagerLetter] = useState<ProspectLetter | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const submitLockRef = useRef(false);
   const clientRequestIdRef = useRef('');
+
+  // Floating row action dropdown (Lihat / Edit / Hapus) — fixed position so never clipped by table overflow
+  const [openRowMenu, setOpenRowMenu] = useState<{
+    letter: ProspectLetter;
+    top: number;
+    right: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!openRowMenu) return;
+    const close = () => setOpenRowMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [openRowMenu]);
+
+  const toggleRowActionMenu = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    letter: ProspectLetter
+  ) => {
+    e.stopPropagation();
+    if (openRowMenu?.letter.id === letter.id) {
+      setOpenRowMenu(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuHeight = 136;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top =
+      spaceBelow < menuHeight + 16
+        ? Math.max(12, rect.top - menuHeight - 6)
+        : rect.bottom + 6;
+    const right = Math.max(12, window.innerWidth - rect.right);
+    setOpenRowMenu({ letter, top, right });
+  };
+
+  // System Services catalog (fetched directly from /api/services so SPH aligns with live system services)
+  const [fetchedServices, setFetchedServices] = useState<ServiceItem[]>(services || []);
+  const effectiveServices = services && services.length > 0 ? services : fetchedServices;
+
+  useEffect(() => {
+    if (services && services.length > 0) return;
+    let active = true;
+    fetch('/api/services', { headers: { 'x-skip-crud-alert': 'true' } })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!active) return;
+        const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+        if (list.length > 0) setFetchedServices(list);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [services]);
+
+  // SPH Summary Counts per Prospect Letter + Global Counts
+  const [sphByLetterMap, setSphByLetterMap] = useState<
+    Record<string, { total: number; pending: number; approved: number; rejected: number }>
+  >({});
+  const [sphCounts, setSphCounts] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+
+  useEffect(() => {
+    let active = true;
+    const qs = !isAdminOrStaff && activeMitra?.id ? `?mitraId=${encodeURIComponent(activeMitra.id)}` : '';
+    fetch(`/api/sph${qs}`, { headers: { 'x-skip-crud-alert': 'true' } })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!active || !json?.success || !Array.isArray(json.data)) return;
+        const list: SphDocument[] = json.data;
+        const map: Record<string, { total: number; pending: number; approved: number; rejected: number }> = {};
+        for (const sph of list) {
+          const cur = map[sph.prospectLetterId] || { total: 0, pending: 0, approved: 0, rejected: 0 };
+          cur.total += 1;
+          if (sph.status === 'approved') cur.approved += 1;
+          else if (sph.status === 'rejected') cur.rejected += 1;
+          else cur.pending += 1;
+          map[sph.prospectLetterId] = cur;
+        }
+        setSphByLetterMap(map);
+        if (json.counts) {
+          setSphCounts(json.counts);
+        } else {
+          setSphCounts({
+            total: list.length,
+            pending: list.filter((s) => s.status === 'pending').length,
+            approved: list.filter((s) => s.status === 'approved').length,
+            rejected: list.filter((s) => s.status === 'rejected').length,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isAdminOrStaff, activeMitra?.id, refreshTick]);
 
   // =========================================================================
   // 1. SERVER-SIDE DATATABLE: LETTERS (Mitra own letters OR Admin All Letters)
@@ -228,6 +353,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
 
   const fetchLettersTable = useCallback(async () => {
     if (isAdminOrStaff && currentSubTab !== 'all_letters') return;
+    if (!isAdminOrStaff && currentSubTab === 'sph_requests') return;
     if (!isAdminOrStaff && (!activeMitra?.id || activeMitra.id === 'mitra-empty')) return;
 
     setLettersLoading(true);
@@ -399,6 +525,195 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   useEffect(() => {
     fetchDetailTable();
   }, [fetchDetailTable, refreshTick]);
+
+  // =========================================================================
+  // 3.5 SERVER-SIDE DATATABLE: PENGAJUAN SPH / DAFTAR SPH SAYA
+  // =========================================================================
+  const [sphRows, setSphRows] = useState<SphDocument[]>([]);
+  const [sphMeta, setSphMeta] = useState<ServerDataTableMeta>(EMPTY_META);
+  const [sphPage, setSphPage] = useState(1);
+  const [sphPerPage, setSphPerPage] = useState(10);
+  const [sphSearch, setSphSearch] = useState('');
+  const [debouncedSphSearch, setDebouncedSphSearch] = useState('');
+  const [sphStatusFilter, setSphStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [sphMitraFilter, setSphMitraFilter] = useState<string>('all');
+  const [sphLoading, setSphLoading] = useState(false);
+  const [previewSph, setPreviewSph] = useState<SphDocument | null>(null);
+  const [rejectingSph, setRejectingSph] = useState<SphDocument | null>(null);
+  const [revisingSph, setRevisingSph] = useState<SphDocument | null>(null);
+  const [sphBusyId, setSphBusyId] = useState<string | null>(null);
+  const [sphDownloadingId, setSphDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSphSearch(sphSearch.trim()), 260);
+    return () => window.clearTimeout(t);
+  }, [sphSearch]);
+
+  useEffect(() => {
+    setSphPage(1);
+  }, [debouncedSphSearch, sphPerPage, sphStatusFilter, sphMitraFilter]);
+
+  const fetchSphTable = useCallback(async () => {
+    if (currentSubTab !== 'sph_requests') return;
+    if (!isAdminOrStaff && (!activeMitra?.id || activeMitra.id === 'mitra-empty')) return;
+    setSphLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      qs.set('page', String(sphPage));
+      qs.set('perPage', String(sphPerPage));
+      if (debouncedSphSearch) qs.set('search', debouncedSphSearch);
+      if (sphStatusFilter !== 'all') qs.set('status', sphStatusFilter);
+      if (!isAdminOrStaff) {
+        qs.set('mitraId', activeMitra.id);
+      } else if (sphMitraFilter !== 'all') {
+        qs.set('mitraId', sphMitraFilter);
+      }
+      const res = await fetch(`/api/datatables/sph?${qs.toString()}`, {
+        headers: { 'x-skip-crud-alert': 'true' },
+      });
+      const json = await res.json();
+      if (res.ok && json?.success && Array.isArray(json.data) && json.meta) {
+        setSphRows(json.data);
+        setSphMeta(json.meta);
+        if (json.counts) setSphCounts(json.counts);
+      }
+    } catch (err) {
+      console.error('Failed to fetch SPH table:', err);
+    } finally {
+      setSphLoading(false);
+    }
+  }, [
+    currentSubTab,
+    isAdminOrStaff,
+    activeMitra?.id,
+    sphPage,
+    sphPerPage,
+    debouncedSphSearch,
+    sphStatusFilter,
+    sphMitraFilter,
+  ]);
+
+  useEffect(() => {
+    fetchSphTable();
+  }, [fetchSphTable, refreshTick]);
+
+  const actorRoleValue: 'mitra' | 'admin' | 'staff' = isAdminOrStaff
+    ? isStaff
+      ? 'staff'
+      : 'admin'
+    : 'mitra';
+  const actorNameValue = isAdminOrStaff
+    ? currentUser?.name || (isStaff ? 'Staf Operasional' : 'Admin Operasional')
+    : activeMitra.fullName;
+  const actorIdValue = isAdminOrStaff ? currentUser?.id : activeMitra.id;
+  const actorEmailValue = isAdminOrStaff ? currentUser?.email : activeMitra.email;
+
+  const handleApproveSphDirect = async (sph: SphDocument) => {
+    setSphBusyId(sph.id);
+    try {
+      const res = await fetch(`/api/sph/${encodeURIComponent(sph.id)}/approve`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorRole: actorRoleValue,
+          actorName: actorNameValue,
+          actorId: actorIdValue,
+          actorEmail: actorEmailValue,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json?.success && json.data) {
+        if (previewSph?.id === sph.id) setPreviewSph(json.data);
+        triggerRefresh();
+      }
+    } finally {
+      setSphBusyId(null);
+    }
+  };
+
+  const handleRejectSphDirect = async (sph: SphDocument, reason: string) => {
+    const res = await fetch(`/api/sph/${encodeURIComponent(sph.id)}/reject`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rejectionReason: reason,
+        actorRole: actorRoleValue,
+        actorName: actorNameValue,
+        actorId: actorIdValue,
+        actorEmail: actorEmailValue,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success) {
+      throw new Error(json?.message || 'Gagal menolak SPH.');
+    }
+    setRejectingSph(null);
+    if (previewSph?.id === sph.id && json.data) setPreviewSph(json.data);
+    triggerRefresh();
+  };
+
+  const handleDeleteSphDirect = async (sph: SphDocument) => {
+    const ok = await confirm({
+      title: 'Hapus SPH?',
+      message: `SPH ${sph.sphNumber} untuk ${sph.companyName} akan dihapus permanen.`,
+      confirmText: 'Ya, Hapus SPH',
+      cancelText: 'Batalkan',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setSphBusyId(sph.id);
+    try {
+      const res = await fetch(`/api/sph/${encodeURIComponent(sph.id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorRole: actorRoleValue,
+          actorName: actorNameValue,
+          actorId: actorIdValue,
+          actorEmail: actorEmailValue,
+        }),
+      });
+      if (res.ok) {
+        triggerRefresh();
+      }
+    } finally {
+      setSphBusyId(null);
+    }
+  };
+
+  const handleDownloadSphDirect = async (sph: SphDocument) => {
+    if (!isAdminOrStaff && sph.status !== 'approved') return;
+    setSphDownloadingId(sph.id);
+    try {
+      const latestTemplate = await fetchLatestMasterTemplate();
+      await downloadSphPdfFromView(sph, logoUrl, latestTemplate);
+    } catch (err) {
+      console.error('Download SPH PDF failed:', err);
+    } finally {
+      setSphDownloadingId(null);
+    }
+  };
+
+  const buildSyntheticLetterFromSph = (sph: SphDocument): ProspectLetter => ({
+    id: sph.prospectLetterId,
+    letterNumber: sph.prospectLetterNumber,
+    sequenceNumber: sph.sequenceNumber,
+    verificationCode: '',
+    letterDate: sph.sphDate,
+    mitraId: sph.mitraId,
+    mitraName: sph.mitraName,
+    mitraMemberCode: sph.mitraMemberCode,
+    mitraPhone: sph.mitraPhone,
+    mitraEmail: sph.mitraEmail,
+    companyName: sph.companyName,
+    businessField: sph.businessField,
+    companyAddress: sph.companyAddress,
+    directorName: sph.directorName,
+    directorTitle: sph.directorTitleId,
+    createdByRole: sph.createdByRole,
+    createdByName: sph.createdByName,
+    createdAt: sph.createdAt,
+  });
 
   // =========================================================================
   // 4. CREATE / EDIT OFFER LETTER MODAL STATE
@@ -882,8 +1197,8 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         )}
       </div>
 
-      {/* Admin/Staf Sub-Tabs */}
-      {isAdminOrStaff && (
+      {/* Sub-Tabs for Admin/Staf and Mitra */}
+      {isAdminOrStaff ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
           <button
             type="button"
@@ -909,6 +1224,69 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           >
             <FileText className="w-4 h-4 shrink-0" />
             <span>Semua Surat Prospek</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('sph_requests')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl inline-flex items-center gap-2 transition-all cursor-pointer ${
+              currentSubTab === 'sph_requests'
+                ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            <span>Pengajuan SPH</span>
+            {sphCounts.pending > 0 ? (
+              <span className="px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-slate-950 tabular-nums">
+                {sphCounts.pending}
+              </span>
+            ) : sphCounts.total > 0 ? (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-slate-200 text-slate-700 tabular-nums">
+                {sphCounts.total}
+              </span>
+            ) : null}
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setSubTab('all_letters')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl inline-flex items-center gap-2 transition-all cursor-pointer ${
+              currentSubTab !== 'sph_requests'
+                ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <FileText className="w-4 h-4 shrink-0" />
+            <span>Surat Penawaran</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('sph_requests')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl inline-flex items-center gap-2 transition-all cursor-pointer ${
+              currentSubTab === 'sph_requests'
+                ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            <span>Daftar SPH Saya</span>
+            {sphCounts.total > 0 && (
+              <span
+                className={`px-1.5 py-0.5 text-[10px] font-extrabold rounded-full tabular-nums ${
+                  sphCounts.rejected > 0
+                    ? 'bg-rose-500 text-white'
+                    : sphCounts.pending > 0
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-emerald-500 text-white'
+                }`}
+              >
+                {sphCounts.total}
+              </span>
+            )}
           </button>
         </div>
       )}
@@ -1080,7 +1458,8 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       {/* ================================================================= */}
       {/* VIEW B: MITRA LETTERS OR ADMIN ALL LETTERS (SERVER-SIDE DATATABLE)*/}
       {/* ================================================================= */}
-      {(!isAdminOrStaff || currentSubTab === 'all_letters') && (
+      {((!isAdminOrStaff && currentSubTab !== 'sph_requests') ||
+        (isAdminOrStaff && currentSubTab === 'all_letters')) && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
           <ServerDataTableTopBar
             perPage={lettersPerPage}
@@ -1178,62 +1557,72 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                       )}
 
                       <td className="py-3.5 px-4 sm:px-6 text-right align-top whitespace-nowrap">
-                        <div className="inline-flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openPreviewLetter(letter)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-[#092147] bg-blue-50 hover:bg-blue-100 border border-blue-200/70 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Lihat</span>
-                          </button>
+                        {(() => {
+                          const sphStat = sphByLetterMap[letter.id];
+                          return (
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleQuickDownloadPdf(letter)}
+                                disabled={downloadingId === letter.id}
+                                className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] border border-amber-400/30 rounded-lg inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer"
+                              >
+                                {downloadingId === letter.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
+                                <span>PDF</span>
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(letter)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            <span>Edit</span>
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => setEnvelopeLetter(letter)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                                <span>Amplop</span>
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => handleQuickDownloadPdf(letter)}
-                            disabled={downloadingId === letter.id}
-                            className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] border border-amber-400/30 rounded-lg inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer"
-                          >
-                            {downloadingId === letter.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Download className="w-3.5 h-3.5" />
-                            )}
-                            <span>PDF</span>
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => setSphManagerLetter(letter)}
+                                className="px-2.5 py-1.5 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/90 rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                                title="Buat & kelola Surat Penawaran Harga (SPH)"
+                              >
+                                <FileSpreadsheet className="w-3.5 h-3.5" />
+                                <span>SPH</span>
+                                {sphStat && sphStat.total > 0 && (
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold tabular-nums ${
+                                      sphStat.pending > 0
+                                        ? 'bg-amber-400 text-slate-950'
+                                        : sphStat.rejected > 0 && sphStat.approved === 0
+                                        ? 'bg-rose-500 text-white'
+                                        : 'bg-emerald-600 text-white'
+                                    }`}
+                                  >
+                                    {sphStat.total}
+                                  </span>
+                                )}
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => setEnvelopeLetter(letter)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            <Mail className="w-3.5 h-3.5" />
-                            <span>Amplop</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteLetter(letter)}
-                            disabled={deletingId === letter.id}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                            aria-label="Hapus surat"
-                          >
-                            {deletingId === letter.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
+                              <button
+                                type="button"
+                                onClick={(e) => toggleRowActionMenu(e, letter)}
+                                className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                  openRowMenu?.letter.id === letter.id
+                                    ? 'bg-slate-900 text-white border-slate-900'
+                                    : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                                }`}
+                                aria-label="Menu aksi surat"
+                                title="Lihat, Edit, atau Hapus"
+                              >
+                                <MoreVertical className="w-4 h-4" />
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))
@@ -1249,6 +1638,275 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
             totalPages={lettersMeta.totalPages}
             onPageChange={setLettersPage}
             unitLabel="surat"
+          />
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* VIEW C: PENGAJUAN SPH (ADMIN) / DAFTAR SPH SAYA (MITRA)           */}
+      {/* ================================================================= */}
+      {currentSubTab === 'sph_requests' && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          <ServerDataTableTopBar
+            perPage={sphPerPage}
+            onPerPageChange={setSphPerPage}
+            search={sphSearch}
+            onSearchChange={setSphSearch}
+            searchPlaceholder="Cari nomor SPH, perusahaan, layanan..."
+            isLoading={sphLoading}
+            onRefresh={fetchSphTable}
+            unitLabel="SPH"
+            rightSlot={
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={sphStatusFilter}
+                  onChange={(e) =>
+                    setSphStatusFilter(
+                      e.target.value as 'all' | 'pending' | 'approved' | 'rejected'
+                    )
+                  }
+                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-xs font-semibold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-600 cursor-pointer"
+                >
+                  <option value="all">Semua Status ({sphCounts.total})</option>
+                  <option value="pending">Menunggu Persetujuan ({sphCounts.pending})</option>
+                  <option value="approved">Disetujui Admin ({sphCounts.approved})</option>
+                  <option value="rejected">Ditolak Admin ({sphCounts.rejected})</option>
+                </select>
+
+                {isAdminOrStaff && (
+                  <select
+                    value={sphMitraFilter}
+                    onChange={(e) => setSphMitraFilter(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-xs font-semibold text-slate-700 max-w-[200px] focus:outline-hidden focus:ring-2 focus:ring-blue-600 cursor-pointer"
+                  >
+                    <option value="all">Semua Mitra</option>
+                    {allMitras.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.fullName} ({m.memberCode})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            }
+          />
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="py-3 px-4 sm:px-6 whitespace-nowrap">Nomor &amp; Tanggal SPH</th>
+                  <th className="py-3 px-4">Perusahaan &amp; Layanan</th>
+                  {isAdminOrStaff && <th className="py-3 px-4 whitespace-nowrap">Mitra</th>}
+                  <th className="py-3 px-4 whitespace-nowrap">Penawaran Bulanan</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Status</th>
+                  <th className="py-3 px-4 sm:px-6 text-right whitespace-nowrap">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {sphLoading && sphRows.length === 0 ? (
+                  <TableSkeletonRows rows={5} columns={isAdminOrStaff ? 6 : 5} />
+                ) : sphRows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={isAdminOrStaff ? 6 : 5}
+                      className="py-12 px-6 text-center text-slate-500"
+                    >
+                      <FileSpreadsheet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="font-semibold text-slate-700">
+                        Belum ada pengajuan SPH.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  sphRows.map((sph) => {
+                    const badge = getSphStatusBadge(sph.status);
+                    const canDownload = isAdminOrStaff || sph.status === 'approved';
+                    const canEdit = isAdminOrStaff || sph.status !== 'approved';
+                    return (
+                      <tr key={sph.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3.5 px-4 sm:px-6 whitespace-nowrap align-top">
+                          <p className="font-mono font-bold text-slate-900">{sph.sphNumber}</p>
+                          <p className="text-[11px] text-slate-500 tabular-nums mt-0.5">
+                            {formatIndonesianLetterDate(sph.sphDate || sph.createdAt)}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            Ref: {sph.prospectLetterNumber}
+                          </p>
+                        </td>
+
+                        <td className="py-3.5 px-4 align-top min-w-[230px] max-w-md">
+                          <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-[#092147] shrink-0" />
+                            <span className="break-words">{sph.companyName}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {sph.services.map((sv) => (
+                              <span
+                                key={sv.serviceKey}
+                                className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-semibold"
+                              >
+                                {sv.serviceNameId} · {sv.volumeLabelId}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            Omset: <span className="font-semibold text-slate-700">{sph.services[0]?.turnoverLabelId || '-'}</span>
+                            {' · '}Kontrak {sph.durationMonths} bln
+                          </p>
+                          {sph.status === 'rejected' && sph.rejectionReason && (
+                            <div className="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-900">
+                              <strong>Alasan Tolak:</strong> {sph.rejectionReason}
+                            </div>
+                          )}
+                        </td>
+
+                        {isAdminOrStaff && (
+                          <td className="py-3.5 px-4 align-top whitespace-nowrap">
+                            <p className="font-semibold text-slate-900">{sph.mitraName}</p>
+                            <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                              {sph.mitraMemberCode}
+                            </p>
+                          </td>
+                        )}
+
+                        <td className="py-3.5 px-4 align-top whitespace-nowrap">
+                          {sph.discountAmount > 0 ? (
+                            <div>
+                              <p className="text-[11px] text-slate-400 line-through font-mono">
+                                {formatSphCurrencyId(sph.normalTotalMonthly)}
+                              </p>
+                              <p className="font-mono font-extrabold text-emerald-700">
+                                {formatSphCurrencyId(sph.finalTotalMonthly)}
+                                <span className="text-[10px] font-normal text-slate-500">/bln</span>
+                              </p>
+                              <p className="text-[10px] text-emerald-700 font-semibold">
+                                Hemat {formatSphCurrencyId(sph.discountAmount)}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="font-mono font-extrabold text-[#092147]">
+                              {formatSphCurrencyId(sph.finalTotalMonthly)}
+                              <span className="text-[10px] font-normal text-slate-500">/bln</span>
+                            </p>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4 align-top whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${badge.className}`}
+                          >
+                            {badge.icon}
+                            <span>{badge.label}</span>
+                          </span>
+                          {sph.status === 'approved' && sph.approvedBy && (
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              Oleh: {sph.approvedBy}
+                            </p>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4 sm:px-6 text-right align-top whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewSph(sph)}
+                              className="px-2.5 py-1.5 text-xs font-semibold text-[#092147] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Lihat</span>
+                            </button>
+
+                            {canDownload ? (
+                              <button
+                                type="button"
+                                disabled={sphDownloadingId === sph.id}
+                                onClick={() => handleDownloadSphDirect(sph)}
+                                className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] rounded-lg inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                {sphDownloadingId === sph.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
+                                <span>PDF</span>
+                              </button>
+                            ) : (
+                              <span
+                                title="PDF SPH dapat diunduh setelah disetujui Admin"
+                                className="px-2.5 py-1.5 text-xs font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded-lg inline-flex items-center gap-1"
+                              >
+                                <Lock className="w-3.5 h-3.5" />
+                                <span>PDF</span>
+                              </span>
+                            )}
+
+                            {isAdminOrStaff && sph.status !== 'approved' && (
+                              <button
+                                type="button"
+                                disabled={sphBusyId === sph.id}
+                                onClick={() => handleApproveSphDirect(sph)}
+                                className="px-2.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                {sphBusyId === sph.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                )}
+                                <span>Approve</span>
+                              </button>
+                            )}
+
+                            {isAdminOrStaff && sph.status !== 'rejected' && (
+                              <button
+                                type="button"
+                                disabled={sphBusyId === sph.id}
+                                onClick={() => setRejectingSph(sph)}
+                                className="px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>Tolak</span>
+                              </button>
+                            )}
+
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => setRevisingSph(sph)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                <span>{sph.status === 'rejected' ? 'Revisi' : 'Edit'}</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              disabled={sphBusyId === sph.id}
+                              onClick={() => handleDeleteSphDirect(sph)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                              aria-label="Hapus SPH"
+                              title="Hapus SPH"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <ServerDataTableFooter
+            page={sphMeta.page}
+            perPage={sphPerPage}
+            totalItems={sphMeta.totalItems}
+            totalPages={sphMeta.totalPages}
+            onPageChange={setSphPage}
+            unitLabel="SPH"
           />
         </div>
       )}
@@ -1349,54 +2007,67 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                             </p>
                           </td>
                           <td className="py-3 px-4 text-right align-top whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => openPreviewLetter(letter)}
-                                className="px-2.5 py-1.5 text-xs font-semibold text-[#092147] bg-blue-50 hover:bg-blue-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>Lihat</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openEditModal(letter)}
-                                className="px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>Edit</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleQuickDownloadPdf(letter)}
-                                disabled={downloadingId === letter.id}
-                                className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] rounded-lg inline-flex items-center gap-1 disabled:opacity-60 cursor-pointer"
-                              >
-                                {downloadingId === letter.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Download className="w-3.5 h-3.5" />
-                                )}
-                                <span>PDF</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEnvelopeLetter(letter)}
-                                className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Mail className="w-3.5 h-3.5" />
-                                <span>Amplop</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteLetter(letter)}
-                                disabled={deletingId === letter.id}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                                aria-label="Hapus surat"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {(() => {
+                              const sphStat = sphByLetterMap[letter.id];
+                              return (
+                                <div className="inline-flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickDownloadPdf(letter)}
+                                    disabled={downloadingId === letter.id}
+                                    className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] rounded-lg inline-flex items-center gap-1 disabled:opacity-60 cursor-pointer"
+                                  >
+                                    {downloadingId === letter.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Download className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>PDF</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEnvelopeLetter(letter)}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Mail className="w-3.5 h-3.5" />
+                                    <span>Amplop</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSphManagerLetter(letter)}
+                                    className="px-2.5 py-1.5 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/90 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                                    <span>SPH</span>
+                                    {sphStat && sphStat.total > 0 && (
+                                      <span
+                                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold tabular-nums ${
+                                          sphStat.pending > 0
+                                            ? 'bg-amber-400 text-slate-950'
+                                            : sphStat.rejected > 0 && sphStat.approved === 0
+                                            ? 'bg-rose-500 text-white'
+                                            : 'bg-emerald-600 text-white'
+                                        }`}
+                                      >
+                                        {sphStat.total}
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => toggleRowActionMenu(e, letter)}
+                                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                      openRowMenu?.letter.id === letter.id
+                                        ? 'bg-slate-900 text-white border-slate-900'
+                                        : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                                    }`}
+                                    aria-label="Menu aksi surat"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </td>
                         </tr>
                       ))
@@ -1927,6 +2598,63 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       />
 
       {/* ================================================================= */}
+      {/* FLOATING DROPDOWN MENU: LIHAT / EDIT / HAPUS SURAT PENAWARAN      */}
+      {/* ================================================================= */}
+      {openRowMenu && (
+        <div
+          style={{ top: openRowMenu.top, right: openRowMenu.right }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-[70] w-44 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              const target = openRowMenu.letter;
+              setOpenRowMenu(null);
+              openPreviewLetter(target);
+            }}
+            className="w-full px-3.5 py-2 text-left font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#092147] flex items-center gap-2.5 cursor-pointer"
+          >
+            <Eye className="w-3.5 h-3.5 text-blue-700" />
+            <span>Lihat Surat</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const target = openRowMenu.letter;
+              setOpenRowMenu(null);
+              openEditModal(target);
+            }}
+            className="w-full px-3.5 py-2 text-left font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-800 flex items-center gap-2.5 cursor-pointer"
+          >
+            <Pencil className="w-3.5 h-3.5 text-amber-600" />
+            <span>Edit Surat</span>
+          </button>
+
+          <div className="my-1 border-t border-slate-100" />
+
+          <button
+            type="button"
+            disabled={deletingId === openRowMenu.letter.id}
+            onClick={() => {
+              const target = openRowMenu.letter;
+              setOpenRowMenu(null);
+              void handleDeleteLetter(target);
+            }}
+            className="w-full px-3.5 py-2 text-left font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
+          >
+            {deletingId === openRowMenu.letter.id ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="w-3.5 h-3.5" />
+            )}
+            <span>Hapus Surat</span>
+          </button>
+        </div>
+      )}
+
+      {/* ================================================================= */}
       {/* MODAL 5: CETAK & UNDUH AMPLOP 11cm x 22cm                         */}
       {/* ================================================================= */}
       <ProspectEnvelopeModal
@@ -1934,6 +2662,66 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         logoUrl={logoUrl}
         onClose={() => setEnvelopeLetter(null)}
       />
+
+      {/* ================================================================= */}
+      {/* MODAL 6: KELOLA & BUAT SPH (SURAT PENAWARAN HARGA) PER PERUSAHAAN */}
+      {/* ================================================================= */}
+      {sphManagerLetter && (
+        <SphManagerModal
+          letter={sphManagerLetter}
+          isAdminOrStaff={isAdminOrStaff}
+          actorRole={actorRoleValue}
+          actorName={actorNameValue}
+          actorId={actorIdValue}
+          actorEmail={actorEmailValue}
+          systemServices={effectiveServices}
+          logoUrl={logoUrl}
+          masterTemplate={masterTemplate}
+          onClose={() => setSphManagerLetter(null)}
+          onChanged={triggerRefresh}
+        />
+      )}
+
+      {/* ================================================================= */}
+      {/* MODAL 7: PRATINJAU, APPROVE/TOLAK & REVISI SPH DARI TABEL SPH     */}
+      {/* ================================================================= */}
+      {previewSph && (
+        <SphPreviewModal
+          sph={previewSph}
+          isAdminOrStaff={isAdminOrStaff}
+          logoUrl={logoUrl}
+          masterTemplate={masterTemplate}
+          onClose={() => setPreviewSph(null)}
+          onApprove={isAdminOrStaff ? handleApproveSphDirect : undefined}
+          onOpenReject={isAdminOrStaff ? (s) => setRejectingSph(s) : undefined}
+        />
+      )}
+
+      {rejectingSph && (
+        <SphRejectModal
+          sph={rejectingSph}
+          onClose={() => setRejectingSph(null)}
+          onConfirmReject={(reason) => handleRejectSphDirect(rejectingSph, reason)}
+        />
+      )}
+
+      {revisingSph && (
+        <SphFormModal
+          letter={buildSyntheticLetterFromSph(revisingSph)}
+          editingSph={revisingSph}
+          systemServices={effectiveServices}
+          actorRole={actorRoleValue}
+          actorName={actorNameValue}
+          actorId={actorIdValue}
+          actorEmail={actorEmailValue}
+          onClose={() => setRevisingSph(null)}
+          onSaved={(saved) => {
+            setRevisingSph(null);
+            triggerRefresh();
+            setPreviewSph(saved);
+          }}
+        />
+      )}
     </div>
   );
 };
