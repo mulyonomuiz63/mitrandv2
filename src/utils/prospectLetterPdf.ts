@@ -7,9 +7,11 @@ import {
   resolveProspectLetterContent,
 } from '../types';
 import {
+  interpolateProspectVariables,
   parseProspectRichText,
   ProspectLetterVariables,
-  stripProspectRichText,
+  RichTextSegment,
+  RichTextStyle,
 } from './prospectRichText';
 
 export const INDONESIAN_PROVINCES: string[] = [
@@ -256,13 +258,349 @@ export async function generateQrDataUrl(
   return dataUrl;
 }
 
+// ============================================================================
+// NATIVE VECTOR RICH-TEXT + TRUE FULL-JUSTIFY ENGINE (1:1 PARITY WITH VIEW)
+// ============================================================================
+
+const PT_TO_MM = 0.352778;
+
+interface PdfRichPiece extends RichTextStyle {
+  text: string;
+  width: number;
+}
+
+interface PdfRichWord {
+  pieces: PdfRichPiece[];
+  width: number;
+}
+
+interface PdfRichLine {
+  words: PdfRichWord[];
+  wordsWidth: number;
+  isHardEnd: boolean;
+}
+
+interface RichTextParseOpts {
+  variables?: ProspectLetterVariables;
+  autoBoldPhrases?: string[];
+  baseStyle?: RichTextStyle;
+}
+
+function getJsPdfFontStyle(style: RichTextStyle): 'normal' | 'bold' | 'italic' | 'bolditalic' {
+  if (style.bold && style.italic) return 'bolditalic';
+  if (style.bold) return 'bold';
+  if (style.italic) return 'italic';
+  return 'normal';
+}
+
+function hexToRgbTuple(hex?: string, fallback: [number, number, number] = [0, 0, 0]): [number, number, number] {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return fallback;
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function cleanPdfText(raw: string): string {
+  return raw.replace(/\r\n/g, '\n').replace(/\u00A0/g, ' ').replace(/\u200B/g, '');
+}
+
+function splitAutoBoldSegments(
+  segments: RichTextSegment[],
+  phrases?: string[]
+): RichTextSegment[] {
+  if (!phrases || phrases.length === 0) return segments;
+  const escaped = phrases.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(`(${escaped.join('|')})`, 'g');
+  const out: RichTextSegment[] = [];
+  for (const seg of segments) {
+    if (seg.bold || !seg.text) {
+      out.push(seg);
+      continue;
+    }
+    const parts = seg.text.split(regex);
+    for (const part of parts) {
+      if (!part) continue;
+      if (phrases.includes(part)) {
+        out.push({ ...seg, text: part, bold: true });
+      } else {
+        out.push({ ...seg, text: part });
+      }
+    }
+  }
+  return out;
+}
+
+function toStyledSegments(rawInput: string, opts?: RichTextParseOpts): RichTextSegment[] {
+  const parsed = parseProspectRichText(String(rawInput || ''));
+  const base = opts?.baseStyle || {};
+  const interpolated: RichTextSegment[] = parsed.map((seg) => ({
+    text: cleanPdfText(
+      opts?.variables ? interpolateProspectVariables(seg.text, opts.variables) : seg.text
+    ),
+    bold: seg.bold || base.bold || undefined,
+    italic: seg.italic || base.italic || undefined,
+    underline: seg.underline || base.underline || undefined,
+    strike: seg.strike || base.strike || undefined,
+    color: seg.color || base.color,
+  }));
+  return splitAutoBoldSegments(interpolated, opts?.autoBoldPhrases);
+}
+
+function layoutRichSegments(
+  doc: jsPDF,
+  segments: RichTextSegment[],
+  maxWidth: number,
+  fontSize: number
+): PdfRichLine[] {
+  const measurePiece = (text: string, style: RichTextStyle): number => {
+    doc.setFont('helvetica', getJsPdfFontStyle(style));
+    doc.setFontSize(fontSize);
+    return doc.getTextWidth(text);
+  };
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(fontSize);
+  const spaceW = doc.getTextWidth(' ');
+
+  // Split segments by explicit \n into hard paragraphs
+  const paragraphs: RichTextSegment[][] = [[]];
+  for (const seg of segments) {
+    if (!seg.text) continue;
+    const parts = seg.text.split('\n');
+    parts.forEach((part, idx) => {
+      if (idx > 0) {
+        paragraphs.push([]);
+      }
+      if (part.length > 0) {
+        paragraphs[paragraphs.length - 1].push({ ...seg, text: part });
+      }
+    });
+  }
+
+  const allLines: PdfRichLine[] = [];
+
+  for (const para of paragraphs) {
+    // Build words where adjacent non-whitespace styled pieces stay fused (e.g. **082180744977**,)
+    const words: PdfRichWord[] = [];
+    let currentPieces: PdfRichPiece[] = [];
+    let currentW = 0;
+
+    const flushWord = () => {
+      if (currentPieces.length > 0) {
+        words.push({ pieces: currentPieces, width: currentW });
+        currentPieces = [];
+        currentW = 0;
+      }
+    };
+
+    for (const seg of para) {
+      const tokens = seg.text.split(/(\s+)/);
+      for (const tok of tokens) {
+        if (!tok) continue;
+        if (/^\s+$/.test(tok)) {
+          flushWord();
+        } else {
+          const w = measurePiece(tok, seg);
+          currentPieces.push({
+            text: tok,
+            width: w,
+            bold: seg.bold,
+            italic: seg.italic,
+            underline: seg.underline,
+            strike: seg.strike,
+            color: seg.color,
+          });
+          currentW += w;
+        }
+      }
+    }
+    flushWord();
+
+    if (words.length === 0) {
+      allLines.push({ words: [], wordsWidth: 0, isHardEnd: true });
+      continue;
+    }
+
+    // Break any single word that exceeds maxWidth (e.g. very long URL/email without spaces)
+    const safeWords: PdfRichWord[] = [];
+    for (const word of words) {
+      if (word.width <= maxWidth + 0.05) {
+        safeWords.push(word);
+        continue;
+      }
+      let chunkPieces: PdfRichPiece[] = [];
+      let chunkW = 0;
+      for (const piece of word.pieces) {
+        let acc = '';
+        for (const ch of piece.text) {
+          const nextW = measurePiece(acc + ch, piece);
+          if (chunkW + nextW > maxWidth && (acc.length > 0 || chunkPieces.length > 0)) {
+            if (acc.length > 0) {
+              const accW = measurePiece(acc, piece);
+              chunkPieces.push({ ...piece, text: acc, width: accW });
+              chunkW += accW;
+              acc = '';
+            }
+            if (chunkPieces.length > 0) {
+              safeWords.push({ pieces: chunkPieces, width: chunkW });
+              chunkPieces = [];
+              chunkW = 0;
+            }
+          }
+          acc += ch;
+        }
+        if (acc.length > 0) {
+          const accW = measurePiece(acc, piece);
+          chunkPieces.push({ ...piece, text: acc, width: accW });
+          chunkW += accW;
+        }
+      }
+      if (chunkPieces.length > 0) {
+        safeWords.push({ pieces: chunkPieces, width: chunkW });
+      }
+    }
+
+    // Greedy line packing
+    let lineWords: PdfRichWord[] = [];
+    let lineWordsW = 0;
+
+    for (const word of safeWords) {
+      const projectedW =
+        lineWords.length === 0
+          ? word.width
+          : lineWordsW + lineWords.length * spaceW + word.width;
+      if (lineWords.length > 0 && projectedW > maxWidth + 0.05) {
+        allLines.push({
+          words: lineWords,
+          wordsWidth: lineWordsW,
+          isHardEnd: false,
+        });
+        lineWords = [word];
+        lineWordsW = word.width;
+      } else {
+        lineWords.push(word);
+        lineWordsW += word.width;
+      }
+    }
+
+    if (lineWords.length > 0) {
+      allLines.push({
+        words: lineWords,
+        wordsWidth: lineWordsW,
+        isHardEnd: true,
+      });
+    }
+  }
+
+  return allLines;
+}
+
+function drawRichLines(
+  doc: jsPDF,
+  lines: PdfRichLine[],
+  x: number,
+  topY: number,
+  maxWidth: number,
+  lineHeight: number,
+  fontSize: number,
+  align: 'left' | 'right' | 'center' | 'justify' = 'left',
+  defaultColor: [number, number, number] = [0, 0, 0]
+): number {
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(fontSize);
+  const normalSpaceW = doc.getTextWidth(' ');
+  const fontH = fontSize * PT_TO_MM;
+  // Exact CSS line-box baseline offset: half-leading + ascender (~0.78 of em)
+  const baselineOffset = (lineHeight - fontH) / 2 + fontH * 0.78;
+  const decoLineW = Math.max(0.22, fontSize * 0.025);
+
+  lines.forEach((line, idx) => {
+    if (line.words.length === 0) return;
+    const baselineY = topY + baselineOffset + idx * lineHeight;
+    const gapCount = line.words.length - 1;
+
+    let startX = x;
+    let gapW = normalSpaceW;
+
+    if (align === 'justify' && !line.isHardEnd && gapCount > 0) {
+      const computedGap = (maxWidth - line.wordsWidth) / gapCount;
+      gapW = Math.max(normalSpaceW * 0.65, computedGap);
+    } else if (align === 'right') {
+      const naturalW = line.wordsWidth + gapCount * normalSpaceW;
+      startX = x - naturalW;
+    } else if (align === 'center') {
+      const naturalW = line.wordsWidth + gapCount * normalSpaceW;
+      startX = x - naturalW / 2;
+    }
+
+    let curX = startX;
+    for (let wIdx = 0; wIdx < line.words.length; wIdx++) {
+      const word = line.words[wIdx];
+      let pieceX = curX;
+      for (const piece of word.pieces) {
+        const rgb = hexToRgbTuple(piece.color, defaultColor);
+        doc.setFont('helvetica', getJsPdfFontStyle(piece));
+        doc.setFontSize(fontSize);
+        doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+        doc.text(piece.text, pieceX, baselineY);
+
+        if (piece.underline) {
+          doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+          doc.setLineWidth(decoLineW);
+          doc.line(pieceX, baselineY + 0.65, pieceX + piece.width, baselineY + 0.65);
+        }
+        if (piece.strike) {
+          doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+          doc.setLineWidth(decoLineW);
+          doc.line(pieceX, baselineY - fontH * 0.3, pieceX + piece.width, baselineY - fontH * 0.3);
+        }
+        pieceX += piece.width;
+      }
+
+      // Continuous underline/strike across spaces when adjacent words share the decoration
+      if (wIdx < line.words.length - 1) {
+        const lastP = word.pieces[word.pieces.length - 1];
+        const nextP = line.words[wIdx + 1].pieces[0];
+        if (lastP && nextP) {
+          if (lastP.underline && nextP.underline) {
+            const rgb = hexToRgbTuple(lastP.color, defaultColor);
+            doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+            doc.setLineWidth(decoLineW);
+            doc.line(curX + word.width, baselineY + 0.65, curX + word.width + gapW, baselineY + 0.65);
+          }
+          if (lastP.strike && nextP.strike) {
+            const rgb = hexToRgbTuple(lastP.color, defaultColor);
+            doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+            doc.setLineWidth(decoLineW);
+            doc.line(
+              curX + word.width,
+              baselineY - fontH * 0.3,
+              curX + word.width + gapW,
+              baselineY - fontH * 0.3
+            );
+          }
+        }
+      }
+
+      curX += word.width + gapW;
+    }
+  });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setDrawColor(0, 0, 0);
+  return topY + lines.length * lineHeight;
+}
+
 /**
- * Generates an exact 4-page A4 PDF matching ND Tax and Law official template:
+ * Generates an exact 4-page A4 native vector PDF matching ProspectLetterDocument view 1:1:
  * - Paper: A4 Portrait (210mm x 297mm)
- * - Font: Arial / Helvetica 11pt
- * - Margins: Left & Right 30mm (3cm), Top & Bottom 40mm (4cm)
+ * - Font: Helvetica / Arial 11pt (metrically identical)
+ * - Margins: Left & Right 30mm (3cm), Top & Bottom 40mm (4cm) + configurable padding
+ * - Full Rich Text support (**bold**, *italic*, __underline__, ~~strike~~, [color=#HEX])
+ * - True full justification (rata kanan kiri) on every justified block & bullet
  * - Logo follows Admin-uploaded logo from AppSettings
- * - Body content follows Admin/Staf master template & per-letter overrides
  */
 export async function generateProspectLetterPdf(
   letter: ProspectLetter,
@@ -278,7 +616,7 @@ export async function generateProspectLetterPdf(
     compress: true,
   });
 
-  const rawContent = resolveProspectLetterContent(undefined, masterTemplate);
+  const content = resolveProspectLetterContent(undefined, masterTemplate);
   const formattedDate = formatIndonesianLetterDate(letter.letterDate || letter.createdAt);
   const letterVariables: ProspectLetterVariables = {
     NAMA_PERUSAHAAN: letter.companyName.trim(),
@@ -289,89 +627,6 @@ export async function generateProspectLetterPdf(
     ID_MITRA: letter.mitraMemberCode || '',
     WA_MITRA: letter.mitraPhone || '',
     EMAIL_MITRA: letter.mitraEmail || '',
-  };
-  const s = (val: string) => stripProspectRichText(val, letterVariables);
-  const content: ProspectLetterContent = {
-    ...rawContent,
-    city: s(rawContent.city),
-    dateLine: s(rawContent.dateLine),
-    metaNomorLabel: s(rawContent.metaNomorLabel),
-    nomorValue: s(rawContent.nomorValue),
-    metaSifatLabel: s(rawContent.metaSifatLabel),
-    sifat: s(rawContent.sifat),
-    metaLampiranLabel: s(rawContent.metaLampiranLabel),
-    lampiran: s(rawContent.lampiran),
-    metaPerihalLabel: s(rawContent.metaPerihalLabel),
-    perihal: s(rawContent.perihal),
-    recipientBlock: s(rawContent.recipientBlock),
-    greeting: s(rawContent.greeting),
-    introPara1: s(rawContent.introPara1),
-    introPara2: s(rawContent.introPara2),
-    sectionMainTitle: s(rawContent.sectionMainTitle),
-    section1Title: s(rawContent.section1Title),
-    section1Items: rawContent.section1Items.map((it) => ({
-      title: s(it.title),
-      bullets: it.bullets.map((b) => s(b)),
-    })),
-    section1Sanction: s(rawContent.section1Sanction),
-    section2Title: s(rawContent.section2Title),
-    section2Items: rawContent.section2Items.map((it) => ({
-      title: s(it.title),
-      bullets: it.bullets.map((b) => s(b)),
-    })),
-    section2Sanction: s(rawContent.section2Sanction),
-    section3Title: s(rawContent.section3Title),
-    section3Items: rawContent.section3Items.map((it) => ({
-      title: s(it.title),
-      bullets: it.bullets.map((b) => s(b)),
-    })),
-    section3Sanction: s(rawContent.section3Sanction),
-    aboutTitle: s(rawContent.aboutTitle),
-    aboutPara: s(rawContent.aboutPara),
-    servicesTitle: s(rawContent.servicesTitle),
-    servicesIntro: s(rawContent.servicesIntro),
-    servicesItems: rawContent.servicesItems.map((it) => ({
-      lead: s(it.lead),
-      body: s(it.body),
-    })),
-    servicesCaseNote: s(rawContent.servicesCaseNote),
-    comparisonTitle: s(rawContent.comparisonTitle),
-    comparisonIntro: s(rawContent.comparisonIntro),
-    comparisonHeaders: [
-      s(rawContent.comparisonHeaders[0]),
-      s(rawContent.comparisonHeaders[1]),
-      s(rawContent.comparisonHeaders[2]),
-    ],
-    comparisonRows: rawContent.comparisonRows.map((r) => ({
-      component: s(r.component),
-      internalStaff: s(r.internalStaff),
-      consultant: s(r.consultant),
-    })),
-    comparisonClosing: s(rawContent.comparisonClosing),
-    consultTitle: s(rawContent.consultTitle),
-    consultPara: s(rawContent.consultPara),
-    mitraBoxTitle: s(rawContent.mitraBoxTitle),
-    mitraBoxNameLabel: s(rawContent.mitraBoxNameLabel),
-    mitraBoxNameValue: s(rawContent.mitraBoxNameValue),
-    mitraBoxIdLabel: s(rawContent.mitraBoxIdLabel),
-    mitraBoxIdValue: s(rawContent.mitraBoxIdValue),
-    mitraBoxPhoneLabel: s(rawContent.mitraBoxPhoneLabel),
-    mitraBoxPhoneValue: s(rawContent.mitraBoxPhoneValue),
-    mitraBoxEmailLabel: s(rawContent.mitraBoxEmailLabel),
-    mitraBoxEmailValue: s(rawContent.mitraBoxEmailValue),
-    closingPara: s(rawContent.closingPara),
-    directorSignHeading: s(rawContent.directorSignHeading),
-    directorFirmLabel: s(rawContent.directorFirmLabel),
-    directorName: s(rawContent.directorName),
-    directorTitle: s(rawContent.directorTitle),
-    mitraSignHeading: s(rawContent.mitraSignHeading),
-    mitraSignerLabel: s(rawContent.mitraSignerLabel),
-    mitraSignerName: s(rawContent.mitraSignerName),
-    mitraRoleLabel: s(rawContent.mitraRoleLabel),
-    footerLeftTitle: s(rawContent.footerLeftTitle),
-    footerLeftLines: rawContent.footerLeftLines.map((l) => s(l)),
-    footerRightTitle: s(rawContent.footerRightTitle),
-    footerRightLines: rawContent.footerRightLines.map((l) => s(l)),
   };
 
   const PAGE_W = 210;
@@ -404,10 +659,51 @@ export async function generateProspectLetterPdf(
   ]);
   const hasCustomLogoRendered = Boolean(useCustomAdminLogo && loadedLogo && cachedLogos.has(targetLogoSrc));
 
+  const layoutRich = (
+    raw: string,
+    maxWidth: number,
+    fontSize: number,
+    opts?: RichTextParseOpts
+  ): PdfRichLine[] => {
+    const segs = toStyledSegments(raw, opts);
+    return layoutRichSegments(doc, segs, maxWidth, fontSize);
+  };
+
+  const drawRich = (
+    raw: string,
+    x: number,
+    topY: number,
+    maxWidth: number,
+    lineHeight: number,
+    fontSize: number,
+    align: 'left' | 'right' | 'center' | 'justify' = 'left',
+    opts?: RichTextParseOpts,
+    defaultColor: [number, number, number] = [0, 0, 0]
+  ): number => {
+    const lines = layoutRich(raw, maxWidth, fontSize, opts);
+    return drawRichLines(doc, lines, x, topY, maxWidth, lineHeight, fontSize, align, defaultColor);
+  };
+
+  const drawMarker = (
+    marker: string,
+    x: number,
+    topY: number,
+    lineHeight: number,
+    fontSize: number,
+    bold = false
+  ) => {
+    const fontH = fontSize * PT_TO_MM;
+    const baselineY = topY + (lineHeight - fontH) / 2 + fontH * 0.78;
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(fontSize);
+    doc.setTextColor(0, 0, 0);
+    doc.text(marker, x, baselineY);
+  };
+
   const drawHeaderAndFooter = () => {
-    // HEADER (inside top 40mm zone)
+    // HEADER (exact match with LetterHeader in ProspectLetterDocument)
     if (hasCustomLogoRendered && loadedLogo) {
-      const maxW = 56;
+      const maxW = 58;
       const maxH = 25;
       const ratio = loadedLogo.width / Math.max(1, loadedLogo.height);
       let drawW = maxW;
@@ -420,644 +716,712 @@ export async function generateProspectLetterPdf(
       const drawY = 7.5 + (maxH - drawH) / 2;
       doc.addImage(loadedLogo.dataUrl, 'PNG', drawX, drawY, drawW, drawH, 'nd-prospect-logo', 'FAST');
     } else {
-      const logoCenterX = MARGIN_LEFT + 12;
+      const defaultLogoLeft = Math.max(6, MARGIN_LEFT - 4);
+      const logoCenterX = defaultLogoLeft + 17; // width 34mm centered
       if (loadedLogo) {
-        doc.addImage(loadedLogo.dataUrl, 'PNG', logoCenterX - 9, 6.5, 18, 18, 'nd-prospect-logo', 'FAST');
+        doc.addImage(loadedLogo.dataUrl, 'PNG', logoCenterX - 8.75, 7, 17.5, 17.5, 'nd-prospect-logo', 'FAST');
       }
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.setTextColor(178, 146, 94);
-      doc.text('TAX AND LAW', logoCenterX, 28.2, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setTextColor(181, 148, 94);
+      doc.text('TAX AND LAW', logoCenterX, 28.4, { align: 'center' });
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.4);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(5);
       doc.setTextColor(156, 130, 88);
-      doc.text('NURTIYAS & DARMAWAN', logoCenterX, 31.3, { align: 'center' });
+      doc.text('NURTIYAS & DARMAWAN', logoCenterX, 30.8, { align: 'center' });
     }
 
-    // FOOTER (inside bottom 40mm zone: gray strip y=263..297mm)
+    // FOOTER (exact match with LetterFooter: height 33mm, padding 5.5mm 22mm 4mm 22mm, 8.4pt, lh 1.38)
+    const footerTop = PAGE_H - 33;
     doc.setFillColor(244, 244, 244);
-    doc.rect(0, 263, PAGE_W, PAGE_H - 263, 'F');
+    doc.rect(0, footerTop, PAGE_W, 33, 'F');
 
-    const footY = 271.5;
-    const footLineGap = 4.1;
+    const footFs = 8.4;
+    const footLH = footFs * PT_TO_MM * 1.38;
+    const footStartY = footerTop + 5.5;
     const footLeftX = 22;
     const footRightX = PAGE_W - 22;
+    const footColMaxW = (PAGE_W - 44) * 0.5;
 
     // Left Footer Column
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.8);
-    doc.setTextColor(17, 17, 17);
-    doc.text(content.footerLeftTitle, footLeftX, footY);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(35, 35, 35);
-    content.footerLeftLines.slice(0, 5).forEach((line, i) => {
-      doc.text(line, footLeftX, footY + footLineGap * (i + 1));
+    let fY = drawRich(
+      content.footerLeftTitle,
+      footLeftX,
+      footStartY,
+      footColMaxW,
+      footLH,
+      footFs,
+      'left',
+      { baseStyle: { bold: true } },
+      [17, 17, 17]
+    );
+    content.footerLeftLines.slice(0, 5).forEach((line) => {
+      fY = drawRich(line, footLeftX, fY, footColMaxW, footLH, footFs, 'left', undefined, [26, 26, 26]);
     });
 
     // Right Footer Column
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.8);
-    doc.setTextColor(186, 152, 74);
-    doc.text(content.footerRightTitle, footRightX, footY, { align: 'right' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(35, 35, 35);
-    content.footerRightLines.slice(0, 5).forEach((line, i) => {
-      doc.text(line, footRightX, footY + footLineGap * (i + 1), { align: 'right' });
+    let frY = drawRich(
+      content.footerRightTitle,
+      footRightX,
+      footStartY,
+      footColMaxW,
+      footLH,
+      footFs,
+      'right',
+      { baseStyle: { bold: true } },
+      [186, 152, 74]
+    );
+    content.footerRightLines.slice(0, 5).forEach((line) => {
+      frY = drawRich(line, footRightX, frY, footColMaxW, footLH, footFs, 'right', undefined, [26, 26, 26]);
     });
 
     doc.setTextColor(0, 0, 0);
   };
 
-  const drawWrapped = (
-    text: string,
-    x: number,
-    y: number,
-    maxWidth: number,
-    lineHeight: number,
-    align: 'left' | 'justify' = 'left'
-  ): number => {
-    const lines: string[] = doc.splitTextToSize(text, maxWidth);
-    if (align === 'justify') {
-      lines.forEach((line, idx) => {
-        const isLast = idx === lines.length - 1;
-        if (isLast) {
-          doc.text(line, x, y + idx * lineHeight);
-        } else {
-          doc.text(line, x, y + idx * lineHeight, { align: 'justify', maxWidth });
-        }
-      });
-    } else {
-      lines.forEach((line, idx) => {
-        doc.text(line, x, y + idx * lineHeight);
-      });
-    }
-    return y + lines.length * lineHeight;
-  };
-
-  const measureLines = (text: string, maxWidth: number, fontSize = 11, style: 'normal' | 'bold' = 'normal'): string[] => {
-    doc.setFont('helvetica', style);
-    doc.setFontSize(fontSize);
-    return doc.splitTextToSize(text, maxWidth);
-  };
-
   // =========================================================================
-  // PAGE 1 — SURAT PENGANTAR & DASAR HUKUM LAPORAN KEUANGAN (LOCKED TO PAGE 1)
+  // PAGE 1 — SURAT PENGANTAR & DASAR HUKUM LAPORAN KEUANGAN (EXACT VIEW PARITY)
   // =========================================================================
   drawHeaderAndFooter();
 
-  const companyText = letter.companyName.trim();
-  const recipientRawLines = rawContent.recipientBlock.split('\n');
-  const recipientPlainLines = recipientRawLines.map((ln) => s(ln));
+  const p1Levels = [
+    { lhFactor: 1.16, gap: 3.4, itemGap: 2.0, bodyFs: 11, recipFs: 11 },
+    { lhFactor: 1.13, gap: 2.7, itemGap: 1.6, bodyFs: 11, recipFs: 11 },
+    { lhFactor: 1.10, gap: 2.1, itemGap: 1.3, bodyFs: 11, recipFs: 10.5 },
+    { lhFactor: 1.07, gap: 1.6, itemGap: 1.0, bodyFs: 11, recipFs: 10 },
+    { lhFactor: 1.04, gap: 1.2, itemGap: 0.8, bodyFs: 10.5, recipFs: 10 },
+    { lhFactor: 1.02, gap: 0.9, itemGap: 0.6, bodyFs: 10.2, recipFs: 10 },
+    { lhFactor: 1.00, gap: 0.7, itemGap: 0.5, bodyFs: 9.8, recipFs: 10 },
+  ];
 
-  const p1Para1 = content.introPara1;
-  const p1Para2 = content.introPara2;
-  const p1Heading = content.sectionMainTitle;
-  const p1LawItems = content.section1Items;
-  const p1Sanction = content.section1Sanction;
+  const metaRowsRaw: Array<[string, string]> = [
+    [content.metaNomorLabel, content.nomorValue],
+    [content.metaSifatLabel, content.sifat],
+    [content.metaLampiranLabel, content.lampiran],
+    [content.metaPerihalLabel, content.perihal],
+  ];
 
-  const isLineBold = (rawLine: string) => {
-    const segs = parseProspectRichText(rawLine).filter((seg) => seg.text.trim().length > 0);
-    return segs.length > 0 && segs.every((seg) => Boolean(seg.bold));
-  };
+  const measurePage1 = (lvl: (typeof p1Levels)[number]) => {
+    const lh = lvl.bodyFs * PT_TO_MM * lvl.lhFactor;
+    const recipLH = lvl.recipFs * PT_TO_MM * lvl.lhFactor;
+    let h = 0;
 
-  const computePage1Metrics = (lh: number, gap: number, recipFontSize: number, bodyFontSize: number) => {
-    const recipLH = recipFontSize === 11 ? lh : Math.max(3.75, lh - 0.35);
-    const recipHeight = recipientPlainLines.reduce((acc, ln, idx) => {
-      const style = isLineBold(recipientRawLines[idx] || '') ? 'bold' : 'normal';
-      return acc + measureLines(ln || ' ', CONTENT_W, recipFontSize, style).length * recipLH;
-    }, 0);
-    const lPara1 = measureLines(p1Para1, CONTENT_W, bodyFontSize, 'normal');
-    const lPara2 = measureLines(p1Para2, CONTENT_W, bodyFontSize, 'normal');
-    const lHeading = measureLines(p1Heading, CONTENT_W, bodyFontSize, 'bold');
-    const lSanction = measureLines(p1Sanction, CONTENT_W - 6, bodyFontSize, 'normal');
+    // Date line
+    h += layoutRich(content.dateLine, CONTENT_W, lvl.bodyFs, { variables: letterVariables }).length * lh + 0.6;
 
-    let lawHeight = lh;
-    for (const item of p1LawItems) {
-      const tLines = measureLines(item.title, CONTENT_W - 12.5, bodyFontSize, 'normal');
-      lawHeight += tLines.length * lh;
+    // Meta table
+    for (const [lbl, val] of metaRowsRaw) {
+      const lLines = layoutRich(lbl, 25, lvl.bodyFs, { variables: letterVariables }).length;
+      const vLines = layoutRich(`: ${val}`, CONTENT_W - 25, lvl.bodyFs, { variables: letterVariables }).length;
+      h += Math.max(lLines, vLines) * lh;
+    }
+    h += lvl.gap;
+
+    // Recipient block
+    h +=
+      layoutRich(content.recipientBlock, CONTENT_W, lvl.recipFs, { variables: letterVariables }).length * recipLH +
+      lvl.gap;
+
+    // Greeting + intro paragraphs
+    h += layoutRich(content.greeting, CONTENT_W, lvl.bodyFs, { variables: letterVariables }).length * lh + 0.5;
+    h += layoutRich(content.introPara1, CONTENT_W, lvl.bodyFs, { variables: letterVariables }).length * lh + lvl.gap;
+    h +=
+      layoutRich(content.introPara2, CONTENT_W, lvl.bodyFs, { variables: letterVariables }).length * lh + (lvl.gap + 1);
+
+    // Main title + Section I
+    h +=
+      layoutRich(content.sectionMainTitle, CONTENT_W, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh +
+      Math.max(1.6, lvl.gap * 0.85);
+    h +=
+      layoutRich(content.section1Title, CONTENT_W - 6.5, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh + 0.6;
+
+    content.section1Items.forEach((item, idx) => {
+      h += layoutRich(item.title, CONTENT_W - 12.5, lvl.bodyFs).length * lh;
       for (const b of item.bullets) {
-        const bLines = measureLines(b, CONTENT_W - 12.5, bodyFontSize, 'normal');
-        lawHeight += bLines.length * lh;
+        h += layoutRich(b, CONTENT_W - 12.5, lvl.bodyFs).length * lh;
       }
-      lawHeight += gap * 0.55;
-    }
+      h += idx === content.section1Items.length - 1 ? Math.max(1.8, lvl.itemGap + 0.4) : lvl.itemGap;
+    });
 
-    const totalH =
-      lh +
-      4 * lh +
-      gap +
-      recipHeight +
-      gap +
-      lh +
-      lPara1.length * lh +
-      gap +
-      lPara2.length * lh +
-      gap * 1.25 +
-      lHeading.length * lh +
-      gap * 0.9 +
-      lawHeight +
-      gap * 0.4 +
-      (lSanction.length * lh + 4.4);
+    // Sanction box (marginLeft 6.5, padding 1.5mm 2.5mm)
+    const p1BoxLines = layoutRich(content.section1Sanction, CONTENT_W - 6.5 - 5, lvl.bodyFs);
+    h += p1BoxLines.length * lh + 3.0;
 
-    return { totalH, lh, recipLH, gap, recipFontSize, bodyFontSize };
+    return { h, lh, recipLH, lvl };
   };
 
-  const candidates: Array<[number, number, number, number]> = [
-    [4.45, 3.4, 11, 11],
-    [4.3, 2.8, 11, 11],
-    [4.15, 2.3, 11, 11],
-    [4.05, 2.0, 10.5, 11],
-    [3.95, 1.7, 10, 11],
-    [3.82, 1.4, 9.5, 10.5],
-    [3.68, 1.2, 9.5, 10],
-  ];
-  let p1Layout = computePage1Metrics(4.45, 3.4, 11, 11);
-  for (const [lh, gap, rfs, bfs] of candidates) {
-    const test = computePage1Metrics(lh, gap, rfs, bfs);
-    p1Layout = test;
-    if (test.totalH <= CONTENT_H - 1.5) break;
+  let p1Fit = measurePage1(p1Levels[0]);
+  for (const lvl of p1Levels) {
+    const test = measurePage1(lvl);
+    p1Fit = test;
+    if (test.h <= CONTENT_H + 0.5) break;
   }
 
-  let y = MARGIN_TOP + 2;
-  doc.setFont('helvetica', isLineBold(rawContent.dateLine) ? 'bold' : 'normal');
-  doc.setFontSize(p1Layout.bodyFontSize);
-  doc.setTextColor(0, 0, 0);
-
-  doc.text(content.dateLine, RIGHT_EDGE_X, y, { align: 'right' });
-  y += p1Layout.lh;
-
-  const metaRows: Array<[string, string, string, string]> = [
-    [content.metaNomorLabel, content.nomorValue, rawContent.metaNomorLabel, rawContent.nomorValue],
-    [content.metaSifatLabel, content.sifat, rawContent.metaSifatLabel, rawContent.sifat],
-    [content.metaLampiranLabel, content.lampiran, rawContent.metaLampiranLabel, rawContent.lampiran],
-    [content.metaPerihalLabel, content.perihal, rawContent.metaPerihalLabel, rawContent.perihal],
-  ];
-  for (const [label, val, rawLbl, rawVal] of metaRows) {
-    doc.setFont('helvetica', isLineBold(rawLbl) ? 'bold' : 'normal');
-    doc.text(label, MARGIN_X, y);
-    doc.setFont('helvetica', isLineBold(rawVal) ? 'bold' : 'normal');
-    doc.text(`: ${val}`, MARGIN_X + 25, y);
-    y += p1Layout.lh;
-  }
-  y += p1Layout.gap;
-
-  doc.setFontSize(p1Layout.recipFontSize);
-  recipientPlainLines.forEach((ln, idx) => {
-    doc.setFont('helvetica', isLineBold(recipientRawLines[idx] || '') ? 'bold' : 'normal');
-    y = drawWrapped(ln || ' ', MARGIN_X, y, CONTENT_W, p1Layout.recipLH, 'left');
+  let y = MARGIN_TOP;
+  y = drawRich(content.dateLine, RIGHT_EDGE_X, y, CONTENT_W, p1Fit.lh, p1Fit.lvl.bodyFs, 'right', {
+    variables: letterVariables,
   });
-  y += p1Layout.gap;
+  y += 0.6;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(p1Layout.bodyFontSize);
-  doc.text(content.greeting, MARGIN_X, y);
-  y += p1Layout.lh;
+  for (const [lbl, val] of metaRowsRaw) {
+    const yLbl = drawRich(lbl, MARGIN_X, y, 25, p1Fit.lh, p1Fit.lvl.bodyFs, 'left', {
+      variables: letterVariables,
+    });
+    const yVal = drawRich(`: ${val}`, MARGIN_X + 25, y, CONTENT_W - 25, p1Fit.lh, p1Fit.lvl.bodyFs, 'left', {
+      variables: letterVariables,
+    });
+    y = Math.max(yLbl, yVal);
+  }
+  y += p1Fit.lvl.gap;
 
-  y = drawWrapped(p1Para1, MARGIN_X, y, CONTENT_W, p1Layout.lh, 'justify');
-  y += p1Layout.gap;
+  y = drawRich(content.recipientBlock, MARGIN_X, y, CONTENT_W, p1Fit.recipLH, p1Fit.lvl.recipFs, 'left', {
+    variables: letterVariables,
+  });
+  y += p1Fit.lvl.gap;
 
-  y = drawWrapped(p1Para2, MARGIN_X, y, CONTENT_W, p1Layout.lh, 'justify');
-  y += p1Layout.gap * 1.25;
+  y = drawRich(content.greeting, MARGIN_X, y, CONTENT_W, p1Fit.lh, p1Fit.lvl.bodyFs, 'left', {
+    variables: letterVariables,
+  });
+  y += 0.5;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(p1Layout.bodyFontSize);
-  y = drawWrapped(p1Heading, MARGIN_X, y, CONTENT_W, p1Layout.lh, 'left');
-  y += p1Layout.gap * 0.85;
+  y = drawRich(content.introPara1, MARGIN_X, y, CONTENT_W, p1Fit.lh, p1Fit.lvl.bodyFs, 'justify', {
+    variables: letterVariables,
+  });
+  y += p1Fit.lvl.gap;
 
-  doc.text('I.', MARGIN_X, y);
-  y = drawWrapped(content.section1Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p1Layout.lh, 'left');
+  y = drawRich(content.introPara2, MARGIN_X, y, CONTENT_W, p1Fit.lh, p1Fit.lvl.bodyFs, 'justify', {
+    variables: letterVariables,
+  });
+  y += p1Fit.lvl.gap + 1;
 
-  doc.setFont('helvetica', 'normal');
-  p1LawItems.forEach((item, idx) => {
-    doc.text(`${idx + 1}.`, MARGIN_X + 6.5, y);
-    y = drawWrapped(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p1Layout.lh, 'left');
+  y = drawRich(content.sectionMainTitle, MARGIN_X, y, CONTENT_W, p1Fit.lh, p1Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += Math.max(1.6, p1Fit.lvl.gap * 0.85);
+
+  drawMarker('I.', MARGIN_X, y, p1Fit.lh, p1Fit.lvl.bodyFs, true);
+  y = drawRich(content.section1Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p1Fit.lh, p1Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += 0.6;
+
+  content.section1Items.forEach((item, idx) => {
+    drawMarker(`${idx + 1}.`, MARGIN_X + 6.5, y, p1Fit.lh, p1Fit.lvl.bodyFs, false);
+    y = drawRich(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p1Fit.lh, p1Fit.lvl.bodyFs, 'left');
     for (const bullet of item.bullets) {
-      doc.text('-', MARGIN_X + 6.5, y);
-      y = drawWrapped(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p1Layout.lh, 'justify');
+      drawMarker('-', MARGIN_X + 6.5, y, p1Fit.lh, p1Fit.lvl.bodyFs, false);
+      y = drawRich(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p1Fit.lh, p1Fit.lvl.bodyFs, 'justify');
     }
-    y += p1Layout.gap * 0.55;
+    y += idx === content.section1Items.length - 1 ? Math.max(1.8, p1Fit.lvl.itemGap + 0.4) : p1Fit.lvl.itemGap;
   });
 
-  y += p1Layout.gap * 0.25;
   const p1BoxW = CONTENT_W - 6.5;
-  const p1BoxLines = measureLines(p1Sanction, p1BoxW - 5, p1Layout.bodyFontSize, 'normal');
-  const p1BoxH = p1BoxLines.length * p1Layout.lh + 3.4;
-  const p1BoxY = Math.min(y - 3.2, CONTENT_BOTTOM - p1BoxH);
+  const p1BoxLines = layoutRich(content.section1Sanction, p1BoxW - 5, p1Fit.lvl.bodyFs);
+  const p1BoxH = p1BoxLines.length * p1Fit.lh + 3.0;
+  const p1BoxY = Math.min(y, CONTENT_BOTTOM - p1BoxH);
   doc.setFillColor(244, 244, 244);
   doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.3);
+  doc.setLineWidth(0.28);
   doc.rect(MARGIN_X + 6.5, p1BoxY, p1BoxW, p1BoxH, 'FD');
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(p1Layout.bodyFontSize);
-  doc.setTextColor(0, 0, 0);
-  drawWrapped(p1Sanction, MARGIN_X + 9, p1BoxY + 4.1, p1BoxW - 5, p1Layout.lh, 'justify');
+  drawRichLines(doc, p1BoxLines, MARGIN_X + 6.5 + 2.5, p1BoxY + 1.5, p1BoxW - 5, p1Fit.lh, p1Fit.lvl.bodyFs, 'justify');
 
   // =========================================================================
-  // PAGE 2 — DASAR HUKUM PERPAJAKAN & KETENAGAKERJAAN (LOCKED TO PAGE 2)
+  // PAGE 2 — DASAR HUKUM PERPAJAKAN & KETENAGAKERJAAN (EXACT VIEW PARITY)
   // =========================================================================
   doc.addPage();
   drawHeaderAndFooter();
+
+  const p2Levels = [
+    { lhFactor: 1.15, itemGap: 1.8, sectionGap: 4.6, bodyFs: 11 },
+    { lhFactor: 1.12, itemGap: 1.4, sectionGap: 3.6, bodyFs: 11 },
+    { lhFactor: 1.09, itemGap: 1.1, sectionGap: 2.8, bodyFs: 11 },
+    { lhFactor: 1.06, itemGap: 0.8, sectionGap: 2.2, bodyFs: 10.7 },
+    { lhFactor: 1.03, itemGap: 0.6, sectionGap: 1.7, bodyFs: 10.4 },
+    { lhFactor: 1.01, itemGap: 0.45, sectionGap: 1.3, bodyFs: 10.0 },
+    { lhFactor: 0.99, itemGap: 0.35, sectionGap: 1.0, bodyFs: 9.6 },
+  ];
 
   const p2BoxW = CONTENT_W - 6.5;
-  const computePage2Height = (lh: number, gap: number, fs: number) => {
-    let h = lh; // II. heading
-    for (const item of content.section2Items) {
-      h += measureLines(item.title, CONTENT_W - 12.5, fs, 'normal').length * lh;
+
+  const measurePage2 = (lvl: (typeof p2Levels)[number]) => {
+    const lh = lvl.bodyFs * PT_TO_MM * lvl.lhFactor;
+    let h = 0;
+
+    h +=
+      layoutRich(content.section2Title, CONTENT_W - 6.5, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh + 0.5;
+    content.section2Items.forEach((item, idx) => {
+      h += layoutRich(item.title, CONTENT_W - 12.5, lvl.bodyFs).length * lh;
       for (const b of item.bullets) {
-        h += measureLines(b, CONTENT_W - 12.5, fs, 'normal').length * lh;
+        h += layoutRich(b, CONTENT_W - 12.5, lvl.bodyFs).length * lh;
       }
-      h += gap;
-    }
-    h += measureLines(content.section2Sanction, p2BoxW - 5, fs, 'normal').length * lh + 3.4 + 5.2;
-    h += lh; // III. heading
-    for (const item of content.section3Items) {
-      h += measureLines(item.title, CONTENT_W - 12.5, fs, 'normal').length * lh;
+      h += idx === content.section2Items.length - 1 ? Math.max(1.5, lvl.itemGap + 0.4) : lvl.itemGap;
+    });
+    h += layoutRich(content.section2Sanction, p2BoxW - 5, lvl.bodyFs).length * lh + 2.8 + lvl.sectionGap;
+
+    h +=
+      layoutRich(content.section3Title, CONTENT_W - 6.5, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh + 0.5;
+    content.section3Items.forEach((item, idx) => {
+      h += layoutRich(item.title, CONTENT_W - 12.5, lvl.bodyFs).length * lh;
       for (const b of item.bullets) {
-        h += measureLines(b, CONTENT_W - 12.5, fs, 'normal').length * lh;
+        h += layoutRich(b, CONTENT_W - 12.5, lvl.bodyFs).length * lh;
       }
-      h += gap;
-    }
-    h += measureLines(content.section3Sanction, p2BoxW - 5, fs, 'normal').length * lh + 3.4;
-    return h;
+      h += idx === content.section3Items.length - 1 ? Math.max(1.5, lvl.itemGap + 0.4) : lvl.itemGap;
+    });
+    h += layoutRich(content.section3Sanction, p2BoxW - 5, lvl.bodyFs).length * lh + 2.8;
+
+    return { h, lh, lvl };
   };
 
-  const p2Candidates: Array<[number, number, number]> = [
-    [4.35, 2.0, 11],
-    [4.2, 1.6, 11],
-    [4.05, 1.4, 10.6],
-    [3.9, 1.2, 10.2],
-    [3.75, 1.0, 9.8],
-    [3.6, 0.85, 9.4],
-  ];
-  let p2LH = 4.35;
-  let p2Gap = 2.0;
-  let p2FS = 11;
-  for (const [lh, gap, fs] of p2Candidates) {
-    p2LH = lh;
-    p2Gap = gap;
-    p2FS = fs;
-    if (computePage2Height(lh, gap, fs) <= CONTENT_H - 1.5) break;
+  let p2Fit = measurePage2(p2Levels[0]);
+  for (const lvl of p2Levels) {
+    const test = measurePage2(lvl);
+    p2Fit = test;
+    if (test.h <= CONTENT_H + 0.5) break;
   }
 
-  y = MARGIN_TOP + 2;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(p2FS);
-  doc.text('II.', MARGIN_X, y);
-  y = drawWrapped(content.section2Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p2LH, 'left');
+  y = MARGIN_TOP;
+  drawMarker('II.', MARGIN_X, y, p2Fit.lh, p2Fit.lvl.bodyFs, true);
+  y = drawRich(content.section2Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p2Fit.lh, p2Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += 0.5;
 
-  doc.setFont('helvetica', 'normal');
   content.section2Items.forEach((item, idx) => {
-    doc.text(`${idx + 1}.`, MARGIN_X + 6.5, y);
-    y = drawWrapped(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'left');
+    drawMarker(`${idx + 1}.`, MARGIN_X + 6.5, y, p2Fit.lh, p2Fit.lvl.bodyFs, false);
+    y = drawRich(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2Fit.lh, p2Fit.lvl.bodyFs, 'left');
     for (const bullet of item.bullets) {
-      doc.text('-', MARGIN_X + 6.5, y);
-      y = drawWrapped(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'justify');
+      drawMarker('-', MARGIN_X + 6.5, y, p2Fit.lh, p2Fit.lvl.bodyFs, false);
+      y = drawRich(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2Fit.lh, p2Fit.lvl.bodyFs, 'justify');
     }
-    y += p2Gap;
+    y += idx === content.section2Items.length - 1 ? Math.max(1.5, p2Fit.lvl.itemGap + 0.4) : p2Fit.lvl.itemGap;
   });
 
-  const p2TaxBoxLines = measureLines(content.section2Sanction, p2BoxW - 5, p2FS, 'normal');
-  const p2TaxBoxH = p2TaxBoxLines.length * p2LH + 3.4;
-  const p2TaxBoxY = y - 2.4;
+  const p2TaxBoxLines = layoutRich(content.section2Sanction, p2BoxW - 5, p2Fit.lvl.bodyFs);
+  const p2TaxBoxH = p2TaxBoxLines.length * p2Fit.lh + 2.8;
   doc.setFillColor(244, 244, 244);
   doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.3);
-  doc.rect(MARGIN_X + 6.5, p2TaxBoxY, p2BoxW, p2TaxBoxH, 'FD');
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(p2FS);
-  doc.setTextColor(0, 0, 0);
-  drawWrapped(content.section2Sanction, MARGIN_X + 9, p2TaxBoxY + 4.1, p2BoxW - 5, p2LH, 'justify');
-  y = p2TaxBoxY + p2TaxBoxH + 5.2;
+  doc.setLineWidth(0.28);
+  doc.rect(MARGIN_X + 6.5, y, p2BoxW, p2TaxBoxH, 'FD');
+  drawRichLines(doc, p2TaxBoxLines, MARGIN_X + 6.5 + 2.5, y + 1.4, p2BoxW - 5, p2Fit.lh, p2Fit.lvl.bodyFs, 'justify');
+  y += p2TaxBoxH + p2Fit.lvl.sectionGap;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(p2FS);
-  doc.text('III.', MARGIN_X, y);
-  y = drawWrapped(content.section3Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p2LH, 'left');
+  drawMarker('III.', MARGIN_X, y, p2Fit.lh, p2Fit.lvl.bodyFs, true);
+  y = drawRich(content.section3Title, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p2Fit.lh, p2Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += 0.5;
 
-  doc.setFont('helvetica', 'normal');
   content.section3Items.forEach((item, idx) => {
-    doc.text(`${idx + 1}.`, MARGIN_X + 6.5, y);
-    y = drawWrapped(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'left');
+    drawMarker(`${idx + 1}.`, MARGIN_X + 6.5, y, p2Fit.lh, p2Fit.lvl.bodyFs, false);
+    y = drawRich(item.title, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2Fit.lh, p2Fit.lvl.bodyFs, 'left');
     for (const bullet of item.bullets) {
-      doc.text('-', MARGIN_X + 6.5, y);
-      y = drawWrapped(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2LH, 'justify');
+      drawMarker('-', MARGIN_X + 6.5, y, p2Fit.lh, p2Fit.lvl.bodyFs, false);
+      y = drawRich(bullet, MARGIN_X + 12.5, y, CONTENT_W - 12.5, p2Fit.lh, p2Fit.lvl.bodyFs, 'justify');
     }
-    y += p2Gap;
+    y += idx === content.section3Items.length - 1 ? Math.max(1.5, p2Fit.lvl.itemGap + 0.4) : p2Fit.lvl.itemGap;
   });
 
-  const p2LaborBoxLines = measureLines(content.section3Sanction, p2BoxW - 5, p2FS, 'normal');
-  const p2LaborBoxH = p2LaborBoxLines.length * p2LH + 3.4;
-  const p2LaborBoxY = Math.min(y - 2.0, CONTENT_BOTTOM - p2LaborBoxH);
+  const p2LaborBoxLines = layoutRich(content.section3Sanction, p2BoxW - 5, p2Fit.lvl.bodyFs);
+  const p2LaborBoxH = p2LaborBoxLines.length * p2Fit.lh + 2.8;
+  const p2LaborBoxY = Math.min(y, CONTENT_BOTTOM - p2LaborBoxH);
   doc.setFillColor(244, 244, 244);
   doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.3);
+  doc.setLineWidth(0.28);
   doc.rect(MARGIN_X + 6.5, p2LaborBoxY, p2BoxW, p2LaborBoxH, 'FD');
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(p2FS);
-  doc.setTextColor(0, 0, 0);
-  drawWrapped(content.section3Sanction, MARGIN_X + 9, p2LaborBoxY + 4.1, p2BoxW - 5, p2LH, 'justify');
+  drawRichLines(
+    doc,
+    p2LaborBoxLines,
+    MARGIN_X + 6.5 + 2.5,
+    p2LaborBoxY + 1.4,
+    p2BoxW - 5,
+    p2Fit.lh,
+    p2Fit.lvl.bodyFs,
+    'justify'
+  );
 
   // =========================================================================
-  // PAGE 3 — TENTANG ND TAX AND LAW, LAYANAN & TABEL PERBANDINGAN (LOCKED)
+  // PAGE 3 — TENTANG ND TAX AND LAW, LAYANAN & TABEL PERBANDINGAN (EXACT PARITY)
   // =========================================================================
   doc.addPage();
   drawHeaderAndFooter();
 
-  const p3About = interpolateCompanyName(content.aboutPara, companyText);
   const colW = [CONTENT_W * 0.34, CONTENT_W * 0.40, CONTENT_W * 0.26];
-  const tableRows: Array<[string, string, string, boolean]> = [
+  const tableRowsRaw: Array<[string, string, string, boolean]> = [
     [content.comparisonHeaders[0], content.comparisonHeaders[1], content.comparisonHeaders[2], true],
     ...content.comparisonRows.map(
       (r): [string, string, string, boolean] => [r.component, r.internalStaff, r.consultant, false]
     ),
   ];
 
-  const computePage3Metrics = (lh: number, fs: number, tableFs: number, gap: number, cellPadY: number) => {
-    const tblStep = tableFs * 0.352778 * 1.24;
-    let h = lh + gap * 0.75; // aboutTitle
-    h += measureLines(p3About, CONTENT_W, fs, 'normal').length * lh + gap;
-    h += measureLines(content.servicesTitle, CONTENT_W - 7, fs, 'bold').length * lh;
-    h += measureLines(content.servicesIntro, CONTENT_W - 7, fs, 'normal').length * lh + 1.2;
-    for (const item of content.servicesItems) {
-      const leadWithSpace = item.lead ? (item.lead.endsWith(' ') ? item.lead : `${item.lead} `) : '';
-      h += measureLines(`${leadWithSpace}${item.body}`, CONTENT_W - 17, fs, 'normal').length * lh + 0.6;
-    }
-    h += gap * 0.65 + measureLines(content.servicesCaseNote, CONTENT_W, fs, 'normal').length * lh + gap * 1.2;
-    h += measureLines(content.comparisonTitle, CONTENT_W - 7, fs, 'bold').length * lh + 1.4;
-    h += measureLines(content.comparisonIntro, CONTENT_W, fs, 'normal').length * lh + 2.0;
+  const p3Levels = [
+    { lhFactor: 1.16, gap: 3.4, padY: 1.6, padX: 2.3, bodyFs: 11, tableFs: 10.8 },
+    { lhFactor: 1.13, gap: 2.8, padY: 1.35, padX: 2.2, bodyFs: 11, tableFs: 10.8 },
+    { lhFactor: 1.10, gap: 2.2, padY: 1.35, padX: 2.2, bodyFs: 11, tableFs: 10.8 },
+    { lhFactor: 1.07, gap: 1.7, padY: 1.1, padX: 2.0, bodyFs: 11, tableFs: 10.0 },
+    { lhFactor: 1.04, gap: 1.3, padY: 1.1, padX: 2.0, bodyFs: 10.5, tableFs: 10.0 },
+    { lhFactor: 1.02, gap: 1.0, padY: 1.1, padX: 2.0, bodyFs: 10.2, tableFs: 9.6 },
+    { lhFactor: 1.00, gap: 0.8, padY: 1.1, padX: 2.0, bodyFs: 9.8, tableFs: 9.6 },
+  ];
 
-    for (let rIdx = 0; rIdx < tableRows.length; rIdx++) {
-      const row = tableRows[rIdx];
+  const buildServiceItemSegments = (lead: string, body: string): RichTextSegment[] => {
+    const segs: RichTextSegment[] = [];
+    if (lead && lead.trim()) {
+      segs.push(...toStyledSegments(lead, { baseStyle: { bold: true } }));
+      segs.push({ text: ' ', bold: true });
+    }
+    segs.push(...toStyledSegments(body));
+    return segs;
+  };
+
+  const measurePage3 = (lvl: (typeof p3Levels)[number]) => {
+    const lh = lvl.bodyFs * PT_TO_MM * lvl.lhFactor;
+    const tblLH = lvl.tableFs * PT_TO_MM * 1.18;
+    let h = 0;
+
+    h += layoutRich(content.aboutTitle, CONTENT_W, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh + lvl.gap;
+    h += layoutRich(content.aboutPara, CONTENT_W, lvl.bodyFs, { variables: letterVariables }).length * lh + lvl.gap;
+    h +=
+      layoutRich(content.servicesTitle, CONTENT_W - 6.5, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh + 0.5;
+    h +=
+      layoutRich(content.servicesIntro, CONTENT_W - 6.5, lvl.bodyFs, { autoBoldPhrases: ['999 Ribu'] }).length * lh +
+      1.2;
+
+    content.servicesItems.forEach((svc, idx) => {
+      const segs = buildServiceItemSegments(svc.lead, svc.body);
+      h += layoutRichSegments(doc, segs, CONTENT_W - 18, lvl.bodyFs).length * lh;
+      if (idx < content.servicesItems.length - 1) h += 0.8;
+    });
+    h += Math.max(1.8, lvl.gap * 0.85);
+
+    h += layoutRich(content.servicesCaseNote, CONTENT_W, lvl.bodyFs).length * lh + (lvl.gap + 1);
+    h +=
+      layoutRich(content.comparisonTitle, CONTENT_W - 6.5, lvl.bodyFs, { baseStyle: { bold: true } }).length * lh +
+      1.4;
+    h += layoutRich(content.comparisonIntro, CONTENT_W, lvl.bodyFs).length * lh + 1.2;
+
+    tableRowsRaw.forEach((row, rIdx) => {
       const isHeader = row[3];
       let maxLines = 1;
       for (let c = 0; c < 3; c++) {
         const isBoldCell = isHeader || (rIdx === 1 && c === 2);
-        const lines = measureLines(String(row[c] ?? ''), colW[c] - 4.2, tableFs, isBoldCell ? 'bold' : 'normal');
+        const lines = layoutRich(String(row[c] ?? ''), colW[c] - lvl.padX * 2, lvl.tableFs, {
+          baseStyle: isBoldCell ? { bold: true } : undefined,
+        });
         if (lines.length > maxLines) maxLines = lines.length;
       }
-      h += maxLines * tblStep + cellPadY * 2;
-    }
+      h += maxLines * tblLH + lvl.padY * 2;
+    });
+    h += lvl.gap;
 
-    h += gap * 1.2 + measureLines(content.comparisonClosing, CONTENT_W, fs, 'normal').length * lh;
-    return { h, lh, fs, tableFs, gap, cellPadY, tblStep };
+    h += layoutRich(content.comparisonClosing, CONTENT_W, lvl.bodyFs).length * lh;
+
+    return { h, lh, tblLH, lvl };
   };
 
-  const p3Candidates: Array<[number, number, number, number, number]> = [
-    [4.6, 11, 10.5, 3.6, 2.0],
-    [4.35, 10.8, 10.2, 3.0, 1.7],
-    [4.15, 10.5, 9.8, 2.4, 1.5],
-    [3.95, 10.1, 9.5, 1.9, 1.3],
-    [3.75, 9.7, 9.1, 1.5, 1.15],
-  ];
-  let p3Layout = computePage3Metrics(4.6, 11, 10.5, 3.6, 2.0);
-  for (const [lh, fs, tfs, gap, cpy] of p3Candidates) {
-    const test = computePage3Metrics(lh, fs, tfs, gap, cpy);
-    p3Layout = test;
-    if (test.h <= CONTENT_H - 1.5) break;
+  let p3Fit = measurePage3(p3Levels[0]);
+  for (const lvl of p3Levels) {
+    const test = measurePage3(lvl);
+    p3Fit = test;
+    if (test.h <= CONTENT_H + 0.5) break;
   }
 
-  const p3LH = p3Layout.lh;
-  y = MARGIN_TOP + 2;
+  y = MARGIN_TOP;
+  y = drawRich(content.aboutTitle, MARGIN_X, y, CONTENT_W, p3Fit.lh, p3Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += p3Fit.lvl.gap;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(p3Layout.fs);
-  doc.text(content.aboutTitle, MARGIN_X, y);
-  y += p3LH + p3Layout.gap * 0.7;
+  y = drawRich(content.aboutPara, MARGIN_X, y, CONTENT_W, p3Fit.lh, p3Fit.lvl.bodyFs, 'justify', {
+    variables: letterVariables,
+  });
+  y += p3Fit.lvl.gap;
 
-  doc.setFont('helvetica', 'normal');
-  y = drawWrapped(p3About, MARGIN_X, y, CONTENT_W, p3LH, 'justify');
-  y += p3Layout.gap;
+  drawMarker('I.', MARGIN_X, y, p3Fit.lh, p3Fit.lvl.bodyFs, true);
+  y = drawRich(content.servicesTitle, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p3Fit.lh, p3Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += 0.5;
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('I.', MARGIN_X, y);
-  y = drawWrapped(content.servicesTitle, MARGIN_X + 7, y, CONTENT_W - 7, p3LH, 'left');
-
-  doc.setFont('helvetica', 'normal');
-  y = drawWrapped(content.servicesIntro, MARGIN_X + 7, y, CONTENT_W - 7, p3LH, 'justify');
+  y = drawRich(content.servicesIntro, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p3Fit.lh, p3Fit.lvl.bodyFs, 'justify', {
+    autoBoldPhrases: ['999 Ribu'],
+  });
   y += 1.2;
 
-  content.servicesItems.forEach((svcItem, idx) => {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(p3Layout.fs);
-    doc.text(`${idx + 1}.`, MARGIN_X + 10, y);
-    const leadWithSpace = svcItem.lead ? (svcItem.lead.endsWith(' ') ? svcItem.lead : `${svcItem.lead} `) : '';
-    const fullLine = `${leadWithSpace}${svcItem.body}`;
-    const wrapped = doc.splitTextToSize(fullLine, CONTENT_W - 17);
-    wrapped.forEach((line: string, lineIdx: number) => {
-      if (lineIdx === 0 && leadWithSpace && line.startsWith(leadWithSpace)) {
-        doc.setFont('helvetica', 'bold');
-        doc.text(leadWithSpace, MARGIN_X + 17, y);
-        const leadW = doc.getTextWidth(leadWithSpace);
-        doc.setFont('helvetica', 'normal');
-        doc.text(line.slice(leadWithSpace.length), MARGIN_X + 17 + leadW, y);
-      } else {
-        doc.setFont('helvetica', 'normal');
-        const isLast = lineIdx === wrapped.length - 1;
-        doc.text(line, MARGIN_X + 17, y, isLast ? undefined : { align: 'justify', maxWidth: CONTENT_W - 17 });
-      }
-      y += p3LH;
-    });
-    y += 0.6;
+  content.servicesItems.forEach((svc, idx) => {
+    drawMarker(`${idx + 1}.`, MARGIN_X + 12.5, y, p3Fit.lh, p3Fit.lvl.bodyFs, false);
+    const segs = buildServiceItemSegments(svc.lead, svc.body);
+    const lines = layoutRichSegments(doc, segs, CONTENT_W - 18, p3Fit.lvl.bodyFs);
+    y = drawRichLines(doc, lines, MARGIN_X + 18, y, CONTENT_W - 18, p3Fit.lh, p3Fit.lvl.bodyFs, 'justify');
+    if (idx < content.servicesItems.length - 1) y += 0.8;
   });
+  y += Math.max(1.8, p3Fit.lvl.gap * 0.85);
 
-  y += p3Layout.gap * 0.6;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(p3Layout.fs);
-  y = drawWrapped(content.servicesCaseNote, MARGIN_X, y, CONTENT_W, p3LH, 'justify');
-  y += p3Layout.gap * 1.15;
+  y = drawRich(content.servicesCaseNote, MARGIN_X, y, CONTENT_W, p3Fit.lh, p3Fit.lvl.bodyFs, 'justify');
+  y += p3Fit.lvl.gap + 1;
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('II.', MARGIN_X, y);
-  y = drawWrapped(content.comparisonTitle, MARGIN_X + 7, y, CONTENT_W - 7, p3LH, 'left');
-  y += 1.3;
+  drawMarker('II.', MARGIN_X, y, p3Fit.lh, p3Fit.lvl.bodyFs, true);
+  y = drawRich(content.comparisonTitle, MARGIN_X + 6.5, y, CONTENT_W - 6.5, p3Fit.lh, p3Fit.lvl.bodyFs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += 1.4;
 
-  doc.setFont('helvetica', 'normal');
-  y = drawWrapped(content.comparisonIntro, MARGIN_X, y, CONTENT_W, p3LH, 'left');
-  y += 1.8;
+  y = drawRich(content.comparisonIntro, MARGIN_X, y, CONTENT_W, p3Fit.lh, p3Fit.lvl.bodyFs, 'left');
+  y += 1.2;
 
   doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.3);
+  doc.setLineWidth(0.28);
 
-  tableRows.forEach((row, rIdx) => {
+  tableRowsRaw.forEach((row, rIdx) => {
     const isHeader = row[3];
-    const wrappedCells: string[][] = [];
+    const wrappedCells: PdfRichLine[][] = [];
     let maxLines = 1;
     for (let c = 0; c < 3; c++) {
       const isBoldCell = isHeader || (rIdx === 1 && c === 2);
-      const lines = measureLines(
-        String(row[c] ?? ''),
-        colW[c] - 4.2,
-        p3Layout.tableFs,
-        isBoldCell ? 'bold' : 'normal'
-      );
+      const lines = layoutRich(String(row[c] ?? ''), colW[c] - p3Fit.lvl.padX * 2, p3Fit.lvl.tableFs, {
+        baseStyle: isBoldCell ? { bold: true } : undefined,
+      });
       wrappedCells.push(lines);
       if (lines.length > maxLines) maxLines = lines.length;
     }
-    const rowH = maxLines * p3Layout.tblStep + p3Layout.cellPadY * 2;
+    const rowH = maxLines * p3Fit.tblLH + p3Fit.lvl.padY * 2;
     let curX = MARGIN_X;
     for (let c = 0; c < 3; c++) {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.28);
       if (isHeader) {
         doc.setFillColor(223, 220, 206);
         doc.rect(curX, y, colW[c], rowH, 'FD');
       } else {
         doc.rect(curX, y, colW[c], rowH, 'S');
       }
-      const isBoldCell = isHeader || (rIdx === 1 && c === 2);
-      doc.setFont('helvetica', isBoldCell ? 'bold' : 'normal');
-      doc.setFontSize(p3Layout.tableFs);
-      wrappedCells[c].forEach((ln, lIdx) => {
-        doc.text(ln, curX + 2.1, y + p3Layout.cellPadY + p3Layout.tblStep * (lIdx + 0.78));
-      });
+      // Vertically center cell text like HTML <td> vertical-align: middle
+      const cellTextH = wrappedCells[c].length * p3Fit.tblLH;
+      const cellTextTop = y + (rowH - cellTextH) / 2;
+      drawRichLines(
+        doc,
+        wrappedCells[c],
+        curX + p3Fit.lvl.padX,
+        cellTextTop,
+        colW[c] - p3Fit.lvl.padX * 2,
+        p3Fit.tblLH,
+        p3Fit.lvl.tableFs,
+        'left'
+      );
       curX += colW[c];
     }
     y += rowH;
   });
 
-  y += p3Layout.gap * 1.1;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(p3Layout.fs);
-  drawWrapped(content.comparisonClosing, MARGIN_X, y, CONTENT_W, p3LH, 'justify');
+  y += p3Fit.lvl.gap;
+  drawRich(content.comparisonClosing, MARGIN_X, y, CONTENT_W, p3Fit.lh, p3Fit.lvl.bodyFs, 'justify');
 
   // =========================================================================
-  // PAGE 4 — KONSULTASI AWAL, MITRA STRATEGIS & TANDA TANGAN BARCODE (LOCKED)
+  // PAGE 4 — KONSULTASI AWAL, MITRA STRATEGIS & TANDA TANGAN QR (EXACT PARITY)
   // =========================================================================
   doc.addPage();
   drawHeaderAndFooter();
 
-  const p4LH = 4.85;
-  y = MARGIN_TOP + 2;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('III.', MARGIN_X, y);
-  y = drawWrapped(content.consultTitle, MARGIN_X + 8, y, CONTENT_W - 8, p4LH, 'left');
-  y += 2.4;
-
-  doc.setFont('helvetica', 'normal');
-  y = drawWrapped(
-    interpolateCompanyName(content.consultPara, companyText),
-    MARGIN_X + 8,
-    y,
-    CONTENT_W - 8,
-    p4LH,
-    'justify'
-  );
-  y += 7;
+  const p4Fs = 11;
+  const p4Levels = [
+    { lhFactor: 1.22, sigGap: 15 },
+    { lhFactor: 1.17, sigGap: 11 },
+    { lhFactor: 1.12, sigGap: 8 },
+    { lhFactor: 1.08, sigGap: 6 },
+    { lhFactor: 1.04, sigGap: 4 },
+  ];
 
   const mitraBoxX = MARGIN_X + 8;
   const mitraBoxW = CONTENT_W - 8;
-  const mitraValW = Math.max(40, mitraBoxW - 31);
-  const mitraRows: Array<[string, string, string, string]> = [
-    [content.mitraBoxNameLabel, content.mitraBoxNameValue || '-', rawContent.mitraBoxNameLabel, rawContent.mitraBoxNameValue],
-    [content.mitraBoxIdLabel, content.mitraBoxIdValue || '-', rawContent.mitraBoxIdLabel, rawContent.mitraBoxIdValue],
-    [content.mitraBoxPhoneLabel, content.mitraBoxPhoneValue || '-', rawContent.mitraBoxPhoneLabel, rawContent.mitraBoxPhoneValue],
-    [content.mitraBoxEmailLabel, content.mitraBoxEmailValue || '-', rawContent.mitraBoxEmailLabel, rawContent.mitraBoxEmailValue],
+  const mitraPadX = 4.2;
+  const mitraPadY = 3.8;
+  const mitraLabelW = 24;
+  const mitraValW = Math.max(40, mitraBoxW - mitraPadX * 2 - mitraLabelW);
+  const mitraRowLH = p4Fs * PT_TO_MM * 1.3;
+
+  const mitraRowsRaw: Array<[string, string]> = [
+    [content.mitraBoxNameLabel, content.mitraBoxNameValue || '-'],
+    [content.mitraBoxIdLabel, content.mitraBoxIdValue || '-'],
+    [content.mitraBoxPhoneLabel, content.mitraBoxPhoneValue || '-'],
+    [content.mitraBoxEmailLabel, content.mitraBoxEmailValue || '-'],
   ];
 
-  const wrappedMitraRows = mitraRows.map(([lbl, val, rawLbl, rawVal]) => ({
-    lbl,
-    rawLbl,
-    rawVal,
-    valLines: measureLines(`: ${val}`, mitraValW, 11, isLineBold(rawVal) ? 'bold' : 'normal'),
+  const wrappedMitraRows = mitraRowsRaw.map(([lbl, val]) => ({
+    lblLines: layoutRich(lbl, mitraLabelW, p4Fs, { variables: letterVariables }),
+    valLines: layoutRich(`: ${val}`, mitraValW, p4Fs, { variables: letterVariables }),
   }));
-  const totalMitraValLines = wrappedMitraRows.reduce((sum, r) => sum + Math.max(1, r.valLines.length), 0);
-  const boxTopY = y;
-  const boxHeight = Math.max(36, 15.5 + totalMitraValLines * 5.0 + 3.5);
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.32);
-  doc.rect(mitraBoxX, boxTopY, mitraBoxW, boxHeight);
 
-  let boxY = boxTopY + 6.8;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(content.mitraBoxTitle, mitraBoxX + 4, boxY);
-  const titleW = doc.getTextWidth(content.mitraBoxTitle);
-  doc.setLineWidth(0.35);
-  doc.line(mitraBoxX + 4, boxY + 0.8, mitraBoxX + 4 + titleW, boxY + 0.8);
+  const sigColW = (CONTENT_W - 12) / 2;
+  const leftCenterX = MARGIN_X + sigColW / 2;
+  const rightCenterX = RIGHT_EDGE_X - sigColW / 2;
+  const qrSize = 27;
 
-  boxY += 7.8;
-  for (const row of wrappedMitraRows) {
-    doc.setFont('helvetica', isLineBold(row.rawLbl) ? 'bold' : 'normal');
-    doc.setFontSize(11);
-    doc.text(row.lbl, mitraBoxX + 4, boxY);
-    doc.setFont('helvetica', isLineBold(row.rawVal) ? 'bold' : 'normal');
-    row.valLines.forEach((ln, idx) => {
-      doc.text(ln, mitraBoxX + 27, boxY + idx * 5.0);
+  const measurePage4 = (lvl: (typeof p4Levels)[number]) => {
+    const lh = p4Fs * PT_TO_MM * lvl.lhFactor;
+    const noteLH = 9.5 * PT_TO_MM * lvl.lhFactor;
+    let h = 0;
+
+    h += layoutRich(content.consultTitle, CONTENT_W - 8, p4Fs, { baseStyle: { bold: true } }).length * lh + 2.4;
+    h +=
+      layoutRich(content.consultPara, CONTENT_W - 8, p4Fs, {
+        variables: letterVariables,
+        autoBoldPhrases: ['082180744977', 'business@ndtaxandlaw.com', 'www.ndtaxandlaw.com'],
+      }).length *
+        lh +
+      7.5;
+
+    const titleLines = layoutRich(content.mitraBoxTitle, mitraBoxW - mitraPadX * 2, p4Fs, {
+      variables: letterVariables,
+      baseStyle: { bold: true, underline: true },
     });
-    boxY += Math.max(1, row.valLines.length) * 5.0;
+    const rowsH = wrappedMitraRows.reduce(
+      (sum, r) => sum + Math.max(1, r.lblLines.length, r.valLines.length) * mitraRowLH,
+      0
+    );
+    const boxH = mitraPadY * 2 + titleLines.length * lh + 3.2 + rowsH;
+    h += boxH + 7;
+
+    h += layoutRich(content.closingPara, CONTENT_W - 8, p4Fs, { variables: letterVariables }).length * lh + lvl.sigGap;
+
+    // Signature block height: heading + firm + 3.5 + 27(QR) + 4 + note + 3.5 + name + role
+    const sigH = lh + lh + 3.5 + qrSize + 4 + noteLH + 3.5 + lh + lh;
+    h += sigH;
+
+    return { h, lh, noteLH, boxH, titleLines, sigH, lvl };
+  };
+
+  let p4Fit = measurePage4(p4Levels[0]);
+  for (const lvl of p4Levels) {
+    const test = measurePage4(lvl);
+    p4Fit = test;
+    if (test.h <= CONTENT_H + 0.5) break;
   }
 
-  y = boxTopY + boxHeight + 7.5;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  y = drawWrapped(
-    interpolateCompanyName(content.closingPara, companyText),
-    MARGIN_X + 8,
-    y,
-    CONTENT_W - 8,
-    p4LH,
+  y = MARGIN_TOP;
+  drawMarker('III.', MARGIN_X, y, p4Fit.lh, p4Fs, true);
+  y = drawRich(content.consultTitle, MARGIN_X + 8, y, CONTENT_W - 8, p4Fit.lh, p4Fs, 'left', {
+    baseStyle: { bold: true },
+  });
+  y += 2.4;
+
+  y = drawRich(content.consultPara, MARGIN_X + 8, y, CONTENT_W - 8, p4Fit.lh, p4Fs, 'justify', {
+    variables: letterVariables,
+    autoBoldPhrases: ['082180744977', 'business@ndtaxandlaw.com', 'www.ndtaxandlaw.com'],
+  });
+  y += 7.5;
+
+  // Mitra Box (exact match with ProspectLetterDocument)
+  const boxTopY = y;
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.28);
+  doc.rect(mitraBoxX, boxTopY, mitraBoxW, p4Fit.boxH, 'S');
+
+  let boxY = boxTopY + mitraPadY;
+  boxY = drawRichLines(
+    doc,
+    p4Fit.titleLines,
+    mitraBoxX + mitraPadX,
+    boxY,
+    mitraBoxW - mitraPadX * 2,
+    p4Fit.lh,
+    p4Fs,
     'left'
   );
+  boxY += 3.2;
 
-  // Reserve exact signature height (63mm) so QR codes & names never touch the footer bar
-  const sigBlockHeight = 61;
-  const desiredSigY = y + 14;
-  y = Math.min(desiredSigY, Math.max(y + 4, CONTENT_BOTTOM - sigBlockHeight));
+  for (const row of wrappedMitraRows) {
+    const yL = drawRichLines(doc, row.lblLines, mitraBoxX + mitraPadX, boxY, mitraLabelW, mitraRowLH, p4Fs, 'left');
+    const yV = drawRichLines(
+      doc,
+      row.valLines,
+      mitraBoxX + mitraPadX + mitraLabelW,
+      boxY,
+      mitraValW,
+      mitraRowLH,
+      p4Fs,
+      'left'
+    );
+    boxY = Math.max(yL, yV);
+  }
 
-  const sigOffset = Math.min(34, Math.max(22, CONTENT_W * 0.24));
-  const leftCenterX = MARGIN_X + sigOffset;
-  const rightCenterX = RIGHT_EDGE_X - sigOffset;
+  y = boxTopY + p4Fit.boxH + 7;
+  y = drawRich(content.closingPara, MARGIN_X + 8, y, CONTENT_W - 8, p4Fit.lh, p4Fs, 'left', {
+    variables: letterVariables,
+  });
 
-  doc.setFont('helvetica', isLineBold(rawContent.directorSignHeading) ? 'bold' : 'normal');
-  doc.setFontSize(11);
-  doc.text(content.directorSignHeading, leftCenterX, y, { align: 'center' });
-  doc.setFont('helvetica', isLineBold(rawContent.mitraSignHeading) ? 'bold' : 'normal');
-  doc.text(content.mitraSignHeading, rightCenterX, y, { align: 'center' });
-  y += 5;
+  // Signature block (exact 2-column centered layout matching View, clamped safely above footer)
+  y = Math.min(y + p4Fit.lvl.sigGap, Math.max(y + 3, CONTENT_BOTTOM - p4Fit.sigH));
 
-  doc.setFont('helvetica', 'bold');
-  doc.text(content.directorFirmLabel, leftCenterX, y, { align: 'center' });
-  doc.text(content.mitraSignerLabel, rightCenterX, y, { align: 'center' });
-  y += 4.5;
+  const yHeadL = drawRich(content.directorSignHeading, leftCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+  });
+  const yHeadR = drawRich(content.mitraSignHeading, rightCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+  });
+  y = Math.max(yHeadL, yHeadR);
 
-  const qrSize = 27;
+  const yFirmL = drawRich(content.directorFirmLabel, leftCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+    baseStyle: { bold: true },
+  });
+  const yFirmR = drawRich(content.mitraSignerLabel, rightCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+    baseStyle: { bold: true },
+  });
+  y = Math.max(yFirmL, yFirmR) + 3.5;
+
   if (directorQrDataUrl) {
     doc.addImage(directorQrDataUrl, 'PNG', leftCenterX - qrSize / 2, y, qrSize, qrSize, undefined, 'FAST');
   }
   if (mitraQrDataUrl) {
     doc.addImage(mitraQrDataUrl, 'PNG', rightCenterX - qrSize / 2, y, qrSize, qrSize, undefined, 'FAST');
   }
-  y += qrSize + 6;
+  y += qrSize + 4;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(150, 150, 150);
-  doc.text('Ditandatangani secara elektronik', leftCenterX, y, { align: 'center' });
-  doc.text('Ditandatangani secara elektronik', rightCenterX, y, { align: 'center' });
-  y += 6.5;
+  const yNoteL = drawRich(
+    'Ditandatangani secara elektronik',
+    leftCenterX,
+    y,
+    sigColW,
+    p4Fit.noteLH,
+    9.5,
+    'center',
+    undefined,
+    [153, 153, 153]
+  );
+  const yNoteR = drawRich(
+    'Ditandatangani secara elektronik',
+    rightCenterX,
+    y,
+    sigColW,
+    p4Fit.noteLH,
+    9.5,
+    'center',
+    undefined,
+    [153, 153, 153]
+  );
+  y = Math.max(yNoteL, yNoteR) + 3.5;
 
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(content.directorName || letter.directorName || 'Nurtiyas, S.E., M.Ak, BKP', leftCenterX, y, {
-    align: 'center',
+  const directorNameRaw = content.directorName || letter.directorName || 'Nurtiyas, S.E., M.Ak, BKP';
+  const mitraNameFs = letter.mitraName.length > 32 ? 9.8 : 11;
+  const mitraNameLH = mitraNameFs * PT_TO_MM * p4Fit.lvl.lhFactor;
+
+  const yNameL = drawRich(directorNameRaw, leftCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+    baseStyle: { bold: true },
   });
+  const yNameR = drawRich(content.mitraSignerName, rightCenterX, y, sigColW, mitraNameLH, mitraNameFs, 'center', {
+    variables: letterVariables,
+    baseStyle: { bold: true },
+  });
+  y = Math.max(yNameL, yNameR);
 
-  const mitraSignerName = content.mitraSignerName || letter.mitraName || 'Mitra Strategis';
-  const mitraNameFontSize = mitraSignerName.length > 34 ? 9.5 : mitraSignerName.length > 26 ? 10.2 : 11;
-  doc.setFontSize(mitraNameFontSize);
-  doc.text(mitraSignerName, rightCenterX, y, { align: 'center' });
-  y += 5;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.text(content.directorTitle || letter.directorTitle || 'Direktur Utama', leftCenterX, y, { align: 'center' });
-  doc.text(content.mitraRoleLabel, rightCenterX, y, { align: 'center' });
+  const directorTitleRaw = content.directorTitle || letter.directorTitle || 'Direktur Utama';
+  drawRich(directorTitleRaw, leftCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+  });
+  drawRich(content.mitraRoleLabel, rightCenterX, y, sigColW, p4Fit.lh, p4Fs, 'center', {
+    variables: letterVariables,
+  });
 
   const safeSlug = letter.companyName
     .replace(/[^a-zA-Z0-9]+/g, '_')
