@@ -977,10 +977,10 @@ const PUBLIC_PROPOSALS_DIR = path.join(__dirname, 'public', 'proposals');
 
 const DEFAULT_PROPOSAL_TEMPLATES: ProposalTemplate[] = [
   {
-    id: 'prop-fat-official',
-    title: 'Surat Penawaran Harga Jasa FAT (Financial, Accounting & Tax)',
+    id: 'prop-fat-id',
+    title: 'Penawaran Harga Jasa FAT (Financial, Accounting & Tax)',
     description:
-      'Dokumen resmi penawaran harga jasa akuntansi & perpajakan ND Tax & Law. Kartu identitas Mitra (foto, nama, email, telepon) pada halaman cover & penutup otomatis menyesuaikan akun Mitra yang mengunduh.',
+      'Dokumen resmi penawaran harga jasa akuntansi & perpajakan ND Tax & Law (Bahasa Indonesia).',
     targetProduct: 'Jasa FAT (Financial, Accounting & Tax)',
     stampMode: 'first_and_last',
     pdfId: {
@@ -990,6 +990,16 @@ const DEFAULT_PROPOSAL_TEMPLATES: ProposalTemplate[] = [
       pageCount: 10,
       updatedAt: '2026-11-26',
     },
+    createdAt: '2026-11-26',
+    updatedAt: '2026-11-26',
+  },
+  {
+    id: 'prop-fat-en',
+    title: 'Service Fee Proposal FAT (Financial, Accounting & Tax)',
+    description:
+      'Official ND Tax & Law Financial, Accounting & Tax service fee proposal (English Version).',
+    targetProduct: 'FAT Services (Financial, Accounting & Tax)',
+    stampMode: 'first_and_last',
     pdfEn: {
       url: '/proposals/nd-proposal-fat-en.pdf',
       fileName: 'ND Tax And Law - Service Fee Proposal FAT (EN).pdf',
@@ -1001,6 +1011,51 @@ const DEFAULT_PROPOSAL_TEMPLATES: ProposalTemplate[] = [
     updatedAt: '2026-11-26',
   },
 ];
+
+const normalizeProposalTemplates = (
+  list: ProposalTemplate[]
+): { list: ProposalTemplate[]; changed: boolean } => {
+  const normalized: ProposalTemplate[] = [];
+  let changed = false;
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const hasId = Boolean(item.pdfId?.url);
+    const hasEn = Boolean(item.pdfEn?.url);
+    if (hasId && hasEn) {
+      changed = true;
+      const isDefaultOfficial = item.id === 'prop-fat-official';
+      normalized.push({
+        id: isDefaultOfficial ? 'prop-fat-id' : `${item.id}-id`,
+        title: isDefaultOfficial
+          ? 'Penawaran Harga Jasa FAT (Financial, Accounting & Tax)'
+          : item.title,
+        description: item.description || '',
+        targetProduct: item.targetProduct || 'Jasa FAT (Financial, Accounting & Tax)',
+        stampMode: item.stampMode || 'first_and_last',
+        pdfId: item.pdfId,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      });
+      normalized.push({
+        id: isDefaultOfficial ? 'prop-fat-en' : `${item.id}-en`,
+        title: isDefaultOfficial
+          ? 'Service Fee Proposal FAT (Financial, Accounting & Tax)'
+          : `${item.title} (English)`,
+        description: item.description || '',
+        targetProduct: isDefaultOfficial
+          ? 'FAT Services (Financial, Accounting & Tax)'
+          : item.targetProduct || 'ND Tax & Law Services',
+        stampMode: item.stampMode || 'first_and_last',
+        pdfEn: item.pdfEn,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      });
+    } else if (hasId || hasEn) {
+      normalized.push(item);
+    }
+  }
+  return { list: normalized, changed };
+};
 
 let proposalTemplates: ProposalTemplate[] = DEFAULT_PROPOSAL_TEMPLATES.map((p) => ({ ...p }));
 
@@ -3226,7 +3281,7 @@ export const loadDatabase = () => {
         if (Array.isArray(data.payoutRequests)) payoutRequests = data.payoutRequests;
         if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
         if (Array.isArray(data.proposalTemplates) && data.proposalTemplates.length > 0) {
-          proposalTemplates = data.proposalTemplates;
+          proposalTemplates = normalizeProposalTemplates(data.proposalTemplates).list;
         }
         if (Array.isArray(data.commissions)) commissions = data.commissions;
         if (Array.isArray(data.notifications)) notifications = data.notifications;
@@ -3504,7 +3559,7 @@ export const syncFromMysql = async () => {
           try {
             const parsedProposals = JSON.parse(row.password);
             if (Array.isArray(parsedProposals) && parsedProposals.length > 0) {
-              proposalTemplates = parsedProposals;
+              proposalTemplates = normalizeProposalTemplates(parsedProposals).list;
             }
           } catch {}
           continue;
@@ -8720,7 +8775,12 @@ app.get('/api/proposal-templates', async (req: Request, res: Response) => {
       if (Array.isArray(kvData) && kvData[0]?.password) {
         const parsed = JSON.parse(kvData[0].password);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          proposalTemplates = parsed;
+          const normalized = normalizeProposalTemplates(parsed);
+          proposalTemplates = normalized.list;
+          if (normalized.changed) {
+            await persistProposalTemplatesToCloud();
+            saveDatabase();
+          }
         }
       }
     } catch {}
@@ -8833,10 +8893,11 @@ app.post('/api/proposal-templates', async (req: Request, res: Response) => {
   await persistProposalTemplatesToCloud();
   saveDatabase();
 
+  const langLabel = newProposal.pdfEn && !newProposal.pdfId ? 'English' : 'Bahasa Indonesia';
   const notif: NotificationItem = {
     id: `notif-prop-${Date.now()}`,
     title: 'Surat Penawaran Baru Tersedia',
-    message: `Admin telah mengunggah Surat Penawaran baru: "${newProposal.title}". Mitra dapat langsung mengunduh versi Bahasa Indonesia & Inggris dengan identitas Mitra otomatis.`,
+    message: `Admin telah mengunggah Surat Penawaran baru (${langLabel}): "${newProposal.title}". Mitra dapat langsung mengunduh dengan identitas Mitra otomatis.`,
     type: 'tools_update',
     timestamp: new Date().toISOString(),
     isRead: false,

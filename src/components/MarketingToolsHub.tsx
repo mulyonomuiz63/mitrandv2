@@ -97,13 +97,13 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [downloadingProposalKey, setDownloadingProposalKey] = useState<string | null>(null);
   const [isProposalModalOpen, setIsProposalModalOpen] = useState<boolean>(false);
   const [editingProposalId, setEditingProposalId] = useState<string | null>(null);
+  const [propLang, setPropLang] = useState<'id' | 'en'>('id');
   const [propTitle, setPropTitle] = useState('');
   const [propTargetProduct, setPropTargetProduct] = useState('');
   const [propDescription, setPropDescription] = useState('');
   const [propStampMode, setPropStampMode] = useState<'first_and_last' | 'first_only' | 'all_pages'>('first_and_last');
-  const [propPdfId, setPropPdfId] = useState<ProposalPdfVersion | null>(null);
-  const [propPdfEn, setPropPdfEn] = useState<ProposalPdfVersion | null>(null);
-  const [uploadingPropLang, setUploadingPropLang] = useState<'id' | 'en' | null>(null);
+  const [propPdfFile, setPropPdfFile] = useState<ProposalPdfVersion | null>(null);
+  const [isUploadingPropPdf, setIsUploadingPropPdf] = useState<boolean>(false);
   const [propFormError, setPropFormError] = useState<string | null>(null);
   const [isSavingProposal, setIsSavingProposal] = useState<boolean>(false);
   const [quickReplaceKey, setQuickReplaceKey] = useState<string | null>(null);
@@ -216,43 +216,44 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     return json.data as ProposalPdfVersion;
   };
 
-  const resetProposalForm = () => {
+  const resetProposalForm = (defaultLang: 'id' | 'en' = 'id') => {
     setEditingProposalId(null);
+    setPropLang(defaultLang);
     setPropTitle('');
     setPropTargetProduct('Jasa Konsultasi Pajak & Hukum');
     setPropDescription('');
     setPropStampMode('first_and_last');
-    setPropPdfId(null);
-    setPropPdfEn(null);
+    setPropPdfFile(null);
     setPropFormError(null);
   };
 
-  const openEditProposalModal = (p: ProposalTemplate) => {
+  const openEditProposalModal = (p: ProposalTemplate, preferredLang?: 'id' | 'en') => {
+    const resolvedLang: 'id' | 'en' =
+      preferredLang || (p.pdfEn && !p.pdfId ? 'en' : 'id');
     setEditingProposalId(p.id);
+    setPropLang(resolvedLang);
     setPropTitle(p.title);
     setPropTargetProduct(p.targetProduct || '');
     setPropDescription(p.description || '');
     setPropStampMode(p.stampMode || 'first_and_last');
-    setPropPdfId(p.pdfId || null);
-    setPropPdfEn(p.pdfEn || null);
+    setPropPdfFile(resolvedLang === 'en' ? p.pdfEn || null : p.pdfId || null);
     setPropFormError(null);
     setIsProposalModalOpen(true);
   };
 
-  const handleProposalFileSelect = async (lang: 'id' | 'en', e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProposalFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setPropFormError(null);
-    setUploadingPropLang(lang);
+    setIsUploadingPropPdf(true);
     try {
       const uploaded = await uploadSingleProposalPdfFile(file);
-      if (lang === 'id') setPropPdfId(uploaded);
-      else setPropPdfEn(uploaded);
+      setPropPdfFile(uploaded);
     } catch (err: any) {
       setPropFormError(err?.message || 'Gagal mengunggah file PDF.');
     } finally {
-      setUploadingPropLang(null);
+      setIsUploadingPropPdf(false);
     }
   };
 
@@ -293,8 +294,10 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       setPropFormError('Judul surat penawaran wajib diisi.');
       return;
     }
-    if (!propPdfId && !propPdfEn) {
-      setPropFormError('Unggah minimal satu versi PDF (Bahasa Indonesia atau Bahasa Inggris).');
+    if (!propPdfFile) {
+      setPropFormError(
+        `Unggah file PDF Surat Penawaran (${propLang === 'id' ? 'Bahasa Indonesia' : 'English'}) terlebih dahulu.`
+      );
       return;
     }
     setIsSavingProposal(true);
@@ -310,8 +313,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           targetProduct: propTargetProduct.trim(),
           description: propDescription.trim(),
           stampMode: propStampMode,
-          pdfId: propPdfId,
-          pdfEn: propPdfEn,
+          pdfId: propLang === 'id' ? propPdfFile : null,
+          pdfEn: propLang === 'en' ? propPdfFile : null,
         }),
       });
       const json = await res.json();
@@ -324,7 +327,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       showToast(
         editingProposalId
           ? 'Surat Penawaran berhasil diperbarui!'
-          : 'Surat Penawaran baru berhasil diunggah & tersedia untuk seluruh Mitra!'
+          : `Surat Penawaran (${propLang === 'id' ? 'Bahasa Indonesia' : 'English'}) berhasil diunggah & tersedia untuk seluruh Mitra!`
       );
     } catch (err: any) {
       setPropFormError(err?.message || 'Gagal menyimpan surat penawaran.');
@@ -365,13 +368,14 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       displayTitle: string;
     }> = [];
     for (const proposal of proposalTemplates) {
+      const hasBoth = Boolean(proposal.pdfId && proposal.pdfEn);
       if (proposal.pdfId) {
         rows.push({
           rowKey: `${proposal.id}-id`,
           proposal,
           lang: 'id',
           version: proposal.pdfId,
-          displayTitle: `${proposal.title} (Bahasa Indonesia)`,
+          displayTitle: hasBoth ? `${proposal.title} (Bahasa Indonesia)` : proposal.title,
         });
       }
       if (proposal.pdfEn) {
@@ -380,7 +384,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           proposal,
           lang: 'en',
           version: proposal.pdfEn,
-          displayTitle: `${proposal.title} (English)`,
+          displayTitle: hasBoth ? `${proposal.title} (English)` : proposal.title,
         });
       }
     }
@@ -1028,7 +1032,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               className="px-4 py-2 text-xs font-semibold text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
-              <span>Upload Surat Penawaran (ID / EN)</span>
+              <span>Upload Surat Penawaran</span>
             </button>
             <button
               type="button"
@@ -1257,7 +1261,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                                   </label>
                                   <button
                                     type="button"
-                                    onClick={() => openEditProposalModal(row.proposal)}
+                                    onClick={() => openEditProposalModal(row.proposal, row.lang)}
                                     className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                                     title="Edit Surat Penawaran"
                                   >
@@ -1488,7 +1492,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => openEditProposalModal(row.proposal)}
+                          onClick={() => openEditProposalModal(row.proposal, row.lang)}
                           className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           title="Edit Surat Penawaran"
                         >
@@ -2122,17 +2126,17 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         </div>
       )}
 
-      {/* Modal Admin Upload / Edit Surat Penawaran PDF (Bahasa Indonesia & English) */}
+      {/* Modal Admin Upload / Edit Surat Penawaran PDF (Pilihan Bahasa Indonesia atau English) */}
       {isProposalModalOpen && userRole === 'admin' && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
               <div>
                 <h3 className="text-base font-bold text-slate-900 font-display">
-                  {editingProposalId ? 'Edit Surat Penawaran PDF (ID & EN)' : 'Upload Surat Penawaran PDF Baru'}
+                  {editingProposalId ? 'Edit Surat Penawaran PDF' : 'Upload Surat Penawaran PDF Baru'}
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Kartu identitas Mitra di sudut kiri bawah PDF otomatis diganti sesuai akun Mitra yang mengunduh.
+                  Pilih bahasa surat terlebih dahulu agar judul Bahasa Indonesia &amp; English dapat berbeda.
                 </p>
               </div>
               <button
@@ -2155,14 +2159,71 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </div>
               )}
 
+              {/* Bahasa Surat Penawaran Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Bahasa Surat Penawaran *
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setPropLang('id')}
+                    className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      propLang === 'id'
+                        ? 'bg-red-50 border-red-400 text-red-900 ring-2 ring-red-500/20 shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-bold">Bahasa Indonesia</div>
+                      <div className="text-[10px] text-slate-500">Judul &amp; PDF versi Indonesia</div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                        propLang === 'id' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      ID
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPropLang('en')}
+                    className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      propLang === 'en'
+                        ? 'bg-blue-50 border-blue-500 text-blue-950 ring-2 ring-blue-500/20 shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-bold">English</div>
+                      <div className="text-[10px] text-slate-500">Judul &amp; PDF versi Inggris</div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                        propLang === 'en' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      EN
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Judul Surat Penawaran *
+                  {propLang === 'id'
+                    ? 'Judul Surat Penawaran (Bahasa Indonesia) *'
+                    : 'Proposal Title (English) *'}
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Surat Penawaran Harga Jasa FAT (Financial, Accounting & Tax)"
+                  placeholder={
+                    propLang === 'id'
+                      ? 'Contoh: Penawaran Harga Jasa FAT (Financial, Accounting & Tax)'
+                      : 'Example: Service Fee Proposal FAT (Financial, Accounting & Tax)'
+                  }
                   value={propTitle}
                   onChange={(e) => setPropTitle(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -2176,7 +2237,11 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: Jasa FAT / Tax Advisory"
+                    placeholder={
+                      propLang === 'id'
+                        ? 'Contoh: Jasa FAT / Tax Advisory'
+                        : 'Example: FAT Services / Tax Advisory'
+                    }
                     value={propTargetProduct}
                     onChange={(e) => setPropTargetProduct(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -2206,82 +2271,85 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Keterangan singkat surat penawaran..."
+                  placeholder={
+                    propLang === 'id'
+                      ? 'Keterangan singkat surat penawaran...'
+                      : 'Brief description of this proposal...'
+                  }
                   value={propDescription}
                   onChange={(e) => setPropDescription(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                 />
               </div>
 
-              {/* Dual PDF Uploaders */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {(['id', 'en'] as const).map((lang) => {
-                  const ver = lang === 'id' ? propPdfId : propPdfEn;
-                  const isUploading = uploadingPropLang === lang;
-                  return (
-                    <div
-                      key={lang}
-                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-800">
-                          {lang === 'id' ? 'PDF Bahasa Indonesia (ID)' : 'PDF English Version (EN)'}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-mono text-[10px] font-bold">
-                          {lang.toUpperCase()}
-                        </span>
-                      </div>
+              {/* Single PDF Uploader for Selected Language */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800">
+                    {propLang === 'id'
+                      ? 'File PDF Surat Penawaran — Bahasa Indonesia'
+                      : 'Proposal PDF File — English Version'}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                      propLang === 'id'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {propLang.toUpperCase()}
+                  </span>
+                </div>
 
-                      {isUploading ? (
-                        <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center gap-2 text-xs font-semibold text-blue-800">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Mengunggah PDF...</span>
-                        </div>
-                      ) : ver ? (
-                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
-                          <p className="text-xs font-bold text-emerald-950 truncate" title={ver.fileName}>
-                            {ver.fileName}
-                          </p>
-                          <p className="text-[11px] font-mono text-emerald-700">
-                            {ver.fileSize} · {ver.pageCount || '-'} hal.
-                          </p>
-                          <div className="flex items-center gap-2 pt-1">
-                            <label className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-white border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50">
-                              Ganti PDF
-                              <input
-                                type="file"
-                                accept=".pdf,application/pdf"
-                                onChange={(e) => handleProposalFileSelect(lang, e)}
-                                className="hidden"
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => (lang === 'id' ? setPropPdfId(null) : setPropPdfEn(null))}
-                              className="px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <label className="flex flex-col items-center justify-center gap-1.5 p-4 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl bg-white cursor-pointer text-center transition-colors">
-                          <Upload className="w-5 h-5 text-blue-700" />
-                          <span className="text-xs font-bold text-blue-800">
-                            Pilih File PDF ({lang.toUpperCase()})
-                          </span>
-                          <span className="text-[10px] text-slate-500">Maksimal 35 MB</span>
-                          <input
-                            type="file"
-                            accept=".pdf,application/pdf"
-                            onChange={(e) => handleProposalFileSelect(lang, e)}
-                            className="hidden"
-                          />
-                        </label>
-                      )}
+                {isUploadingPropPdf ? (
+                  <div className="p-5 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center gap-2 text-xs font-semibold text-blue-800">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Mengunggah PDF...</span>
+                  </div>
+                ) : propPdfFile ? (
+                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-emerald-950 truncate" title={propPdfFile.fileName}>
+                        {propPdfFile.fileName}
+                      </p>
+                      <p className="text-[11px] font-mono text-emerald-700 mt-0.5">
+                        {propPdfFile.fileSize} · {propPdfFile.pageCount || '-'} hal.
+                      </p>
                     </div>
-                  );
-                })}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <label className="px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-white border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50">
+                        Ganti PDF
+                        <input
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          onChange={handleProposalFileSelect}
+                          className="hidden"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setPropPdfFile(null)}
+                        className="px-2 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100 rounded-lg cursor-pointer"
+                      >
+                        Hapus
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center gap-1.5 p-5 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl bg-white cursor-pointer text-center transition-colors">
+                    <Upload className="w-5 h-5 text-blue-700" />
+                    <span className="text-xs font-bold text-blue-800">
+                      Pilih File PDF ({propLang === 'id' ? 'Bahasa Indonesia' : 'English'})
+                    </span>
+                    <span className="text-[10px] text-slate-500">Format .PDF · Maksimal 35 MB</span>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={handleProposalFileSelect}
+                      className="hidden"
+                    />
+                  </label>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
@@ -2297,7 +2365,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingProposal || uploadingPropLang !== null}
+                  disabled={isSavingProposal || isUploadingPropPdf}
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg disabled:opacity-50 shadow-xs cursor-pointer"
                 >
                   {isSavingProposal
