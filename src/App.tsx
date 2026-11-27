@@ -55,7 +55,9 @@ import {
   Building2,
   FileCheck2,
   Award,
-  Globe
+  Globe,
+  AlertCircle,
+  X
 } from 'lucide-react';
 
 const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'prospects', 'ai-reports', 'idcard', 'staff-management', 'chat'];
@@ -280,6 +282,16 @@ export default function App() {
   const [salesHistory, setSalesHistory] = useState<SalesHistoryMonth[]>([]);
   const [pendingSphCount, setPendingSphCount] = useState<number>(0);
   const [rejectedSphCount, setRejectedSphCount] = useState<number>(0);
+  const [rejectedSphItems, setRejectedSphItems] = useState<
+    Array<{
+      id: string;
+      sphNumber: string;
+      companyName: string;
+      rejectionReason?: string;
+      updatedAt?: string;
+    }>
+  >([]);
+  const [dismissedRejectedSphSig, setDismissedRejectedSphSig] = useState<string>('');
 
   // Modals state (synced with browser Back/Forward history)
   const [isRegisterOpen, setIsRegisterOpen] = useState(() => initialHashNav?.modal === 'register');
@@ -900,7 +912,7 @@ export default function App() {
     }
   }, [currentRole, activeMitra]);
 
-  // Keep rejected SPH notification badge fresh for Mitra portal
+  // Keep rejected SPH notification badge & floating alert fresh for Mitra portal
   useEffect(() => {
     if (
       viewMode !== 'portal' ||
@@ -909,6 +921,7 @@ export default function App() {
       activeMitra.id === 'mitra-empty'
     ) {
       setRejectedSphCount(0);
+      setRejectedSphItems([]);
       return;
     }
     let active = true;
@@ -919,13 +932,22 @@ export default function App() {
         .then((r) => r.json())
         .then((json) => {
           if (!active || !json?.success) return;
+          const items = Array.isArray(json?.data)
+            ? json.data.map((item: any) => ({
+                id: String(item.id || ''),
+                sphNumber: String(item.sphNumber || 'SPH'),
+                companyName: String(item.companyName || ''),
+                rejectionReason: item.rejectionReason ? String(item.rejectionReason) : undefined,
+                updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+              }))
+            : [];
           const rejVal =
-            typeof json?.counts?.rejected === 'number'
-              ? json.counts.rejected
-              : Array.isArray(json?.data)
-              ? json.data.length
-              : 0;
+            typeof json?.counts?.rejected === 'number' ? json.counts.rejected : items.length;
           setRejectedSphCount(rejVal);
+          setRejectedSphItems(items);
+          if (rejVal === 0) {
+            setDismissedRejectedSphSig('');
+          }
         })
         .catch(() => {});
     };
@@ -1823,7 +1845,13 @@ export default function App() {
                 setViewMode('mitra_verify');
               }}
               onPendingSphCountChange={setPendingSphCount}
-              onRejectedSphCountChange={setRejectedSphCount}
+              onRejectedSphCountChange={(count) => {
+                setRejectedSphCount(count);
+                if (count === 0) {
+                  setRejectedSphItems([]);
+                  setDismissedRejectedSphSig('');
+                }
+              }}
             />
           )}
 
@@ -2107,6 +2135,70 @@ export default function App() {
           fetchData();
         }}
       />
+
+      {/* Floating Alert Notification for Mitra when SPH is rejected by Admin */}
+      {(() => {
+        if (currentRole !== 'mitra' || rejectedSphItems.length === 0) return null;
+        const rejectedSig = rejectedSphItems
+          .map((item) => `${item.id}:${item.updatedAt || ''}:${item.rejectionReason || ''}`)
+          .join('|');
+        if (dismissedRejectedSphSig === rejectedSig) return null;
+        const latest = rejectedSphItems[0];
+        return (
+          <div
+            role="alert"
+            className="fixed top-20 right-4 z-50 max-w-sm w-[calc(100%-2rem)] bg-white border border-rose-200 border-l-4 border-l-rose-600 rounded-xl shadow-xl p-3.5 text-xs text-slate-800 animate-in fade-in slide-in-from-top-2 duration-200"
+          >
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-bold text-rose-700 leading-snug">
+                    {rejectedSphItems.length > 1
+                      ? `${rejectedSphItems.length} Pengajuan SPH Ditolak Admin`
+                      : `SPH Ditolak (${latest.sphNumber})`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedRejectedSphSig(rejectedSig)}
+                    className="text-slate-400 hover:text-slate-700 p-0.5 -mt-0.5 -mr-1 rounded cursor-pointer shrink-0"
+                    aria-label="Tutup notifikasi SPH ditolak"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {latest.companyName && (
+                  <p className="font-semibold text-slate-900 truncate">{latest.companyName}</p>
+                )}
+                <p className="text-[11px] text-rose-900 bg-rose-50 border border-rose-100 rounded-lg px-2 py-1.5 leading-snug line-clamp-3">
+                  <span className="font-semibold">Alasan:</span>{' '}
+                  {latest.rejectionReason?.trim() || 'Silakan cek catatan Admin dan revisi SPH.'}
+                </p>
+                <div className="flex items-center justify-between gap-2 pt-0.5">
+                  {rejectedSphItems.length > 1 ? (
+                    <span className="text-[10px] text-slate-500">
+                      +{rejectedSphItems.length - 1} SPH ditolak lainnya
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProspectsSubTab('sph_requests');
+                      setActiveTab('prospects');
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 hover:text-rose-800 cursor-pointer"
+                  >
+                    <span>Lihat &amp; Revisi</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Popup Alert Informasi Lengkapi Data Diri Mitra (Shown when Mitra registers & logs in or has incomplete data diri) */}
       {isIncompleteProfileAlertOpen && currentRole === 'mitra' && (

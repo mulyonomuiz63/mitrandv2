@@ -827,12 +827,9 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
   logoUrl,
   masterTemplate,
   onClose,
-  onApprove,
-  onOpenReject,
 }) => {
   const [downloading, setDownloading] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const canDownload = isAdminOrStaff || sph.status === 'approved';
+  const canDownload = !isAdminOrStaff && sph.status === 'approved';
   const badge = getSphStatusBadge(sph.status);
 
   const handleDownload = async () => {
@@ -851,7 +848,7 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
       <div className="bg-slate-100 rounded-2xl border border-slate-300 shadow-2xl w-full max-w-5xl h-[93vh] flex flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <h3 className="text-sm font-extrabold font-display truncate">
               {sph.sphNumber} — {sph.companyName}
@@ -864,65 +861,33 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            {isAdminOrStaff && sph.status !== 'approved' && onApprove && (
+          <div className="flex items-center gap-2 shrink-0">
+            {!isAdminOrStaff && (
               <button
                 type="button"
-                disabled={approving}
-                onClick={async () => {
-                  setApproving(true);
-                  try {
-                    await onApprove(sph);
-                  } finally {
-                    setApproving(false);
-                  }
-                }}
-                className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                disabled={!canDownload || downloading}
+                onClick={handleDownload}
+                title={
+                  !canDownload
+                    ? 'SPH dapat diunduh setelah disetujui (Approve) oleh Admin.'
+                    : 'Unduh PDF SPH'
+                }
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg inline-flex items-center gap-1.5 transition-colors ${
+                  canDownload
+                    ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 cursor-pointer'
+                    : 'bg-white/15 text-white/60 cursor-not-allowed'
+                }`}
               >
-                {approving ? (
+                {downloading ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : canDownload ? (
+                  <Download className="w-3.5 h-3.5" />
                 ) : (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <Lock className="w-3.5 h-3.5" />
                 )}
-                <span>Approve SPH</span>
+                <span>{canDownload ? 'Unduh PDF SPH' : 'Menunggu Approve'}</span>
               </button>
             )}
-
-            {isAdminOrStaff && sph.status === 'pending' && onOpenReject && (
-              <button
-                type="button"
-                onClick={() => onOpenReject(sph)}
-                className="px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Tolak</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              disabled={!canDownload || downloading}
-              onClick={handleDownload}
-              title={
-                !canDownload
-                  ? 'SPH dapat diunduh setelah disetujui (Approve) oleh Admin.'
-                  : 'Unduh PDF SPH'
-              }
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg inline-flex items-center gap-1.5 transition-colors ${
-                canDownload
-                  ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 cursor-pointer'
-                  : 'bg-white/15 text-white/60 cursor-not-allowed'
-              }`}
-            >
-              {downloading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : canDownload ? (
-                <Download className="w-3.5 h-3.5" />
-              ) : (
-                <Lock className="w-3.5 h-3.5" />
-              )}
-              <span>{canDownload ? 'Unduh PDF SPH' : 'Menunggu Approve'}</span>
-            </button>
 
             <button
               type="button"
