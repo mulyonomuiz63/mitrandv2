@@ -725,7 +725,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     setSphDownloadingId(sph.id);
     try {
       const latestTemplate = await fetchLatestMasterTemplate();
-      await downloadSphPdfFromView(sph, logoUrl, latestTemplate);
+      await downloadSphPdfFromView(sph, logoUrl, latestTemplate, settings?.logoBarcodeUrl);
     } catch (err) {
       console.error('Download SPH PDF failed:', err);
     } finally {
@@ -2774,6 +2774,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           actorEmail={actorEmailValue}
           systemServices={effectiveServices}
           logoUrl={logoUrl}
+          barcodeLogoUrl={settings?.logoBarcodeUrl}
           masterTemplate={masterTemplate}
           onClose={() => setSphManagerLetter(null)}
           onChanged={triggerRefresh}
@@ -2788,6 +2789,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           sph={previewSph}
           isAdminOrStaff={isAdminOrStaff}
           logoUrl={logoUrl}
+          barcodeLogoUrl={settings?.logoBarcodeUrl}
           masterTemplate={masterTemplate}
           onClose={() => setPreviewSph(null)}
           onApprove={isAdminOrStaff ? handleApproveSphDirect : undefined}

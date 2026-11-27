@@ -815,6 +815,7 @@ interface SphPreviewModalProps {
   sph: SphDocument;
   isAdminOrStaff: boolean;
   logoUrl?: string;
+  barcodeLogoUrl?: string;
   masterTemplate?: Partial<ProspectLetterContent> | null;
   onClose: () => void;
   onApprove?: (sph: SphDocument) => Promise<void>;
@@ -825,6 +826,7 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
   sph,
   isAdminOrStaff,
   logoUrl,
+  barcodeLogoUrl,
   masterTemplate,
   onClose,
 }) => {
@@ -836,7 +838,7 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
     if (!canDownload) return;
     setDownloading(true);
     try {
-      await downloadSphPdfFromView(sph, logoUrl, masterTemplate);
+      await downloadSphPdfFromView(sph, logoUrl, masterTemplate, barcodeLogoUrl);
     } catch (err) {
       console.error('SPH PDF download failed:', err);
     } finally {
@@ -913,6 +915,7 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
           <SphDocumentView
             sph={sph}
             logoUrl={logoUrl}
+            barcodeLogoUrl={barcodeLogoUrl}
             masterTemplate={masterTemplate}
             mode="preview"
           />
@@ -934,6 +937,7 @@ interface SphManagerModalProps {
   actorEmail?: string;
   systemServices?: ServiceItem[];
   logoUrl?: string;
+  barcodeLogoUrl?: string;
   masterTemplate?: Partial<ProspectLetterContent> | null;
   onClose: () => void;
   onChanged: () => void;
@@ -948,6 +952,7 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
   actorEmail,
   systemServices,
   logoUrl,
+  barcodeLogoUrl,
   masterTemplate,
   onClose,
   onChanged,
@@ -1047,7 +1052,7 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
   const handleDownload = async (sph: SphDocument) => {
     setDownloadingId(sph.id);
     try {
-      await downloadSphPdfFromView(sph, logoUrl, masterTemplate);
+      await downloadSphPdfFromView(sph, logoUrl, masterTemplate, barcodeLogoUrl);
     } finally {
       setDownloadingId(null);
     }
@@ -1292,6 +1297,7 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
           sph={previewSph}
           isAdminOrStaff={isAdminOrStaff}
           logoUrl={logoUrl}
+          barcodeLogoUrl={barcodeLogoUrl}
           masterTemplate={masterTemplate}
           onClose={() => setPreviewSph(null)}
           onApprove={isAdminOrStaff ? handleApprove : undefined}

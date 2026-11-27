@@ -7,7 +7,10 @@ import {
   resolveProspectLetterContent,
 } from '../types';
 import {
+  buildDirectorQrUrl,
+  buildMitraQrUrl,
   formatIndonesianLetterDate,
+  generateQrDataUrl,
   resolveInlineProspectLogo,
   triggerPdfBlobDownload,
 } from '../utils/prospectLetterPdf';
@@ -731,16 +734,20 @@ const SphTermsBlock: React.FC<{ sph: SphDocument; includeThankYou?: boolean }> =
   );
 };
 
-const SphSignatureBlock: React.FC<{ sph: SphDocument; content: ProspectLetterContent }> = ({
-  sph,
-  content,
-}) => {
+const SphSignatureBlock: React.FC<{
+  sph: SphDocument;
+  content: ProspectLetterContent;
+  directorQr?: string;
+  mitraQr?: string;
+}> = ({ sph, content, directorQr, mitraQr }) => {
   const directorName = sph.directorName || content.directorName || 'Nurtiyas, S.E., M.Ak., BKP.';
   const directorTitleId = sph.directorTitleId || content.directorTitle || 'Direktur Utama';
   const directorTitleEn = sph.directorTitleEn || 'President Director';
   const clientSignerName = sph.clientSignerName?.trim() || '';
   const clientSignerTitleId = sph.clientSignerTitleId?.trim() || '';
   const clientSignerTitleEn = sph.clientSignerTitleEn?.trim() || '';
+  const isApproved = sph.status === 'approved';
+  const middleMinH = isApproved ? '30mm' : '24mm';
 
   return (
     <div
@@ -753,26 +760,79 @@ const SphSignatureBlock: React.FC<{ sph: SphDocument; content: ProspectLetterCon
         lineHeight: 1.35,
       }}
     >
-      {/* Row 1: Headers + uniform signature space so all 3 horizontal lines align perfectly */}
-      <div style={{ paddingBottom: '24mm' }}>
+      {/* Row 1: Headers (auto-equalized height so Row 2 & Row 3 align perfectly across all 3 columns) */}
+      <div>
         <div style={{ color: '#000000' }}>Mengetahui,</div>
         <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Acknowledged by,</div>
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>ND TAX AND LAW</div>
       </div>
 
-      <div style={{ paddingBottom: '24mm' }}>
+      <div>
         <div style={{ color: '#000000' }}>Hormat kami,</div>
         <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Sincerely,</div>
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>MITRA RESMI</div>
       </div>
 
-      <div style={{ paddingBottom: '24mm' }}>
+      <div>
         <div style={{ color: '#000000' }}>Menyetujui,</div>
         <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Approved by,</div>
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>{sph.companyName}</div>
       </div>
 
-      {/* Row 2: Perfectly aligned signature lines & signer names/titles */}
+      {/* Row 2: Signature area — QR Barcode for Director & Mitra ONLY after Admin approval; Client stays blank for wet-ink */}
+      <div
+        style={{
+          minHeight: middleMinH,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingTop: '2.2mm',
+          paddingBottom: '1.8mm',
+        }}
+      >
+        {isApproved && directorQr && (
+          <>
+            <img
+              src={directorQr}
+              alt="QR Verifikasi Direktur Utama ND TAX AND LAW"
+              style={{ width: '21.5mm', height: '21.5mm', objectFit: 'contain', display: 'block' }}
+            />
+            <div style={{ fontSize: '7.4pt', color: '#888888', marginTop: '1mm', lineHeight: 1.2 }}>
+              Ditandatangani secara elektronik
+            </div>
+          </>
+        )}
+      </div>
+
+      <div
+        style={{
+          minHeight: middleMinH,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingTop: '2.2mm',
+          paddingBottom: '1.8mm',
+        }}
+      >
+        {isApproved && mitraQr && (
+          <>
+            <img
+              src={mitraQr}
+              alt={`QR Verifikasi Mitra ${sph.mitraName}`}
+              style={{ width: '21.5mm', height: '21.5mm', objectFit: 'contain', display: 'block' }}
+            />
+            <div style={{ fontSize: '7.4pt', color: '#888888', marginTop: '1mm', lineHeight: 1.2 }}>
+              Ditandatangani secara elektronik
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={{ minHeight: middleMinH }} />
+
+      {/* Row 3: Perfectly aligned signature lines & signer names/titles */}
       <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
         <div style={{ fontWeight: 700, color: '#000000' }}>{directorName}</div>
         <div style={{ color: '#000000' }}>{directorTitleId}</div>
@@ -803,6 +863,7 @@ const SphSignatureBlock: React.FC<{ sph: SphDocument; content: ProspectLetterCon
 export interface SphDocumentViewProps {
   sph: SphDocument;
   logoUrl?: string;
+  barcodeLogoUrl?: string;
   inlineLogo?: { isCustom: boolean; dataUrl: string } | null;
   masterTemplate?: Partial<ProspectLetterContent> | null;
   mode: 'preview' | 'capture';
@@ -811,10 +872,41 @@ export interface SphDocumentViewProps {
 export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
   sph,
   logoUrl,
+  barcodeLogoUrl,
   inlineLogo,
   masterTemplate,
   mode,
 }) => {
+  const [directorQr, setDirectorQr] = useState<string>('');
+  const [mitraQr, setMitraQr] = useState<string>('');
+
+  useEffect(() => {
+    if (sph.status !== 'approved') {
+      setDirectorQr('');
+      setMitraQr('');
+      return;
+    }
+    let active = true;
+    const directorUrl = buildDirectorQrUrl({
+      id: sph.prospectLetterId || sph.id,
+      verificationCode: sph.prospectLetterId || sph.id,
+    });
+    const mitraUrl = buildMitraQrUrl(sph.mitraMemberCode);
+    Promise.all([
+      generateQrDataUrl(directorUrl, barcodeLogoUrl),
+      generateQrDataUrl(mitraUrl, barcodeLogoUrl),
+    ])
+      .then(([dQr, mQr]) => {
+        if (!active) return;
+        setDirectorQr(dQr);
+        setMitraQr(mQr);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [sph.status, sph.id, sph.prospectLetterId, sph.mitraMemberCode, barcodeLogoUrl]);
+
   const content = resolveProspectLetterContent(undefined, masterTemplate);
   const formattedDate = formatIndonesianLetterDate(sph.sphDate || sph.createdAt);
   const city = content.city || 'Jakarta';
@@ -980,7 +1072,7 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
                 </div>
                 <div style={{ color: '#4B5563' }}>Thank you for your attention and cooperation.</div>
               </div>
-              <SphSignatureBlock sph={sph} content={content} />
+              <SphSignatureBlock sph={sph} content={content} directorQr={directorQr} mitraQr={mitraQr} />
             </div>
             <SphLetterFooter content={content} />
           </SphA4PageFrame>
@@ -1005,7 +1097,7 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
             <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
             <div style={bodyBoxStyle}>
               <SphTermsBlock sph={sph} includeThankYou />
-              <SphSignatureBlock sph={sph} content={content} />
+              <SphSignatureBlock sph={sph} content={content} directorQr={directorQr} mitraQr={mitraQr} />
             </div>
             <SphLetterFooter content={content} />
           </SphA4PageFrame>
@@ -1073,7 +1165,7 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
                 </div>
                 <div style={{ color: '#4B5563' }}>Thank you for your attention and cooperation.</div>
               </div>
-              <SphSignatureBlock sph={sph} content={content} />
+              <SphSignatureBlock sph={sph} content={content} directorQr={directorQr} mitraQr={mitraQr} />
             </div>
             <SphLetterFooter content={content} />
           </SphA4PageFrame>
@@ -1140,13 +1232,29 @@ interface VectorCellLine {
 export async function downloadSphPdfFromView(
   sph: SphDocument,
   adminLogoUrl?: string,
-  masterTemplate?: Partial<ProspectLetterContent> | null
+  masterTemplate?: Partial<ProspectLetterContent> | null,
+  barcodeLogoUrl?: string
 ): Promise<void> {
   const content = resolveProspectLetterContent(undefined, masterTemplate);
   const formattedDate = formatIndonesianLetterDate(sph.sphDate || sph.createdAt);
   const city = content.city || 'Jakarta';
   const titles = composeSphBilingualTitles(sph.services || []);
-  const logo = await getCachedSphLogo(adminLogoUrl);
+  const isApproved = sph.status === 'approved';
+  const [logo, directorQrDataUrl, mitraQrDataUrl] = await Promise.all([
+    getCachedSphLogo(adminLogoUrl),
+    isApproved
+      ? generateQrDataUrl(
+          buildDirectorQrUrl({
+            id: sph.prospectLetterId || sph.id,
+            verificationCode: sph.prospectLetterId || sph.id,
+          }),
+          barcodeLogoUrl
+        )
+      : Promise.resolve(''),
+    isApproved
+      ? generateQrDataUrl(buildMitraQrUrl(sph.mitraMemberCode), barcodeLogoUrl)
+      : Promise.resolve(''),
+  ]);
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -1929,7 +2037,8 @@ export async function downloadSphPdfFromView(
   setFontStyle(9.2, 'bold', COLOR_BLACK);
   const compSigLines: string[] = doc.splitTextToSize(sph.companyName || '', sigColW);
   const topHeaderHeight = sigStep * 2 + 1 + Math.max(1, compSigLines.length) * sigStep;
-  const sigTotalNeeded = 11 + topHeaderHeight + 22 + 16;
+  const sigMiddleH = isApproved ? 30 : 22;
+  const sigTotalNeeded = 11 + topHeaderHeight + sigMiddleH + 16;
   ensureSpace(sigTotalNeeded);
 
   drawBilingualParagraph(
@@ -1946,6 +2055,7 @@ export async function downloadSphPdfFromView(
       labelId: 'Mengetahui,',
       labelEn: 'Acknowledged by,',
       orgLines: ['ND TAX AND LAW'],
+      qrDataUrl: isApproved ? directorQrDataUrl : '',
       name: sph.directorName || content.directorName || 'Nurtiyas, S.E., M.Ak., BKP.',
       titleId: sph.directorTitleId || content.directorTitle || 'Direktur Utama',
       titleEn: sph.directorTitleEn || 'President Director',
@@ -1955,6 +2065,7 @@ export async function downloadSphPdfFromView(
       labelId: 'Hormat kami,',
       labelEn: 'Sincerely,',
       orgLines: ['MITRA RESMI'],
+      qrDataUrl: isApproved ? mitraQrDataUrl : '',
       name: sph.mitraName || '',
       titleId: 'Mitra Strategis',
       titleEn: 'Strategic Partner',
@@ -1964,6 +2075,7 @@ export async function downloadSphPdfFromView(
       labelId: 'Menyetujui,',
       labelEn: 'Approved by,',
       orgLines: compSigLines,
+      qrDataUrl: '',
       name: sph.clientSignerName?.trim() || '',
       titleId: sph.clientSignerTitleId?.trim() || '',
       titleEn: sph.clientSignerTitleEn?.trim() || '',
@@ -1971,7 +2083,9 @@ export async function downloadSphPdfFromView(
   ];
 
   // Uniform baseline for all 3 horizontal signature lines
-  const lineY = sigStartY + topHeaderHeight + 22;
+  const lineY = sigStartY + topHeaderHeight + sigMiddleH;
+  const qrSize = 21.5;
+  const qrTopY = sigStartY + topHeaderHeight + 1.5;
 
   for (const col of sigCols) {
     const cx = col.x + sigColW / 2;
@@ -1987,6 +2101,13 @@ export async function downloadSphPdfFromView(
       doc.text(ln, cx, cy, { align: 'center' });
       cy += sigStep;
     });
+
+    // QR Barcode electronic signature for Director & Mitra (ONLY when approved by Admin)
+    if (col.qrDataUrl) {
+      doc.addImage(col.qrDataUrl, 'PNG', cx - qrSize / 2, qrTopY, qrSize, qrSize, undefined, 'FAST');
+      setFontStyle(7.4, 'normal', [136, 136, 136]);
+      doc.text('Ditandatangani secara elektronik', cx, qrTopY + qrSize + 3.6, { align: 'center' });
+    }
 
     // Horizontal signature line (exact same Y across all 3 columns)
     doc.setDrawColor(55, 65, 81);
