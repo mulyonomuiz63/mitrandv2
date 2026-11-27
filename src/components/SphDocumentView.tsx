@@ -754,46 +754,48 @@ const SphSignatureBlock: React.FC<{ sph: SphDocument; content: ProspectLetterCon
         lineHeight: 1.35,
       }}
     >
-      <div>
+      {/* Row 1: Headers + uniform signature space so all 3 horizontal lines align perfectly */}
+      <div style={{ paddingBottom: '24mm' }}>
         <div style={{ color: '#000000' }}>Mengetahui,</div>
         <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Acknowledged by,</div>
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>ND TAX AND LAW</div>
-        <div style={{ height: '24mm' }} />
-        <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
-          <div style={{ fontWeight: 700, color: '#000000' }}>{directorName}</div>
-          <div style={{ color: '#000000' }}>{directorTitleId}</div>
-          <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{directorTitleEn}</div>
-        </div>
       </div>
 
-      <div>
+      <div style={{ paddingBottom: '24mm' }}>
         <div style={{ color: '#000000' }}>Hormat kami,</div>
         <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Sincerely,</div>
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>MITRA RESMI</div>
-        <div style={{ height: '24mm' }} />
-        <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
-          <div style={{ fontWeight: 700, color: '#000000' }}>{sph.mitraName}</div>
-          <div style={{ color: '#000000' }}>Mitra Strategis</div>
-          <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Strategic Partner</div>
-        </div>
       </div>
 
-      <div>
+      <div style={{ paddingBottom: '24mm' }}>
         <div style={{ color: '#000000' }}>Menyetujui,</div>
         <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Approved by,</div>
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>{sph.companyName}</div>
-        <div style={{ height: '24mm' }} />
-        <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
-          <div style={{ fontWeight: 700, color: '#000000' }}>
-            {clientSignerName || '( .................................... )'}
-          </div>
-          {clientSignerTitleId && (
-            <div style={{ color: '#000000' }}>{clientSignerTitleId}</div>
-          )}
-          {clientSignerTitleEn && (
-            <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{clientSignerTitleEn}</div>
-          )}
-        </div>
+      </div>
+
+      {/* Row 2: Perfectly aligned signature lines & signer names/titles */}
+      <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
+        <div style={{ fontWeight: 700, color: '#000000' }}>{directorName}</div>
+        <div style={{ color: '#000000' }}>{directorTitleId}</div>
+        <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{directorTitleEn}</div>
+      </div>
+
+      <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
+        <div style={{ fontWeight: 700, color: '#000000' }}>{sph.mitraName}</div>
+        <div style={{ color: '#000000' }}>Mitra Strategis</div>
+        <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Strategic Partner</div>
+      </div>
+
+      <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm', minHeight: '14mm' }}>
+        {clientSignerName && (
+          <div style={{ fontWeight: 700, color: '#000000' }}>{clientSignerName}</div>
+        )}
+        {clientSignerTitleId && (
+          <div style={{ color: '#000000' }}>{clientSignerTitleId}</div>
+        )}
+        {clientSignerTitleEn && (
+          <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{clientSignerTitleEn}</div>
+        )}
       </div>
     </div>
   );
