@@ -139,13 +139,8 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
             <div className="border-l border-slate-800 pl-3">
               <span className="text-xs font-extrabold text-white block uppercase tracking-wider">
                 {isSphMode
-                  ? 'Verifikasi Surat Penawaran Harga (SPH) Resmi'
-                  : 'Verifikasi Surat Penawaran Resmi'}
-              </span>
-              <span className="text-[10px] text-slate-400">
-                {isSphMode
-                  ? 'Validasi Tanda Tangan Elektronik Direktur Utama & Persetujuan Admin ND TAX AND LAW'
-                  : 'Validasi Tanda Tangan Elektronik Direktur Utama ND TAX AND LAW'}
+                  ? 'Verifikasi Surat Penawaran Harga (SPH)'
+                  : 'Verifikasi Surat Penawaran'}
               </span>
             </div>
           </div>
@@ -166,8 +161,8 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
             <div className="w-12 h-12 rounded-full border-3 border-blue-500 border-t-transparent animate-spin mx-auto" />
             <p className="text-sm font-bold text-white">
               {isSphMode
-                ? 'Memvalidasi Keabsahan Surat Penawaran Harga (SPH)...'
-                : 'Memvalidasi Keabsahan Surat Penawaran...'}
+                ? 'Memvalidasi Surat Penawaran Harga (SPH)...'
+                : 'Memvalidasi Surat Penawaran...'}
             </p>
             <p className="text-xs text-slate-400 font-mono">{verifyCode}</p>
           </div>
@@ -179,44 +174,22 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
           >
             {/* Verified Banner */}
             <div
-              className={`px-6 py-4 text-white flex items-center justify-between gap-3 ${
+              className={`px-6 py-4 text-white flex items-center gap-3 ${
                 isSphMode
                   ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-emerald-700 border-b border-amber-400/40'
                   : 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600'
               }`}
             >
-              <div className="flex items-center gap-3">
-                {isSphMode ? (
-                  <BadgeCheck className="w-6 h-6 text-amber-300 shrink-0" />
-                ) : (
-                  <CheckCircle2 className="w-6 h-6 text-white shrink-0" />
-                )}
-                <div>
-                  <span
-                    className={`text-[10px] font-black uppercase tracking-widest block ${
-                      isSphMode ? 'text-amber-300' : 'text-emerald-100'
-                    }`}
-                  >
-                    {isSphMode
-                      ? 'DOKUMEN SPH RESMI TERVERIFIKASI & DISETUJUI ADMIN'
-                      : 'DOKUMEN RESMI TERVERIFIKASI'}
-                  </span>
-                  <h1 className="text-base sm:text-lg font-extrabold tracking-tight">
-                    {isSphMode
-                      ? `SURAT PENAWARAN HARGA (SPH) SAH — ${data.firmName}`
-                      : `SURAT PENAWARAN SAH — ${data.firmName}`}
-                  </h1>
-                </div>
-              </div>
-              <span
-                className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider shrink-0 ${
-                  isSphMode
-                    ? 'bg-emerald-500/25 border border-emerald-300/50 text-emerald-100'
-                    : 'bg-white/20 text-white'
-                }`}
-              >
-                {isSphMode ? 'Disetujui Admin' : 'Terdaftar'}
-              </span>
+              {isSphMode ? (
+                <BadgeCheck className="w-6 h-6 text-amber-300 shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-6 h-6 text-white shrink-0" />
+              )}
+              <h1 className="text-base sm:text-lg font-extrabold tracking-tight">
+                {isSphMode
+                  ? `SURAT PENAWARAN HARGA (SPH) SAH — ${data.firmName}`
+                  : `SURAT PENAWARAN SAH — ${data.firmName}`}
+              </h1>
             </div>
 
             <div className="p-6 sm:p-8 space-y-6">
@@ -224,29 +197,23 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
               <div className="p-4 rounded-2xl bg-blue-950/70 border border-amber-400/30 space-y-3">
                 <div className="flex items-center gap-2 text-amber-300 text-xs font-bold uppercase tracking-wider">
                   <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span>Otorisasi Penerbit &amp; Penandatangan Elektronik</span>
+                  <span>Otorisasi Penerbit &amp; Penandatangan</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div>
-                    <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
-                      Nama Perusahaan Penerbit
-                    </span>
-                    <span className="font-extrabold text-white text-sm block mt-0.5">
+                    <span className="font-extrabold text-white text-sm block">
                       {data.firmName}
                     </span>
-                    <span className="text-[11px] text-slate-300 block">
+                    <span className="text-[11px] text-slate-300 block mt-0.5">
                       {data.firmLegalBasis}
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
-                      Direktur Penandatangan
-                    </span>
-                    <span className="font-extrabold text-amber-300 text-sm block mt-0.5">
+                    <span className="font-extrabold text-amber-300 text-sm block">
                       {data.directorName}
                     </span>
-                    <span className="text-[11px] text-slate-300 block">
-                      {data.directorTitle} — {data.firmName}
+                    <span className="text-[11px] text-slate-300 block mt-0.5">
+                      {data.directorTitle}
                     </span>
                   </div>
                 </div>
@@ -278,57 +245,27 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
                   </span>
                 </div>
 
-                <div className="sm:col-span-2 p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                      <Building2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>
-                        {isSphMode
-                          ? 'Ditujukan Kepada (Klien / Perusahaan)'
-                          : 'Ditujukan Kepada (Perusahaan Prospek)'}
-                      </span>
-                    </span>
-                    <span className="font-extrabold text-white text-base block mt-1">
+                <div className="sm:col-span-2 p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <Building2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span className="font-extrabold text-white text-base leading-snug">
                       {data.companyName}
                     </span>
                   </div>
-                  <div className="pt-2 border-t border-white/10">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Alamat Perusahaan</span>
-                    </span>
-                    <span className="text-slate-200 leading-relaxed block mt-0.5">
+                  <div className="flex items-start gap-2 pt-2 border-t border-white/10">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    <span className="text-slate-200 leading-relaxed">
                       {data.companyAddress}
                     </span>
                   </div>
-                  <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-                    {isSphMode ? (
-                      <>
-                        <span>
-                          Jenis Dokumen:{' '}
-                          <strong className="text-amber-300">Surat Penawaran Harga (SPH)</strong>
-                        </span>
-                        {data.prospectLetterNumber && (
-                          <span>
-                            Ref. Surat Penawaran:{' '}
-                            <strong className="font-mono text-slate-200">
-                              {data.prospectLetterNumber}
-                            </strong>
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <span>
-                          Perihal:{' '}
-                          <strong className="text-slate-200">Pemberitahuan dan Penawaran</strong>
-                        </span>
-                        <span>
-                          Sifat: <strong className="text-slate-200">Terbatas (Satu set)</strong>
-                        </span>
-                      </>
-                    )}
-                  </div>
+                  {isSphMode && data.prospectLetterNumber && (
+                    <div className="pt-2 border-t border-white/10 text-[11px] text-slate-400">
+                      Ref. Surat Penawaran:{' '}
+                      <strong className="font-mono text-slate-200">
+                        {data.prospectLetterNumber}
+                      </strong>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -338,11 +275,11 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Rincian Layanan &amp; Penawaran Harga (SPH)</span>
+                      <span>Rincian Layanan &amp; Harga</span>
                     </span>
                     {data.durationMonths && (
-                      <span className="text-[10px] font-semibold text-slate-300 bg-white/5 px-2 py-0.5 rounded-md border border-white/10">
-                        Masa Kerja Sama: {data.durationMonths} Bulan
+                      <span className="text-[11px] font-semibold text-slate-300">
+                        {data.durationMonths} Bulan
                       </span>
                     )}
                   </div>
@@ -367,7 +304,7 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
                     ))}
                   </div>
                   <div className="pt-2.5 border-t border-emerald-500/30 flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-bold text-slate-200">Total Penawaran Bulanan</span>
+                    <span className="font-bold text-slate-200">Total Bulanan</span>
                     <div className="text-right">
                       {Boolean(data.discountAmount && data.discountAmount > 0 && data.normalTotalMonthly) && (
                         <span className="text-[11px] text-slate-400 line-through mr-2 font-mono">
@@ -380,9 +317,8 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
                     </div>
                   </div>
                   {data.approvedAt && (
-                    <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200/90">
-                      <span>Status: <strong>Valid &amp; Disetujui Admin</strong></span>
-                      <span>Tanggal Validasi: {formatIndonesianLetterDate(data.approvedAt)}</span>
+                    <div className="pt-2 border-t border-white/10 text-[11px] text-emerald-200/90">
+                      Disetujui Admin · {formatIndonesianLetterDate(data.approvedAt)}
                     </div>
                   )}
                 </div>
@@ -390,29 +326,15 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
 
               {/* Mitra Strategis Pengaju */}
               <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Mitra Strategis Pengaju</span>
-                  </span>
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Mitra Strategis</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-slate-400">Nama Mitra:</span>{' '}
-                    <strong className="text-white">{data.mitraName}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">No. ID Mitra:</span>{' '}
-                    <strong className="font-mono text-amber-300">{data.mitraMemberCode}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">WhatsApp:</span>{' '}
-                    <strong className="text-slate-200">{data.mitraPhone}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Email:</span>{' '}
-                    <strong className="text-slate-200 break-all">{data.mitraEmail}</strong>
-                  </div>
+                  <div className="font-bold text-white">{data.mitraName}</div>
+                  <div className="font-mono font-bold text-amber-300">{data.mitraMemberCode}</div>
+                  <div className="text-slate-200">{data.mitraPhone}</div>
+                  <div className="text-slate-200 break-all">{data.mitraEmail}</div>
                 </div>
               </div>
 
@@ -420,8 +342,8 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
               <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] text-slate-400">
                 <span className="font-mono">
                   {isSphMode
-                    ? `Nomor SPH: ${data.sphNumber || data.letterNumber}`
-                    : `Kode Validasi: ${data.verificationCode}`}
+                    ? data.sphNumber || data.letterNumber
+                    : data.verificationCode}
                 </span>
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="flex items-center gap-1">
@@ -442,9 +364,6 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
               <AlertTriangle className="w-9 h-9" />
             </div>
             <div className="space-y-2 max-w-md mx-auto">
-              <span className="inline-block px-3 py-1 rounded-md bg-rose-500/20 border border-rose-400/30 text-rose-300 text-[11px] font-bold uppercase tracking-wider">
-                {isSphMode ? 'Dokumen SPH Tidak Valid' : 'Dokumen Tidak Terdaftar'}
-              </span>
               <h2 className="text-xl sm:text-2xl font-extrabold text-white">
                 {isSphMode
                   ? 'Surat Penawaran Harga (SPH) Tidak Ditemukan'
@@ -455,8 +374,8 @@ export const ProspectLetterPublicVerifyView: React.FC<ProspectLetterPublicVerify
               </p>
               {verifyCode && (
                 <div className="pt-2">
-                  <span className="px-3 py-1 rounded-lg bg-white/5 border border-white/10 font-mono text-xs text-slate-400">
-                    Kode Dipindai: <strong className="text-rose-300">{verifyCode}</strong>
+                  <span className="px-3 py-1 rounded-lg bg-white/5 border border-white/10 font-mono text-xs text-rose-300">
+                    {verifyCode}
                   </span>
                 </div>
               )}
