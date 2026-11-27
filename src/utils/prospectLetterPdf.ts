@@ -229,17 +229,31 @@ export async function resolveInlineProspectLogo(
   };
 }
 
+const cachedQrMap = new Map<string, string>();
+
 export async function generateQrDataUrl(
   content: string,
   barcodeLogoUrl?: string
 ): Promise<string> {
-  return generateQrWithLogoDataUrl(content, {
-    width: 640,
+  const cacheKey = `${content}|${String(barcodeLogoUrl || '').trim()}`;
+  const hit = cachedQrMap.get(cacheKey);
+  if (hit) return hit;
+
+  const dataUrl = await generateQrWithLogoDataUrl(content, {
+    width: 520,
     margin: 1,
     darkColor: '#092147',
     lightColor: '#FFFFFF',
     logoUrl: barcodeLogoUrl,
   });
+  if (dataUrl) {
+    if (cachedQrMap.size > 100) {
+      const oldestKey = cachedQrMap.keys().next().value;
+      if (oldestKey) cachedQrMap.delete(oldestKey);
+    }
+    cachedQrMap.set(cacheKey, dataUrl);
+  }
+  return dataUrl;
 }
 
 /**
@@ -404,11 +418,11 @@ export async function generateProspectLetterPdf(
       }
       const drawX = MARGIN_LEFT;
       const drawY = 7.5 + (maxH - drawH) / 2;
-      doc.addImage(loadedLogo.dataUrl, 'PNG', drawX, drawY, drawW, drawH, undefined, 'FAST');
+      doc.addImage(loadedLogo.dataUrl, 'PNG', drawX, drawY, drawW, drawH, 'nd-prospect-logo', 'FAST');
     } else {
       const logoCenterX = MARGIN_LEFT + 12;
       if (loadedLogo) {
-        doc.addImage(loadedLogo.dataUrl, 'PNG', logoCenterX - 9, 6.5, 18, 18, undefined, 'FAST');
+        doc.addImage(loadedLogo.dataUrl, 'PNG', logoCenterX - 9, 6.5, 18, 18, 'nd-prospect-logo', 'FAST');
       }
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10.5);
@@ -755,17 +769,69 @@ export async function generateProspectLetterPdf(
   drawHeaderAndFooter();
 
   const p3About = interpolateCompanyName(content.aboutPara, companyText);
-  const p3LH = 4.65;
+  const colW = [CONTENT_W * 0.34, CONTENT_W * 0.40, CONTENT_W * 0.26];
+  const tableRows: Array<[string, string, string, boolean]> = [
+    [content.comparisonHeaders[0], content.comparisonHeaders[1], content.comparisonHeaders[2], true],
+    ...content.comparisonRows.map(
+      (r): [string, string, string, boolean] => [r.component, r.internalStaff, r.consultant, false]
+    ),
+  ];
+
+  const computePage3Metrics = (lh: number, fs: number, tableFs: number, gap: number, cellPadY: number) => {
+    const tblStep = tableFs * 0.352778 * 1.24;
+    let h = lh + gap * 0.75; // aboutTitle
+    h += measureLines(p3About, CONTENT_W, fs, 'normal').length * lh + gap;
+    h += measureLines(content.servicesTitle, CONTENT_W - 7, fs, 'bold').length * lh;
+    h += measureLines(content.servicesIntro, CONTENT_W - 7, fs, 'normal').length * lh + 1.2;
+    for (const item of content.servicesItems) {
+      const leadWithSpace = item.lead ? (item.lead.endsWith(' ') ? item.lead : `${item.lead} `) : '';
+      h += measureLines(`${leadWithSpace}${item.body}`, CONTENT_W - 17, fs, 'normal').length * lh + 0.6;
+    }
+    h += gap * 0.65 + measureLines(content.servicesCaseNote, CONTENT_W, fs, 'normal').length * lh + gap * 1.2;
+    h += measureLines(content.comparisonTitle, CONTENT_W - 7, fs, 'bold').length * lh + 1.4;
+    h += measureLines(content.comparisonIntro, CONTENT_W, fs, 'normal').length * lh + 2.0;
+
+    for (let rIdx = 0; rIdx < tableRows.length; rIdx++) {
+      const row = tableRows[rIdx];
+      const isHeader = row[3];
+      let maxLines = 1;
+      for (let c = 0; c < 3; c++) {
+        const isBoldCell = isHeader || (rIdx === 1 && c === 2);
+        const lines = measureLines(String(row[c] ?? ''), colW[c] - 4.2, tableFs, isBoldCell ? 'bold' : 'normal');
+        if (lines.length > maxLines) maxLines = lines.length;
+      }
+      h += maxLines * tblStep + cellPadY * 2;
+    }
+
+    h += gap * 1.2 + measureLines(content.comparisonClosing, CONTENT_W, fs, 'normal').length * lh;
+    return { h, lh, fs, tableFs, gap, cellPadY, tblStep };
+  };
+
+  const p3Candidates: Array<[number, number, number, number, number]> = [
+    [4.6, 11, 10.5, 3.6, 2.0],
+    [4.35, 10.8, 10.2, 3.0, 1.7],
+    [4.15, 10.5, 9.8, 2.4, 1.5],
+    [3.95, 10.1, 9.5, 1.9, 1.3],
+    [3.75, 9.7, 9.1, 1.5, 1.15],
+  ];
+  let p3Layout = computePage3Metrics(4.6, 11, 10.5, 3.6, 2.0);
+  for (const [lh, fs, tfs, gap, cpy] of p3Candidates) {
+    const test = computePage3Metrics(lh, fs, tfs, gap, cpy);
+    p3Layout = test;
+    if (test.h <= CONTENT_H - 1.5) break;
+  }
+
+  const p3LH = p3Layout.lh;
   y = MARGIN_TOP + 2;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
+  doc.setFontSize(p3Layout.fs);
   doc.text(content.aboutTitle, MARGIN_X, y);
-  y += p3LH + 2.5;
+  y += p3LH + p3Layout.gap * 0.7;
 
   doc.setFont('helvetica', 'normal');
   y = drawWrapped(p3About, MARGIN_X, y, CONTENT_W, p3LH, 'justify');
-  y += 4;
+  y += p3Layout.gap;
 
   doc.setFont('helvetica', 'bold');
   doc.text('I.', MARGIN_X, y);
@@ -775,11 +841,12 @@ export async function generateProspectLetterPdf(
   y = drawWrapped(content.servicesIntro, MARGIN_X + 7, y, CONTENT_W - 7, p3LH, 'justify');
   y += 1.2;
 
-  content.servicesItems.forEach((s, idx) => {
+  content.servicesItems.forEach((svcItem, idx) => {
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(p3Layout.fs);
     doc.text(`${idx + 1}.`, MARGIN_X + 10, y);
-    const leadWithSpace = s.lead ? (s.lead.endsWith(' ') ? s.lead : `${s.lead} `) : '';
-    const fullLine = `${leadWithSpace}${s.body}`;
+    const leadWithSpace = svcItem.lead ? (svcItem.lead.endsWith(' ') ? svcItem.lead : `${svcItem.lead} `) : '';
+    const fullLine = `${leadWithSpace}${svcItem.body}`;
     const wrapped = doc.splitTextToSize(fullLine, CONTENT_W - 17);
     wrapped.forEach((line: string, lineIdx: number) => {
       if (lineIdx === 0 && leadWithSpace && line.startsWith(leadWithSpace)) {
@@ -798,34 +865,40 @@ export async function generateProspectLetterPdf(
     y += 0.6;
   });
 
-  y += 2.2;
+  y += p3Layout.gap * 0.6;
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(p3Layout.fs);
   y = drawWrapped(content.servicesCaseNote, MARGIN_X, y, CONTENT_W, p3LH, 'justify');
-  y += 5;
+  y += p3Layout.gap * 1.15;
 
   doc.setFont('helvetica', 'bold');
   doc.text('II.', MARGIN_X, y);
   y = drawWrapped(content.comparisonTitle, MARGIN_X + 7, y, CONTENT_W - 7, p3LH, 'left');
-  y += 1.5;
+  y += 1.3;
 
   doc.setFont('helvetica', 'normal');
   y = drawWrapped(content.comparisonIntro, MARGIN_X, y, CONTENT_W, p3LH, 'left');
-  y += 2.2;
-
-  const colW = [52, 60, 38];
-  const rowH = 8.4;
-  const tableRows: Array<[string, string, string, boolean]> = [
-    [content.comparisonHeaders[0], content.comparisonHeaders[1], content.comparisonHeaders[2], true],
-    ...content.comparisonRows.map(
-      (r): [string, string, string, boolean] => [r.component, r.internalStaff, r.consultant, false]
-    ),
-  ];
+  y += 1.8;
 
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.3);
 
   tableRows.forEach((row, rIdx) => {
     const isHeader = row[3];
+    const wrappedCells: string[][] = [];
+    let maxLines = 1;
+    for (let c = 0; c < 3; c++) {
+      const isBoldCell = isHeader || (rIdx === 1 && c === 2);
+      const lines = measureLines(
+        String(row[c] ?? ''),
+        colW[c] - 4.2,
+        p3Layout.tableFs,
+        isBoldCell ? 'bold' : 'normal'
+      );
+      wrappedCells.push(lines);
+      if (lines.length > maxLines) maxLines = lines.length;
+    }
+    const rowH = maxLines * p3Layout.tblStep + p3Layout.cellPadY * 2;
     let curX = MARGIN_X;
     for (let c = 0; c < 3; c++) {
       if (isHeader) {
@@ -836,16 +909,18 @@ export async function generateProspectLetterPdf(
       }
       const isBoldCell = isHeader || (rIdx === 1 && c === 2);
       doc.setFont('helvetica', isBoldCell ? 'bold' : 'normal');
-      doc.setFontSize(10.5);
-      doc.text(String(row[c] ?? ''), curX + 2.2, y + 5.5);
+      doc.setFontSize(p3Layout.tableFs);
+      wrappedCells[c].forEach((ln, lIdx) => {
+        doc.text(ln, curX + 2.1, y + p3Layout.cellPadY + p3Layout.tblStep * (lIdx + 0.78));
+      });
       curX += colW[c];
     }
     y += rowH;
   });
 
-  y += 6.2;
+  y += p3Layout.gap * 1.1;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
+  doc.setFontSize(p3Layout.fs);
   drawWrapped(content.comparisonClosing, MARGIN_X, y, CONTENT_W, p3LH, 'justify');
 
   // =========================================================================
@@ -854,14 +929,14 @@ export async function generateProspectLetterPdf(
   doc.addPage();
   drawHeaderAndFooter();
 
-  const p4LH = 4.9;
+  const p4LH = 4.85;
   y = MARGIN_TOP + 2;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text('III.', MARGIN_X, y);
   y = drawWrapped(content.consultTitle, MARGIN_X + 8, y, CONTENT_W - 8, p4LH, 'left');
-  y += 2.5;
+  y += 2.4;
 
   doc.setFont('helvetica', 'normal');
   y = drawWrapped(
@@ -872,43 +947,68 @@ export async function generateProspectLetterPdf(
     p4LH,
     'justify'
   );
-  y += 8;
+  y += 7;
 
-  const boxTopY = y;
-  const boxHeight = 37;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.32);
-  doc.rect(MARGIN_X, boxTopY, CONTENT_W, boxHeight);
-
-  let boxY = boxTopY + 7;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(content.mitraBoxTitle, MARGIN_X + 4, boxY);
-  const titleW = doc.getTextWidth(content.mitraBoxTitle);
-  doc.setLineWidth(0.35);
-  doc.line(MARGIN_X + 4, boxY + 0.8, MARGIN_X + 4 + titleW, boxY + 0.8);
-
-  boxY += 8.2;
+  const mitraBoxX = MARGIN_X + 8;
+  const mitraBoxW = CONTENT_W - 8;
+  const mitraValW = Math.max(40, mitraBoxW - 31);
   const mitraRows: Array<[string, string, string, string]> = [
     [content.mitraBoxNameLabel, content.mitraBoxNameValue || '-', rawContent.mitraBoxNameLabel, rawContent.mitraBoxNameValue],
     [content.mitraBoxIdLabel, content.mitraBoxIdValue || '-', rawContent.mitraBoxIdLabel, rawContent.mitraBoxIdValue],
     [content.mitraBoxPhoneLabel, content.mitraBoxPhoneValue || '-', rawContent.mitraBoxPhoneLabel, rawContent.mitraBoxPhoneValue],
     [content.mitraBoxEmailLabel, content.mitraBoxEmailValue || '-', rawContent.mitraBoxEmailLabel, rawContent.mitraBoxEmailValue],
   ];
-  for (const [lbl, val, rawLbl, rawVal] of mitraRows) {
-    doc.setFont('helvetica', isLineBold(rawLbl) ? 'bold' : 'normal');
-    doc.text(lbl, MARGIN_X + 4, boxY);
-    doc.setFont('helvetica', isLineBold(rawVal) ? 'bold' : 'normal');
-    doc.text(`: ${val}`, MARGIN_X + 27, boxY);
-    boxY += 5.1;
+
+  const wrappedMitraRows = mitraRows.map(([lbl, val, rawLbl, rawVal]) => ({
+    lbl,
+    rawLbl,
+    rawVal,
+    valLines: measureLines(`: ${val}`, mitraValW, 11, isLineBold(rawVal) ? 'bold' : 'normal'),
+  }));
+  const totalMitraValLines = wrappedMitraRows.reduce((sum, r) => sum + Math.max(1, r.valLines.length), 0);
+  const boxTopY = y;
+  const boxHeight = Math.max(36, 15.5 + totalMitraValLines * 5.0 + 3.5);
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.32);
+  doc.rect(mitraBoxX, boxTopY, mitraBoxW, boxHeight);
+
+  let boxY = boxTopY + 6.8;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(content.mitraBoxTitle, mitraBoxX + 4, boxY);
+  const titleW = doc.getTextWidth(content.mitraBoxTitle);
+  doc.setLineWidth(0.35);
+  doc.line(mitraBoxX + 4, boxY + 0.8, mitraBoxX + 4 + titleW, boxY + 0.8);
+
+  boxY += 7.8;
+  for (const row of wrappedMitraRows) {
+    doc.setFont('helvetica', isLineBold(row.rawLbl) ? 'bold' : 'normal');
+    doc.setFontSize(11);
+    doc.text(row.lbl, mitraBoxX + 4, boxY);
+    doc.setFont('helvetica', isLineBold(row.rawVal) ? 'bold' : 'normal');
+    row.valLines.forEach((ln, idx) => {
+      doc.text(ln, mitraBoxX + 27, boxY + idx * 5.0);
+    });
+    boxY += Math.max(1, row.valLines.length) * 5.0;
   }
 
-  y = boxTopY + boxHeight + 9;
+  y = boxTopY + boxHeight + 7.5;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
-  y = drawWrapped(interpolateCompanyName(content.closingPara, companyText), MARGIN_X, y, CONTENT_W, p4LH, 'left');
+  y = drawWrapped(
+    interpolateCompanyName(content.closingPara, companyText),
+    MARGIN_X + 8,
+    y,
+    CONTENT_W - 8,
+    p4LH,
+    'left'
+  );
 
-  y += 17;
+  // Reserve exact signature height (63mm) so QR codes & names never touch the footer bar
+  const sigBlockHeight = 61;
+  const desiredSigY = y + 14;
+  y = Math.min(desiredSigY, Math.max(y + 4, CONTENT_BOTTOM - sigBlockHeight));
+
   const sigOffset = Math.min(34, Math.max(22, CONTENT_W * 0.24));
   const leftCenterX = MARGIN_X + sigOffset;
   const rightCenterX = RIGHT_EDGE_X - sigOffset;
@@ -923,23 +1023,23 @@ export async function generateProspectLetterPdf(
   doc.setFont('helvetica', 'bold');
   doc.text(content.directorFirmLabel, leftCenterX, y, { align: 'center' });
   doc.text(content.mitraSignerLabel, rightCenterX, y, { align: 'center' });
-  y += 5;
+  y += 4.5;
 
   const qrSize = 27;
   if (directorQrDataUrl) {
-    doc.addImage(directorQrDataUrl, 'PNG', leftCenterX - qrSize / 2, y, qrSize, qrSize);
+    doc.addImage(directorQrDataUrl, 'PNG', leftCenterX - qrSize / 2, y, qrSize, qrSize, undefined, 'FAST');
   }
   if (mitraQrDataUrl) {
-    doc.addImage(mitraQrDataUrl, 'PNG', rightCenterX - qrSize / 2, y, qrSize, qrSize);
+    doc.addImage(mitraQrDataUrl, 'PNG', rightCenterX - qrSize / 2, y, qrSize, qrSize, undefined, 'FAST');
   }
-  y += qrSize + 6.5;
+  y += qrSize + 6;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(150, 150, 150);
   doc.text('Ditandatangani secara elektronik', leftCenterX, y, { align: 'center' });
   doc.text('Ditandatangani secara elektronik', rightCenterX, y, { align: 'center' });
-  y += 7;
+  y += 6.5;
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');

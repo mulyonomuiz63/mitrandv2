@@ -1,6 +1,4 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import { jsPDF } from 'jspdf';
 import { QrCode } from 'lucide-react';
 import {
   ProspectLetter,
@@ -8,13 +6,8 @@ import {
   resolveProspectLetterContent,
 } from '../types';
 import {
-  buildDirectorQrUrl,
-  buildMitraQrUrl,
   formatIndonesianLetterDate,
   generateProspectLetterPdf,
-  generateQrDataUrl,
-  resolveInlineProspectLogo,
-  triggerPdfBlobDownload,
 } from '../utils/prospectLetterPdf';
 import { ProspectLetterVariables, renderProspectRichText } from '../utils/prospectRichText';
 
@@ -949,92 +942,9 @@ export const ProspectLetterDocument: React.FC<ProspectLetterDocumentProps> = ({
   );
 };
 
-async function waitForImages(container: HTMLElement): Promise<void> {
-  const imgs = Array.from(container.querySelectorAll('img'));
-  await Promise.all(
-    imgs.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          if (img.complete && img.naturalWidth > 0) {
-            if (typeof img.decode === 'function') {
-              img.decode().then(() => resolve()).catch(() => resolve());
-            } else {
-              resolve();
-            }
-            return;
-          }
-          const done = () => resolve();
-          img.addEventListener('load', done, { once: true });
-          img.addEventListener('error', done, { once: true });
-          window.setTimeout(done, 1500);
-        })
-    )
-  );
-}
-
 /**
- * Renders a self-contained inline-styled A4 DOM page directly via XHTML
- * SVG foreignObject -> high-DPI Canvas at native scaled resolution (default 3.5x = 336 DPI).
- * Sizing both <svg> and <foreignObject> to scaledW x scaledH and applying CSS transform: scale()
- * forces browsers (Chrome, Edge, Safari, Firefox) to rasterize fonts, borders, logos, and QR codes
- * natively at print-grade HD resolution instead of upscaling a blurry 96 DPI bitmap.
- */
-async function renderA4NodeToPngDataUrl(pageEl: HTMLElement, scale = 3.5): Promise<string> {
-  const scaledW = Math.round(A4_WIDTH_PX * scale);
-  const scaledH = Math.round(A4_HEIGHT_PX * scale);
-  const serialized = new XMLSerializer().serializeToString(pageEl);
-  const svgXml = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${scaledW}" height="${scaledH}" viewBox="0 0 ${scaledW} ${scaledH}">`,
-    `<foreignObject x="0" y="0" width="${scaledW}" height="${scaledH}">`,
-    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${scaledW}px;height:${scaledH}px;overflow:hidden;position:relative;margin:0;padding:0;background:#ffffff;">`,
-    `<div style="width:${A4_WIDTH_PX}px;height:${A4_HEIGHT_PX}px;transform:scale(${scale});transform-origin:top left;margin:0;padding:0;background:#ffffff;color:#000000;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;">`,
-    `<style>*,*::before,*::after{box-sizing:border-box;}p{margin:0;}table{border-collapse:collapse;border-spacing:0;}img{display:block;max-width:none;}</style>`,
-    serialized,
-    `</div>`,
-    `</div>`,
-    `</foreignObject>`,
-    `</svg>`,
-  ].join('');
-
-  const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgXml)}`;
-
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.width = scaledW;
-    image.height = scaledH;
-    image.decoding = 'async';
-    image.onload = () => {
-      if (typeof image.decode === 'function') {
-        image.decode().then(() => resolve(image)).catch(() => resolve(image));
-      } else {
-        resolve(image);
-      }
-    };
-    image.onerror = () => reject(new Error('SVG foreignObject image failed to render'));
-    image.src = svgDataUrl;
-  });
-
-  const canvas = document.createElement('canvas');
-  canvas.width = scaledW;
-  canvas.height = scaledH;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Canvas 2D context unavailable');
-  }
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, scaledW, scaledH);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, scaledW, scaledH);
-
-  return canvas.toDataURL('image/png');
-}
-
-/**
- * Downloads the 4-page A4 PDF by rendering the EXACT same View layout
- * (`ProspectLetterDocument`) at native 794x1123px (210mm x 297mm) and
- * capturing each page at 336 DPI HD (2779x3931px) directly into a 4-page A4 PDF
- * so View and Download PDF match identically with crisp print-quality text.
+ * Downloads the 4-page A4 Surat Penawaran directly as a crisp native vector PDF
+ * (instant generation, razor-sharp selectable vector text, zero bitmap blur).
  */
 export async function downloadProspectLetterPdfFromView(
   letter: ProspectLetter,
@@ -1042,106 +952,5 @@ export async function downloadProspectLetterPdfFromView(
   masterTemplate?: Partial<ProspectLetterContent> | null,
   barcodeLogoUrl?: string
 ): Promise<void> {
-  if (typeof document === 'undefined') {
-    await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate, barcodeLogoUrl);
-    return;
-  }
-
-  let container: HTMLDivElement | null = null;
-  let root: ReturnType<typeof createRoot> | null = null;
-
-  try {
-    const [inlineLogo, directorQr, mitraQr] = await Promise.all([
-      resolveInlineProspectLogo(adminLogoUrl),
-      generateQrDataUrl(buildDirectorQrUrl(letter), barcodeLogoUrl),
-      generateQrDataUrl(buildMitraQrUrl(letter.mitraMemberCode), barcodeLogoUrl),
-    ]);
-
-    container = document.createElement('div');
-    container.setAttribute('aria-hidden', 'true');
-    container.style.position = 'fixed';
-    container.style.left = '-12000px';
-    container.style.top = '0';
-    container.style.width = `${A4_WIDTH_PX}px`;
-    container.style.backgroundColor = '#FFFFFF';
-    container.style.pointerEvents = 'none';
-    container.style.zIndex = '-1';
-    document.body.appendChild(container);
-
-    let resolveLayout: (() => void) | null = null;
-    const layoutReadyPromise = new Promise<void>((resolve) => {
-      resolveLayout = resolve;
-      window.setTimeout(resolve, 700);
-    });
-
-    root = createRoot(container);
-    root.render(
-      <ProspectLetterDocument
-        letter={letter}
-        logoUrl={adminLogoUrl}
-        inlineLogo={inlineLogo}
-        masterTemplate={masterTemplate}
-        directorQr={directorQr}
-        mitraQr={mitraQr}
-        mode="capture"
-        onLayoutReady={() => resolveLayout?.()}
-      />
-    );
-
-    await layoutReadyPromise;
-    await waitForImages(container);
-    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-
-    const pageNodes = Array.from(
-      container.querySelectorAll<HTMLElement>('.nd-prospect-a4-capture-page')
-    );
-
-    if (pageNodes.length !== 4) {
-      throw new Error('Expected 4 rendered A4 pages for PDF capture.');
-    }
-
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true,
-    });
-
-    for (let i = 0; i < pageNodes.length; i++) {
-      let pngDataUrl: string;
-      try {
-        pngDataUrl = await renderA4NodeToPngDataUrl(pageNodes[i], 3.5);
-      } catch {
-        pngDataUrl = await renderA4NodeToPngDataUrl(pageNodes[i], 2.5);
-      }
-      if (!pngDataUrl.startsWith('data:image/png;base64,') || pngDataUrl.length < 4000) {
-        throw new Error(`Captured page ${i + 1} appears empty`);
-      }
-      if (i > 0) {
-        doc.addPage('a4', 'portrait');
-      }
-      doc.addImage(pngDataUrl, 'PNG', 0, 0, 210, 297, undefined, 'FAST');
-    }
-
-    const safeSlug = letter.companyName
-      .replace(/[^a-zA-Z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 48);
-    const fileName = `Surat_Penawaran_ND_Tax_and_Law_${safeSlug || 'Prospek'}.pdf`;
-    triggerPdfBlobDownload(doc, fileName);
-  } catch (err) {
-    console.warn('[Prospect PDF View Capture Fallback]', err);
-    await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate, barcodeLogoUrl);
-  } finally {
-    if (root) {
-      try {
-        root.unmount();
-      } catch {
-        // Ignore unmount error
-      }
-    }
-    if (container && container.parentNode) {
-      container.parentNode.removeChild(container);
-    }
-  }
+  await generateProspectLetterPdf(letter, 'download', adminLogoUrl, masterTemplate, barcodeLogoUrl);
 }
