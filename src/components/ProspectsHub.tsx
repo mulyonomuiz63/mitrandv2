@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  ChevronDown,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -231,9 +232,19 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
     right: number;
   } | null>(null);
 
+  // Floating row action dropdown for Pengajuan SPH table (Lihat / PDF / Approve / Tolak / Edit / Hapus)
+  const [openSphMenu, setOpenSphMenu] = useState<{
+    sph: SphDocument;
+    top: number;
+    right: number;
+  } | null>(null);
+
   useEffect(() => {
-    if (!openRowMenu) return;
-    const close = () => setOpenRowMenu(null);
+    if (!openRowMenu && !openSphMenu) return;
+    const close = () => {
+      setOpenRowMenu(null);
+      setOpenSphMenu(null);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
     };
@@ -247,13 +258,14 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
       window.removeEventListener('resize', close);
       window.removeEventListener('keydown', onKey);
     };
-  }, [openRowMenu]);
+  }, [openRowMenu, openSphMenu]);
 
   const toggleRowActionMenu = (
     e: React.MouseEvent<HTMLButtonElement>,
     letter: ProspectLetter
   ) => {
     e.stopPropagation();
+    setOpenSphMenu(null);
     if (openRowMenu?.letter.id === letter.id) {
       setOpenRowMenu(null);
       return;
@@ -267,6 +279,27 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         : rect.bottom + 6;
     const right = Math.max(12, window.innerWidth - rect.right);
     setOpenRowMenu({ letter, top, right });
+  };
+
+  const toggleSphActionMenu = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    sph: SphDocument
+  ) => {
+    e.stopPropagation();
+    setOpenRowMenu(null);
+    if (openSphMenu?.sph.id === sph.id) {
+      setOpenSphMenu(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuHeight = 256;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top =
+      spaceBelow < menuHeight + 16
+        ? Math.max(12, rect.top - menuHeight - 6)
+        : rect.bottom + 6;
+    const right = Math.max(12, window.innerWidth - rect.right);
+    setOpenSphMenu({ sph, top, right });
   };
 
   // System Services catalog (fetched directly from /api/services so SPH aligns with live system services)
@@ -1721,8 +1754,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                 ) : (
                   sphRows.map((sph) => {
                     const badge = getSphStatusBadge(sph.status);
-                    const canDownload = isAdminOrStaff || sph.status === 'approved';
-                    const canEdit = isAdminOrStaff || sph.status !== 'approved';
+                    const isSphRowBusy = sphBusyId === sph.id || sphDownloadingId === sph.id;
                     return (
                       <tr key={sph.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3.5 px-4 sm:px-6 whitespace-nowrap align-top">
@@ -1807,90 +1839,26 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                         </td>
 
                         <td className="py-3.5 px-4 sm:px-6 text-right align-top whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => setPreviewSph(sph)}
-                              className="px-2.5 py-1.5 text-xs font-semibold text-[#092147] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Lihat</span>
-                            </button>
-
-                            {canDownload ? (
-                              <button
-                                type="button"
-                                disabled={sphDownloadingId === sph.id}
-                                onClick={() => handleDownloadSphDirect(sph)}
-                                className="px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-[#092147] hover:bg-[#113872] rounded-lg inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                              >
-                                {sphDownloadingId === sph.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Download className="w-3.5 h-3.5" />
-                                )}
-                                <span>PDF</span>
-                              </button>
+                          <button
+                            type="button"
+                            disabled={isSphRowBusy}
+                            onClick={(e) => toggleSphActionMenu(e, sph)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
+                              openSphMenu?.sph.id === sph.id
+                                ? 'bg-[#092147] text-white border-[#092147]'
+                                : 'bg-white text-slate-700 hover:text-[#092147] hover:bg-slate-100 border-slate-200'
+                            }`}
+                            aria-label="Menu aksi SPH"
+                            title="Aksi SPH"
+                          >
+                            {isSphRowBusy ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
-                              <span
-                                title="PDF SPH dapat diunduh setelah disetujui Admin"
-                                className="px-2.5 py-1.5 text-xs font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded-lg inline-flex items-center gap-1"
-                              >
-                                <Lock className="w-3.5 h-3.5" />
-                                <span>PDF</span>
-                              </span>
+                              <MoreVertical className="w-3.5 h-3.5" />
                             )}
-
-                            {isAdminOrStaff && sph.status !== 'approved' && (
-                              <button
-                                type="button"
-                                disabled={sphBusyId === sph.id}
-                                onClick={() => handleApproveSphDirect(sph)}
-                                className="px-2.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                              >
-                                {sphBusyId === sph.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                )}
-                                <span>Approve</span>
-                              </button>
-                            )}
-
-                            {isAdminOrStaff && sph.status !== 'rejected' && (
-                              <button
-                                type="button"
-                                disabled={sphBusyId === sph.id}
-                                onClick={() => setRejectingSph(sph)}
-                                className="px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <XCircle className="w-3.5 h-3.5" />
-                                <span>Tolak</span>
-                              </button>
-                            )}
-
-                            {canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => setRevisingSph(sph)}
-                                className="px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>{sph.status === 'rejected' ? 'Revisi' : 'Edit'}</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              disabled={sphBusyId === sph.id}
-                              onClick={() => handleDeleteSphDirect(sph)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                              aria-label="Hapus SPH"
-                              title="Hapus SPH"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                            <span>Aksi</span>
+                            <ChevronDown className="w-3.5 h-3.5 opacity-75" />
+                          </button>
                         </td>
                       </tr>
                     );
@@ -2653,6 +2621,134 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           </button>
         </div>
       )}
+
+      {/* ================================================================= */}
+      {/* FLOATING DROPDOWN MENU: AKSI PENGAJUAN SPH                        */}
+      {/* ================================================================= */}
+      {openSphMenu && (() => {
+        const target = openSphMenu.sph;
+        const canDownload = isAdminOrStaff || target.status === 'approved';
+        const canEdit = isAdminOrStaff || target.status !== 'approved';
+        const showApprove = isAdminOrStaff && target.status !== 'approved';
+        const showReject = isAdminOrStaff && target.status !== 'rejected';
+        return (
+          <div
+            style={{ top: openSphMenu.top, right: openSphMenu.right }}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-[70] w-48 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setOpenSphMenu(null);
+                setPreviewSph(target);
+              }}
+              className="w-full px-3.5 py-2 text-left font-semibold text-slate-700 hover:bg-blue-50 hover:text-[#092147] flex items-center gap-2.5 cursor-pointer"
+            >
+              <Eye className="w-3.5 h-3.5 text-blue-700" />
+              <span>Lihat</span>
+            </button>
+
+            {canDownload ? (
+              <button
+                type="button"
+                disabled={sphDownloadingId === target.id}
+                onClick={() => {
+                  setOpenSphMenu(null);
+                  void handleDownloadSphDirect(target);
+                }}
+                className="w-full px-3.5 py-2 text-left font-semibold text-[#092147] hover:bg-slate-100 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
+              >
+                {sphDownloadingId === target.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#092147]" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 text-[#092147]" />
+                )}
+                <span>Download PDF</span>
+              </button>
+            ) : (
+              <div
+                title="PDF SPH dapat diunduh setelah disetujui Admin"
+                className="w-full px-3.5 py-2 text-left font-semibold text-slate-400 flex items-center gap-2.5 select-none cursor-not-allowed"
+              >
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                <span>PDF</span>
+              </div>
+            )}
+
+            {(showApprove || showReject) && (
+              <div className="my-1 border-t border-slate-100" />
+            )}
+
+            {showApprove && (
+              <button
+                type="button"
+                disabled={sphBusyId === target.id}
+                onClick={() => {
+                  setOpenSphMenu(null);
+                  void handleApproveSphDirect(target);
+                }}
+                className="w-full px-3.5 py-2 text-left font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
+              >
+                {sphBusyId === target.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                )}
+                <span>Approve</span>
+              </button>
+            )}
+
+            {showReject && (
+              <button
+                type="button"
+                disabled={sphBusyId === target.id}
+                onClick={() => {
+                  setOpenSphMenu(null);
+                  setRejectingSph(target);
+                }}
+                className="w-full px-3.5 py-2 text-left font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
+              >
+                <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                <span>Tolak</span>
+              </button>
+            )}
+
+            <div className="my-1 border-t border-slate-100" />
+
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSphMenu(null);
+                  setRevisingSph(target);
+                }}
+                className="w-full px-3.5 py-2 text-left font-semibold text-amber-800 hover:bg-amber-50 flex items-center gap-2.5 cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5 text-amber-600" />
+                <span>{target.status === 'rejected' ? 'Revisi' : 'Edit'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              disabled={sphBusyId === target.id}
+              onClick={() => {
+                setOpenSphMenu(null);
+                void handleDeleteSphDirect(target);
+              }}
+              className="w-full px-3.5 py-2 text-left font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
+            >
+              {sphBusyId === target.id ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="w-3.5 h-3.5" />
+              )}
+              <span>Hapus</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ================================================================= */}
       {/* MODAL 5: CETAK & UNDUH AMPLOP 11cm x 22cm                         */}
