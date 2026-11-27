@@ -739,9 +739,9 @@ const SphSignatureBlock: React.FC<{ sph: SphDocument; content: ProspectLetterCon
   const directorName = sph.directorName || content.directorName || 'Nurtiyas, S.E., M.Ak., BKP.';
   const directorTitleId = sph.directorTitleId || content.directorTitle || 'Direktur Utama';
   const directorTitleEn = sph.directorTitleEn || 'President Director';
-  const clientSignerName = sph.clientSignerName?.trim() || '________________________';
-  const clientSignerTitleId = sph.clientSignerTitleId?.trim() || 'Pimpinan / Direksi';
-  const clientSignerTitleEn = sph.clientSignerTitleEn?.trim() || 'Director / Management';
+  const clientSignerName = sph.clientSignerName?.trim() || '';
+  const clientSignerTitleId = sph.clientSignerTitleId?.trim() || '';
+  const clientSignerTitleEn = sph.clientSignerTitleEn?.trim() || '';
 
   return (
     <div
@@ -784,9 +784,15 @@ const SphSignatureBlock: React.FC<{ sph: SphDocument; content: ProspectLetterCon
         <div style={{ fontWeight: 700, color: '#000000', marginTop: '0.6mm' }}>{sph.companyName}</div>
         <div style={{ height: '24mm' }} />
         <div style={{ borderTop: '1px solid #374151', paddingTop: '1.5mm' }}>
-          <div style={{ fontWeight: 700, color: '#000000' }}>{clientSignerName}</div>
-          <div style={{ color: '#000000' }}>{clientSignerTitleId}</div>
-          <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{clientSignerTitleEn}</div>
+          <div style={{ fontWeight: 700, color: '#000000' }}>
+            {clientSignerName || '( .................................... )'}
+          </div>
+          {clientSignerTitleId && (
+            <div style={{ color: '#000000' }}>{clientSignerTitleId}</div>
+          )}
+          {clientSignerTitleEn && (
+            <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{clientSignerTitleEn}</div>
+          )}
         </div>
       </div>
     </div>

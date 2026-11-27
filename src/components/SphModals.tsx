@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
-  Sparkles,
   Tag,
 } from 'lucide-react';
 import {
@@ -584,32 +583,42 @@ export const SphFormModal: React.FC<SphFormModalProps> = ({
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Nama Pimpinan
+                Nama Pimpinan <span className="font-normal text-slate-400">(Opsional)</span>
               </label>
               <input
                 type="text"
                 value={clientSignerName}
                 onChange={(e) => setClientSignerName(e.target.value)}
-                placeholder="Nama pimpinan"
+                placeholder="Opsional"
                 className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-600"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Jabatan
+                Jabatan <span className="font-normal text-slate-400">(Opsional)</span>
               </label>
               <input
                 type="text"
                 value={clientSignerTitleId}
                 onChange={(e) => {
-                  setClientSignerTitleId(e.target.value);
-                  if (!clientSignerTitleEn) {
-                    const lower = e.target.value.toLowerCase();
-                    if (lower.includes('direktur utama')) setClientSignerTitleEn('President Director');
-                    else if (lower.includes('direktur')) setClientSignerTitleEn('Director');
+                  const val = e.target.value;
+                  setClientSignerTitleId(val);
+                  const lower = val.trim().toLowerCase();
+                  if (!lower) {
+                    setClientSignerTitleEn('');
+                  } else if (lower.includes('direktur utama')) {
+                    setClientSignerTitleEn('President Director');
+                  } else if (lower.includes('direktur')) {
+                    setClientSignerTitleEn('Director');
+                  } else if (lower.includes('komisaris')) {
+                    setClientSignerTitleEn('Commissioner');
+                  } else if (lower.includes('manajer') || lower.includes('manager')) {
+                    setClientSignerTitleEn('Manager');
+                  } else {
+                    setClientSignerTitleEn('');
                   }
                 }}
-                placeholder="Direktur Utama"
+                placeholder="Opsional"
                 className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-600"
               />
             </div>
@@ -688,11 +697,7 @@ export const SphFormModal: React.FC<SphFormModalProps> = ({
               disabled={submitting || builtServices.length === 0}
               className="px-5 py-2.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 rounded-xl disabled:opacity-50 inline-flex items-center gap-2 shadow-sm cursor-pointer"
             >
-              {submitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
               <span>
                 {submitting
                   ? 'Mengirim...'
