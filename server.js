@@ -1,8 +1,8 @@
 // server.ts
 import express from "express";
 import dotenv2 from "dotenv";
-import path2 from "path";
-import fs2 from "fs";
+import path3 from "path";
+import fs3 from "fs";
 import os2 from "os";
 import crypto2 from "crypto";
 import { execFile as execFile2 } from "child_process";
@@ -2829,12 +2829,408 @@ async function stampMitraPartnerCardOnPdf(templatePdfBuffer, mitra, options) {
   return Buffer.from(outBytes);
 }
 
+// server-utils/whatsappClient.ts
+import fs2 from "fs";
+import path2 from "path";
+import QRCode from "qrcode";
+import pino from "pino";
+import {
+  makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  Browsers
+} from "@whiskeysockets/baileys";
+var AUTH_DIR = path2.join(process.cwd(), "data", "wa-auth");
+var silentLogger = pino({ level: "silent" });
+var activeSocket = null;
+var connectionStatus = "disconnected";
+var currentQrDataUrl = null;
+var connectedPhone = null;
+var connectedName = null;
+var lastError = null;
+var reconnectTimer = null;
+var reconnectAttempts = 0;
+var manualDisconnect = false;
+var isStarting = false;
+function normalizeIndonesianWaDigits(rawPhone) {
+  const digits = String(rawPhone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  if (digits.startsWith("8")) return `62${digits}`;
+  return digits;
+}
+function extractPhoneDigitsFromJid(jid) {
+  if (!jid) return "";
+  const beforeAt = jid.split("@")[0] || "";
+  const beforeColon = beforeAt.split(":")[0] || "";
+  return beforeColon.replace(/\D/g, "");
+}
+function hasSavedSessionFiles() {
+  try {
+    return fs2.existsSync(path2.join(AUTH_DIR, "creds.json"));
+  } catch {
+    return false;
+  }
+}
+function clearAuthDirectory() {
+  try {
+    if (fs2.existsSync(AUTH_DIR)) {
+      fs2.rmSync(AUTH_DIR, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.warn("[WhatsApp] Failed to clear auth directory:", err);
+  }
+}
+function getWhatsAppStatus() {
+  return {
+    status: connectionStatus,
+    qrDataUrl: currentQrDataUrl,
+    connectedPhone,
+    connectedName,
+    lastError,
+    hasSavedSession: hasSavedSessionFiles()
+  };
+}
+async function connectWhatsApp() {
+  if (connectionStatus === "connected" && activeSocket) {
+    return getWhatsAppStatus();
+  }
+  if (isStarting || connectionStatus === "connecting" || connectionStatus === "qr") {
+    return getWhatsAppStatus();
+  }
+  isStarting = true;
+  manualDisconnect = false;
+  lastError = null;
+  connectionStatus = "connecting";
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  try {
+    fs2.mkdirSync(AUTH_DIR, { recursive: true });
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    let version;
+    try {
+      const latest = await fetchLatestBaileysVersion();
+      version = latest.version;
+    } catch {
+      version = void 0;
+    }
+    const sock = makeWASocket({
+      ...version ? { version } : {},
+      auth: state,
+      logger: silentLogger,
+      browser: Browsers.macOS("Chrome"),
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      printQRInTerminal: false
+    });
+    activeSocket = sock;
+    sock.ev.on("creds.update", async () => {
+      try {
+        await saveCreds();
+      } catch (err) {
+        console.warn("[WhatsApp] saveCreds error:", err);
+      }
+    });
+    sock.ev.on("connection.update", async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      if (qr) {
+        try {
+          currentQrDataUrl = await QRCode.toDataURL(qr, {
+            width: 280,
+            margin: 2,
+            color: { dark: "#092147", light: "#FFFFFF" }
+          });
+          connectionStatus = "qr";
+          lastError = null;
+        } catch (err) {
+          console.warn("[WhatsApp] QR generation error:", err);
+        }
+      }
+      if (connection === "open") {
+        connectionStatus = "connected";
+        currentQrDataUrl = null;
+        lastError = null;
+        reconnectAttempts = 0;
+        const userId = sock.user?.id || "";
+        connectedPhone = extractPhoneDigitsFromJid(userId) || null;
+        connectedName = sock.user?.name || null;
+      }
+      if (connection === "close") {
+        const errObj = lastDisconnect?.error;
+        const statusCode = errObj?.output?.statusCode ?? errObj?.data?.statusCode ?? errObj?.statusCode;
+        activeSocket = null;
+        currentQrDataUrl = null;
+        if (manualDisconnect) {
+          connectionStatus = "disconnected";
+          connectedPhone = null;
+          connectedName = null;
+          return;
+        }
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === DisconnectReason.badSession;
+        if (isLoggedOut) {
+          clearAuthDirectory();
+          connectionStatus = "disconnected";
+          connectedPhone = null;
+          connectedName = null;
+          lastError = "Sesi WhatsApp terputus atau logout dari perangkat. Silakan scan QR kembali.";
+          return;
+        }
+        const shouldAutoReconnect = statusCode === DisconnectReason.restartRequired || statusCode === 515 || reconnectAttempts < 5;
+        if (shouldAutoReconnect) {
+          reconnectAttempts += 1;
+          connectionStatus = "connecting";
+          const delayMs = statusCode === 515 ? 800 : Math.min(5e3, reconnectAttempts * 1500);
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connectWhatsApp().catch(() => {
+            });
+          }, delayMs);
+        } else {
+          connectionStatus = "disconnected";
+          connectedPhone = null;
+          connectedName = null;
+          lastError = errObj?.message || "Koneksi WhatsApp terputus. Silakan hubungkan ulang.";
+        }
+      }
+    });
+  } catch (err) {
+    connectionStatus = "disconnected";
+    activeSocket = null;
+    currentQrDataUrl = null;
+    lastError = err?.message || "Gagal memulai koneksi WhatsApp.";
+  } finally {
+    isStarting = false;
+  }
+  return getWhatsAppStatus();
+}
+async function disconnectWhatsApp(logout = true) {
+  manualDisconnect = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  const sock = activeSocket;
+  activeSocket = null;
+  connectionStatus = "disconnected";
+  currentQrDataUrl = null;
+  connectedPhone = null;
+  connectedName = null;
+  lastError = null;
+  reconnectAttempts = 0;
+  if (sock) {
+    try {
+      if (logout) {
+        await sock.logout();
+      } else {
+        sock.end(void 0);
+      }
+    } catch {
+      try {
+        sock.end(void 0);
+      } catch {
+      }
+    }
+  }
+  if (logout) {
+    clearAuthDirectory();
+  }
+  return getWhatsAppStatus();
+}
+function initWhatsAppIfSavedSession() {
+  if (hasSavedSessionFiles()) {
+    connectWhatsApp().catch((err) => {
+      console.warn("[WhatsApp] Auto-resume session failed:", err?.message || err);
+    });
+  }
+}
+async function listAdminWhatsAppGroups() {
+  if (connectionStatus !== "connected" || !activeSocket) {
+    throw new Error("WhatsApp Admin belum terhubung. Silakan scan QR terlebih dahulu.");
+  }
+  const sock = activeSocket;
+  const selfPhone = extractPhoneDigitsFromJid(sock.user?.id);
+  const selfLid = extractPhoneDigitsFromJid(sock.user?.lid);
+  const groupsMap = await sock.groupFetchAllParticipating();
+  const list = Object.values(groupsMap || {}).map((g) => {
+    const participants = Array.isArray(g.participants) ? g.participants : [];
+    const me = participants.find((p) => {
+      const pDigits = extractPhoneDigitsFromJid(p.phoneNumber || p.id);
+      const pLid = extractPhoneDigitsFromJid(p.lid || p.id);
+      return selfPhone && pDigits === selfPhone || selfLid && pLid === selfLid;
+    });
+    const isAdmin = Boolean(
+      me && (me.admin === "admin" || me.admin === "superadmin" || me.isAdmin || me.isSuperAdmin)
+    );
+    return {
+      id: g.id,
+      subject: g.subject || g.id,
+      participantsCount: participants.length,
+      isAdmin
+    };
+  });
+  list.sort((a, b) => {
+    if (a.isAdmin !== b.isAdmin) return a.isAdmin ? -1 : 1;
+    return a.subject.localeCompare(b.subject, "id");
+  });
+  return list;
+}
+async function getWhatsAppGroupInviteLink(groupJid) {
+  if (connectionStatus !== "connected" || !activeSocket || !groupJid) return null;
+  try {
+    const code = await activeSocket.groupInviteCode(groupJid);
+    return code ? `https://chat.whatsapp.com/${code}` : null;
+  } catch {
+    return null;
+  }
+}
+async function getWhatsAppGroupParticipantPhones(groupJid) {
+  if (connectionStatus !== "connected" || !activeSocket) {
+    throw new Error("WhatsApp Admin belum terhubung. Silakan scan QR terlebih dahulu.");
+  }
+  const meta = await activeSocket.groupMetadata(groupJid);
+  const phones = /* @__PURE__ */ new Set();
+  for (const p of meta.participants || []) {
+    const pnDigits = extractPhoneDigitsFromJid(p.phoneNumber || p.id);
+    if (pnDigits) phones.add(pnDigits);
+  }
+  return phones;
+}
+async function updateWhatsAppGroupParticipants(groupJid, entries, action, groupName, fallbackInviteLink) {
+  if (connectionStatus !== "connected" || !activeSocket) {
+    throw new Error("WhatsApp Admin belum terhubung. Silakan scan QR terlebih dahulu.");
+  }
+  const sock = activeSocket;
+  const outcomes = [];
+  let cachedInviteLink = void 0;
+  const resolveInviteLink = async () => {
+    if (cachedInviteLink === void 0) {
+      cachedInviteLink = await getWhatsAppGroupInviteLink(groupJid);
+    }
+    return cachedInviteLink || fallbackInviteLink || "";
+  };
+  for (const entry of entries) {
+    const formattedPhone = normalizeIndonesianWaDigits(entry.phone);
+    if (!formattedPhone || formattedPhone.length < 9) {
+      outcomes.push({
+        ...entry,
+        formattedPhone,
+        outcome: "not_on_whatsapp",
+        detail: "Nomor WhatsApp Mitra tidak valid atau belum diisi."
+      });
+      continue;
+    }
+    let targetJid = `${formattedPhone}@s.whatsapp.net`;
+    if (action === "add") {
+      try {
+        const check = await sock.onWhatsApp(formattedPhone);
+        const first = Array.isArray(check) ? check[0] : void 0;
+        if (!first || !first.exists) {
+          outcomes.push({
+            ...entry,
+            formattedPhone,
+            outcome: "not_on_whatsapp",
+            detail: `Nomor ${entry.phone} belum terdaftar di WhatsApp.`
+          });
+          continue;
+        }
+        if (first.jid) {
+          targetJid = first.jid;
+        }
+      } catch {
+      }
+    }
+    try {
+      const responseList = await sock.groupParticipantsUpdate(groupJid, [targetJid], action);
+      const item = Array.isArray(responseList) ? responseList[0] : void 0;
+      const statusStr = String(item?.status ?? "200");
+      if (statusStr === "200") {
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: action === "add" ? "added" : "removed",
+          detail: action === "add" ? `Berhasil ditambahkan langsung ke Grup WhatsApp ${groupName || ""}.`.trim() : `Berhasil dikeluarkan dari Grup WhatsApp ${groupName || ""}.`.trim()
+        });
+      } else if (statusStr === "409" && action === "add") {
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: "already_in_group",
+          detail: "Nomor Mitra ini sudah berada di dalam Grup WhatsApp."
+        });
+      } else if (statusStr === "403" && action === "add") {
+        const link = await resolveInviteLink();
+        let dmSent = false;
+        if (link) {
+          try {
+            await sock.sendMessage(targetJid, {
+              text: `Halo ${entry.fullName}, Admin mengundang Anda bergabung ke grup WhatsApp resmi *${groupName || "Mitra ND Tax & Law"}*.
+
+Pengaturan privasi WhatsApp Anda membatasi penambahan otomatis, silakan klik tautan resmi berikut untuk bergabung:
+${link}`
+            });
+            dmSent = true;
+          } catch (dmErr) {
+            console.warn("[WhatsApp] Failed to send fallback invite DM:", dmErr);
+          }
+        }
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: "invited_via_dm",
+          detail: dmSent ? "Privasi WA peserta membatasi tambah langsung \u2014 undangan resmi otomatis dikirim ke chat WA peserta." : "Privasi WA peserta membatasi tambah langsung. Pastikan nomor Admin WA adalah Admin Grup agar link undangan bisa dikirim otomatis."
+        });
+      } else if (statusStr === "401") {
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: "not_admin",
+          detail: "Nomor WhatsApp yang terhubung bukan Admin pada grup WhatsApp tujuan."
+        });
+      } else if (statusStr === "408") {
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: "failed",
+          detail: "Peserta baru saja keluar dari grup ini sehingga WhatsApp membatasi penambahan langsung sementara."
+        });
+      } else if (statusStr === "404") {
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: action === "remove" ? "removed" : "not_on_whatsapp",
+          detail: action === "remove" ? "Peserta sudah tidak berada di dalam grup." : `Nomor ${entry.phone} tidak ditemukan di WhatsApp.`
+        });
+      } else {
+        outcomes.push({
+          ...entry,
+          formattedPhone,
+          outcome: "failed",
+          detail: `WhatsApp mengembalikan kode status ${statusStr}.`
+        });
+      }
+    } catch (err) {
+      const msg = String(err?.message || "");
+      const isNotAdmin = /forbidden|not-authorized|401/i.test(msg);
+      outcomes.push({
+        ...entry,
+        formattedPhone,
+        outcome: isNotAdmin ? "not_admin" : "failed",
+        detail: isNotAdmin ? "Nomor WhatsApp yang terhubung bukan Admin pada grup WhatsApp tujuan." : msg || "Gagal memproses permintaan ke server WhatsApp."
+      });
+    }
+  }
+  return outcomes;
+}
+
 // server.ts
 var db = isMysqlConfigured() ? mysqlDb : null;
 var mysqlPreviewFallbackActive = false;
 dotenv2.config();
 var __filename = fileURLToPath(import.meta.url);
-var __dirname = path2.dirname(__filename);
+var __dirname = path3.dirname(__filename);
 var app = express();
 var PORT = process.env.PORT || 3e3;
 app.disable("x-powered-by");
@@ -3329,7 +3725,7 @@ var mitras = [
     emailVerified: true
   }
 ];
-var PUBLIC_PROPOSALS_DIR = path2.join(__dirname, "public", "proposals");
+var PUBLIC_PROPOSALS_DIR = path3.join(__dirname, "public", "proposals");
 var DEFAULT_PROPOSAL_TEMPLATES = [
   {
     id: "prop-fat-official",
@@ -5045,19 +5441,19 @@ var normalizeClientDeals = (list) => {
     return d;
   });
 };
-var DATA_DIR = path2.join(process.cwd(), "data");
-var DB_FILE = path2.join(DATA_DIR, "database.json");
+var DATA_DIR = path3.join(process.cwd(), "data");
+var DB_FILE = path3.join(DATA_DIR, "database.json");
 var cleanupLocalDatabaseFileInProduction = () => {
   if (!isProductionMode() || !db) return;
   try {
-    if (fs2.existsSync(DB_FILE)) {
-      fs2.unlinkSync(DB_FILE);
+    if (fs3.existsSync(DB_FILE)) {
+      fs3.unlinkSync(DB_FILE);
       console.log("[Production Mode] File database lokal (data/database.json) dihapus otomatis agar tidak memenuhi penyimpanan server (100% menggunakan MySQL).");
     }
-    if (fs2.existsSync(DATA_DIR)) {
-      const remaining = fs2.readdirSync(DATA_DIR);
+    if (fs3.existsSync(DATA_DIR)) {
+      const remaining = fs3.readdirSync(DATA_DIR);
       if (remaining.length === 0) {
-        fs2.rmdirSync(DATA_DIR);
+        fs3.rmdirSync(DATA_DIR);
       }
     }
   } catch {
@@ -5069,8 +5465,8 @@ var saveDatabase = () => {
       cleanupLocalDatabaseFileInProduction();
       return;
     }
-    if (!fs2.existsSync(DATA_DIR)) {
-      fs2.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs3.existsSync(DATA_DIR)) {
+      fs3.mkdirSync(DATA_DIR, { recursive: true });
     }
     const passwordsObj = {};
     for (const [k, v] of userPasswords.entries()) {
@@ -5101,7 +5497,7 @@ var saveDatabase = () => {
       usedProspectLetterNumbers: Array.from(usedProspectLetterNumbers),
       userPasswords: passwordsObj
     };
-    fs2.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), "utf-8");
+    fs3.writeFileSync(DB_FILE, JSON.stringify(payload, null, 2), "utf-8");
   } catch (err) {
     console.error("[Storage Error] Gagal menyimpan konfigurasi ke disk:", err);
   }
@@ -5134,11 +5530,11 @@ var loadDatabase = () => {
       console.log("[Production Mode] Database lokal dinonaktifkan sepenuhnya. Menggunakan Database MySQL 100%.");
       return;
     }
-    if (!fs2.existsSync(DATA_DIR)) {
-      fs2.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs3.existsSync(DATA_DIR)) {
+      fs3.mkdirSync(DATA_DIR, { recursive: true });
     }
-    if (fs2.existsSync(DB_FILE)) {
-      const raw = fs2.readFileSync(DB_FILE, "utf-8");
+    if (fs3.existsSync(DB_FILE)) {
+      const raw = fs3.readFileSync(DB_FILE, "utf-8");
       const data = JSON.parse(raw);
       if (data.appSettings) {
         appSettings = { ...appSettings, ...data.appSettings };
@@ -5509,21 +5905,21 @@ var syncFromMysql = async () => {
           try {
             const parsedFile = JSON.parse(row.password);
             if (parsedFile && parsedFile.fileName && parsedFile.base64) {
-              const safeName = path2.basename(String(parsedFile.fileName));
+              const safeName = path3.basename(String(parsedFile.fileName));
               if (safeName && safeName !== "." && safeName !== "..") {
                 const isChatBucket = emailLower.startsWith("__sys_chat_file_") || parsedFile.bucket === "chat";
                 const subFolder = isChatBucket ? "chat" : "marketing-tools";
                 const buf = Buffer.from(parsedFile.base64, "base64");
-                const homeDir = path2.join(os2.homedir(), ".ndtaxandlaw_storage", "uploads", subFolder);
-                const dataDir = path2.join(DATA_DIR, "uploads", subFolder);
-                const pubDir = path2.join(__dirname, "public", "uploads", subFolder);
+                const homeDir = path3.join(os2.homedir(), ".ndtaxandlaw_storage", "uploads", subFolder);
+                const dataDir = path3.join(DATA_DIR, "uploads", subFolder);
+                const pubDir = path3.join(__dirname, "public", "uploads", subFolder);
                 for (const dir of [homeDir, dataDir, pubDir]) {
                   try {
-                    if (!fs2.existsSync(dir)) fs2.mkdirSync(dir, { recursive: true });
-                    const resolvedBase = path2.resolve(dir);
-                    const target = path2.resolve(resolvedBase, safeName);
-                    if (target.startsWith(resolvedBase + path2.sep) && !fs2.existsSync(target)) {
-                      fs2.writeFileSync(target, buf);
+                    if (!fs3.existsSync(dir)) fs3.mkdirSync(dir, { recursive: true });
+                    const resolvedBase = path3.resolve(dir);
+                    const target = path3.resolve(resolvedBase, safeName);
+                    if (target.startsWith(resolvedBase + path3.sep) && !fs3.existsSync(target)) {
+                      fs3.writeFileSync(target, buf);
                     }
                   } catch {
                   }
@@ -7752,9 +8148,125 @@ async function dispatchWhatsAppGatewayGroupAction(action, participants) {
     return { attempted: true, ok: false, detail: err?.message || "Koneksi gateway gagal" };
   }
 }
+app.get("/api/whatsapp/status", (_req, res) => {
+  res.json({
+    success: true,
+    data: {
+      ...getWhatsAppStatus(),
+      whatsappGroupJid: appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || "",
+      whatsappGroupName: appSettings.whatsappGroupName || "",
+      whatsappGroupLink: appSettings.whatsappGroupLink || ""
+    }
+  });
+});
+app.post("/api/whatsapp/connect", async (_req, res) => {
+  try {
+    const status = await connectWhatsApp();
+    res.json({
+      success: true,
+      data: {
+        ...status,
+        whatsappGroupJid: appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || "",
+        whatsappGroupName: appSettings.whatsappGroupName || ""
+      }
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err?.message || "Gagal memulai koneksi WhatsApp."
+    });
+  }
+});
+app.post("/api/whatsapp/disconnect", async (_req, res) => {
+  try {
+    const status = await disconnectWhatsApp(true);
+    res.json({
+      success: true,
+      data: status,
+      message: "Koneksi WhatsApp Admin berhasil diputuskan."
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err?.message || "Gagal memutuskan koneksi WhatsApp."
+    });
+  }
+});
+app.get("/api/whatsapp/groups", async (_req, res) => {
+  try {
+    const groups = await listAdminWhatsAppGroups();
+    res.json({
+      success: true,
+      data: groups,
+      selectedGroupJid: appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || ""
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err?.message || "Gagal mengambil daftar Grup WhatsApp."
+    });
+  }
+});
+app.post("/api/whatsapp/sync-members", async (req, res) => {
+  try {
+    const targetJid = String(req.body?.groupJid || appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || "").trim();
+    if (!targetJid) {
+      return res.status(400).json({
+        success: false,
+        message: "Pilih Grup WhatsApp tujuan terlebih dahulu sebelum menyinkronkan peserta."
+      });
+    }
+    if (db) {
+      try {
+        const { data: dbMitras } = await db.from("mitras").select("*");
+        if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+      } catch {
+      }
+    }
+    const realPhones = await getWhatsAppGroupParticipantPhones(targetJid);
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    let inGroupCount = 0;
+    for (const m of mitras) {
+      const normalized = normalizeIndonesianWaDigits(m.phone);
+      const isMember = Boolean(normalized && realPhones.has(normalized));
+      if (isMember) inGroupCount += 1;
+      if (Boolean(m.whatsappGroupInvited) !== isMember) {
+        m.whatsappGroupInvited = isMember;
+        m.whatsappGroupInvitedAt = isMember ? m.whatsappGroupInvitedAt || nowIso : void 0;
+        const bankCopy = { ...m.bankDetails || {} };
+        if (isMember) {
+          bankCopy.__whatsappGroupInvited = true;
+          bankCopy.__whatsappGroupInvitedAt = m.whatsappGroupInvitedAt;
+        } else {
+          delete bankCopy.__whatsappGroupInvited;
+          delete bankCopy.__whatsappGroupInvitedAt;
+        }
+        m.bankDetails = bankCopy;
+        if (db) {
+          try {
+            await db.from("mitras").update({ bankDetails: m.bankDetails }).eq("id", m.id);
+          } catch {
+          }
+        }
+      }
+    }
+    saveDatabase();
+    res.json({
+      success: true,
+      inGroupCount,
+      totalGroupParticipants: realPhones.size,
+      message: `Sinkronisasi selesai: ${inGroupCount} Mitra terdeteksi aktif di dalam Grup WhatsApp asli (total ${realPhones.size} anggota grup).`
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err?.message || "Gagal menyinkronkan peserta Grup WhatsApp."
+    });
+  }
+});
 app.post("/api/mitra/:id/whatsapp-group", async (req, res) => {
   const { id } = req.params;
-  const { groupName, groupLink, customMessage, action } = req.body || {};
+  const { groupName, groupLink, groupJid, customMessage, action } = req.body || {};
   const isRemove = action === "remove";
   if (db) {
     try {
@@ -7769,6 +8281,7 @@ app.post("/api/mitra/:id/whatsapp-group", async (req, res) => {
   }
   let resolvedLink = (appSettings.whatsappGroupLink || "").trim();
   let resolvedName = (appSettings.whatsappGroupName || "Grup WhatsApp Mitra ND Tax & Law").trim();
+  let resolvedJid = (typeof groupJid === "string" && groupJid.trim() ? groupJid.trim() : appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || "").trim();
   if (typeof groupLink === "string" && groupLink.trim()) {
     const trimmedLink = groupLink.trim();
     try {
@@ -7786,17 +8299,80 @@ app.post("/api/mitra/:id/whatsapp-group", async (req, res) => {
     resolvedName = groupName.trim().slice(0, 120);
     appSettings.whatsappGroupName = resolvedName;
   }
+  const waStatus = getWhatsAppStatus();
+  const hasRealBaileys = waStatus.status === "connected" && Boolean(resolvedJid);
+  const hasExternalGateway = Boolean((process.env.WA_GATEWAY_URL || "").trim() && (process.env.WA_GROUP_JID || "").trim());
+  if (!hasRealBaileys && !hasExternalGateway) {
+    return res.status(400).json({
+      success: false,
+      requiresWhatsAppConnection: true,
+      message: waStatus.status === "connected" ? 'Silakan pilih Grup WhatsApp tujuan terlebih dahulu di tab "Koneksi WhatsApp" agar peserta dapat ditambahkan langsung ke grup.' : 'WhatsApp Admin belum terhubung. Buka tab "Koneksi WhatsApp" lalu scan QR menggunakan WhatsApp Admin Grup agar peserta benar-benar masuk ke Grup WhatsApp.'
+    });
+  }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const formattedPhone = formatPhoneToIndonesianWa(mitra.phone);
-  if (isRemove) {
-    mitra.whatsappGroupInvited = false;
-    mitra.whatsappGroupInvitedAt = void 0;
-    const cleanedBank = { ...mitra.bankDetails || {} };
-    delete cleanedBank.__whatsappGroupInvited;
-    delete cleanedBank.__whatsappGroupInvitedAt;
-    mitra.bankDetails = cleanedBank;
-    if (formattedPhone) {
-      await dispatchWhatsAppGatewayGroupAction("remove", [formattedPhone]);
+  if (hasRealBaileys) {
+    const outcomes = await updateWhatsAppGroupParticipants(
+      resolvedJid,
+      [{ mitraId: mitra.id, fullName: mitra.fullName, phone: mitra.phone || "" }],
+      isRemove ? "remove" : "add",
+      resolvedName,
+      resolvedLink
+    );
+    const result = outcomes[0];
+    if (isRemove) {
+      if (result.outcome !== "removed") {
+        return res.status(400).json({ success: false, outcome: result, message: result.detail });
+      }
+      mitra.whatsappGroupInvited = false;
+      mitra.whatsappGroupInvitedAt = void 0;
+      const cleanedBank = { ...mitra.bankDetails || {} };
+      delete cleanedBank.__whatsappGroupInvited;
+      delete cleanedBank.__whatsappGroupInvitedAt;
+      mitra.bankDetails = cleanedBank;
+    } else if (result.outcome === "added" || result.outcome === "already_in_group") {
+      mitra.whatsappGroupInvited = true;
+      mitra.whatsappGroupInvitedAt = nowIso;
+      mitra.bankDetails = {
+        ...mitra.bankDetails || {},
+        __whatsappGroupInvited: true,
+        __whatsappGroupInvitedAt: nowIso
+      };
+    } else if (result.outcome === "invited_via_dm") {
+      return res.json({
+        success: true,
+        data: mitra,
+        outcome: result,
+        whatsappGroupName: resolvedName,
+        whatsappGroupLink: resolvedLink,
+        message: `${mitra.fullName}: ${result.detail}`
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        outcome: result,
+        message: `${mitra.fullName}: ${result.detail}`
+      });
+    }
+    if (!isRemove) {
+      const extraNote = typeof customMessage === "string" && customMessage.trim() ? ` ${customMessage.trim().slice(0, 500)}` : "";
+      const notif = {
+        id: `notif-mtr-wa-${mitra.id}-${Date.now()}`,
+        title: `Peserta ${resolvedName}`,
+        message: `Admin telah menambahkan Anda ke Grup WhatsApp ${resolvedName}.${extraNote}`,
+        type: "verification",
+        timestamp: nowIso,
+        isRead: false,
+        targetAudience: "mitra",
+        mitraId: mitra.id
+      };
+      notifications.unshift(notif);
+      if (db) {
+        try {
+          await db.from("notifications").insert([toDbNotification(notif)]);
+        } catch {
+        }
+      }
     }
     recordActivity({
       actorRole: "admin",
@@ -7806,81 +8382,85 @@ app.post("/api/mitra/:id/whatsapp-group", async (req, res) => {
       actionType: "mitra_verify",
       operation: "UPDATE",
       targetEntity: "Grup WhatsApp Mitra",
-      description: `Admin mengeluarkan Mitra "${mitra.fullName}" dari daftar peserta "${resolvedName}".`
+      description: isRemove ? `Admin mengeluarkan Mitra "${mitra.fullName}" dari Grup WhatsApp "${resolvedName}".` : `Admin menambahkan Mitra "${mitra.fullName}" (${mitra.phone || "-"}) ke Grup WhatsApp "${resolvedName}".`
     });
     if (db) {
       try {
         await db.from("mitras").update({ bankDetails: mitra.bankDetails }).eq("id", id);
       } catch (e) {
-        console.warn("MySQL whatsapp-group remove error", e);
+        console.warn("MySQL whatsapp-group error", e);
       }
     }
+    await persistSettingsToMysql();
     saveDatabase();
     return res.json({
       success: true,
       data: mitra,
+      outcome: result,
       whatsappGroupName: resolvedName,
       whatsappGroupLink: resolvedLink,
-      message: `Mitra "${mitra.fullName}" telah dikeluarkan dari daftar peserta ${resolvedName}.`
+      message: `${mitra.fullName}: ${result.detail}`
     });
   }
-  mitra.whatsappGroupInvited = true;
-  mitra.whatsappGroupInvitedAt = nowIso;
-  mitra.bankDetails = {
-    ...mitra.bankDetails || {},
-    __whatsappGroupInvited: true,
-    __whatsappGroupInvitedAt: nowIso
-  };
-  const gatewayResult = formattedPhone ? await dispatchWhatsAppGatewayGroupAction("add", [formattedPhone]) : { attempted: false, ok: false };
-  const extraNote = typeof customMessage === "string" && customMessage.trim() ? ` ${customMessage.trim().slice(0, 500)}` : "";
-  const notifMsg = resolvedLink ? `Admin telah menambahkan Anda ke ${resolvedName}. Tautan grup resmi: ${resolvedLink}${extraNote}` : `Admin telah menambahkan Anda ke daftar peserta ${resolvedName}.${extraNote}`;
-  const notif = {
-    id: `notif-mtr-wa-${mitra.id}-${Date.now()}`,
-    title: `Peserta ${resolvedName}`,
-    message: notifMsg,
-    type: "verification",
-    timestamp: nowIso,
-    isRead: false,
-    targetAudience: "mitra",
-    mitraId: mitra.id
-  };
-  notifications.unshift(notif);
-  recordActivity({
-    actorRole: "admin",
-    actorId: adminAccount.id,
-    actorName: adminAccount.name,
-    actorEmail: adminAccount.email,
-    actionType: "mitra_verify",
-    operation: "UPDATE",
-    targetEntity: "Grup WhatsApp Mitra",
-    description: `Admin menambahkan Mitra "${mitra.fullName}" (${mitra.phone || "-"}) ke "${resolvedName}".`
-  });
+  const gatewayResult = formattedPhone ? await dispatchWhatsAppGatewayGroupAction(isRemove ? "remove" : "add", [formattedPhone]) : { attempted: false, ok: false, detail: "Nomor WhatsApp Mitra belum diisi." };
+  if (!gatewayResult.ok) {
+    return res.status(400).json({
+      success: false,
+      message: `Gagal memproses melalui WhatsApp Gateway: ${gatewayResult.detail || "tidak diketahui"}.`
+    });
+  }
+  if (isRemove) {
+    mitra.whatsappGroupInvited = false;
+    mitra.whatsappGroupInvitedAt = void 0;
+    const cleanedBank = { ...mitra.bankDetails || {} };
+    delete cleanedBank.__whatsappGroupInvited;
+    delete cleanedBank.__whatsappGroupInvitedAt;
+    mitra.bankDetails = cleanedBank;
+  } else {
+    mitra.whatsappGroupInvited = true;
+    mitra.whatsappGroupInvitedAt = nowIso;
+    mitra.bankDetails = {
+      ...mitra.bankDetails || {},
+      __whatsappGroupInvited: true,
+      __whatsappGroupInvitedAt: nowIso
+    };
+  }
   if (db) {
     try {
       await db.from("mitras").update({ bankDetails: mitra.bankDetails }).eq("id", id);
-      await db.from("notifications").insert([toDbNotification(notif)]);
-    } catch (e) {
-      console.warn("MySQL whatsapp-group error", e);
+    } catch {
     }
   }
-  await persistSettingsToMysql();
   saveDatabase();
   res.json({
     success: true,
     data: mitra,
-    gatewayDispatched: gatewayResult.ok,
+    gatewayDispatched: true,
     whatsappGroupName: resolvedName,
     whatsappGroupLink: resolvedLink,
-    message: gatewayResult.ok ? `Mitra "${mitra.fullName}" berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.` : `Mitra "${mitra.fullName}" telah ditambahkan ke daftar peserta ${resolvedName}.`
+    message: isRemove ? `Mitra "${mitra.fullName}" berhasil dikeluarkan dari ${resolvedName} via WhatsApp Gateway.` : `Mitra "${mitra.fullName}" berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.`
   });
 });
 app.post("/api/whatsapp-group/members", async (req, res) => {
-  const { mitraIds, action, customMessage } = req.body || {};
+  const { mitraIds, action, customMessage, groupJid } = req.body || {};
   if (!Array.isArray(mitraIds) || mitraIds.length === 0) {
     return res.status(400).json({ success: false, message: "Pilih minimal 1 Mitra terlebih dahulu." });
   }
   const op = action === "remove" ? "remove" : "add";
   const targetIdSet = new Set(mitraIds.map((v) => String(v || "").trim()).filter(Boolean));
+  const resolvedName = (appSettings.whatsappGroupName || "Grup WhatsApp Mitra ND Tax & Law").trim();
+  const resolvedLink = (appSettings.whatsappGroupLink || "").trim();
+  const resolvedJid = (typeof groupJid === "string" && groupJid.trim() ? groupJid.trim() : appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || "").trim();
+  const waStatus = getWhatsAppStatus();
+  const hasRealBaileys = waStatus.status === "connected" && Boolean(resolvedJid);
+  const hasExternalGateway = Boolean((process.env.WA_GATEWAY_URL || "").trim() && (process.env.WA_GROUP_JID || "").trim());
+  if (!hasRealBaileys && !hasExternalGateway) {
+    return res.status(400).json({
+      success: false,
+      requiresWhatsAppConnection: true,
+      message: waStatus.status === "connected" ? 'Silakan pilih Grup WhatsApp tujuan terlebih dahulu di tab "Koneksi WhatsApp" agar peserta dapat ditambahkan langsung ke grup.' : 'WhatsApp Admin belum terhubung. Silakan buka tab "Koneksi WhatsApp" lalu scan QR menggunakan WhatsApp Admin Grup agar peserta benar-benar masuk ke Grup WhatsApp.'
+    });
+  }
   if (db) {
     try {
       const { data: dbMitras } = await db.from("mitras").select("*");
@@ -7892,15 +8472,111 @@ app.post("/api/whatsapp-group/members", async (req, res) => {
   if (matchedMitras.length === 0) {
     return res.status(404).json({ success: false, message: "Data Mitra yang dipilih tidak ditemukan." });
   }
-  const resolvedName = (appSettings.whatsappGroupName || "Grup WhatsApp Mitra ND Tax & Law").trim();
-  const resolvedLink = (appSettings.whatsappGroupLink || "").trim();
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const extraNote = typeof customMessage === "string" && customMessage.trim() ? ` ${customMessage.trim().slice(0, 500)}` : "";
-  const phonesToDispatch = [];
-  const updatedMitras = [];
+  if (hasRealBaileys) {
+    const outcomes = await updateWhatsAppGroupParticipants(
+      resolvedJid,
+      matchedMitras.map((m) => ({ mitraId: m.id, fullName: m.fullName, phone: m.phone || "" })),
+      op,
+      resolvedName,
+      resolvedLink
+    );
+    const outcomeById = new Map(outcomes.map((o) => [o.mitraId, o]));
+    let addedCount = 0;
+    let alreadyCount = 0;
+    let removedCount = 0;
+    let invitedDmCount = 0;
+    const failedDetails = [];
+    const updatedMitras = [];
+    for (const mitra of matchedMitras) {
+      const resItem = outcomeById.get(mitra.id);
+      if (!resItem) continue;
+      if (op === "remove" && resItem.outcome === "removed") {
+        removedCount += 1;
+        mitra.whatsappGroupInvited = false;
+        mitra.whatsappGroupInvitedAt = void 0;
+        const cleanedBank = { ...mitra.bankDetails || {} };
+        delete cleanedBank.__whatsappGroupInvited;
+        delete cleanedBank.__whatsappGroupInvitedAt;
+        mitra.bankDetails = cleanedBank;
+        if (db) {
+          try {
+            await db.from("mitras").update({ bankDetails: mitra.bankDetails }).eq("id", mitra.id);
+          } catch {
+          }
+        }
+        updatedMitras.push(mitra);
+      } else if (op === "add" && (resItem.outcome === "added" || resItem.outcome === "already_in_group")) {
+        if (resItem.outcome === "added") addedCount += 1;
+        else alreadyCount += 1;
+        mitra.whatsappGroupInvited = true;
+        mitra.whatsappGroupInvitedAt = nowIso;
+        mitra.bankDetails = {
+          ...mitra.bankDetails || {},
+          __whatsappGroupInvited: true,
+          __whatsappGroupInvitedAt: nowIso
+        };
+        const notif = {
+          id: `notif-mtr-wa-${mitra.id}-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
+          title: `Peserta ${resolvedName}`,
+          message: `Admin telah menambahkan Anda ke Grup WhatsApp ${resolvedName}.${extraNote}`,
+          type: "verification",
+          timestamp: nowIso,
+          isRead: false,
+          targetAudience: "mitra",
+          mitraId: mitra.id
+        };
+        notifications.unshift(notif);
+        if (db) {
+          try {
+            await db.from("mitras").update({ bankDetails: mitra.bankDetails }).eq("id", mitra.id);
+            await db.from("notifications").insert([toDbNotification(notif)]);
+          } catch {
+          }
+        }
+        updatedMitras.push(mitra);
+      } else if (resItem.outcome === "invited_via_dm") {
+        invitedDmCount += 1;
+      } else {
+        failedDetails.push(`${mitra.fullName} (${resItem.detail})`);
+      }
+    }
+    recordActivity({
+      actorRole: "admin",
+      actorId: adminAccount.id,
+      actorName: adminAccount.name,
+      actorEmail: adminAccount.email,
+      actionType: "mitra_verify",
+      operation: "UPDATE",
+      targetEntity: "Grup WhatsApp Mitra",
+      description: op === "remove" ? `Admin mengeluarkan ${removedCount} Mitra dari Grup WhatsApp "${resolvedName}".` : `Admin memproses penambahan ke Grup WhatsApp "${resolvedName}": ${addedCount} masuk langsung, ${alreadyCount} sudah di grup, ${invitedDmCount} dikirim undangan DM WA, ${failedDetails.length} gagal.`
+    });
+    saveDatabase();
+    const parts = [];
+    if (addedCount > 0) parts.push(`${addedCount} peserta berhasil masuk langsung ke Grup WhatsApp`);
+    if (alreadyCount > 0) parts.push(`${alreadyCount} peserta sudah ada di dalam grup`);
+    if (removedCount > 0) parts.push(`${removedCount} peserta berhasil dikeluarkan dari Grup WhatsApp`);
+    if (invitedDmCount > 0) parts.push(`${invitedDmCount} peserta dibatasi privasi WA (link undangan otomatis dikirim ke chat WA)`);
+    if (failedDetails.length > 0) parts.push(`${failedDetails.length} gagal: ${failedDetails.slice(0, 3).join("; ")}`);
+    const anySuccess = addedCount > 0 || alreadyCount > 0 || removedCount > 0 || invitedDmCount > 0;
+    return res.status(anySuccess ? 200 : 400).json({
+      success: anySuccess,
+      count: updatedMitras.length,
+      data: updatedMitras,
+      outcomes,
+      message: parts.join(" \xB7 ") || "Tidak ada perubahan pada Grup WhatsApp."
+    });
+  }
+  const phonesToDispatch = matchedMitras.map((m) => formatPhoneToIndonesianWa(m.phone)).filter(Boolean);
+  const gatewayResult = await dispatchWhatsAppGatewayGroupAction(op, phonesToDispatch);
+  if (!gatewayResult.ok) {
+    return res.status(400).json({
+      success: false,
+      message: `Gagal memproses melalui WhatsApp Gateway: ${gatewayResult.detail || "tidak diketahui"}.`
+    });
+  }
   for (const mitra of matchedMitras) {
-    const formattedPhone = formatPhoneToIndonesianWa(mitra.phone);
-    if (formattedPhone) phonesToDispatch.push(formattedPhone);
     if (op === "remove") {
       mitra.whatsappGroupInvited = false;
       mitra.whatsappGroupInvitedAt = void 0;
@@ -7916,24 +8592,6 @@ app.post("/api/whatsapp-group/members", async (req, res) => {
         __whatsappGroupInvited: true,
         __whatsappGroupInvitedAt: nowIso
       };
-      const notifMsg = resolvedLink ? `Admin telah menambahkan Anda ke ${resolvedName}. Tautan grup resmi: ${resolvedLink}${extraNote}` : `Admin telah menambahkan Anda ke daftar peserta ${resolvedName}.${extraNote}`;
-      const notif = {
-        id: `notif-mtr-wa-${mitra.id}-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
-        title: `Peserta ${resolvedName}`,
-        message: notifMsg,
-        type: "verification",
-        timestamp: nowIso,
-        isRead: false,
-        targetAudience: "mitra",
-        mitraId: mitra.id
-      };
-      notifications.unshift(notif);
-      if (db) {
-        try {
-          await db.from("notifications").insert([toDbNotification(notif)]);
-        } catch {
-        }
-      }
     }
     if (db) {
       try {
@@ -7941,26 +8599,14 @@ app.post("/api/whatsapp-group/members", async (req, res) => {
       } catch {
       }
     }
-    updatedMitras.push(mitra);
   }
-  const gatewayResult = await dispatchWhatsAppGatewayGroupAction(op, phonesToDispatch);
-  recordActivity({
-    actorRole: "admin",
-    actorId: adminAccount.id,
-    actorName: adminAccount.name,
-    actorEmail: adminAccount.email,
-    actionType: "mitra_verify",
-    operation: "UPDATE",
-    targetEntity: "Grup WhatsApp Mitra",
-    description: op === "remove" ? `Admin mengeluarkan ${updatedMitras.length} Mitra dari daftar peserta "${resolvedName}".` : `Admin menambahkan ${updatedMitras.length} Mitra ke "${resolvedName}".`
-  });
   saveDatabase();
   res.json({
     success: true,
-    count: updatedMitras.length,
-    data: updatedMitras,
-    gatewayDispatched: gatewayResult.ok,
-    message: op === "remove" ? `${updatedMitras.length} Mitra berhasil dikeluarkan dari daftar peserta ${resolvedName}.` : gatewayResult.ok ? `${updatedMitras.length} Mitra berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.` : `${updatedMitras.length} Mitra berhasil ditambahkan ke daftar peserta ${resolvedName}.`
+    count: matchedMitras.length,
+    data: matchedMitras,
+    gatewayDispatched: true,
+    message: op === "remove" ? `${matchedMitras.length} Mitra berhasil dikeluarkan dari ${resolvedName} via WhatsApp Gateway.` : `${matchedMitras.length} Mitra berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.`
   });
 });
 app.put("/api/mitra/:id/active-status", async (req, res) => {
@@ -8426,24 +9072,24 @@ app.put("/api/mitra/:id/profile", async (req, res) => {
     message: `Data Mitra "${mitra.fullName}" berhasil diperbarui.`
   });
 });
-var MARKETING_UPLOADS_DIR = path2.join(__dirname, "public", "uploads", "marketing-tools");
-var DATA_UPLOADS_DIR = path2.join(DATA_DIR, "uploads", "marketing-tools");
-var PERSISTENT_HOME_UPLOADS_DIR = path2.join(
+var MARKETING_UPLOADS_DIR = path3.join(__dirname, "public", "uploads", "marketing-tools");
+var DATA_UPLOADS_DIR = path3.join(DATA_DIR, "uploads", "marketing-tools");
+var PERSISTENT_HOME_UPLOADS_DIR = path3.join(
   os2.homedir(),
   ".ndtaxandlaw_storage",
   "uploads",
   "marketing-tools"
 );
-var LEGACY_DIST_MARKETING_UPLOADS_DIR = path2.join(__dirname, "dist", "uploads", "marketing-tools");
-var CHAT_PUBLIC_UPLOADS_DIR = path2.join(__dirname, "public", "uploads", "chat");
-var CHAT_DATA_UPLOADS_DIR = path2.join(DATA_DIR, "uploads", "chat");
-var CHAT_HOME_UPLOADS_DIR = path2.join(
+var LEGACY_DIST_MARKETING_UPLOADS_DIR = path3.join(__dirname, "dist", "uploads", "marketing-tools");
+var CHAT_PUBLIC_UPLOADS_DIR = path3.join(__dirname, "public", "uploads", "chat");
+var CHAT_DATA_UPLOADS_DIR = path3.join(DATA_DIR, "uploads", "chat");
+var CHAT_HOME_UPLOADS_DIR = path3.join(
   os2.homedir(),
   ".ndtaxandlaw_storage",
   "uploads",
   "chat"
 );
-var LEGACY_DIST_CHAT_UPLOADS_DIR = path2.join(__dirname, "dist", "uploads", "chat");
+var LEGACY_DIST_CHAT_UPLOADS_DIR = path3.join(__dirname, "dist", "uploads", "chat");
 for (const dir of [
   PERSISTENT_HOME_UPLOADS_DIR,
   DATA_UPLOADS_DIR,
@@ -8453,33 +9099,33 @@ for (const dir of [
   CHAT_PUBLIC_UPLOADS_DIR
 ]) {
   try {
-    if (!fs2.existsSync(dir)) {
-      fs2.mkdirSync(dir, { recursive: true });
+    if (!fs3.existsSync(dir)) {
+      fs3.mkdirSync(dir, { recursive: true });
     }
   } catch {
   }
 }
 var resolveConfinedFilePath = (baseDir, rawFileName) => {
-  const safeName = path2.basename(String(rawFileName || "").trim());
+  const safeName = path3.basename(String(rawFileName || "").trim());
   if (!safeName || safeName === "." || safeName === "..") return null;
-  const resolvedBase = path2.resolve(baseDir);
-  const resolvedTarget = path2.resolve(resolvedBase, safeName);
-  if (!resolvedTarget.startsWith(resolvedBase + path2.sep)) return null;
+  const resolvedBase = path3.resolve(baseDir);
+  const resolvedTarget = path3.resolve(resolvedBase, safeName);
+  if (!resolvedTarget.startsWith(resolvedBase + path3.sep)) return null;
   return resolvedTarget;
 };
 var rescueLegacyUploadsToPersistentHome = (homeDir, legacySourceDirs) => {
   try {
-    if (!fs2.existsSync(homeDir)) fs2.mkdirSync(homeDir, { recursive: true });
+    if (!fs3.existsSync(homeDir)) fs3.mkdirSync(homeDir, { recursive: true });
     for (const srcDir of legacySourceDirs) {
-      if (!fs2.existsSync(srcDir)) continue;
-      for (const file of fs2.readdirSync(srcDir)) {
+      if (!fs3.existsSync(srcDir)) continue;
+      for (const file of fs3.readdirSync(srcDir)) {
         const srcPath = resolveConfinedFilePath(srcDir, file);
         const destPath = resolveConfinedFilePath(homeDir, file);
         if (!srcPath || !destPath) continue;
         try {
-          if (!fs2.statSync(srcPath).isFile()) continue;
-          if (!fs2.existsSync(destPath)) {
-            fs2.copyFileSync(srcPath, destPath);
+          if (!fs3.statSync(srcPath).isFile()) continue;
+          if (!fs3.existsSync(destPath)) {
+            fs3.copyFileSync(srcPath, destPath);
           }
         } catch {
         }
@@ -8538,23 +9184,23 @@ var MAX_CHAT_VIDEO_DURATION_SEC = 120;
 var MAX_RAW_VIDEO_UPLOAD_BYTES = 250 * 1024 * 1024;
 var VIDEO_UPLOAD_CHUNK_MAX_BYTES = 10 * 1024 * 1024;
 var atomicWriteFileSync = (targetPath, data) => {
-  const dir = path2.dirname(targetPath);
-  if (!fs2.existsSync(dir)) {
-    fs2.mkdirSync(dir, { recursive: true });
+  const dir = path3.dirname(targetPath);
+  if (!fs3.existsSync(dir)) {
+    fs3.mkdirSync(dir, { recursive: true });
   }
   const tmpPath = `${targetPath}.tmp-${process.pid}-${Date.now()}-${crypto2.randomBytes(3).toString("hex")}`;
   try {
-    fs2.writeFileSync(tmpPath, data);
-    fs2.renameSync(tmpPath, targetPath);
+    fs3.writeFileSync(tmpPath, data);
+    fs3.renameSync(tmpPath, targetPath);
   } catch (err) {
     try {
-      if (fs2.existsSync(tmpPath)) fs2.unlinkSync(tmpPath);
+      if (fs3.existsSync(tmpPath)) fs3.unlinkSync(tmpPath);
     } catch {
     }
-    fs2.writeFileSync(targetPath, data);
+    fs3.writeFileSync(targetPath, data);
   }
 };
-var RESOLVED_FFMPEG_BIN = typeof ffmpegStatic === "string" && ffmpegStatic.trim() && fs2.existsSync(ffmpegStatic) ? ffmpegStatic : "ffmpeg";
+var RESOLVED_FFMPEG_BIN = typeof ffmpegStatic === "string" && ffmpegStatic.trim() && fs3.existsSync(ffmpegStatic) ? ffmpegStatic : "ffmpeg";
 var checkedWebVideoCache = /* @__PURE__ */ new Set();
 var inFlightVideoTranscodes = /* @__PURE__ */ new Map();
 var bufferLikelyNeedsWebVideoTranscode = (buf, ext) => {
@@ -8570,14 +9216,14 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
   let rawBytes = Number(options?.rawByteSize || 0);
   if (!rawBytes) {
     try {
-      rawBytes = fs2.statSync(inPath).size;
+      rawBytes = fs3.statSync(inPath).size;
     } catch {
     }
   }
   const isHd = Boolean(options?.hd);
-  const srcExt = (options?.sourceExt || path2.extname(inPath).replace(/^\./, "") || "mp4").toLowerCase();
+  const srcExt = (options?.sourceExt || path3.extname(inPath).replace(/^\./, "") || "mp4").toLowerCase();
   if (isHd && (srcExt === "mp4" || srcExt === "webm") && rawBytes <= MAX_CHAT_HD_VIDEO_BYTES) {
-    const rawBuf = fs2.readFileSync(inPath);
+    const rawBuf = fs3.readFileSync(inPath);
     const needsCodecConvert = bufferLikelyNeedsWebVideoTranscode(rawBuf, srcExt);
     if (!needsCodecConvert && !options?.needsTrim) {
       return {
@@ -8589,7 +9235,7 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
     }
     if (!needsCodecConvert && options?.needsTrim && srcExt === "mp4") {
       const uniqueCopyId = `${Date.now()}-${crypto2.randomBytes(4).toString("hex")}`;
-      const copyOutPath = path2.join(os2.tmpdir(), `nd-vid-hdcopy-${uniqueCopyId}.mp4`);
+      const copyOutPath = path3.join(os2.tmpdir(), `nd-vid-hdcopy-${uniqueCopyId}.mp4`);
       const copyArgs = ["-y"];
       if (startSec > 0.01) copyArgs.push("-ss", startSec.toFixed(2));
       copyArgs.push("-i", inPath, "-t", clippedDurationSec.toFixed(2), "-c", "copy", "-movflags", "+faststart", copyOutPath);
@@ -8600,8 +9246,8 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
             resolve();
           });
         });
-        if (fs2.existsSync(copyOutPath)) {
-          const outBuf = fs2.readFileSync(copyOutPath);
+        if (fs3.existsSync(copyOutPath)) {
+          const outBuf = fs3.readFileSync(copyOutPath);
           if (outBuf.length > 1024) {
             return { buffer: outBuf, ext: "mp4", transcoded: true, clippedDurationSec };
           }
@@ -8609,14 +9255,14 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
       } catch {
       } finally {
         try {
-          if (fs2.existsSync(copyOutPath)) fs2.unlinkSync(copyOutPath);
+          if (fs3.existsSync(copyOutPath)) fs3.unlinkSync(copyOutPath);
         } catch {
         }
       }
     }
   }
   const uniqueId = `${Date.now()}-${crypto2.randomBytes(4).toString("hex")}`;
-  const outPath = path2.join(os2.tmpdir(), `nd-vid-out-${uniqueId}.mp4`);
+  const outPath = path3.join(os2.tmpdir(), `nd-vid-out-${uniqueId}.mp4`);
   const args = ["-y"];
   if (startSec > 0.01) {
     args.push("-ss", startSec.toFixed(2));
@@ -8724,8 +9370,8 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
         }
       );
     });
-    if (fs2.existsSync(outPath)) {
-      const outBuf = fs2.readFileSync(outPath);
+    if (fs3.existsSync(outPath)) {
+      const outBuf = fs3.readFileSync(outPath);
       if (outBuf.length > 1024) {
         return { buffer: outBuf, ext: "mp4", transcoded: true, clippedDurationSec };
       }
@@ -8734,12 +9380,12 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
     console.warn("Chat video web-MP4 transcode fallback:", err?.message || err);
   } finally {
     try {
-      if (fs2.existsSync(outPath)) fs2.unlinkSync(outPath);
+      if (fs3.existsSync(outPath)) fs3.unlinkSync(outPath);
     } catch {
     }
   }
   return {
-    buffer: fs2.existsSync(inPath) ? fs2.readFileSync(inPath) : Buffer.alloc(0),
+    buffer: fs3.existsSync(inPath) ? fs3.readFileSync(inPath) : Buffer.alloc(0),
     ext: srcExt || "mp4",
     transcoded: false,
     clippedDurationSec
@@ -8748,9 +9394,9 @@ var transcodeVideoFileToWebMp4 = async (inPath, options) => {
 var transcodeVideoBufferToWebMp4 = async (rawBuffer, sourceExt, options) => {
   const cleanExt = sourceExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
   const uniqueId = `${Date.now()}-${crypto2.randomBytes(4).toString("hex")}`;
-  const inPath = path2.join(os2.tmpdir(), `nd-vid-in-${uniqueId}.${cleanExt}`);
+  const inPath = path3.join(os2.tmpdir(), `nd-vid-in-${uniqueId}.${cleanExt}`);
   try {
-    fs2.writeFileSync(inPath, rawBuffer);
+    fs3.writeFileSync(inPath, rawBuffer);
     const res = await transcodeVideoFileToWebMp4(inPath, {
       trimStartSec: options?.trimStartSec,
       trimEndSec: options?.trimEndSec,
@@ -8764,7 +9410,7 @@ var transcodeVideoBufferToWebMp4 = async (rawBuffer, sourceExt, options) => {
     };
   } finally {
     try {
-      if (fs2.existsSync(inPath)) fs2.unlinkSync(inPath);
+      if (fs3.existsSync(inPath)) fs3.unlinkSync(inPath);
     } catch {
     }
   }
@@ -8781,12 +9427,12 @@ var maybeAutoHealExistingChatVideo = async (bucket, safeName, filePath) => {
   }
   const task = (async () => {
     try {
-      const stat = fs2.statSync(filePath);
+      const stat = fs3.statSync(filePath);
       if (!stat.isFile() || stat.size === 0 || stat.size > MAX_CHAT_ATTACHMENT_BYTES) {
         checkedWebVideoCache.add(lower);
         return;
       }
-      const rawBuf = fs2.readFileSync(filePath);
+      const rawBuf = fs3.readFileSync(filePath);
       const ext = lower.split(".").pop() || "mp4";
       if (!bufferLikelyNeedsWebVideoTranscode(rawBuf, ext)) {
         checkedWebVideoCache.add(lower);
@@ -8896,12 +9542,12 @@ var parseHostedUploadUrl = (rawUrl) => {
   }
   pathOnly = pathOnly.split("?")[0].split("#")[0];
   if (pathOnly.startsWith("/uploads/chat/")) {
-    const fileName = path2.basename(decodeURIComponent(pathOnly.slice("/uploads/chat/".length)));
+    const fileName = path3.basename(decodeURIComponent(pathOnly.slice("/uploads/chat/".length)));
     if (!fileName || fileName === "." || fileName === "..") return null;
     return { bucket: "chat", fileName, normalizedUrl: `/uploads/chat/${fileName}` };
   }
   if (pathOnly.startsWith("/uploads/marketing-tools/")) {
-    const fileName = path2.basename(decodeURIComponent(pathOnly.slice("/uploads/marketing-tools/".length)));
+    const fileName = path3.basename(decodeURIComponent(pathOnly.slice("/uploads/marketing-tools/".length)));
     if (!fileName || fileName === "." || fileName === "..") return null;
     return { bucket: "marketing-tools", fileName, normalizedUrl: `/uploads/marketing-tools/${fileName}` };
   }
@@ -8947,8 +9593,8 @@ var deleteHostedUploadFile = async (rawUrl, options) => {
     const confined = resolveConfinedFilePath(dir, parsed.fileName);
     if (!confined) continue;
     try {
-      if (fs2.existsSync(confined) && fs2.statSync(confined).isFile()) {
-        fs2.unlinkSync(confined);
+      if (fs3.existsSync(confined) && fs3.statSync(confined).isFile()) {
+        fs3.unlinkSync(confined);
         removedAny = true;
       }
     } catch {
@@ -8986,8 +9632,8 @@ var getHostedUploadByteSize = (rawUrl) => {
     const confined = resolveConfinedFilePath(dir, parsed.fileName);
     if (!confined) continue;
     try {
-      if (fs2.existsSync(confined)) {
-        const st = fs2.statSync(confined);
+      if (fs3.existsSync(confined)) {
+        const st = fs3.statSync(confined);
         if (st.isFile()) return st.size;
       }
     } catch {
@@ -8996,7 +9642,7 @@ var getHostedUploadByteSize = (rawUrl) => {
   return 0;
 };
 var serveHostedUploadFile = async (bucket, req, res) => {
-  const safeName = path2.basename(String(req.params.filename || "").trim());
+  const safeName = path3.basename(String(req.params.filename || "").trim());
   if (!safeName || safeName === "." || safeName === "..") {
     return res.status(404).end();
   }
@@ -9014,25 +9660,25 @@ var serveHostedUploadFile = async (bucket, req, res) => {
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "public, max-age=604800");
     if (String(req.query.download || "") === "1") {
-      const requestedName = path2.basename(String(req.query.name || safeName).replace(/["\r\n]/g, "")).slice(0, 140) || safeName;
+      const requestedName = path3.basename(String(req.query.name || safeName).replace(/["\r\n]/g, "")).slice(0, 140) || safeName;
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="${requestedName}"; filename*=UTF-8''${encodeURIComponent(requestedName)}`
       );
     }
   };
-  if (fs2.existsSync(homePath)) {
+  if (fs3.existsSync(homePath)) {
     await maybeAutoHealExistingChatVideo(bucket, safeName, homePath);
     applyUploadHeaders(getMimeTypeFromExt(safeName));
     return res.sendFile(homePath);
   }
   for (const candidate of [dataPath, pubPath, legacyDistPath]) {
-    if (candidate && fs2.existsSync(candidate)) {
+    if (candidate && fs3.existsSync(candidate)) {
       try {
-        if (!fs2.existsSync(dirs.homeDir)) {
-          fs2.mkdirSync(dirs.homeDir, { recursive: true });
+        if (!fs3.existsSync(dirs.homeDir)) {
+          fs3.mkdirSync(dirs.homeDir, { recursive: true });
         }
-        fs2.copyFileSync(candidate, homePath);
+        fs3.copyFileSync(candidate, homePath);
         await maybeAutoHealExistingChatVideo(bucket, safeName, homePath);
         applyUploadHeaders(getMimeTypeFromExt(safeName));
         return res.sendFile(homePath);
@@ -9057,12 +9703,12 @@ var serveHostedUploadFile = async (bucket, req, res) => {
             const target = resolveConfinedFilePath(dir, safeName);
             if (!target) continue;
             try {
-              if (!fs2.existsSync(dir)) fs2.mkdirSync(dir, { recursive: true });
-              fs2.writeFileSync(target, buf);
+              if (!fs3.existsSync(dir)) fs3.mkdirSync(dir, { recursive: true });
+              fs3.writeFileSync(target, buf);
             } catch {
             }
           }
-          if (fs2.existsSync(homePath)) {
+          if (fs3.existsSync(homePath)) {
             await maybeAutoHealExistingChatVideo(bucket, safeName, homePath);
             applyUploadHeaders(getMimeTypeFromExt(safeName));
             return res.sendFile(homePath);
@@ -9099,8 +9745,8 @@ app.get("/uploads/marketing-tools/:filename", async (req, res) => {
 app.get("/uploads/chat/:filename", async (req, res) => {
   return serveHostedUploadFile("chat", req, res);
 });
-app.use("/uploads", express.static(path2.join(os2.homedir(), ".ndtaxandlaw_storage", "uploads"), { maxAge: "7d" }));
-app.use("/uploads", express.static(path2.join(__dirname, "public", "uploads"), { maxAge: "7d" }));
+app.use("/uploads", express.static(path3.join(os2.homedir(), ".ndtaxandlaw_storage", "uploads"), { maxAge: "7d" }));
+app.use("/uploads", express.static(path3.join(__dirname, "public", "uploads"), { maxAge: "7d" }));
 var formatFileSizeServer = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
@@ -9515,10 +10161,10 @@ var loadLocalOrHostedFileBuffer = async (rawUrl) => {
     }
   }
   if (pathOnly.startsWith("/proposals/")) {
-    const fileName = path2.basename(decodeURIComponent(pathOnly.slice("/proposals/".length)));
+    const fileName = path3.basename(decodeURIComponent(pathOnly.slice("/proposals/".length)));
     const confined = resolveConfinedFilePath(PUBLIC_PROPOSALS_DIR, fileName);
-    if (confined && fs2.existsSync(confined) && fs2.statSync(confined).isFile()) {
-      return fs2.readFileSync(confined);
+    if (confined && fs3.existsSync(confined) && fs3.statSync(confined).isFile()) {
+      return fs3.readFileSync(confined);
     }
     return null;
   }
@@ -9527,8 +10173,8 @@ var loadLocalOrHostedFileBuffer = async (rawUrl) => {
     const dirs = getUploadBucketDirs(parsedUpload.bucket);
     for (const dir of [dirs.homeDir, dirs.dataDir, dirs.publicDir, dirs.legacyDistDir]) {
       const confined = resolveConfinedFilePath(dir, parsedUpload.fileName);
-      if (confined && fs2.existsSync(confined) && fs2.statSync(confined).isFile()) {
-        return fs2.readFileSync(confined);
+      if (confined && fs3.existsSync(confined) && fs3.statSync(confined).isFile()) {
+        return fs3.readFileSync(confined);
       }
     }
     if (db) {
@@ -9548,11 +10194,11 @@ var loadLocalOrHostedFileBuffer = async (rawUrl) => {
     return null;
   }
   if (pathOnly.startsWith("/assets/")) {
-    const publicAssetsRoot = path2.resolve(__dirname, "public", "assets");
+    const publicAssetsRoot = path3.resolve(__dirname, "public", "assets");
     const relSub = decodeURIComponent(pathOnly.slice("/assets/".length)).replace(/^\/+/, "");
-    const resolved = path2.resolve(publicAssetsRoot, relSub);
-    if (resolved.startsWith(publicAssetsRoot + path2.sep) && fs2.existsSync(resolved) && fs2.statSync(resolved).isFile()) {
-      return fs2.readFileSync(resolved);
+    const resolved = path3.resolve(publicAssetsRoot, relSub);
+    if (resolved.startsWith(publicAssetsRoot + path3.sep) && fs3.existsSync(resolved) && fs3.statSync(resolved).isFile()) {
+      return fs3.readFileSync(resolved);
     }
   }
   return null;
@@ -11328,10 +11974,11 @@ app.put("/api/settings", async (req, res) => {
   res.json({ success: true, data: clientSafeSettings });
 });
 app.put("/api/settings/whatsapp-group", async (req, res) => {
-  const { whatsappGroupName, whatsappGroupLink } = req.body || {};
-  const cleanName = typeof whatsappGroupName === "string" && whatsappGroupName.trim() ? whatsappGroupName.trim().slice(0, 120) : "Grup WhatsApp Mitra ND Tax & Law";
+  const { whatsappGroupName, whatsappGroupLink, whatsappGroupJid } = req.body || {};
+  const cleanName = typeof whatsappGroupName === "string" && whatsappGroupName.trim() ? whatsappGroupName.trim().slice(0, 120) : appSettings.whatsappGroupName || "Grup WhatsApp Mitra ND Tax & Law";
   const rawLink = typeof whatsappGroupLink === "string" ? whatsappGroupLink.trim() : "";
-  let validatedLink = "";
+  const cleanJid = typeof whatsappGroupJid === "string" ? whatsappGroupJid.trim().slice(0, 120) : appSettings.whatsappGroupJid || "";
+  let validatedLink = rawLink ? "" : appSettings.whatsappGroupLink || "";
   if (rawLink) {
     try {
       const parsed = new URL(rawLink);
@@ -11348,9 +11995,16 @@ app.put("/api/settings/whatsapp-group", async (req, res) => {
         message: "Format tautan Grup WhatsApp tidak valid."
       });
     }
+  } else if (typeof whatsappGroupLink === "string") {
+    validatedLink = "";
+  }
+  if (cleanJid && !validatedLink && getWhatsAppStatus().status === "connected") {
+    const fetchedLink = await getWhatsAppGroupInviteLink(cleanJid);
+    if (fetchedLink) validatedLink = fetchedLink;
   }
   appSettings.whatsappGroupName = cleanName;
   appSettings.whatsappGroupLink = validatedLink;
+  appSettings.whatsappGroupJid = cleanJid;
   recordActivity({
     actorRole: "admin",
     actorId: adminAccount.id,
@@ -11359,7 +12013,7 @@ app.put("/api/settings/whatsapp-group", async (req, res) => {
     actionType: "settings_update",
     operation: "UPDATE",
     targetEntity: "Grup WhatsApp Mitra",
-    description: `Admin memperbarui konfigurasi Grup WhatsApp Mitra: "${cleanName}".`
+    description: `Admin memperbarui konfigurasi Grup WhatsApp Mitra: "${cleanName}"${cleanJid ? ` (${cleanJid})` : ""}.`
   });
   saveDatabase();
   await persistSettingsToMysql();
@@ -11367,7 +12021,8 @@ app.put("/api/settings/whatsapp-group", async (req, res) => {
     success: true,
     data: {
       whatsappGroupName: appSettings.whatsappGroupName,
-      whatsappGroupLink: appSettings.whatsappGroupLink
+      whatsappGroupLink: appSettings.whatsappGroupLink,
+      whatsappGroupJid: appSettings.whatsappGroupJid
     },
     message: "Pengaturan Grup WhatsApp Mitra berhasil disimpan."
   });
@@ -13398,7 +14053,7 @@ app.put("/api/chat/rooms/:id", async (req, res) => {
 var resolveSafeVideoUploadTempPath = (uploadIdRaw) => {
   const cleanId = String(uploadIdRaw || "").trim();
   if (!/^[a-zA-Z0-9_-]{8,64}$/.test(cleanId)) return null;
-  return path2.join(os2.tmpdir(), `nd-vid-upload-${cleanId}.part`);
+  return path3.join(os2.tmpdir(), `nd-vid-upload-${cleanId}.part`);
 };
 app.post("/api/chat/upload-video/chunk", async (req, res) => {
   const uploadId = String(req.query.uploadId || "").trim();
@@ -13424,10 +14079,10 @@ app.post("/api/chat/upload-video/chunk", async (req, res) => {
       req.on("error", (err) => reject(err));
     });
     const buf = Buffer.concat(chunks);
-    const existingSize = chunkIndex > 0 && fs2.existsSync(partPath) ? fs2.statSync(partPath).size : 0;
+    const existingSize = chunkIndex > 0 && fs3.existsSync(partPath) ? fs3.statSync(partPath).size : 0;
     if (existingSize + buf.length > MAX_RAW_VIDEO_UPLOAD_BYTES) {
       try {
-        if (fs2.existsSync(partPath)) fs2.unlinkSync(partPath);
+        if (fs3.existsSync(partPath)) fs3.unlinkSync(partPath);
       } catch {
       }
       return res.status(413).json({
@@ -13435,9 +14090,9 @@ app.post("/api/chat/upload-video/chunk", async (req, res) => {
       });
     }
     if (chunkIndex === 0) {
-      fs2.writeFileSync(partPath, buf);
+      fs3.writeFileSync(partPath, buf);
     } else {
-      fs2.appendFileSync(partPath, buf);
+      fs3.appendFileSync(partPath, buf);
     }
     return res.json({
       success: true,
@@ -13456,11 +14111,11 @@ app.post("/api/chat/upload-video/finalize", async (req, res) => {
     return res.status(403).json({ message: "Admin berada dalam Mode Monitoring." });
   }
   const partPath = resolveSafeVideoUploadTempPath(String(uploadId || ""));
-  if (!partPath || !fs2.existsSync(partPath)) {
+  if (!partPath || !fs3.existsSync(partPath)) {
     return res.status(400).json({ message: "File unggahan video tidak ditemukan atau sudah kedaluwarsa." });
   }
   try {
-    const rawStat = fs2.statSync(partPath);
+    const rawStat = fs3.statSync(partPath);
     const originalBytes = rawStat.size;
     if (originalBytes <= 0 || originalBytes > MAX_RAW_VIDEO_UPLOAD_BYTES) {
       return res.status(400).json({ message: "Ukuran video tidak valid (maksimal 250 MB)." });
@@ -13516,7 +14171,7 @@ app.post("/api/chat/upload-video/finalize", async (req, res) => {
     return res.status(500).json({ message: "Terjadi kesalahan saat memotong & mengompres video." });
   } finally {
     try {
-      if (fs2.existsSync(partPath)) fs2.unlinkSync(partPath);
+      if (fs3.existsSync(partPath)) fs3.unlinkSync(partPath);
     } catch {
     }
   }
@@ -13623,7 +14278,7 @@ app.post("/api/chat/messages", async (req, res) => {
     if (saved.cloudSyncPromise) await saved.cloudSyncPromise;
     finalImageUrl = saved.hostedUrl;
     if (isUploadedVideo) {
-      const savedBase = path2.basename(saved.hostedUrl).toLowerCase();
+      const savedBase = path3.basename(saved.hostedUrl).toLowerCase();
       checkedWebVideoCache.add(savedBase);
     }
     if (!resolvedCompressedSize || resolvedCompressedSize > saved.savedBytes) {
@@ -14222,15 +14877,15 @@ app.post("/api/chat/admin/reset", async (req, res) => {
   });
 });
 async function startServer() {
-  const distPath = path2.join(__dirname, "dist");
-  const distIndexPath = path2.join(distPath, "index.html");
-  const hasDistBuild = fs2.existsSync(distIndexPath);
+  const distPath = path3.join(__dirname, "dist");
+  const distIndexPath = path3.join(distPath, "index.html");
+  const hasDistBuild = fs3.existsSync(distIndexPath);
   const isCompiledServer = __filename.endsWith("server.js");
   const shouldServeStaticDist = hasDistBuild && (process.env.NODE_ENV === "production" || isCompiledServer);
   if (shouldServeStaticDist) {
     const sendSanitizedDistHtml = (_req, res) => {
       try {
-        const rawHtml = fs2.readFileSync(distIndexPath, "utf-8");
+        const rawHtml = fs3.readFileSync(distIndexPath, "utf-8");
         const safeHtml = rawHtml.replace(/\scrossorigin(?:="[^"]*")?/gi, "");
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -14253,6 +14908,7 @@ async function startServer() {
   }
   const httpServer = app.listen(PORT, () => {
     console.log(`NDTAXANDLAW Server is running on port ${PORT} (static=${shouldServeStaticDist})`);
+    initWhatsAppIfSavedSession();
   });
   const wss = new WebSocketServer({
     noServer: true,

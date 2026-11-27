@@ -49,6 +49,17 @@ import {
   stampMitraPartnerCardOnPdf,
   getPdfPageCount,
 } from './server-utils/proposalPdfStamper.ts';
+import {
+  getWhatsAppStatus,
+  connectWhatsApp,
+  disconnectWhatsApp,
+  initWhatsAppIfSavedSession,
+  listAdminWhatsAppGroups,
+  getWhatsAppGroupInviteLink,
+  getWhatsAppGroupParticipantPhones,
+  updateWhatsAppGroupParticipants,
+  normalizeIndonesianWaDigits,
+} from './server-utils/whatsappClient.ts';
 
 dotenv.config();
 
@@ -718,6 +729,7 @@ export interface AppSettings {
   clientFieldsInitialized?: boolean;
   whatsappGroupName?: string;
   whatsappGroupLink?: string;
+  whatsappGroupJid?: string;
 }
 
 export interface EmailLogItem {
@@ -6212,10 +6224,136 @@ async function dispatchWhatsAppGatewayGroupAction(
   }
 }
 
-// Admin adds / removes single Mitra in official WhatsApp Group
+// Real WhatsApp Linked-Device (QR) Connection & Group Management Endpoints
+app.get('/api/whatsapp/status', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      ...getWhatsAppStatus(),
+      whatsappGroupJid: appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || '',
+      whatsappGroupName: appSettings.whatsappGroupName || '',
+      whatsappGroupLink: appSettings.whatsappGroupLink || '',
+    },
+  });
+});
+
+app.post('/api/whatsapp/connect', async (_req: Request, res: Response) => {
+  try {
+    const status = await connectWhatsApp();
+    res.json({
+      success: true,
+      data: {
+        ...status,
+        whatsappGroupJid: appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || '',
+        whatsappGroupName: appSettings.whatsappGroupName || '',
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: err?.message || 'Gagal memulai koneksi WhatsApp.',
+    });
+  }
+});
+
+app.post('/api/whatsapp/disconnect', async (_req: Request, res: Response) => {
+  try {
+    const status = await disconnectWhatsApp(true);
+    res.json({
+      success: true,
+      data: status,
+      message: 'Koneksi WhatsApp Admin berhasil diputuskan.',
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: err?.message || 'Gagal memutuskan koneksi WhatsApp.',
+    });
+  }
+});
+
+app.get('/api/whatsapp/groups', async (_req: Request, res: Response) => {
+  try {
+    const groups = await listAdminWhatsAppGroups();
+    res.json({
+      success: true,
+      data: groups,
+      selectedGroupJid: appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || '',
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      message: err?.message || 'Gagal mengambil daftar Grup WhatsApp.',
+    });
+  }
+});
+
+app.post('/api/whatsapp/sync-members', async (req: Request, res: Response) => {
+  try {
+    const targetJid =
+      String(req.body?.groupJid || appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || '').trim();
+    if (!targetJid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pilih Grup WhatsApp tujuan terlebih dahulu sebelum menyinkronkan peserta.',
+      });
+    }
+
+    if (db) {
+      try {
+        const { data: dbMitras } = await db.from('mitras').select('*');
+        if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+      } catch {}
+    }
+
+    const realPhones = await getWhatsAppGroupParticipantPhones(targetJid);
+    const nowIso = new Date().toISOString();
+    let inGroupCount = 0;
+
+    for (const m of mitras) {
+      const normalized = normalizeIndonesianWaDigits(m.phone);
+      const isMember = Boolean(normalized && realPhones.has(normalized));
+      if (isMember) inGroupCount += 1;
+
+      if (Boolean(m.whatsappGroupInvited) !== isMember) {
+        m.whatsappGroupInvited = isMember;
+        m.whatsappGroupInvitedAt = isMember ? m.whatsappGroupInvitedAt || nowIso : undefined;
+        const bankCopy: any = { ...(m.bankDetails || {}) };
+        if (isMember) {
+          bankCopy.__whatsappGroupInvited = true;
+          bankCopy.__whatsappGroupInvitedAt = m.whatsappGroupInvitedAt;
+        } else {
+          delete bankCopy.__whatsappGroupInvited;
+          delete bankCopy.__whatsappGroupInvitedAt;
+        }
+        m.bankDetails = bankCopy;
+        if (db) {
+          try {
+            await db.from('mitras').update({ bankDetails: m.bankDetails }).eq('id', m.id);
+          } catch {}
+        }
+      }
+    }
+
+    saveDatabase();
+    res.json({
+      success: true,
+      inGroupCount,
+      totalGroupParticipants: realPhones.size,
+      message: `Sinkronisasi selesai: ${inGroupCount} Mitra terdeteksi aktif di dalam Grup WhatsApp asli (total ${realPhones.size} anggota grup).`,
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      message: err?.message || 'Gagal menyinkronkan peserta Grup WhatsApp.',
+    });
+  }
+});
+
+// Admin adds / removes single Mitra in official WhatsApp Group (REAL WhatsApp execution)
 app.post('/api/mitra/:id/whatsapp-group', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { groupName, groupLink, customMessage, action } = req.body || {};
+  const { groupName, groupLink, groupJid, customMessage, action } = req.body || {};
   const isRemove = action === 'remove';
 
   if (db) {
@@ -6232,6 +6370,11 @@ app.post('/api/mitra/:id/whatsapp-group', async (req: Request, res: Response) =>
 
   let resolvedLink = (appSettings.whatsappGroupLink || '').trim();
   let resolvedName = (appSettings.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law').trim();
+  let resolvedJid = (
+    typeof groupJid === 'string' && groupJid.trim()
+      ? groupJid.trim()
+      : appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || ''
+  ).trim();
 
   if (typeof groupLink === 'string' && groupLink.trim()) {
     const trimmedLink = groupLink.trim();
@@ -6252,19 +6395,91 @@ app.post('/api/mitra/:id/whatsapp-group', async (req: Request, res: Response) =>
     appSettings.whatsappGroupName = resolvedName;
   }
 
+  const waStatus = getWhatsAppStatus();
+  const hasRealBaileys = waStatus.status === 'connected' && Boolean(resolvedJid);
+  const hasExternalGateway = Boolean((process.env.WA_GATEWAY_URL || '').trim() && (process.env.WA_GROUP_JID || '').trim());
+
+  if (!hasRealBaileys && !hasExternalGateway) {
+    return res.status(400).json({
+      success: false,
+      requiresWhatsAppConnection: true,
+      message:
+        waStatus.status === 'connected'
+          ? 'Silakan pilih Grup WhatsApp tujuan terlebih dahulu di tab "Koneksi WhatsApp" agar peserta dapat ditambahkan langsung ke grup.'
+          : 'WhatsApp Admin belum terhubung. Buka tab "Koneksi WhatsApp" lalu scan QR menggunakan WhatsApp Admin Grup agar peserta benar-benar masuk ke Grup WhatsApp.',
+    });
+  }
+
   const nowIso = new Date().toISOString();
   const formattedPhone = formatPhoneToIndonesianWa(mitra.phone);
 
-  if (isRemove) {
-    mitra.whatsappGroupInvited = false;
-    mitra.whatsappGroupInvitedAt = undefined;
-    const cleanedBank: any = { ...(mitra.bankDetails || {}) };
-    delete cleanedBank.__whatsappGroupInvited;
-    delete cleanedBank.__whatsappGroupInvitedAt;
-    mitra.bankDetails = cleanedBank;
+  if (hasRealBaileys) {
+    const outcomes = await updateWhatsAppGroupParticipants(
+      resolvedJid,
+      [{ mitraId: mitra.id, fullName: mitra.fullName, phone: mitra.phone || '' }],
+      isRemove ? 'remove' : 'add',
+      resolvedName,
+      resolvedLink
+    );
+    const result = outcomes[0];
 
-    if (formattedPhone) {
-      await dispatchWhatsAppGatewayGroupAction('remove', [formattedPhone]);
+    if (isRemove) {
+      if (result.outcome !== 'removed') {
+        return res.status(400).json({ success: false, outcome: result, message: result.detail });
+      }
+      mitra.whatsappGroupInvited = false;
+      mitra.whatsappGroupInvitedAt = undefined;
+      const cleanedBank: any = { ...(mitra.bankDetails || {}) };
+      delete cleanedBank.__whatsappGroupInvited;
+      delete cleanedBank.__whatsappGroupInvitedAt;
+      mitra.bankDetails = cleanedBank;
+    } else if (result.outcome === 'added' || result.outcome === 'already_in_group') {
+      mitra.whatsappGroupInvited = true;
+      mitra.whatsappGroupInvitedAt = nowIso;
+      mitra.bankDetails = {
+        ...(mitra.bankDetails || ({} as any)),
+        __whatsappGroupInvited: true,
+        __whatsappGroupInvitedAt: nowIso,
+      } as any;
+    } else if (result.outcome === 'invited_via_dm') {
+      // Privacy blocked direct add, but personal WhatsApp invite DM was sent automatically
+      return res.json({
+        success: true,
+        data: mitra,
+        outcome: result,
+        whatsappGroupName: resolvedName,
+        whatsappGroupLink: resolvedLink,
+        message: `${mitra.fullName}: ${result.detail}`,
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        outcome: result,
+        message: `${mitra.fullName}: ${result.detail}`,
+      });
+    }
+
+    if (!isRemove) {
+      const extraNote =
+        typeof customMessage === 'string' && customMessage.trim()
+          ? ` ${customMessage.trim().slice(0, 500)}`
+          : '';
+      const notif: NotificationItem = {
+        id: `notif-mtr-wa-${mitra.id}-${Date.now()}`,
+        title: `Peserta ${resolvedName}`,
+        message: `Admin telah menambahkan Anda ke Grup WhatsApp ${resolvedName}.${extraNote}`,
+        type: 'verification',
+        timestamp: nowIso,
+        isRead: false,
+        targetAudience: 'mitra',
+        mitraId: mitra.id,
+      };
+      notifications.unshift(notif);
+      if (db) {
+        try {
+          await db.from('notifications').insert([toDbNotification(notif)]);
+        } catch {}
+      }
     }
 
     recordActivity({
@@ -6275,101 +6490,110 @@ app.post('/api/mitra/:id/whatsapp-group', async (req: Request, res: Response) =>
       actionType: 'mitra_verify',
       operation: 'UPDATE',
       targetEntity: 'Grup WhatsApp Mitra',
-      description: `Admin mengeluarkan Mitra "${mitra.fullName}" dari daftar peserta "${resolvedName}".`,
+      description: isRemove
+        ? `Admin mengeluarkan Mitra "${mitra.fullName}" dari Grup WhatsApp "${resolvedName}".`
+        : `Admin menambahkan Mitra "${mitra.fullName}" (${mitra.phone || '-'}) ke Grup WhatsApp "${resolvedName}".`,
     });
 
     if (db) {
       try {
         await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', id);
       } catch (e) {
-        console.warn('MySQL whatsapp-group remove error', e);
+        console.warn('MySQL whatsapp-group error', e);
       }
     }
+    await persistSettingsToMysql();
     saveDatabase();
 
     return res.json({
       success: true,
       data: mitra,
+      outcome: result,
       whatsappGroupName: resolvedName,
       whatsappGroupLink: resolvedLink,
-      message: `Mitra "${mitra.fullName}" telah dikeluarkan dari daftar peserta ${resolvedName}.`,
+      message: `${mitra.fullName}: ${result.detail}`,
     });
   }
 
-  mitra.whatsappGroupInvited = true;
-  mitra.whatsappGroupInvitedAt = nowIso;
-  mitra.bankDetails = {
-    ...(mitra.bankDetails || ({} as any)),
-    __whatsappGroupInvited: true,
-    __whatsappGroupInvitedAt: nowIso,
-  } as any;
-
+  // Fallback to external configured WA_GATEWAY_URL
   const gatewayResult = formattedPhone
-    ? await dispatchWhatsAppGatewayGroupAction('add', [formattedPhone])
-    : { attempted: false, ok: false };
+    ? await dispatchWhatsAppGatewayGroupAction(isRemove ? 'remove' : 'add', [formattedPhone])
+    : { attempted: false, ok: false, detail: 'Nomor WhatsApp Mitra belum diisi.' };
 
-  const extraNote =
-    typeof customMessage === 'string' && customMessage.trim()
-      ? ` ${customMessage.trim().slice(0, 500)}`
-      : '';
-  const notifMsg = resolvedLink
-    ? `Admin telah menambahkan Anda ke ${resolvedName}. Tautan grup resmi: ${resolvedLink}${extraNote}`
-    : `Admin telah menambahkan Anda ke daftar peserta ${resolvedName}.${extraNote}`;
+  if (!gatewayResult.ok) {
+    return res.status(400).json({
+      success: false,
+      message: `Gagal memproses melalui WhatsApp Gateway: ${gatewayResult.detail || 'tidak diketahui'}.`,
+    });
+  }
 
-  const notif: NotificationItem = {
-    id: `notif-mtr-wa-${mitra.id}-${Date.now()}`,
-    title: `Peserta ${resolvedName}`,
-    message: notifMsg,
-    type: 'verification',
-    timestamp: nowIso,
-    isRead: false,
-    targetAudience: 'mitra',
-    mitraId: mitra.id,
-  };
-  notifications.unshift(notif);
-
-  recordActivity({
-    actorRole: 'admin',
-    actorId: adminAccount.id,
-    actorName: adminAccount.name,
-    actorEmail: adminAccount.email,
-    actionType: 'mitra_verify',
-    operation: 'UPDATE',
-    targetEntity: 'Grup WhatsApp Mitra',
-    description: `Admin menambahkan Mitra "${mitra.fullName}" (${mitra.phone || '-'}) ke "${resolvedName}".`,
-  });
+  if (isRemove) {
+    mitra.whatsappGroupInvited = false;
+    mitra.whatsappGroupInvitedAt = undefined;
+    const cleanedBank: any = { ...(mitra.bankDetails || {}) };
+    delete cleanedBank.__whatsappGroupInvited;
+    delete cleanedBank.__whatsappGroupInvitedAt;
+    mitra.bankDetails = cleanedBank;
+  } else {
+    mitra.whatsappGroupInvited = true;
+    mitra.whatsappGroupInvitedAt = nowIso;
+    mitra.bankDetails = {
+      ...(mitra.bankDetails || ({} as any)),
+      __whatsappGroupInvited: true,
+      __whatsappGroupInvitedAt: nowIso,
+    } as any;
+  }
 
   if (db) {
     try {
       await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', id);
-      await db.from('notifications').insert([toDbNotification(notif)]);
-    } catch (e) {
-      console.warn('MySQL whatsapp-group error', e);
-    }
+    } catch {}
   }
-  await persistSettingsToMysql();
   saveDatabase();
 
   res.json({
     success: true,
     data: mitra,
-    gatewayDispatched: gatewayResult.ok,
+    gatewayDispatched: true,
     whatsappGroupName: resolvedName,
     whatsappGroupLink: resolvedLink,
-    message: gatewayResult.ok
-      ? `Mitra "${mitra.fullName}" berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.`
-      : `Mitra "${mitra.fullName}" telah ditambahkan ke daftar peserta ${resolvedName}.`,
+    message: isRemove
+      ? `Mitra "${mitra.fullName}" berhasil dikeluarkan dari ${resolvedName} via WhatsApp Gateway.`
+      : `Mitra "${mitra.fullName}" berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.`,
   });
 });
 
-// Admin batch adds or removes multiple Mitras in official WhatsApp Group
+// Admin batch adds or removes multiple Mitras in official WhatsApp Group (REAL WhatsApp execution)
 app.post('/api/whatsapp-group/members', async (req: Request, res: Response) => {
-  const { mitraIds, action, customMessage } = req.body || {};
+  const { mitraIds, action, customMessage, groupJid } = req.body || {};
   if (!Array.isArray(mitraIds) || mitraIds.length === 0) {
     return res.status(400).json({ success: false, message: 'Pilih minimal 1 Mitra terlebih dahulu.' });
   }
   const op: 'add' | 'remove' = action === 'remove' ? 'remove' : 'add';
   const targetIdSet = new Set(mitraIds.map((v: any) => String(v || '').trim()).filter(Boolean));
+
+  const resolvedName = (appSettings.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law').trim();
+  const resolvedLink = (appSettings.whatsappGroupLink || '').trim();
+  const resolvedJid = (
+    typeof groupJid === 'string' && groupJid.trim()
+      ? groupJid.trim()
+      : appSettings.whatsappGroupJid || process.env.WA_GROUP_JID || ''
+  ).trim();
+
+  const waStatus = getWhatsAppStatus();
+  const hasRealBaileys = waStatus.status === 'connected' && Boolean(resolvedJid);
+  const hasExternalGateway = Boolean((process.env.WA_GATEWAY_URL || '').trim() && (process.env.WA_GROUP_JID || '').trim());
+
+  if (!hasRealBaileys && !hasExternalGateway) {
+    return res.status(400).json({
+      success: false,
+      requiresWhatsAppConnection: true,
+      message:
+        waStatus.status === 'connected'
+          ? 'Silakan pilih Grup WhatsApp tujuan terlebih dahulu di tab "Koneksi WhatsApp" agar peserta dapat ditambahkan langsung ke grup.'
+          : 'WhatsApp Admin belum terhubung. Silakan buka tab "Koneksi WhatsApp" lalu scan QR menggunakan WhatsApp Admin Grup agar peserta benar-benar masuk ke Grup WhatsApp.',
+    });
+  }
 
   if (db) {
     try {
@@ -6383,21 +6607,131 @@ app.post('/api/whatsapp-group/members', async (req: Request, res: Response) => {
     return res.status(404).json({ success: false, message: 'Data Mitra yang dipilih tidak ditemukan.' });
   }
 
-  const resolvedName = (appSettings.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law').trim();
-  const resolvedLink = (appSettings.whatsappGroupLink || '').trim();
   const nowIso = new Date().toISOString();
   const extraNote =
     typeof customMessage === 'string' && customMessage.trim()
       ? ` ${customMessage.trim().slice(0, 500)}`
       : '';
 
-  const phonesToDispatch: string[] = [];
-  const updatedMitras: Mitra[] = [];
+  if (hasRealBaileys) {
+    const outcomes = await updateWhatsAppGroupParticipants(
+      resolvedJid,
+      matchedMitras.map((m) => ({ mitraId: m.id, fullName: m.fullName, phone: m.phone || '' })),
+      op,
+      resolvedName,
+      resolvedLink
+    );
+
+    const outcomeById = new Map(outcomes.map((o) => [o.mitraId, o]));
+    let addedCount = 0;
+    let alreadyCount = 0;
+    let removedCount = 0;
+    let invitedDmCount = 0;
+    const failedDetails: string[] = [];
+    const updatedMitras: Mitra[] = [];
+
+    for (const mitra of matchedMitras) {
+      const resItem = outcomeById.get(mitra.id);
+      if (!resItem) continue;
+
+      if (op === 'remove' && resItem.outcome === 'removed') {
+        removedCount += 1;
+        mitra.whatsappGroupInvited = false;
+        mitra.whatsappGroupInvitedAt = undefined;
+        const cleanedBank: any = { ...(mitra.bankDetails || {}) };
+        delete cleanedBank.__whatsappGroupInvited;
+        delete cleanedBank.__whatsappGroupInvitedAt;
+        mitra.bankDetails = cleanedBank;
+        if (db) {
+          try {
+            await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', mitra.id);
+          } catch {}
+        }
+        updatedMitras.push(mitra);
+      } else if (op === 'add' && (resItem.outcome === 'added' || resItem.outcome === 'already_in_group')) {
+        if (resItem.outcome === 'added') addedCount += 1;
+        else alreadyCount += 1;
+
+        mitra.whatsappGroupInvited = true;
+        mitra.whatsappGroupInvitedAt = nowIso;
+        mitra.bankDetails = {
+          ...(mitra.bankDetails || ({} as any)),
+          __whatsappGroupInvited: true,
+          __whatsappGroupInvitedAt: nowIso,
+        } as any;
+
+        const notif: NotificationItem = {
+          id: `notif-mtr-wa-${mitra.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          title: `Peserta ${resolvedName}`,
+          message: `Admin telah menambahkan Anda ke Grup WhatsApp ${resolvedName}.${extraNote}`,
+          type: 'verification',
+          timestamp: nowIso,
+          isRead: false,
+          targetAudience: 'mitra',
+          mitraId: mitra.id,
+        };
+        notifications.unshift(notif);
+        if (db) {
+          try {
+            await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', mitra.id);
+            await db.from('notifications').insert([toDbNotification(notif)]);
+          } catch {}
+        }
+        updatedMitras.push(mitra);
+      } else if (resItem.outcome === 'invited_via_dm') {
+        invitedDmCount += 1;
+      } else {
+        failedDetails.push(`${mitra.fullName} (${resItem.detail})`);
+      }
+    }
+
+    recordActivity({
+      actorRole: 'admin',
+      actorId: adminAccount.id,
+      actorName: adminAccount.name,
+      actorEmail: adminAccount.email,
+      actionType: 'mitra_verify',
+      operation: 'UPDATE',
+      targetEntity: 'Grup WhatsApp Mitra',
+      description:
+        op === 'remove'
+          ? `Admin mengeluarkan ${removedCount} Mitra dari Grup WhatsApp "${resolvedName}".`
+          : `Admin memproses penambahan ke Grup WhatsApp "${resolvedName}": ${addedCount} masuk langsung, ${alreadyCount} sudah di grup, ${invitedDmCount} dikirim undangan DM WA, ${failedDetails.length} gagal.`,
+    });
+
+    saveDatabase();
+
+    const parts: string[] = [];
+    if (addedCount > 0) parts.push(`${addedCount} peserta berhasil masuk langsung ke Grup WhatsApp`);
+    if (alreadyCount > 0) parts.push(`${alreadyCount} peserta sudah ada di dalam grup`);
+    if (removedCount > 0) parts.push(`${removedCount} peserta berhasil dikeluarkan dari Grup WhatsApp`);
+    if (invitedDmCount > 0) parts.push(`${invitedDmCount} peserta dibatasi privasi WA (link undangan otomatis dikirim ke chat WA)`);
+    if (failedDetails.length > 0) parts.push(`${failedDetails.length} gagal: ${failedDetails.slice(0, 3).join('; ')}`);
+
+    const anySuccess = addedCount > 0 || alreadyCount > 0 || removedCount > 0 || invitedDmCount > 0;
+
+    return res.status(anySuccess ? 200 : 400).json({
+      success: anySuccess,
+      count: updatedMitras.length,
+      data: updatedMitras,
+      outcomes,
+      message: parts.join(' · ') || 'Tidak ada perubahan pada Grup WhatsApp.',
+    });
+  }
+
+  // Fallback to configured external WA_GATEWAY_URL
+  const phonesToDispatch = matchedMitras
+    .map((m) => formatPhoneToIndonesianWa(m.phone))
+    .filter(Boolean);
+  const gatewayResult = await dispatchWhatsAppGatewayGroupAction(op, phonesToDispatch);
+  if (!gatewayResult.ok) {
+    return res.status(400).json({
+      success: false,
+      message: `Gagal memproses melalui WhatsApp Gateway: ${gatewayResult.detail || 'tidak diketahui'}.`,
+    });
+  }
 
   for (const mitra of matchedMitras) {
-    const formattedPhone = formatPhoneToIndonesianWa(mitra.phone);
-    if (formattedPhone) phonesToDispatch.push(formattedPhone);
-
     if (op === 'remove') {
       mitra.whatsappGroupInvited = false;
       mitra.whatsappGroupInvitedAt = undefined;
@@ -6413,65 +6747,24 @@ app.post('/api/whatsapp-group/members', async (req: Request, res: Response) => {
         __whatsappGroupInvited: true,
         __whatsappGroupInvitedAt: nowIso,
       } as any;
-
-      const notifMsg = resolvedLink
-        ? `Admin telah menambahkan Anda ke ${resolvedName}. Tautan grup resmi: ${resolvedLink}${extraNote}`
-        : `Admin telah menambahkan Anda ke daftar peserta ${resolvedName}.${extraNote}`;
-      const notif: NotificationItem = {
-        id: `notif-mtr-wa-${mitra.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        title: `Peserta ${resolvedName}`,
-        message: notifMsg,
-        type: 'verification',
-        timestamp: nowIso,
-        isRead: false,
-        targetAudience: 'mitra',
-        mitraId: mitra.id,
-      };
-      notifications.unshift(notif);
-      if (db) {
-        try {
-          await db.from('notifications').insert([toDbNotification(notif)]);
-        } catch {}
-      }
     }
-
     if (db) {
       try {
         await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', mitra.id);
       } catch {}
     }
-    updatedMitras.push(mitra);
   }
-
-  const gatewayResult = await dispatchWhatsAppGatewayGroupAction(op, phonesToDispatch);
-
-  recordActivity({
-    actorRole: 'admin',
-    actorId: adminAccount.id,
-    actorName: adminAccount.name,
-    actorEmail: adminAccount.email,
-    actionType: 'mitra_verify',
-    operation: 'UPDATE',
-    targetEntity: 'Grup WhatsApp Mitra',
-    description:
-      op === 'remove'
-        ? `Admin mengeluarkan ${updatedMitras.length} Mitra dari daftar peserta "${resolvedName}".`
-        : `Admin menambahkan ${updatedMitras.length} Mitra ke "${resolvedName}".`,
-  });
-
   saveDatabase();
 
   res.json({
     success: true,
-    count: updatedMitras.length,
-    data: updatedMitras,
-    gatewayDispatched: gatewayResult.ok,
+    count: matchedMitras.length,
+    data: matchedMitras,
+    gatewayDispatched: true,
     message:
       op === 'remove'
-        ? `${updatedMitras.length} Mitra berhasil dikeluarkan dari daftar peserta ${resolvedName}.`
-        : gatewayResult.ok
-          ? `${updatedMitras.length} Mitra berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.`
-          : `${updatedMitras.length} Mitra berhasil ditambahkan ke daftar peserta ${resolvedName}.`,
+        ? `${matchedMitras.length} Mitra berhasil dikeluarkan dari ${resolvedName} via WhatsApp Gateway.`
+        : `${matchedMitras.length} Mitra berhasil ditambahkan otomatis ke ${resolvedName} via WhatsApp Gateway.`,
   });
 });
 
@@ -10560,16 +10853,20 @@ app.put('/api/settings', async (req: Request, res: Response) => {
   res.json({ success: true, data: clientSafeSettings });
 });
 
-// Quick Admin endpoint to update official WhatsApp Group configuration
+// Quick Admin endpoint to update official WhatsApp Group configuration (including target Group JID)
 app.put('/api/settings/whatsapp-group', async (req: Request, res: Response) => {
-  const { whatsappGroupName, whatsappGroupLink } = req.body || {};
+  const { whatsappGroupName, whatsappGroupLink, whatsappGroupJid } = req.body || {};
   const cleanName =
     typeof whatsappGroupName === 'string' && whatsappGroupName.trim()
       ? whatsappGroupName.trim().slice(0, 120)
-      : 'Grup WhatsApp Mitra ND Tax & Law';
+      : appSettings.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law';
   const rawLink = typeof whatsappGroupLink === 'string' ? whatsappGroupLink.trim() : '';
+  const cleanJid =
+    typeof whatsappGroupJid === 'string'
+      ? whatsappGroupJid.trim().slice(0, 120)
+      : appSettings.whatsappGroupJid || '';
 
-  let validatedLink = '';
+  let validatedLink = rawLink ? '' : appSettings.whatsappGroupLink || '';
   if (rawLink) {
     try {
       const parsed = new URL(rawLink);
@@ -10586,10 +10883,19 @@ app.put('/api/settings/whatsapp-group', async (req: Request, res: Response) => {
         message: 'Format tautan Grup WhatsApp tidak valid.',
       });
     }
+  } else if (typeof whatsappGroupLink === 'string') {
+    validatedLink = '';
+  }
+
+  // If connected to real WhatsApp & JID was chosen without a manual link, auto-fetch the group's invite link
+  if (cleanJid && !validatedLink && getWhatsAppStatus().status === 'connected') {
+    const fetchedLink = await getWhatsAppGroupInviteLink(cleanJid);
+    if (fetchedLink) validatedLink = fetchedLink;
   }
 
   appSettings.whatsappGroupName = cleanName;
   appSettings.whatsappGroupLink = validatedLink;
+  appSettings.whatsappGroupJid = cleanJid;
 
   recordActivity({
     actorRole: 'admin',
@@ -10599,7 +10905,7 @@ app.put('/api/settings/whatsapp-group', async (req: Request, res: Response) => {
     actionType: 'settings_update',
     operation: 'UPDATE',
     targetEntity: 'Grup WhatsApp Mitra',
-    description: `Admin memperbarui konfigurasi Grup WhatsApp Mitra: "${cleanName}".`,
+    description: `Admin memperbarui konfigurasi Grup WhatsApp Mitra: "${cleanName}"${cleanJid ? ` (${cleanJid})` : ''}.`,
   });
 
   saveDatabase();
@@ -10610,6 +10916,7 @@ app.put('/api/settings/whatsapp-group', async (req: Request, res: Response) => {
     data: {
       whatsappGroupName: appSettings.whatsappGroupName,
       whatsappGroupLink: appSettings.whatsappGroupLink,
+      whatsappGroupJid: appSettings.whatsappGroupJid,
     },
     message: 'Pengaturan Grup WhatsApp Mitra berhasil disimpan.',
   });
@@ -14226,6 +14533,7 @@ async function startServer() {
 
   const httpServer = app.listen(PORT, () => {
     console.log(`NDTAXANDLAW Server is running on port ${PORT} (static=${shouldServeStaticDist})`);
+    initWhatsAppIfSavedSession();
   });
 
   // Attach Real-Time WebSocket Server at /ws/chat using noServer upgrade so other upgrades are untouched

@@ -28,6 +28,11 @@ import {
   Download,
   UserPlus,
   UserMinus,
+  QrCode,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  Loader2,
 } from 'lucide-react';
 import { AppSettings, AuthUser, Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName, getMissingMitraFields } from '../types';
 import { getDefaultAvatar } from '../avatars';
@@ -171,20 +176,189 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const [waGroupLinkInput, setWaGroupLinkInput] = useState<string>(
     settings?.whatsappGroupLink || ''
   );
+  const [waGroupJidInput, setWaGroupJidInput] = useState<string>(
+    settings?.whatsappGroupJid || ''
+  );
   const [waCustomNoteInput, setWaCustomNoteInput] = useState<string>('');
   const [isWaGroupConfigModalOpen, setIsWaGroupConfigModalOpen] = useState<boolean>(false);
-  const [waGroupModalTab, setWaGroupModalTab] = useState<'members' | 'settings'>('members');
+  const [waGroupModalTab, setWaGroupModalTab] = useState<'members' | 'connection' | 'settings'>('members');
   const [waMemberSearch, setWaMemberSearch] = useState<string>('');
   const [waMemberFilter, setWaMemberFilter] = useState<'all' | 'not_joined' | 'joined'>('all');
   const [selectedWaMitraIds, setSelectedWaMitraIds] = useState<string[]>([]);
   const [savingWaGroup, setSavingWaGroup] = useState<boolean>(false);
   const [copiedWaLink, setCopiedWaLink] = useState<boolean>(false);
   const [copiedWaPhones, setCopiedWaPhones] = useState<boolean>(false);
+  const [waModalFeedback, setWaModalFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Real WhatsApp Linked-Device (Baileys QR) State
+  const [waConnStatus, setWaConnStatus] = useState<'disconnected' | 'connecting' | 'qr' | 'connected'>('disconnected');
+  const [waQrDataUrl, setWaQrDataUrl] = useState<string | null>(null);
+  const [waConnectedPhone, setWaConnectedPhone] = useState<string | null>(null);
+  const [waConnectedName, setWaConnectedName] = useState<string | null>(null);
+  const [waConnError, setWaConnError] = useState<string | null>(null);
+  const [waGroupsList, setWaGroupsList] = useState<Array<{ id: string; subject: string; participantsCount: number; isAdmin: boolean }>>([]);
+  const [loadingWaGroups, setLoadingWaGroups] = useState<boolean>(false);
+  const [syncingWaMembers, setSyncingWaMembers] = useState<boolean>(false);
+
+  const fetchWaConnectionStatus = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/whatsapp/status');
+      const json = await res.json();
+      if (json?.success && json.data) {
+        setWaConnStatus(json.data.status || 'disconnected');
+        setWaQrDataUrl(json.data.qrDataUrl || null);
+        setWaConnectedPhone(json.data.connectedPhone || null);
+        setWaConnectedName(json.data.connectedName || null);
+        setWaConnError(json.data.lastError || null);
+        if (json.data.whatsappGroupJid) setWaGroupJidInput(json.data.whatsappGroupJid);
+      }
+    } catch {
+      // ignore transient poll errors
+    }
+  }, []);
+
+  const fetchWaGroupsList = React.useCallback(async () => {
+    setLoadingWaGroups(true);
+    try {
+      const res = await fetch('/api/whatsapp/groups');
+      const json = await res.json();
+      if (res.ok && json?.success && Array.isArray(json.data)) {
+        setWaGroupsList(json.data);
+        if (json.selectedGroupJid) setWaGroupJidInput(json.selectedGroupJid);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingWaGroups(false);
+    }
+  }, []);
 
   React.useEffect(() => {
     if (settings?.whatsappGroupName) setWaGroupNameInput(settings.whatsappGroupName);
     if (typeof settings?.whatsappGroupLink === 'string') setWaGroupLinkInput(settings.whatsappGroupLink);
-  }, [settings?.whatsappGroupName, settings?.whatsappGroupLink]);
+    if (typeof settings?.whatsappGroupJid === 'string') setWaGroupJidInput(settings.whatsappGroupJid);
+  }, [settings?.whatsappGroupName, settings?.whatsappGroupLink, settings?.whatsappGroupJid]);
+
+  // Poll WhatsApp status while either WA modal is open
+  React.useEffect(() => {
+    if (!isWaGroupConfigModalOpen && !mitraForWaGroup) return;
+    fetchWaConnectionStatus();
+    const interval = setInterval(() => {
+      fetchWaConnectionStatus();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [isWaGroupConfigModalOpen, mitraForWaGroup, fetchWaConnectionStatus]);
+
+  // Auto-load real WhatsApp groups once connected
+  React.useEffect(() => {
+    if ((isWaGroupConfigModalOpen || mitraForWaGroup) && waConnStatus === 'connected' && waGroupsList.length === 0) {
+      fetchWaGroupsList();
+    }
+  }, [isWaGroupConfigModalOpen, mitraForWaGroup, waConnStatus, waGroupsList.length, fetchWaGroupsList]);
+
+  const handleConnectWhatsAppQr = async () => {
+    setWaModalFeedback(null);
+    setWaConnError(null);
+    setWaConnStatus('connecting');
+    try {
+      const res = await fetch('/api/whatsapp/connect', { method: 'POST' });
+      const json = await res.json();
+      if (json?.data) {
+        setWaConnStatus(json.data.status || 'connecting');
+        setWaQrDataUrl(json.data.qrDataUrl || null);
+        setWaConnectedPhone(json.data.connectedPhone || null);
+        setWaConnError(json.data.lastError || null);
+      }
+    } catch (err: any) {
+      setWaConnStatus('disconnected');
+      setWaConnError(err?.message || 'Gagal memulai koneksi WhatsApp.');
+    }
+  };
+
+  const handleDisconnectWhatsApp = async () => {
+    setSavingWaGroup(true);
+    setWaModalFeedback(null);
+    try {
+      const res = await fetch('/api/whatsapp/disconnect', { method: 'POST' });
+      const json = await res.json();
+      setWaConnStatus('disconnected');
+      setWaQrDataUrl(null);
+      setWaConnectedPhone(null);
+      setWaConnectedName(null);
+      setWaGroupsList([]);
+      setWaModalFeedback({
+        type: 'success',
+        text: json?.message || 'Koneksi WhatsApp Admin berhasil diputuskan.',
+      });
+    } catch (err: any) {
+      setWaModalFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal memutuskan koneksi WhatsApp.',
+      });
+    } finally {
+      setSavingWaGroup(false);
+    }
+  };
+
+  const handleSyncRealWaMembers = async (overrideGroupJid?: string) => {
+    setSyncingWaMembers(true);
+    setWaModalFeedback(null);
+    try {
+      const res = await fetch('/api/whatsapp/sync-members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupJid: overrideGroupJid || waGroupJidInput }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal menyinkronkan peserta Grup WhatsApp.');
+      }
+      setWaModalFeedback({ type: 'success', text: json.message });
+      if (onRefreshData) onRefreshData();
+      mitraDt.refresh();
+    } catch (err: any) {
+      setWaModalFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal menyinkronkan peserta Grup WhatsApp.',
+      });
+    } finally {
+      setSyncingWaMembers(false);
+    }
+  };
+
+  const handleSelectTargetWaGroup = async (group: { id: string; subject: string }) => {
+    setSavingWaGroup(true);
+    setWaModalFeedback(null);
+    try {
+      const res = await fetch('/api/settings/whatsapp-group', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          whatsappGroupJid: group.id,
+          whatsappGroupName: group.subject,
+          whatsappGroupLink: waGroupLinkInput.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal memilih Grup WhatsApp tujuan.');
+      }
+      setWaGroupJidInput(group.id);
+      setWaGroupNameInput(group.subject);
+      if (json.data?.whatsappGroupLink) setWaGroupLinkInput(json.data.whatsappGroupLink);
+      if (onRefreshData) onRefreshData();
+      // Immediately sync real participants from this WhatsApp group!
+      await handleSyncRealWaMembers(group.id);
+      setWaGroupModalTab('members');
+    } catch (err: any) {
+      setWaModalFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal menyimpan Grup WhatsApp tujuan.',
+      });
+    } finally {
+      setSavingWaGroup(false);
+    }
+  };
 
   const formatWaNumber = (rawPhone?: string) => {
     const digits = String(rawPhone || '').replace(/\D/g, '');
@@ -377,6 +551,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const handleSaveWaGroupConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingWaGroup(true);
+    setWaModalFeedback(null);
     setPanelFeedback(null);
     try {
       const res = await fetch('/api/settings/whatsapp-group', {
@@ -385,19 +560,27 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
         body: JSON.stringify({
           whatsappGroupName: waGroupNameInput.trim(),
           whatsappGroupLink: waGroupLinkInput.trim(),
+          whatsappGroupJid: waGroupJidInput.trim(),
         }),
       });
       const json = await res.json();
       if (!res.ok || !json?.success) {
         throw new Error(json?.message || 'Gagal menyimpan pengaturan Grup WhatsApp.');
       }
+      setWaModalFeedback({
+        type: 'success',
+        text: json.message || 'Pengaturan Grup WhatsApp Mitra berhasil disimpan.',
+      });
       setPanelFeedback({
         type: 'success',
         text: json.message || 'Pengaturan Grup WhatsApp Mitra berhasil disimpan.',
       });
-      setIsWaGroupConfigModalOpen(false);
       if (onRefreshData) onRefreshData();
     } catch (err: any) {
+      setWaModalFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal menyimpan pengaturan Grup WhatsApp.',
+      });
       setPanelFeedback({
         type: 'error',
         text: err?.message || 'Gagal menyimpan pengaturan Grup WhatsApp.',
@@ -411,6 +594,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
     e.preventDefault();
     if (!mitraForWaGroup) return;
     setSavingWaGroup(true);
+    setWaModalFeedback(null);
     setPanelFeedback(null);
     try {
       const res = await fetch(`/api/mitra/${encodeURIComponent(mitraForWaGroup.id)}/whatsapp-group`, {
@@ -420,34 +604,40 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
           action,
           groupName: waGroupNameInput.trim(),
           groupLink: waGroupLinkInput.trim(),
+          groupJid: waGroupJidInput.trim(),
           customMessage: waCustomNoteInput.trim(),
         }),
       });
       const json = await res.json();
       if (!res.ok || !json?.success) {
+        if (json?.requiresWhatsAppConnection) {
+          setMitraForWaGroup(null);
+          setWaGroupModalTab('connection');
+          setIsWaGroupConfigModalOpen(true);
+          setWaModalFeedback({ type: 'error', text: json.message });
+          return;
+        }
         throw new Error(json?.message || 'Gagal memperbarui status peserta Grup WhatsApp.');
       }
       if (selectedMitraDetail && selectedMitraDetail.id === mitraForWaGroup.id && json.data) {
         setSelectedMitraDetail(json.data);
       }
-      setMitraForWaGroup(
-        json.data || { ...mitraForWaGroup, whatsappGroupInvited: action === 'add' }
-      );
-      setPanelFeedback({
-        type: 'success',
-        text:
-          json.message ||
-          (action === 'remove'
-            ? `${mitraForWaGroup.fullName} dikeluarkan dari daftar peserta Grup WhatsApp.`
-            : `${mitraForWaGroup.fullName} berhasil ditambahkan ke Grup WhatsApp.`),
-      });
+      if (json.data) {
+        setMitraForWaGroup(json.data);
+      }
+      const msg =
+        json.message ||
+        (action === 'remove'
+          ? `${mitraForWaGroup.fullName} dikeluarkan dari Grup WhatsApp.`
+          : `${mitraForWaGroup.fullName} berhasil diproses ke Grup WhatsApp.`);
+      setWaModalFeedback({ type: 'success', text: msg });
+      setPanelFeedback({ type: 'success', text: msg });
       if (onRefreshData) onRefreshData();
       mitraDt.refresh();
     } catch (err: any) {
-      setPanelFeedback({
-        type: 'error',
-        text: err?.message || 'Gagal memperbarui peserta Grup WhatsApp.',
-      });
+      const msg = err?.message || 'Gagal memperbarui peserta Grup WhatsApp.';
+      setWaModalFeedback({ type: 'error', text: msg });
+      setPanelFeedback({ type: 'error', text: msg });
     } finally {
       setSavingWaGroup(false);
     }
@@ -456,6 +646,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const handleBatchWaGroupMembers = async (targetIds: string[], action: 'add' | 'remove') => {
     if (targetIds.length === 0) return;
     setSavingWaGroup(true);
+    setWaModalFeedback(null);
     setPanelFeedback(null);
     try {
       const res = await fetch('/api/whatsapp-group/members', {
@@ -464,28 +655,32 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
         body: JSON.stringify({
           mitraIds: targetIds,
           action,
+          groupJid: waGroupJidInput.trim(),
         }),
       });
       const json = await res.json();
       if (!res.ok || !json?.success) {
+        if (json?.requiresWhatsAppConnection) {
+          setWaGroupModalTab('connection');
+          setWaModalFeedback({ type: 'error', text: json.message });
+          return;
+        }
         throw new Error(json?.message || 'Gagal memperbarui peserta Grup WhatsApp.');
       }
       setSelectedWaMitraIds((prev) => prev.filter((id) => !targetIds.includes(id)));
-      setPanelFeedback({
-        type: 'success',
-        text:
-          json.message ||
-          (action === 'add'
-            ? `${targetIds.length} Mitra berhasil ditambahkan ke Grup WhatsApp.`
-            : `${targetIds.length} Mitra berhasil dikeluarkan dari daftar Grup WhatsApp.`),
-      });
+      const msg =
+        json.message ||
+        (action === 'add'
+          ? `${targetIds.length} Mitra berhasil ditambahkan ke Grup WhatsApp.`
+          : `${targetIds.length} Mitra berhasil dikeluarkan dari Grup WhatsApp.`);
+      setWaModalFeedback({ type: 'success', text: msg });
+      setPanelFeedback({ type: 'success', text: msg });
       if (onRefreshData) onRefreshData();
       mitraDt.refresh();
     } catch (err: any) {
-      setPanelFeedback({
-        type: 'error',
-        text: err?.message || 'Gagal memperbarui peserta Grup WhatsApp.',
-      });
+      const msg = err?.message || 'Gagal memperbarui peserta Grup WhatsApp.';
+      setWaModalFeedback({ type: 'error', text: msg });
+      setPanelFeedback({ type: 'error', text: msg });
     } finally {
       setSavingWaGroup(false);
     }
@@ -2466,11 +2661,11 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             </div>
 
             {/* Modal Tabs */}
-            <div className="flex items-center gap-2 px-5 pt-3 border-b border-slate-200 bg-slate-50 shrink-0">
+            <div className="flex items-center gap-2 px-5 pt-3 border-b border-slate-200 bg-slate-50 shrink-0 overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setWaGroupModalTab('members')}
-                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap ${
                   waGroupModalTab === 'members'
                     ? 'border-emerald-600 text-emerald-800'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -2481,8 +2676,32 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  setWaGroupModalTab('connection');
+                  fetchWaConnectionStatus();
+                }}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap ${
+                  waGroupModalTab === 'connection'
+                    ? 'border-emerald-600 text-emerald-800'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {waConnStatus === 'connected' ? (
+                  <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <QrCode className="w-3.5 h-3.5 text-amber-600" />
+                )}
+                <span>Koneksi WhatsApp</span>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    waConnStatus === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'
+                  }`}
+                />
+              </button>
+              <button
+                type="button"
                 onClick={() => setWaGroupModalTab('settings')}
-                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap ${
                   waGroupModalTab === 'settings'
                     ? 'border-emerald-600 text-emerald-800'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -2493,8 +2712,248 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </button>
             </div>
 
-            {waGroupModalTab === 'members' ? (
+            {waModalFeedback && (
+              <div
+                className={`mx-5 mt-4 p-3 rounded-xl border text-xs font-semibold flex items-start justify-between gap-2 shrink-0 ${
+                  waModalFeedback.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-red-50 border-red-200 text-red-900'
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  {waModalFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <span>{waModalFeedback.text}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWaModalFeedback(null)}
+                  className="text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {waGroupModalTab === 'connection' ? (
+              <div className="p-5 overflow-y-auto flex-1 space-y-5">
+                <div
+                  className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    waConnStatus === 'connected'
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-amber-50 border-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        waConnStatus === 'connected'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-amber-100 text-amber-700 border border-amber-300'
+                      }`}
+                    >
+                      {waConnStatus === 'connected' ? (
+                        <Wifi className="w-5 h-5" />
+                      ) : (
+                        <WifiOff className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">
+                        {waConnStatus === 'connected'
+                          ? `WhatsApp Admin Terhubung (+${waConnectedPhone || ''})`
+                          : waConnStatus === 'qr'
+                            ? 'Scan QR Code dengan WhatsApp Admin Grup'
+                            : waConnStatus === 'connecting'
+                              ? 'Menghubungkan ke server WhatsApp...'
+                              : 'WhatsApp Admin Belum Terhubung'}
+                      </p>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        {waConnStatus === 'connected'
+                          ? `${waConnectedName ? `${waConnectedName} · ` : ''}Siap menambahkan & mengeluarkan peserta secara langsung di Grup WhatsApp.`
+                          : 'Hubungkan nomor WhatsApp yang menjadi Admin Grup agar penambahan peserta langsung masuk ke Grup WhatsApp asli.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {waConnStatus === 'connected' ? (
+                    <button
+                      type="button"
+                      disabled={savingWaGroup}
+                      onClick={handleDisconnectWhatsApp}
+                      className="px-3.5 py-2 rounded-xl bg-white hover:bg-red-50 text-red-700 border border-red-200 text-xs font-bold cursor-pointer shrink-0"
+                    >
+                      Putuskan (Logout)
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleConnectWhatsAppQr}
+                      disabled={waConnStatus === 'connecting'}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                    >
+                      {waConnStatus === 'connecting' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <QrCode className="w-3.5 h-3.5" />
+                      )}
+                      <span>{waConnStatus === 'qr' ? 'Muat Ulang QR' : 'Tampilkan QR WhatsApp'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {waConnError && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 font-semibold">
+                    {waConnError}
+                  </div>
+                )}
+
+                {waConnStatus === 'qr' && waQrDataUrl && (
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center gap-5">
+                    <div className="p-3 bg-white rounded-2xl border-2 border-emerald-500/30 shadow-sm shrink-0">
+                      <img src={waQrDataUrl} alt="QR WhatsApp Linked Devices" className="w-52 h-52 object-contain" />
+                    </div>
+                    <div className="space-y-2 text-xs text-slate-700">
+                      <p className="font-bold text-slate-900 text-sm">Cara Menghubungkan WhatsApp Admin Grup:</p>
+                      <ol className="list-decimal pl-4 space-y-1.5 text-[11px] leading-relaxed">
+                        <li>Buka aplikasi <strong>WhatsApp</strong> di HP Admin Grup <strong>{waGroupNameInput || 'MITRA NDTAXANDLAW'}</strong>.</li>
+                        <li>Ketuk menu <strong>Perangkat Tertaut (Linked Devices)</strong> &rarr; <strong>Tautkan Perangkat</strong>.</li>
+                        <li>Arahkan kamera ke QR Code di samping. Setelah terhubung, pilih grup tujuan di bawah ini.</li>
+                      </ol>
+                    </div>
+                  </div>
+                )}
+
+                {waConnStatus === 'connected' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900">Pilih Grup WhatsApp Tujuan</h4>
+                        <p className="text-[11px] text-slate-500">
+                          Pilih grup tempat Anda menjadi Admin agar peserta otomatis masuk ke grup tersebut.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={fetchWaGroupsList}
+                        disabled={loadingWaGroups}
+                        className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingWaGroups ? 'animate-spin' : ''}`} />
+                        <span>Muat Grup</span>
+                      </button>
+                    </div>
+
+                    {loadingWaGroups ? (
+                      <div className="p-6 text-center text-xs text-slate-500 flex items-center justify-center gap-2 border border-slate-200 rounded-xl">
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                        <span>Mengambil daftar Grup WhatsApp dari HP Admin...</span>
+                      </div>
+                    ) : waGroupsList.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-500 border border-slate-200 rounded-xl">
+                        Belum ada Grup WhatsApp ditemukan. Klik &ldquo;Muat Grup&rdquo; untuk menyegarkan.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                        {waGroupsList.map((g) => {
+                          const isSelected = waGroupJidInput === g.id;
+                          return (
+                            <div
+                              key={g.id}
+                              className={`p-3 flex items-center justify-between gap-3 ${
+                                isSelected ? 'bg-emerald-50/70' : 'bg-white hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-900 truncate">{g.subject}</span>
+                                  {g.isAdmin ? (
+                                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                      Admin Grup
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-semibold">
+                                      Bukan Admin
+                                    </span>
+                                  )}
+                                  {isSelected && (
+                                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
+                                      Grup Aktif ✓
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  {g.participantsCount} anggota
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={savingWaGroup}
+                                onClick={() => handleSelectTargetWaGroup(g)}
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0 cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-emerald-700 text-white'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                }`}
+                              >
+                                {isSelected ? 'Sinkronkan Ulang' : 'Pilih Grup Ini'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : waGroupModalTab === 'members' ? (
               <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                {/* Live WhatsApp Connection Status Strip */}
+                {waConnStatus === 'connected' && waGroupJidInput ? (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-emerald-900 font-semibold">
+                      <Wifi className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Terhubung ke WhatsApp (+{waConnectedPhone}) · Grup: <strong>{waGroupNameInput}</strong>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={syncingWaMembers}
+                      onClick={() => handleSyncRealWaMembers()}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${syncingWaMembers ? 'animate-spin' : ''}`} />
+                      <span>{syncingWaMembers ? 'Menyinkronkan...' : 'Sinkronkan Peserta Asli WA'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                    <div className="flex items-start gap-2 text-amber-950">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <span>
+                        {waConnStatus === 'connected'
+                          ? 'WhatsApp Admin sudah terhubung, silakan pilih Grup WhatsApp tujuan terlebih dahulu.'
+                          : 'WhatsApp Admin belum terhubung. Scan QR WhatsApp Admin Grup terlebih dahulu agar tombol Tambahkan benar-benar memasukkan peserta ke Grup WhatsApp.'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWaGroupModalTab('connection');
+                        if (waConnStatus === 'disconnected') handleConnectWhatsAppQr();
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>{waConnStatus === 'connected' ? 'Pilih Grup WA' : 'Hubungkan WhatsApp (Scan QR)'}</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Search & Filter */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
                   <div className="relative flex-1">

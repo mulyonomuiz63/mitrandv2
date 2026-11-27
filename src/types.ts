@@ -871,6 +871,7 @@ export interface AppSettings {
   // Official Mitra WhatsApp Group Invite Settings (Managed by Admin)
   whatsappGroupName?: string;
   whatsappGroupLink?: string;
+  whatsappGroupJid?: string;
 
   // Dynamic Mitra Specialization & Custom Form Fields Configuration
   specializationEnabled?: boolean;
