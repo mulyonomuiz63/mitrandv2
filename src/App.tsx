@@ -55,9 +55,7 @@ import {
   Building2,
   FileCheck2,
   Award,
-  Globe,
-  Users,
-  ExternalLink
+  Globe
 } from 'lucide-react';
 
 const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'prospects', 'ai-reports', 'idcard', 'staff-management', 'chat'];
@@ -1459,21 +1457,6 @@ export default function App() {
                 </>
               )}
             </div>
-
-            {currentRole === 'mitra' &&
-              settings?.whatsappGroupLink &&
-              (activeMitra.whatsappGroupInvited || activeMitra.status === 'verified') && (
-                <a
-                  href={settings.whatsappGroupLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-white font-bold text-[11px] shadow-xs transition-colors shrink-0"
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Gabung {settings.whatsappGroupName || 'Grup WhatsApp Mitra'}</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
           </div>
         </div>
 

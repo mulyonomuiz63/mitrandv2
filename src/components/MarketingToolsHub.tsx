@@ -21,15 +21,9 @@ import {
   Lock,
   LayoutGrid,
   Table as TableIcon,
-  Globe,
-  Sparkles,
-  UserCheck,
-  Mail,
-  Phone,
   Loader2,
 } from 'lucide-react';
 import { MarketingTool, Mitra, ProposalTemplate, ProposalPdfVersion } from '../types';
-import { getDefaultAvatar } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 import {
   useServerDataTable,
@@ -72,13 +66,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [editingToolId, setEditingToolId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [displayLayout, setDisplayLayout] = useState<'table' | 'grid'>(
-    userRole === 'admin' ? 'table' : 'grid'
-  );
-
-  React.useEffect(() => {
-    setDisplayLayout(userRole === 'admin' ? 'table' : 'grid');
-  }, [userRole]);
+  const [displayLayout, setDisplayLayout] = useState<'table' | 'grid'>('table');
 
   // Form states for Admin Upload
   const [newTitle, setNewTitle] = useState('');
@@ -368,8 +356,57 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     }
   };
 
+  const allProposalRows = React.useMemo(() => {
+    const rows: Array<{
+      rowKey: string;
+      proposal: ProposalTemplate;
+      lang: 'id' | 'en';
+      version: ProposalPdfVersion;
+      displayTitle: string;
+    }> = [];
+    for (const proposal of proposalTemplates) {
+      if (proposal.pdfId) {
+        rows.push({
+          rowKey: `${proposal.id}-id`,
+          proposal,
+          lang: 'id',
+          version: proposal.pdfId,
+          displayTitle: `${proposal.title} (Bahasa Indonesia)`,
+        });
+      }
+      if (proposal.pdfEn) {
+        rows.push({
+          rowKey: `${proposal.id}-en`,
+          proposal,
+          lang: 'en',
+          version: proposal.pdfEn,
+          displayTitle: `${proposal.title} (English)`,
+        });
+      }
+    }
+    return rows;
+  }, [proposalTemplates]);
+
+  const filteredProposalRows = React.useMemo(() => {
+    if (selectedCategory !== 'all' && selectedCategory !== 'Surat Penawaran') {
+      return [];
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return allProposalRows;
+    return allProposalRows.filter(
+      (r) =>
+        r.displayTitle.toLowerCase().includes(q) ||
+        r.proposal.title.toLowerCase().includes(q) ||
+        (r.proposal.targetProduct || '').toLowerCase().includes(q) ||
+        (r.version.fileName || '').toLowerCase().includes(q) ||
+        'surat penawaran'.includes(q) ||
+        (r.lang === 'id' ? 'indonesia id pdf' : 'english en inggris pdf').includes(q)
+    );
+  }, [allProposalRows, selectedCategory, searchQuery]);
+
   const categories = [
     { id: 'all', label: 'Semua Materi' },
+    { id: 'Surat Penawaran', label: 'Surat Penawaran (PDF)' },
     { id: 'Brosur Digital', label: 'Brosur Digital (PDF)' },
     { id: 'Banner Promosi', label: 'Banner Promosi (JPG/PNG)' },
     { id: 'Video Presentasi', label: 'Video Presentasi (MP4)' },
@@ -377,15 +414,22 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     { id: 'Materi Pelatihan', label: 'Materi Pelatihan Eksklusif' },
   ];
 
-  const visibleCategories = categories.filter((cat) =>
-    cat.id === 'all' ? tools.length > 0 : tools.some((t) => t.category === cat.id)
-  );
+  const visibleCategories = categories.filter((cat) => {
+    if (cat.id === 'all') return tools.length > 0 || allProposalRows.length > 0;
+    if (cat.id === 'Surat Penawaran') return allProposalRows.length > 0;
+    return tools.some((t) => t.category === cat.id);
+  });
 
   React.useEffect(() => {
-    if (selectedCategory !== 'all' && !tools.some((t) => t.category === selectedCategory)) {
+    if (selectedCategory === 'all') return;
+    if (selectedCategory === 'Surat Penawaran') {
+      if (allProposalRows.length === 0) setSelectedCategory('all');
+      return;
+    }
+    if (!tools.some((t) => t.category === selectedCategory)) {
       setSelectedCategory('all');
     }
-  }, [tools, selectedCategory]);
+  }, [tools, allProposalRows.length, selectedCategory]);
 
   const getFileAcceptConfig = (type: 'pdf' | 'png' | 'jpg' | 'mp4') => {
     switch (type) {
@@ -592,13 +636,17 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const toolsDt = useServerDataTable<MarketingTool>({
     resource: 'marketing-tools',
     fallbackItems: sortedFilteredTools,
-    defaultPerPage: userRole === 'admin' ? 10 : 9,
+    defaultPerPage: 10,
     externalSearch: searchQuery,
     extraParams: { category: selectedCategory === 'all' ? 'Semua' : selectedCategory },
     dependencyKey: `${tools.length}-${tools.map((t) => `${t.id}:${t.title}`).join(',')}`,
   });
 
-  const filteredTools = toolsDt.rows;
+  const filteredTools = selectedCategory === 'Surat Penawaran' ? [] : toolsDt.rows;
+  const visibleProposalRows = toolsDt.meta.page === 1 ? filteredProposalRows : [];
+  const totalCombinedItems =
+    (selectedCategory === 'Surat Penawaran' ? 0 : toolsDt.meta.totalItems) + filteredProposalRows.length;
+  const isAnyLoading = toolsDt.isLoading || loadingProposals;
 
   const resetToolForm = () => {
     setEditingToolId(null);
@@ -997,276 +1045,6 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         )}
       </div>
 
-      {/* Dynamic Official Proposal Penawaran PDF Section (Bahasa Indonesia & English) */}
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-        <div className="bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] px-5 py-4 text-white flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-amber-400/30">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
-                <Sparkles className="w-3 h-3" />
-                <span>Kartu Mitra Dinamis Otomatis</span>
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 text-slate-200 text-[10px] font-semibold">
-                <Globe className="w-3 h-3 text-amber-300" />
-                <span>Bahasa Indonesia &amp; English</span>
-              </span>
-            </div>
-            <h2 className="text-base sm:text-lg font-bold font-display text-white">
-              Surat Penawaran Harga Jasa Resmi (PDF)
-            </h2>
-            <p className="text-xs text-slate-200/90 max-w-2xl">
-              {userRole === 'admin'
-                ? 'Unggah atau ganti template PDF Bahasa Indonesia & Inggris. Setiap kali Mitra mengunduh, foto, nama, email, dan nomor telepon pada kartu Mitra di dalam PDF otomatis disesuaikan dengan akun Mitra tersebut.'
-                : 'Setiap surat penawaran PDF yang Anda unduh otomatis menampilkan foto profil, nama, email, dan nomor telepon Anda sebagai ND Strategic Partner.'}
-            </p>
-          </div>
-
-          {/* Live Dynamic Partner Card Preview (Mitra own profile or Admin selected test Mitra) */}
-          <div className="shrink-0 flex flex-col gap-2">
-            {userRole === 'admin' && allMitras.length > 0 && (
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="text-amber-200 font-semibold whitespace-nowrap">Pratinjau Mitra:</span>
-                <select
-                  value={adminPreviewMitraId}
-                  onChange={(e) => setAdminPreviewMitraId(e.target.value)}
-                  className="bg-slate-900/80 border border-amber-400/40 text-white text-xs rounded-lg px-2.5 py-1 focus:outline-hidden focus:ring-2 focus:ring-amber-400 max-w-[230px]"
-                >
-                  <option value="">Tanpa Identitas Mitra (Master PDF)</option>
-                  {allMitras.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.fullName} ({m.memberCode})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {effectiveMitraForProposal && (
-              <div className="flex items-center gap-3 rounded-xl bg-[#0E1218] border border-[#C9A45C]/50 pl-2.5 pr-3.5 py-2 shadow-md relative overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#C9A45C]" />
-                <img
-                  src={
-                    effectiveMitraForProposal.avatarUrl ||
-                    getDefaultAvatar(effectiveMitraForProposal.gender, effectiveMitraForProposal.fullName)
-                  }
-                  alt={effectiveMitraForProposal.fullName}
-                  className="w-11 h-11 rounded-lg object-cover border border-[#C9A45C]/80 shrink-0 bg-slate-800"
-                />
-                <div className="min-w-0 text-[11px] leading-tight">
-                  <p className="text-[9px] font-bold tracking-[0.16em] text-[#C9A45C] uppercase">
-                    ND STRATEGIC PARTNER
-                  </p>
-                  <p className="font-bold text-white truncate max-w-[190px] mt-0.5 flex items-center gap-1">
-                    <UserCheck className="w-3 h-3 text-[#C9A45C] shrink-0" />
-                    <span className="truncate">{effectiveMitraForProposal.fullName}</span>
-                  </p>
-                  <p className="text-slate-300 truncate max-w-[190px] flex items-center gap-1 mt-0.5">
-                    <Mail className="w-2.5 h-2.5 text-[#C9A45C] shrink-0" />
-                    <span className="truncate">{effectiveMitraForProposal.email}</span>
-                  </p>
-                  <p className="text-slate-300 truncate max-w-[190px] flex items-center gap-1 mt-0.5">
-                    <Phone className="w-2.5 h-2.5 text-[#C9A45C] shrink-0" />
-                    <span className="truncate">{effectiveMitraForProposal.phone || '-'}</span>
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="p-4 sm:p-5 space-y-4 bg-slate-50/50">
-          {loadingProposals ? (
-            <div className="py-8 flex items-center justify-center gap-2 text-xs text-slate-500">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-700" />
-              <span>Memuat surat penawaran resmi...</span>
-            </div>
-          ) : proposalTemplates.length === 0 ? (
-            <div className="py-8 text-center bg-white rounded-xl border border-dashed border-slate-300 p-6">
-              <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-xs font-semibold text-slate-700">Belum ada surat penawaran PDF yang diunggah.</p>
-              {userRole === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetProposalForm();
-                    setIsProposalModalOpen(true);
-                  }}
-                  className="mt-3 px-3.5 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>Upload Surat Penawaran Pertama</span>
-                </button>
-              )}
-            </div>
-          ) : (
-            proposalTemplates.map((proposal) => (
-              <div
-                key={proposal.id}
-                className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 sm:p-5 space-y-4"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm sm:text-base font-bold text-slate-900 font-display">
-                        {proposal.title}
-                      </h3>
-                      {proposal.targetProduct && (
-                        <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-bold">
-                          {proposal.targetProduct}
-                        </span>
-                      )}
-                    </div>
-                    {proposal.description && (
-                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">{proposal.description}</p>
-                    )}
-                  </div>
-
-                  {userRole === 'admin' && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => openEditProposalModal(proposal)}
-                        className="px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 cursor-pointer"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        <span>Edit</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteProposal(proposal)}
-                        className="px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Hapus</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Dual-Language PDF Cards: Indonesia (ID) & English (EN) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  {(['id', 'en'] as const).map((lang) => {
-                    const ver = lang === 'id' ? proposal.pdfId : proposal.pdfEn;
-                    const isId = lang === 'id';
-                    const key = `${proposal.id}-${lang}`;
-                    const isDownloading = downloadingProposalKey === key;
-                    const isReplacing = quickReplaceKey === key;
-
-                    return (
-                      <div
-                        key={lang}
-                        className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 transition-colors ${
-                          ver
-                            ? isId
-                              ? 'bg-red-50/30 border-slate-200 hover:border-blue-300'
-                              : 'bg-blue-50/30 border-slate-200 hover:border-blue-300'
-                            : 'bg-slate-50 border-dashed border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-2.5 min-w-0">
-                            <div
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 border ${
-                                isId
-                                  ? 'bg-red-50 text-red-700 border-red-200'
-                                  : 'bg-blue-50 text-blue-800 border-blue-200'
-                              }`}
-                            >
-                              {isId ? 'ID' : 'EN'}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-bold text-slate-900">
-                                  {isId ? 'Versi Bahasa Indonesia' : 'English Version'}
-                                </span>
-                                {ver && (
-                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    PDF Siap
-                                  </span>
-                                )}
-                              </div>
-                              {ver ? (
-                                <>
-                                  <p className="text-[11px] text-slate-600 truncate mt-0.5" title={ver.fileName}>
-                                    {ver.fileName}
-                                  </p>
-                                  <p className="text-[10px] font-mono text-slate-500 mt-0.5">
-                                    {ver.fileSize}
-                                    {ver.pageCount ? ` · ${ver.pageCount} halaman` : ''}
-                                    {ver.updatedAt ? ` · Update ${ver.updatedAt}` : ''}
-                                  </p>
-                                </>
-                              ) : (
-                                <p className="text-[11px] text-slate-500 mt-0.5">
-                                  Belum ada file PDF untuk bahasa ini.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/70">
-                          {ver && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setPreviewProposalPdf({
-                                    title: `${proposal.title} (${isId ? 'Bahasa Indonesia' : 'English'})`,
-                                    lang,
-                                    inlineUrl: buildProposalUrl(proposal.id, lang, true),
-                                    downloadUrl: buildProposalUrl(proposal.id, lang, false),
-                                  })
-                                }
-                                className="flex-1 min-w-[95px] px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>Pratinjau</span>
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isDownloading}
-                                onClick={() => handleDownloadProposalPdf(proposal, lang)}
-                                className="flex-1 min-w-[115px] px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 disabled:opacity-60 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all"
-                              >
-                                {isDownloading ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Download className="w-3.5 h-3.5 text-amber-300" />
-                                )}
-                                <span>{isDownloading ? 'Memproses...' : 'Unduh PDF'}</span>
-                              </button>
-                            </>
-                          )}
-
-                          {userRole === 'admin' && (
-                            <label className="px-2.5 py-1.5 text-xs font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg inline-flex items-center gap-1.5 cursor-pointer transition-colors">
-                              {isReplacing ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Upload className="w-3.5 h-3.5" />
-                              )}
-                              <span>{isReplacing ? 'Mengunggah...' : ver ? 'Ganti PDF' : 'Upload PDF'}</span>
-                              <input
-                                type="file"
-                                accept=".pdf,application/pdf"
-                                disabled={isReplacing}
-                                onChange={(e) => handleQuickReplaceProposalPdf(proposal, lang, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
       {/* Search, Category Filter & Server-Side DataTables Controls */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs mb-6 overflow-hidden">
         <div className="p-4 space-y-4">
@@ -1275,12 +1053,28 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Cari materi marketing..."
+                placeholder="Cari materi marketing atau surat penawaran..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-transparent"
               />
             </div>
+
+            {userRole === 'admin' && allMitras.length > 0 && (
+              <select
+                value={adminPreviewMitraId}
+                onChange={(e) => setAdminPreviewMitraId(e.target.value)}
+                aria-label="Pratinjau identitas Mitra pada Surat Penawaran"
+                className="w-full sm:w-auto max-w-[230px] bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium rounded-lg px-2.5 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="">Master PDF (Tanpa Mitra)</option>
+                {allMitras.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.fullName} ({m.memberCode})
+                  </option>
+                ))}
+              </select>
+            )}
 
             <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
               <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs">
@@ -1312,7 +1106,6 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             </div>
           </div>
 
-          {/* Clean Segmented Filter Buttons - Only shown when data is uploaded for that category */}
           {visibleCategories.length > 0 && (
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               {visibleCategories.map((cat) => (
@@ -1337,16 +1130,19 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
           onPerPageChange={toolsDt.setPerPage}
           perPageOptions={displayLayout === 'grid' ? [6, 9, 12, 24, 48, 96] : [10, 25, 50, 100]}
           hideSearch
-          isLoading={toolsDt.isLoading}
-          onRefresh={toolsDt.refresh}
+          isLoading={isAnyLoading}
+          onRefresh={() => {
+            toolsDt.refresh();
+            fetchProposalTemplates();
+          }}
           unitLabel="materi"
         />
       </div>
 
-      {/* Marketing Tools Content (DataTables Table View or Paginated Card Grid View) */}
-      {toolsDt.isLoading && displayLayout === 'grid' ? (
+      {/* Unified Marketing Tools & Dynamic Surat Penawaran DataTables / Card Grid */}
+      {isAnyLoading && displayLayout === 'grid' ? (
         <CardGridSkeleton count={toolsDt.perPage > 6 ? 6 : toolsDt.perPage} />
-      ) : filteredTools.length === 0 && !toolsDt.isLoading ? (
+      ) : visibleProposalRows.length === 0 && filteredTools.length === 0 && !isAnyLoading ? (
         <div className="text-center py-14 bg-white rounded-xl border border-slate-200 p-6">
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-slate-800">Materi Tidak Ditemukan</h3>
@@ -1357,7 +1153,7 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
-                  <th className="py-3 px-5">Materi &amp; Deskripsi</th>
+                  <th className="py-3 px-5">Materi</th>
                   <th className="py-3 px-4">Kategori</th>
                   <th className="py-3 px-4">Target Layanan</th>
                   <th className="py-3 px-4 text-center">Format &amp; Ukuran</th>
@@ -1366,103 +1162,218 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {toolsDt.isLoading ? (
+                {isAnyLoading && visibleProposalRows.length === 0 && filteredTools.length === 0 ? (
                   <TableSkeletonRows columns={6} rows={toolsDt.perPage > 8 ? 8 : toolsDt.perPage} />
                 ) : (
-                  filteredTools.map((tool) => {
-                  const badge = getFileBadge(tool.fileType);
-                  const BadgeIcon = badge.icon;
-                  return (
-                    <tr key={tool.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-5 max-w-md">
-                        <div className="font-bold text-slate-900 font-display">{tool.title}</div>
-                        <div className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">
-                          {tool.description}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                          {tool.category}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-700 font-medium">
-                        {tool.targetProduct || 'Layanan Konsultasi NDTAXANDLAW'}
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold bg-slate-50 text-slate-800 border-slate-200">
-                          <BadgeIcon className="w-3 h-3 text-blue-700" />
-                          <span>{badge.label}</span>
-                        </div>
-                        <div className="text-[10px] font-mono text-slate-500 mt-0.5">
-                          {tool.fileSize}
-                          {tool.duration ? ` · ${tool.duration}` : ''}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 whitespace-nowrap">
-                        {tool.updatedAt || tool.createdAt}
-                      </td>
-                      <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => setSelectedPreviewTool(tool)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Buka</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleDownloadTool(tool)}
-                            className="px-2.5 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Unduh</span>
-                          </button>
-
-                          {userRole === 'admin' && (
-                            <>
+                  <>
+                    {/* Dynamic Surat Penawaran PDF Rows (ID & EN) */}
+                    {visibleProposalRows.map((row) => {
+                      const isId = row.lang === 'id';
+                      const isDownloading = downloadingProposalKey === row.rowKey;
+                      const isReplacing = quickReplaceKey === row.rowKey;
+                      return (
+                        <tr key={row.rowKey} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3.5 px-5 max-w-md">
+                            <div className="font-bold text-slate-900 font-display">{row.displayTitle}</div>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                              Surat Penawaran
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-700 font-medium">
+                            {row.proposal.targetProduct || 'Layanan Konsultasi NDTAXANDLAW'}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <div
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold ${
+                                isId
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200'
+                              }`}
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>PDF · {isId ? 'ID' : 'EN'}</span>
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                              {row.version.fileSize}
+                              {row.version.pageCount ? ` · ${row.version.pageCount} hal` : ''}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                            {row.version.updatedAt || row.proposal.updatedAt}
+                          </td>
+                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
                               <button
-                                onClick={() => handleOpenEditModal(tool)}
-                                className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                                title="Edit Materi"
+                                type="button"
+                                onClick={() =>
+                                  setPreviewProposalPdf({
+                                    title: row.displayTitle,
+                                    lang: row.lang,
+                                    inlineUrl: buildProposalUrl(row.proposal.id, row.lang, true),
+                                    downloadUrl: buildProposalUrl(row.proposal.id, row.lang, false),
+                                  })
+                                }
+                                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                               >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>Edit</span>
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Buka</span>
                               </button>
+
                               <button
-                                onClick={async () => {
-                                  const ok = await confirm({
-                                    title: 'Hapus Materi Promosi & Pelatihan',
-                                    message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
-                                    detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
-                                    confirmText: 'Ya, Hapus Materi',
-                                    cancelText: 'Batalkan',
-                                    variant: 'danger',
-                                  });
-                                  if (ok) {
-                                    onDeleteTool(tool.id);
-                                  }
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
-                                title="Hapus Materi"
+                                type="button"
+                                disabled={isDownloading}
+                                onClick={() => handleDownloadProposalPdf(row.proposal, row.lang)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                {isDownloading ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
+                                <span>{isDownloading ? 'Proses...' : 'Unduh'}</span>
                               </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                }))}
+
+                              {userRole === 'admin' && (
+                                <>
+                                  <label
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="Ganti File PDF"
+                                  >
+                                    {isReplacing ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Upload className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{isReplacing ? '...' : 'Ganti'}</span>
+                                    <input
+                                      type="file"
+                                      accept=".pdf,application/pdf"
+                                      disabled={isReplacing}
+                                      onChange={(e) => handleQuickReplaceProposalPdf(row.proposal, row.lang, e)}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditProposalModal(row.proposal)}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="Edit Surat Penawaran"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteProposal(row.proposal)}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                                    title="Hapus Surat Penawaran"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Regular Marketing Tools Rows (Images, Documents, Videos) */}
+                    {filteredTools.map((tool) => {
+                      const badge = getFileBadge(tool.fileType);
+                      const BadgeIcon = badge.icon;
+                      return (
+                        <tr key={tool.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3.5 px-5 max-w-md">
+                            <div className="font-bold text-slate-900 font-display">{tool.title}</div>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                              {tool.category}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-700 font-medium">
+                            {tool.targetProduct || 'Layanan Konsultasi NDTAXANDLAW'}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold bg-slate-50 text-slate-800 border-slate-200">
+                              <BadgeIcon className="w-3 h-3 text-blue-700" />
+                              <span>{badge.label}</span>
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                              {tool.fileSize}
+                              {tool.duration ? ` · ${tool.duration}` : ''}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                            {tool.updatedAt || tool.createdAt}
+                          </td>
+                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => setSelectedPreviewTool(tool)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Buka</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDownloadTool(tool)}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Unduh</span>
+                              </button>
+
+                              {userRole === 'admin' && (
+                                <>
+                                  <button
+                                    onClick={() => handleOpenEditModal(tool)}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="Edit Materi"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      const ok = await confirm({
+                                        title: 'Hapus Materi Promosi & Pelatihan',
+                                        message: `Apakah Anda yakin ingin menghapus materi "${tool.title}"?`,
+                                        detail: `Judul: ${tool.title}\nKategori: ${tool.category}`,
+                                        confirmText: 'Ya, Hapus Materi',
+                                        cancelText: 'Batalkan',
+                                        variant: 'danger',
+                                      });
+                                      if (ok) {
+                                        onDeleteTool(tool.id);
+                                      }
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                                    title="Hapus Materi"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </>
+                )}
               </tbody>
             </table>
           </div>
           <ServerDataTableFooter
             page={toolsDt.meta.page}
             perPage={toolsDt.perPage}
-            totalItems={toolsDt.meta.totalItems}
-            totalPages={toolsDt.meta.totalPages}
+            totalItems={totalCombinedItems}
+            totalPages={Math.max(1, toolsDt.meta.totalPages)}
             onPageChange={toolsDt.setPage}
             unitLabel="materi"
           />
@@ -1470,6 +1381,136 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       ) : (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Dynamic Surat Penawaran PDF Cards */}
+            {visibleProposalRows.map((row) => {
+              const isId = row.lang === 'id';
+              const isDownloading = downloadingProposalKey === row.rowKey;
+              return (
+                <div
+                  key={row.rowKey}
+                  className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="relative aspect-video w-full bg-gradient-to-br from-slate-900 via-[#0F2547] to-slate-900 overflow-hidden group flex flex-col items-center justify-center p-6 text-center">
+                      <div
+                        className={`w-16 h-16 rounded-2xl text-white flex flex-col items-center justify-center shadow-lg border-2 group-hover:scale-105 transition-transform duration-300 ${
+                          isId
+                            ? 'bg-red-600 border-red-400/50'
+                            : 'bg-blue-700 border-blue-400/50'
+                        }`}
+                      >
+                        <FileText className="w-7 h-7" />
+                        <span className="text-[9px] font-black tracking-widest uppercase mt-0.5">
+                          {isId ? 'ID' : 'EN'}
+                        </span>
+                      </div>
+
+                      <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-xs text-[11px] font-semibold text-slate-900 shadow-xs">
+                        <FileText className={`w-3.5 h-3.5 ${isId ? 'text-red-600' : 'text-blue-700'}`} />
+                        <span>PDF · {isId ? 'ID' : 'EN'}</span>
+                      </div>
+
+                      <div className="absolute bottom-3 left-3 right-3 text-left text-white pointer-events-none">
+                        <p className="text-[10px] font-semibold text-blue-300 uppercase tracking-wider line-clamp-1">
+                          {row.proposal.targetProduct}
+                        </p>
+                        <p className="text-xs text-slate-200 font-mono mt-0.5">
+                          {row.version.fileSize}
+                          {row.version.pageCount ? ` · ${row.version.pageCount} hal` : ''}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewProposalPdf({
+                            title: row.displayTitle,
+                            lang: row.lang,
+                            inlineUrl: buildProposalUrl(row.proposal.id, row.lang, true),
+                            downloadUrl: buildProposalUrl(row.proposal.id, row.lang, false),
+                          })
+                        }
+                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-xs text-white cursor-pointer"
+                      >
+                        <div className="px-3.5 py-2 bg-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg">
+                          <Eye className="w-4 h-4" />
+                          <span>Buka</span>
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <div className="text-xs text-slate-500 mb-1 flex items-center gap-2">
+                        <span>Surat Penawaran</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{row.version.updatedAt || row.proposal.updatedAt}</span>
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-900 font-display line-clamp-2 leading-snug">
+                        {row.displayTitle}
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div className="p-4 pt-0 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewProposalPdf({
+                            title: row.displayTitle,
+                            lang: row.lang,
+                            inlineUrl: buildProposalUrl(row.proposal.id, row.lang, true),
+                            downloadUrl: buildProposalUrl(row.proposal.id, row.lang, false),
+                          })
+                        }
+                        className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Buka</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isDownloading}
+                        onClick={() => handleDownloadProposalPdf(row.proposal, row.lang)}
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        {isDownloading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isDownloading ? 'Proses...' : 'Unduh'}</span>
+                      </button>
+                    </div>
+
+                    {userRole === 'admin' && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openEditProposalModal(row.proposal)}
+                          className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Edit Surat Penawaran"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProposal(row.proposal)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus Surat Penawaran"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Regular Marketing Tools Cards */}
             {filteredTools.map((tool) => {
               const badge = getFileBadge(tool.fileType);
               const BadgeIcon = badge.icon;
@@ -1495,19 +1536,15 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                   className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
                 >
                   <div>
-                    {/* Thumbnail Banner with Scrim & Media Indicator */}
                     <div className="relative aspect-video w-full bg-slate-100 overflow-hidden group">
                       {tool.fileType === 'pdf' ? (
                         <div className="w-full h-full bg-gradient-to-br from-slate-900 via-[#0F2547] to-slate-900 flex flex-col items-center justify-center p-6 text-center">
-                          <div className="w-16 h-16 rounded-2xl bg-red-600 text-white flex flex-col items-center justify-center shadow-lg border-2 border-red-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
+                          <div className="w-16 h-16 rounded-2xl bg-red-600 text-white flex flex-col items-center justify-center shadow-lg border-2 border-red-400/50 group-hover:scale-105 transition-transform duration-300">
                             <FileText className="w-8 h-8" />
                             <span className="text-[9px] font-black tracking-widest uppercase mt-0.5">
                               PDF
                             </span>
                           </div>
-                          <span className="text-[11px] font-semibold text-slate-300">
-                            Dokumen PDF Resmi
-                          </span>
                         </div>
                       ) : hasVideoSource ? (
                         <video
@@ -1519,12 +1556,9 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                         />
                       ) : tool.fileType === 'mp4' || tool.fileType === 'stream' ? (
                         <div className="w-full h-full bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex flex-col items-center justify-center p-6 text-center">
-                          <div className="w-16 h-16 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-emerald-400/50 group-hover:scale-105 transition-transform duration-300 mb-2">
+                          <div className="w-16 h-16 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-emerald-400/50 group-hover:scale-105 transition-transform duration-300">
                             <Video className="w-8 h-8" />
                           </div>
-                          <span className="text-[11px] font-semibold text-slate-300">
-                            Video Presentasi MP4
-                          </span>
                         </div>
                       ) : (
                         <ImageWithSkeleton
@@ -1537,7 +1571,6 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent pointer-events-none" />
 
-                      {/* Media Type Tag */}
                       <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-xs text-[11px] font-semibold text-slate-900 shadow-xs">
                         <BadgeIcon
                           className={`w-3.5 h-3.5 ${
@@ -1557,48 +1590,39 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                         )}
                       </div>
 
-                      {/* Target Product Kicker */}
                       <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
                         <p className="text-[10px] font-semibold text-blue-300 uppercase tracking-wider line-clamp-1">
                           {tool.targetProduct}
                         </p>
                         <p className="text-xs text-slate-200 font-mono mt-0.5">
-                          Ukuran: {tool.fileSize}
+                          {tool.fileSize}
                         </p>
                       </div>
 
-                      {/* Quick Preview Hover Trigger */}
                       <button
                         onClick={() => setSelectedPreviewTool(tool)}
                         className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-xs text-white cursor-pointer"
-                        title="Pratinjau Materi"
                       >
                         <div className="px-3.5 py-2 bg-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg">
                           <Eye className="w-4 h-4" />
-                          <span>Lihat Pratinjau</span>
+                          <span>Buka</span>
                         </div>
                       </button>
                     </div>
 
-                    {/* Body Content */}
                     <div className="p-4">
                       <div className="text-xs text-slate-500 mb-1 flex items-center gap-2">
                         <span>{tool.category}</span>
                         <span aria-hidden="true">·</span>
-                        <span>Diperbarui {tool.updatedAt || tool.createdAt}</span>
+                        <span>{tool.updatedAt || tool.createdAt}</span>
                       </div>
 
                       <h3 className="text-sm font-bold text-slate-900 font-display line-clamp-2 leading-snug">
                         {tool.title}
                       </h3>
-
-                      <p className="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
-                        {tool.description}
-                      </p>
                     </div>
                   </div>
 
-                  {/* Card Action Footer */}
                   <div className="p-4 pt-0 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
                     <div className="flex items-center gap-1.5">
                       <button
@@ -1659,8 +1683,8 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
             <ServerDataTableFooter
               page={toolsDt.meta.page}
               perPage={toolsDt.perPage}
-              totalItems={toolsDt.meta.totalItems}
-              totalPages={toolsDt.meta.totalPages}
+              totalItems={totalCombinedItems}
+              totalPages={Math.max(1, toolsDt.meta.totalPages)}
               onPageChange={toolsDt.setPage}
               unitLabel="materi"
             />

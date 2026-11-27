@@ -25,6 +25,9 @@ import {
   BellRing,
   Copy,
   Link2,
+  Download,
+  UserPlus,
+  UserMinus,
 } from 'lucide-react';
 import { AppSettings, AuthUser, Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName, getMissingMitraFields } from '../types';
 import { getDefaultAvatar } from '../avatars';
@@ -170,8 +173,13 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   );
   const [waCustomNoteInput, setWaCustomNoteInput] = useState<string>('');
   const [isWaGroupConfigModalOpen, setIsWaGroupConfigModalOpen] = useState<boolean>(false);
+  const [waGroupModalTab, setWaGroupModalTab] = useState<'members' | 'settings'>('members');
+  const [waMemberSearch, setWaMemberSearch] = useState<string>('');
+  const [waMemberFilter, setWaMemberFilter] = useState<'all' | 'not_joined' | 'joined'>('all');
+  const [selectedWaMitraIds, setSelectedWaMitraIds] = useState<string[]>([]);
   const [savingWaGroup, setSavingWaGroup] = useState<boolean>(false);
   const [copiedWaLink, setCopiedWaLink] = useState<boolean>(false);
+  const [copiedWaPhones, setCopiedWaPhones] = useState<boolean>(false);
 
   React.useEffect(() => {
     if (settings?.whatsappGroupName) setWaGroupNameInput(settings.whatsappGroupName);
@@ -183,6 +191,81 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
     if (!digits) return '';
     return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
   };
+
+  const downloadMitrasVcf = (targetList: Mitra[]) => {
+    const sanitizeVcf = (val: string) =>
+      String(val || '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/[;,\\]/g, ' ')
+        .trim();
+    const cards = targetList
+      .map((m) => {
+        const waNum = formatWaNumber(m.phone);
+        if (!waNum) return null;
+        const displayName = sanitizeVcf(`Mitra ND - ${m.fullName}`);
+        const org = sanitizeVcf(waGroupNameInput.trim() || 'Mitra ND Tax & Law');
+        const note = sanitizeVcf(`Kode Mitra: ${m.memberCode || '-'} | ${m.email || '-'}`);
+        return [
+          'BEGIN:VCARD',
+          'VERSION:3.0',
+          `FN:${displayName}`,
+          `N:${displayName};;;;`,
+          `ORG:${org}`,
+          `TEL;TYPE=CELL,VOICE:+${waNum}`,
+          m.email ? `EMAIL:${sanitizeVcf(m.email)}` : '',
+          `NOTE:${note}`,
+          'END:VCARD',
+        ]
+          .filter(Boolean)
+          .join('\r\n');
+      })
+      .filter(Boolean) as string[];
+
+    if (cards.length === 0) {
+      setPanelFeedback({
+        type: 'error',
+        text: 'Tidak ada Mitra dengan nomor WhatsApp valid untuk diunduh kontaknya.',
+      });
+      return;
+    }
+
+    const blob = new Blob([cards.join('\r\n')], { type: 'text/vcard;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download =
+      cards.length === 1
+        ? `Kontak_Mitra_${sanitizeVcf(targetList[0].fullName).replace(/\s+/g, '_')}.vcf`
+        : `Kontak_Peserta_Grup_WA_${cards.length}_Mitra.vcf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    setPanelFeedback({
+      type: 'success',
+      text: `${cards.length} kontak Mitra (.vcf) berhasil diunduh. Impor ke kontak HP/WhatsApp untuk menambah peserta langsung ke grup.`,
+    });
+  };
+
+  const waGroupMemberCount = React.useMemo(
+    () => mitras.filter((m) => m.whatsappGroupInvited).length,
+    [mitras]
+  );
+
+  const filteredWaModalMitras = React.useMemo(() => {
+    const q = waMemberSearch.trim().toLowerCase();
+    return mitras.filter((m) => {
+      if (waMemberFilter === 'joined' && !m.whatsappGroupInvited) return false;
+      if (waMemberFilter === 'not_joined' && m.whatsappGroupInvited) return false;
+      if (!q) return true;
+      return (
+        (m.fullName || '').toLowerCase().includes(q) ||
+        (m.phone || '').toLowerCase().includes(q) ||
+        (m.memberCode || '').toLowerCase().includes(q) ||
+        (m.email || '').toLowerCase().includes(q)
+      );
+    });
+  }, [mitras, waMemberSearch, waMemberFilter]);
 
   const openRevokeModal = (m: Mitra) => {
     setMitraToRevoke(m);
@@ -324,7 +407,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
     }
   };
 
-  const handleInviteMitraToWaGroup = async (e: React.FormEvent) => {
+  const handleInviteMitraToWaGroup = async (e: React.FormEvent, action: 'add' | 'remove' = 'add') => {
     e.preventDefault();
     if (!mitraForWaGroup) return;
     setSavingWaGroup(true);
@@ -334,6 +417,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action,
           groupName: waGroupNameInput.trim(),
           groupLink: waGroupLinkInput.trim(),
           customMessage: waCustomNoteInput.trim(),
@@ -341,22 +425,66 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
       });
       const json = await res.json();
       if (!res.ok || !json?.success) {
-        throw new Error(json?.message || 'Gagal mengirim undangan Grup WhatsApp.');
+        throw new Error(json?.message || 'Gagal memperbarui status peserta Grup WhatsApp.');
       }
       if (selectedMitraDetail && selectedMitraDetail.id === mitraForWaGroup.id && json.data) {
         setSelectedMitraDetail(json.data);
       }
-      setMitraForWaGroup(json.data || { ...mitraForWaGroup, whatsappGroupInvited: true });
+      setMitraForWaGroup(
+        json.data || { ...mitraForWaGroup, whatsappGroupInvited: action === 'add' }
+      );
       setPanelFeedback({
         type: 'success',
-        text: json.message || `Undangan Grup WhatsApp berhasil dikirim ke ${mitraForWaGroup.fullName}.`,
+        text:
+          json.message ||
+          (action === 'remove'
+            ? `${mitraForWaGroup.fullName} dikeluarkan dari daftar peserta Grup WhatsApp.`
+            : `${mitraForWaGroup.fullName} berhasil ditambahkan ke Grup WhatsApp.`),
       });
       if (onRefreshData) onRefreshData();
       mitraDt.refresh();
     } catch (err: any) {
       setPanelFeedback({
         type: 'error',
-        text: err?.message || 'Gagal mengirim undangan Grup WhatsApp.',
+        text: err?.message || 'Gagal memperbarui peserta Grup WhatsApp.',
+      });
+    } finally {
+      setSavingWaGroup(false);
+    }
+  };
+
+  const handleBatchWaGroupMembers = async (targetIds: string[], action: 'add' | 'remove') => {
+    if (targetIds.length === 0) return;
+    setSavingWaGroup(true);
+    setPanelFeedback(null);
+    try {
+      const res = await fetch('/api/whatsapp-group/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mitraIds: targetIds,
+          action,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal memperbarui peserta Grup WhatsApp.');
+      }
+      setSelectedWaMitraIds((prev) => prev.filter((id) => !targetIds.includes(id)));
+      setPanelFeedback({
+        type: 'success',
+        text:
+          json.message ||
+          (action === 'add'
+            ? `${targetIds.length} Mitra berhasil ditambahkan ke Grup WhatsApp.`
+            : `${targetIds.length} Mitra berhasil dikeluarkan dari daftar Grup WhatsApp.`),
+      });
+      if (onRefreshData) onRefreshData();
+      mitraDt.refresh();
+    } catch (err: any) {
+      setPanelFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal memperbarui peserta Grup WhatsApp.',
       });
     } finally {
       setSavingWaGroup(false);
@@ -609,11 +737,18 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
         </div>
         <button
           type="button"
-          onClick={() => setIsWaGroupConfigModalOpen(true)}
+          onClick={() => {
+            setWaGroupModalTab('members');
+            setSelectedWaMitraIds([]);
+            setIsWaGroupConfigModalOpen(true);
+          }}
           className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl inline-flex items-center gap-2 self-start sm:self-auto cursor-pointer transition-colors shadow-2xs"
         >
           <Users className="w-4 h-4 text-[#25D366]" />
-          <span>Atur Grup WhatsApp Mitra</span>
+          <span>Kelola Grup WhatsApp Mitra</span>
+          <span className="px-1.5 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold">
+            {waGroupMemberCount}
+          </span>
         </button>
       </div>
 
@@ -2147,18 +2282,18 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
         </div>
       )}
 
-      {/* Modal Masukkan Mitra ke Grup WhatsApp */}
+      {/* Modal Masukkan Mitra ke Grup WhatsApp (Single Mitra) */}
       {mitraForWaGroup && (
         <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
             <div className="flex items-start justify-between p-5 border-b border-slate-200 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
-                  <Users className="w-5 h-5 text-[#25D366]" />
+                  <UserPlus className="w-5 h-5 text-[#25D366]" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 font-display">
-                    Masukkan Mitra ke Grup WhatsApp
+                    Tambahkan Peserta ke Grup WhatsApp
                   </h3>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     {mitraForWaGroup.fullName} · {mitraForWaGroup.phone || 'Belum ada nomor WA'}
@@ -2174,11 +2309,22 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleInviteMitraToWaGroup} className="p-5 overflow-y-auto flex-1 space-y-4">
+            <form onSubmit={(e) => handleInviteMitraToWaGroup(e, 'add')} className="p-5 overflow-y-auto flex-1 space-y-4">
               {mitraForWaGroup.whatsappGroupInvited && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Mitra ini sudah ditandai masuk / diundang ke Grup WhatsApp.</span>
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Mitra ini sudah terdaftar sebagai peserta Grup WhatsApp.</span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={savingWaGroup}
+                    onClick={(e) => handleInviteMitraToWaGroup(e as any, 'remove')}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <UserMinus className="w-3 h-3" />
+                    <span>Keluarkan</span>
+                  </button>
                 </div>
               )}
 
@@ -2195,7 +2341,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Link Undangan Grup WhatsApp (https://chat.whatsapp.com/...)
+                  Link Undangan Grup WhatsApp (Opsional — untuk dikirim via WA)
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -2228,32 +2374,42 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                   rows={2}
                   value={waCustomNoteInput}
                   onChange={(e) => setWaCustomNoteInput(e.target.value)}
-                  placeholder="Silakan bergabung ke grup koordinasi resmi Mitra ND Tax & Law..."
+                  placeholder="Selamat bergabung di grup koordinasi resmi Mitra ND Tax & Law..."
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <p className="text-[11px] font-bold text-slate-700">Kirim Undangan Langsung ke WhatsApp Mitra:</p>
+                <p className="text-[11px] font-bold text-slate-700">Aksi Cepat Tambah ke WhatsApp:</p>
                 <div className="flex flex-wrap items-center gap-2">
                   {formatWaNumber(mitraForWaGroup.phone) ? (
-                    <a
-                      href={`https://wa.me/${formatWaNumber(mitraForWaGroup.phone)}?text=${encodeURIComponent(
-                        `Halo ${mitraForWaGroup.fullName}, selamat bergabung di ${
-                          waGroupNameInput.trim() || 'Grup WhatsApp Mitra ND Tax & Law'
-                        }!${
-                          waGroupLinkInput.trim()
-                            ? `\n\nSilakan klik tautan resmi berikut untuk masuk ke grup:\n${waGroupLinkInput.trim()}`
-                            : ''
-                        }${waCustomNoteInput.trim() ? `\n\n${waCustomNoteInput.trim()}` : ''}`
-                      )}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3.5 py-2 text-xs font-bold text-white bg-[#25D366] hover:bg-[#1ebe5d] rounded-xl inline-flex items-center gap-1.5 shadow-xs"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Kirim Link via WhatsApp ({mitraForWaGroup.phone})</span>
-                    </a>
+                    <>
+                      <a
+                        href={`https://wa.me/${formatWaNumber(mitraForWaGroup.phone)}?text=${encodeURIComponent(
+                          `Halo ${mitraForWaGroup.fullName}, Anda telah ditambahkan ke ${
+                            waGroupNameInput.trim() || 'Grup WhatsApp Mitra ND Tax & Law'
+                          }!${
+                            waGroupLinkInput.trim()
+                              ? `\n\nTautan grup resmi:\n${waGroupLinkInput.trim()}`
+                              : ''
+                          }${waCustomNoteInput.trim() ? `\n\n${waCustomNoteInput.trim()}` : ''}`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 text-xs font-bold text-white bg-[#25D366] hover:bg-[#1ebe5d] rounded-xl inline-flex items-center gap-1.5 shadow-xs"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Kirim via WhatsApp ({mitraForWaGroup.phone})</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => downloadMitrasVcf([mitraForWaGroup])}
+                        className="px-3 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Unduh Kontak (.VCF)</span>
+                      </button>
+                    </>
                   ) : (
                     <span className="text-[11px] text-amber-700">Mitra belum mengisi nomor WhatsApp.</span>
                   )}
@@ -2271,9 +2427,10 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 <button
                   type="submit"
                   disabled={savingWaGroup}
-                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
                 >
-                  {savingWaGroup ? 'Menyimpan...' : 'Simpan & Kirim Undangan di Portal'}
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>{savingWaGroup ? 'Menyimpan...' : 'Tambahkan ke Grup WA'}</span>
                 </button>
               </div>
             </form>
@@ -2281,21 +2438,21 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
         </div>
       )}
 
-      {/* Modal Pengaturan Grup WhatsApp Mitra */}
+      {/* Modal Kelola Peserta & Pengaturan Grup WhatsApp Mitra */}
       {isWaGroupConfigModalOpen && (
         <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="flex items-start justify-between p-5 border-b border-slate-200">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                  <Link2 className="w-4 h-4" />
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5 text-[#25D366]" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-display">
-                    Pengaturan Grup WhatsApp Mitra
+                  <h3 className="text-base font-bold text-slate-900 font-display">
+                    {waGroupNameInput.trim() || 'Grup WhatsApp Mitra ND Tax & Law'}
                   </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Tautan grup resmi yang muncul saat Admin mengundang Mitra.
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Pilih &amp; tambahkan peserta Mitra ke Grup WhatsApp ({waGroupMemberCount} dari {mitras.length} Mitra terdaftar)
                   </p>
                 </div>
               </div>
@@ -2307,47 +2464,287 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleSaveWaGroupConfig} className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">Nama Grup WhatsApp</label>
-                <input
-                  type="text"
-                  required
-                  value={waGroupNameInput}
-                  onChange={(e) => setWaGroupNameInput(e.target.value)}
-                  placeholder="Grup WhatsApp Mitra ND Tax & Law"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
-                />
+
+            {/* Modal Tabs */}
+            <div className="flex items-center gap-2 px-5 pt-3 border-b border-slate-200 bg-slate-50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setWaGroupModalTab('members')}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                  waGroupModalTab === 'members'
+                    ? 'border-emerald-600 text-emerald-800'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Tambah &amp; Kelola Peserta</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWaGroupModalTab('settings')}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                  waGroupModalTab === 'settings'
+                    ? 'border-emerald-600 text-emerald-800'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span>Pengaturan Grup</span>
+              </button>
+            </div>
+
+            {waGroupModalTab === 'members' ? (
+              <div className="p-5 overflow-y-auto flex-1 space-y-4">
+                {/* Search & Filter */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={waMemberSearch}
+                      onChange={(e) => setWaMemberSearch(e.target.value)}
+                      placeholder="Cari nama, nomor WhatsApp, atau kode mitra..."
+                      className="w-full pl-8 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1 text-[11px] font-bold">
+                    {([
+                      { id: 'all', label: 'Semua' },
+                      { id: 'not_joined', label: 'Belum Masuk' },
+                      { id: 'joined', label: 'Di Grup WA' },
+                    ] as const).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setWaMemberFilter(tab.id)}
+                        className={`px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                          waMemberFilter === tab.id
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selection & Bulk Action Bar */}
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const notJoinedIds = filteredWaModalMitras
+                          .filter((m) => !m.whatsappGroupInvited)
+                          .map((m) => m.id);
+                        setSelectedWaMitraIds(notJoinedIds);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-[11px] cursor-pointer"
+                    >
+                      Pilih Belum Masuk
+                    </button>
+                    {selectedWaMitraIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedWaMitraIds([])}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-500 font-semibold text-[11px] cursor-pointer"
+                      >
+                        Batal Pilih ({selectedWaMitraIds.length})
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={selectedWaMitraIds.length === 0}
+                      onClick={() => {
+                        const chosen = mitras.filter((m) => selectedWaMitraIds.includes(m.id));
+                        const nums = chosen.map((m) => formatWaNumber(m.phone)).filter(Boolean);
+                        if (nums.length > 0) {
+                          navigator.clipboard.writeText(nums.join('\n'));
+                          setCopiedWaPhones(true);
+                          setTimeout(() => setCopiedWaPhones(false), 2500);
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 disabled:opacity-40 border border-slate-300 text-slate-700 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedWaPhones ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedWaPhones ? 'Nomor Disalin' : 'Salin Nomor'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedWaMitraIds.length === 0}
+                      onClick={() => {
+                        const chosen = mitras.filter((m) => selectedWaMitraIds.includes(m.id));
+                        downloadMitrasVcf(chosen);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 disabled:opacity-40 border border-slate-300 text-slate-700 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Unduh Kontak (.VCF)</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedWaMitraIds.length === 0 || savingWaGroup}
+                      onClick={() => handleBatchWaGroupMembers(selectedWaMitraIds, 'add')}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-[11px] inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>
+                        {savingWaGroup
+                          ? 'Memproses...'
+                          : `Tambahkan (${selectedWaMitraIds.length}) ke Grup WA`}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mitra List */}
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                  {filteredWaModalMitras.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-500">
+                      Tidak ada Mitra yang sesuai filter.
+                    </div>
+                  ) : (
+                    filteredWaModalMitras.map((m) => {
+                      const isChecked = selectedWaMitraIds.includes(m.id);
+                      const waNum = formatWaNumber(m.phone);
+                      return (
+                        <div
+                          key={m.id}
+                          className={`p-3 flex items-center justify-between gap-3 transition-colors ${
+                            isChecked ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50/70'
+                          }`}
+                        >
+                          <label className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedWaMitraIds((prev) => [...prev, m.id]);
+                                } else {
+                                  setSelectedWaMitraIds((prev) => prev.filter((id) => id !== m.id));
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-slate-900 truncate">{m.fullName}</span>
+                                {m.whatsappGroupInvited ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                                    Di Grup WA ✓
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
+                                    Belum Masuk
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                {m.phone || 'Belum ada nomor WA'} · {m.memberCode}
+                              </p>
+                            </div>
+                          </label>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {waNum && (
+                              <a
+                                href={`https://wa.me/${waNum}?text=${encodeURIComponent(
+                                  `Halo ${m.fullName}, Anda telah ditambahkan ke ${
+                                    waGroupNameInput.trim() || 'Grup WhatsApp Mitra ND Tax & Law'
+                                  }!${
+                                    waGroupLinkInput.trim()
+                                      ? `\n\nTautan grup resmi:\n${waGroupLinkInput.trim()}`
+                                      : ''
+                                  }`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2.5 py-1.5 rounded-lg bg-[#25D366]/10 hover:bg-[#25D366]/20 text-emerald-800 border border-[#25D366]/30 text-[11px] font-bold inline-flex items-center gap-1"
+                                title="Kirim pesan WhatsApp ke Mitra ini"
+                              >
+                                <ExternalLink className="w-3 h-3 text-[#25D366]" />
+                                <span>WA</span>
+                              </a>
+                            )}
+                            {m.whatsappGroupInvited ? (
+                              <button
+                                type="button"
+                                disabled={savingWaGroup}
+                                onClick={() => handleBatchWaGroupMembers([m.id], 'remove')}
+                                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <UserMinus className="w-3 h-3" />
+                                <span>Keluarkan</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={savingWaGroup}
+                                onClick={() => handleBatchWaGroupMembers([m.id], 'add')}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <UserPlus className="w-3 h-3" />
+                                <span>Tambahkan</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Tautan Undangan Grup (HTTPS)
-                </label>
-                <input
-                  type="url"
-                  value={waGroupLinkInput}
-                  onChange={(e) => setWaGroupLinkInput(e.target.value)}
-                  placeholder="https://chat.whatsapp.com/..."
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsWaGroupConfigModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingWaGroup}
-                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
-                >
-                  {savingWaGroup ? 'Menyimpan...' : 'Simpan Pengaturan'}
-                </button>
-              </div>
-            </form>
+            ) : (
+              <form onSubmit={handleSaveWaGroupConfig} className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">Nama Grup WhatsApp Resmi</label>
+                  <input
+                    type="text"
+                    required
+                    value={waGroupNameInput}
+                    onChange={(e) => setWaGroupNameInput(e.target.value)}
+                    placeholder="Grup WhatsApp Mitra ND Tax & Law"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Tautan Undangan Grup WhatsApp (Opsional — HTTPS)
+                  </label>
+                  <input
+                    type="url"
+                    value={waGroupLinkInput}
+                    onChange={(e) => setWaGroupLinkInput(e.target.value)}
+                    placeholder="https://chat.whatsapp.com/..."
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    Digunakan khusus oleh Admin saat mengirim pesan undangan langsung ke WhatsApp Mitra. Tidak ditampilkan sebagai tombol di portal Mitra.
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsWaGroupConfigModalOpen(false)}
+                    className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingWaGroup}
+                    className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                  >
+                    {savingWaGroup ? 'Menyimpan...' : 'Simpan Pengaturan Grup'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
