@@ -89,6 +89,7 @@ interface ProspectsHubProps {
   onOpenLetterVerify?: (verificationCode: string) => void;
   onOpenMitraVerify?: (memberCode: string) => void;
   onPendingSphCountChange?: (count: number) => void;
+  onRejectedSphCountChange?: (count: number) => void;
 }
 
 const EMPTY_META: ServerDataTableMeta = {
@@ -155,6 +156,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   onOpenLetterVerify,
   onOpenMitraVerify,
   onPendingSphCountChange,
+  onRejectedSphCountChange,
 }) => {
   const confirm = useConfirm();
   const isStaff = userRole === 'admin' && currentUser?.roleCode === 'staff';
@@ -357,6 +359,8 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         setSphCounts(nextCounts);
         if (isAdminOrStaff) {
           onPendingSphCountChange?.(Number(nextCounts.pending) || 0);
+        } else {
+          onRejectedSphCountChange?.(Number(nextCounts.rejected) || 0);
         }
       })
       .catch(() => {});
@@ -1315,7 +1319,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                     : 'bg-emerald-500 text-white'
                 }`}
               >
-                {sphCounts.total}
+                {sphCounts.rejected > 0 ? sphCounts.rejected : sphCounts.total}
               </span>
             )}
           </button>

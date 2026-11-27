@@ -52,6 +52,7 @@ interface NavbarProps {
   pendingMitraCount?: number;
   pendingClientCount?: number;
   pendingSphCount?: number;
+  rejectedSphCount?: number;
   isProfileIncomplete?: boolean;
 }
 
@@ -78,6 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   pendingMitraCount,
   pendingClientCount = 0,
   pendingSphCount = 0,
+  rejectedSphCount = 0,
   isProfileIncomplete,
 }) => {
   const mitraIncomplete =
@@ -93,6 +95,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       : (allMitras || []).filter((m) => m.status === 'pending').length;
   const resolvedPendingClientCount = pendingClientCount;
   const resolvedPendingSphCount = pendingSphCount;
+  const resolvedRejectedSphCount = rejectedSphCount;
 
   const mitraAvatar = resolveAvatarUrl(
     activeMitra.avatarUrl,
@@ -592,7 +595,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     data-tour="tour-nav-prospects"
                     onClick={() => onTabChange('prospects')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                       activeTab === 'prospects'
                         ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -600,6 +603,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <FileText className="w-3.5 h-3.5 shrink-0" />
                     <span>Prospek</span>
+                    {resolvedRejectedSphCount > 0 && (
+                      <span
+                        title={`${resolvedRejectedSphCount} Pengajuan SPH ditolak Admin dan perlu direvisi`}
+                        className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-extrabold flex items-center justify-center shadow-sm ring-2 ring-white z-10 leading-none"
+                      >
+                        {resolvedRejectedSphCount}
+                      </span>
+                    )}
                   </button>
                 </>
               ) : (
@@ -821,7 +832,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               data-tour="tour-nav-prospects"
               onClick={() => onTabChange('prospects')}
-              className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl shadow-sm font-bold transition-all ${
+              className={`relative flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl shadow-sm font-bold transition-all ${
                 activeTab === 'prospects'
                   ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 ring-1 ring-amber-400/50'
                   : 'bg-blue-700 text-white hover:bg-blue-800'
@@ -829,6 +840,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <FileText className="w-4 h-4" />
               <span className="text-[9px] mt-0.5 truncate">Prospek</span>
+              {resolvedRejectedSphCount > 0 && (
+                <span
+                  title={`${resolvedRejectedSphCount} Pengajuan SPH ditolak Admin dan perlu direvisi`}
+                  className="absolute -top-1 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-mono font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white z-10 leading-none"
+                >
+                  {resolvedRejectedSphCount}
+                </span>
+              )}
             </button>
 
             <button

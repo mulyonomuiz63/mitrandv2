@@ -279,6 +279,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [salesHistory, setSalesHistory] = useState<SalesHistoryMonth[]>([]);
   const [pendingSphCount, setPendingSphCount] = useState<number>(0);
+  const [rejectedSphCount, setRejectedSphCount] = useState<number>(0);
 
   // Modals state (synced with browser Back/Forward history)
   const [isRegisterOpen, setIsRegisterOpen] = useState(() => initialHashNav?.modal === 'register');
@@ -898,6 +899,43 @@ export default function App() {
       } catch {}
     }
   }, [currentRole, activeMitra]);
+
+  // Keep rejected SPH notification badge fresh for Mitra portal
+  useEffect(() => {
+    if (
+      viewMode !== 'portal' ||
+      currentRole !== 'mitra' ||
+      !activeMitra?.id ||
+      activeMitra.id === 'mitra-empty'
+    ) {
+      setRejectedSphCount(0);
+      return;
+    }
+    let active = true;
+    const fetchRejectedSph = () => {
+      fetch(`/api/sph?mitraId=${encodeURIComponent(activeMitra.id)}&status=rejected`, {
+        headers: { 'x-skip-crud-alert': 'true' },
+      })
+        .then((r) => r.json())
+        .then((json) => {
+          if (!active || !json?.success) return;
+          const rejVal =
+            typeof json?.counts?.rejected === 'number'
+              ? json.counts.rejected
+              : Array.isArray(json?.data)
+              ? json.data.length
+              : 0;
+          setRejectedSphCount(rejVal);
+        })
+        .catch(() => {});
+    };
+    fetchRejectedSph();
+    const interval = window.setInterval(fetchRejectedSph, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [viewMode, currentRole, activeMitra?.id]);
 
   const effectiveViewerRole: 'admin' | 'staff' | 'mitra' =
     currentRole === 'mitra'
@@ -1589,6 +1627,7 @@ export default function App() {
           pendingMitraCount={mitras.filter((m) => m.status === 'pending').length}
           pendingClientCount={clientDeals.filter((d) => d.status === 'pending_acc').length}
           pendingSphCount={pendingSphCount}
+          rejectedSphCount={rejectedSphCount}
           isProfileIncomplete={isMitraProfileIncomplete}
         />
 
@@ -1784,6 +1823,7 @@ export default function App() {
                 setViewMode('mitra_verify');
               }}
               onPendingSphCountChange={setPendingSphCount}
+              onRejectedSphCountChange={setRejectedSphCount}
             />
           )}
 
