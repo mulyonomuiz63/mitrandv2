@@ -6292,9 +6292,10 @@ app.get('/api/whatsapp/status', (_req: Request, res: Response) => {
   });
 });
 
-app.post('/api/whatsapp/connect', async (_req: Request, res: Response) => {
+app.post('/api/whatsapp/connect', async (req: Request, res: Response) => {
   try {
-    const status = await connectWhatsApp();
+    const forceReset = Boolean(req.body?.forceReset);
+    const status = await connectWhatsApp({ forceReset });
     res.json({
       success: true,
       data: {

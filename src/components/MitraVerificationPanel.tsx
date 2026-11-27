@@ -192,6 +192,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
 
   // Real WhatsApp Linked-Device (Baileys QR) State
   const [waConnStatus, setWaConnStatus] = useState<'disconnected' | 'connecting' | 'qr' | 'connected'>('disconnected');
+  const [waStatusDetail, setWaStatusDetail] = useState<string | null>(null);
   const [waQrDataUrl, setWaQrDataUrl] = useState<string | null>(null);
   const [waConnectedPhone, setWaConnectedPhone] = useState<string | null>(null);
   const [waConnectedName, setWaConnectedName] = useState<string | null>(null);
@@ -206,6 +207,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
       const json = await res.json();
       if (json?.success && json.data) {
         setWaConnStatus(json.data.status || 'disconnected');
+        setWaStatusDetail(json.data.statusDetail || null);
         setWaQrDataUrl(json.data.qrDataUrl || null);
         setWaConnectedPhone(json.data.connectedPhone || null);
         setWaConnectedName(json.data.connectedName || null);
@@ -239,15 +241,16 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
     if (typeof settings?.whatsappGroupJid === 'string') setWaGroupJidInput(settings.whatsappGroupJid);
   }, [settings?.whatsappGroupName, settings?.whatsappGroupLink, settings?.whatsappGroupJid]);
 
-  // Poll WhatsApp status while either WA modal is open
+  // Poll WhatsApp status while either WA modal is open (faster while connecting/QR)
   React.useEffect(() => {
     if (!isWaGroupConfigModalOpen && !mitraForWaGroup) return;
     fetchWaConnectionStatus();
+    const pollMs = waConnStatus === 'connecting' || waConnStatus === 'qr' ? 1500 : 3000;
     const interval = setInterval(() => {
       fetchWaConnectionStatus();
-    }, 2500);
+    }, pollMs);
     return () => clearInterval(interval);
-  }, [isWaGroupConfigModalOpen, mitraForWaGroup, fetchWaConnectionStatus]);
+  }, [isWaGroupConfigModalOpen, mitraForWaGroup, waConnStatus, fetchWaConnectionStatus]);
 
   // Auto-load real WhatsApp groups once connected
   React.useEffect(() => {
@@ -256,21 +259,35 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
     }
   }, [isWaGroupConfigModalOpen, mitraForWaGroup, waConnStatus, waGroupsList.length, fetchWaGroupsList]);
 
-  const handleConnectWhatsAppQr = async () => {
+  const handleConnectWhatsAppQr = async (forceReset: boolean = false) => {
     setWaModalFeedback(null);
     setWaConnError(null);
     setWaConnStatus('connecting');
+    setWaStatusDetail('Menghubungkan ke server WhatsApp & menyiapkan QR Code...');
+    if (forceReset) {
+      setWaQrDataUrl(null);
+    }
     try {
-      const res = await fetch('/api/whatsapp/connect', { method: 'POST' });
+      const res = await fetch('/api/whatsapp/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceReset }),
+      });
       const json = await res.json();
       if (json?.data) {
-        setWaConnStatus(json.data.status || 'connecting');
+        setWaConnStatus(json.data.status || 'disconnected');
+        setWaStatusDetail(json.data.statusDetail || null);
         setWaQrDataUrl(json.data.qrDataUrl || null);
         setWaConnectedPhone(json.data.connectedPhone || null);
         setWaConnError(json.data.lastError || null);
+      } else if (!res.ok) {
+        setWaConnStatus('disconnected');
+        setWaStatusDetail(null);
+        setWaConnError(json?.message || 'Gagal memulai koneksi WhatsApp.');
       }
     } catch (err: any) {
       setWaConnStatus('disconnected');
+      setWaStatusDetail(null);
       setWaConnError(err?.message || 'Gagal memulai koneksi WhatsApp.');
     }
   };
@@ -2768,7 +2785,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                           : waConnStatus === 'qr'
                             ? 'Scan QR Code dengan WhatsApp Admin Grup'
                             : waConnStatus === 'connecting'
-                              ? 'Menghubungkan ke server WhatsApp...'
+                              ? waStatusDetail || 'Menghubungkan ke server WhatsApp...'
                               : 'WhatsApp Admin Belum Terhubung'}
                       </p>
                       <p className="text-[11px] text-slate-600 mt-0.5">
@@ -2788,26 +2805,50 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                     >
                       Putuskan (Logout)
                     </button>
+                  ) : waConnStatus === 'connecting' ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="px-3 py-2 rounded-xl bg-emerald-600/15 text-emerald-900 text-xs font-bold inline-flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Menghubungkan...</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleConnectWhatsAppQr(true)}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                        title="Reset koneksi & muat ulang QR baru"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Coba Ulang</span>
+                      </button>
+                    </div>
                   ) : (
                     <button
                       type="button"
-                      onClick={handleConnectWhatsAppQr}
-                      disabled={waConnStatus === 'connecting'}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                      onClick={() => handleConnectWhatsAppQr(waConnStatus === 'qr')}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
                     >
-                      {waConnStatus === 'connecting' ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <QrCode className="w-3.5 h-3.5" />
-                      )}
+                      <QrCode className="w-3.5 h-3.5" />
                       <span>{waConnStatus === 'qr' ? 'Muat Ulang QR' : 'Tampilkan QR WhatsApp'}</span>
                     </button>
                   )}
                 </div>
 
                 {waConnError && (
-                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 font-semibold">
-                    {waConnError}
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <span>{waConnError}</span>
+                    </div>
+                    {waConnStatus === 'disconnected' && (
+                      <button
+                        type="button"
+                        onClick={() => handleConnectWhatsAppQr(true)}
+                        className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer self-start sm:self-center"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Coba Lagi</span>
+                      </button>
+                    )}
                   </div>
                 )}
 

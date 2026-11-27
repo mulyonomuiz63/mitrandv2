@@ -2837,22 +2837,32 @@ import pino from "pino";
 import {
   makeWASocket,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   fetchLatestBaileysVersion,
   Browsers
 } from "@whiskeysockets/baileys";
 var AUTH_DIR = path2.join(process.cwd(), "data", "wa-auth");
 var silentLogger = pino({ level: "silent" });
+var CONNECT_WATCHDOG_MS = 25e3;
+var VERSION_FETCH_TIMEOUT_MS = 6e3;
 var activeSocket = null;
 var connectionStatus = "disconnected";
+var statusDetail = null;
 var currentQrDataUrl = null;
 var connectedPhone = null;
 var connectedName = null;
 var lastError = null;
 var reconnectTimer = null;
+var connectingWatchdogTimer = null;
 var reconnectAttempts = 0;
 var manualDisconnect = false;
 var isStarting = false;
+var socketGeneration = 0;
+var credsSaveChain = Promise.resolve();
+var hasHadQrInAttempt = false;
+var cachedWaVersion = null;
 function normalizeIndonesianWaDigits(rawPhone) {
   const digits = String(rawPhone || "").replace(/\D/g, "");
   if (!digits) return "";
@@ -2873,6 +2883,16 @@ function hasSavedSessionFiles() {
     return false;
   }
 }
+function isSavedSessionRegistered() {
+  try {
+    const credsPath = path2.join(AUTH_DIR, "creds.json");
+    if (!fs2.existsSync(credsPath)) return false;
+    const parsed = JSON.parse(fs2.readFileSync(credsPath, "utf-8"));
+    return Boolean(parsed?.registered && parsed?.me?.id);
+  } catch {
+    return false;
+  }
+}
 function clearAuthDirectory() {
   try {
     if (fs2.existsSync(AUTH_DIR)) {
@@ -2882,9 +2902,85 @@ function clearAuthDirectory() {
     console.warn("[WhatsApp] Failed to clear auth directory:", err);
   }
 }
+function clearAllTimers() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (connectingWatchdogTimer) {
+    clearTimeout(connectingWatchdogTimer);
+    connectingWatchdogTimer = null;
+  }
+}
+function closeSocketQuietly(sock) {
+  if (!sock) return;
+  try {
+    sock.ev.removeAllListeners("connection.update");
+    sock.ev.removeAllListeners("creds.update");
+  } catch {
+  }
+  try {
+    sock.end(void 0);
+  } catch {
+  }
+}
+function startConnectingWatchdog(expectedGen) {
+  if (connectingWatchdogTimer) {
+    clearTimeout(connectingWatchdogTimer);
+    connectingWatchdogTimer = null;
+  }
+  connectingWatchdogTimer = setTimeout(() => {
+    connectingWatchdogTimer = null;
+    if (expectedGen !== socketGeneration) return;
+    if (connectionStatus !== "connecting") return;
+    console.warn("[WhatsApp] Connection watchdog timeout \u2014 resetting stuck connecting state.");
+    const staleSock = activeSocket;
+    activeSocket = null;
+    socketGeneration += 1;
+    closeSocketQuietly(staleSock);
+    if (!isSavedSessionRegistered()) {
+      clearAuthDirectory();
+    }
+    connectionStatus = "disconnected";
+    statusDetail = null;
+    currentQrDataUrl = null;
+    connectedPhone = null;
+    connectedName = null;
+    isStarting = false;
+    reconnectAttempts = 0;
+    lastError = 'Koneksi ke server WhatsApp melebihi batas waktu atau penautan di HP gagal. Silakan klik "Tampilkan QR WhatsApp" untuk mencoba lagi.';
+  }, CONNECT_WATCHDOG_MS);
+}
+async function resolveLatestWaVersion() {
+  if (cachedWaVersion && Date.now() - cachedWaVersion.fetchedAt < 6 * 60 * 60 * 1e3) {
+    return cachedWaVersion.version;
+  }
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Version fetch timeout")), ms))
+  ]);
+  try {
+    const waWeb = await withTimeout(fetchLatestWaWebVersion({}), VERSION_FETCH_TIMEOUT_MS);
+    if (Array.isArray(waWeb?.version) && waWeb.version.length === 3) {
+      cachedWaVersion = { version: waWeb.version, fetchedAt: Date.now() };
+      return waWeb.version;
+    }
+  } catch {
+  }
+  try {
+    const baileysVer = await withTimeout(fetchLatestBaileysVersion(), VERSION_FETCH_TIMEOUT_MS);
+    if (Array.isArray(baileysVer?.version) && baileysVer.version.length === 3) {
+      cachedWaVersion = { version: baileysVer.version, fetchedAt: Date.now() };
+      return baileysVer.version;
+    }
+  } catch {
+  }
+  return void 0;
+}
 function getWhatsAppStatus() {
   return {
     status: connectionStatus,
+    statusDetail,
     qrDataUrl: currentQrDataUrl,
     connectedPhone,
     connectedName,
@@ -2892,51 +2988,66 @@ function getWhatsAppStatus() {
     hasSavedSession: hasSavedSessionFiles()
   };
 }
-async function connectWhatsApp() {
-  if (connectionStatus === "connected" && activeSocket) {
-    return getWhatsAppStatus();
-  }
-  if (isStarting || connectionStatus === "connecting" || connectionStatus === "qr") {
+async function startSocketConnection(options) {
+  if (isStarting) {
     return getWhatsAppStatus();
   }
   isStarting = true;
   manualDisconnect = false;
-  lastError = null;
-  connectionStatus = "connecting";
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  clearAllTimers();
+  if (activeSocket) {
+    const prev = activeSocket;
+    activeSocket = null;
+    closeSocketQuietly(prev);
   }
+  const myGen = ++socketGeneration;
+  connectionStatus = "connecting";
+  statusDetail = options?.detailMessage || "Menghubungkan ke server WhatsApp...";
+  currentQrDataUrl = null;
+  if (!options?.isReconnect) {
+    lastError = null;
+    hasHadQrInAttempt = false;
+  }
+  startConnectingWatchdog(myGen);
   try {
+    await credsSaveChain.catch(() => {
+    });
     fs2.mkdirSync(AUTH_DIR, { recursive: true });
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    let version;
-    try {
-      const latest = await fetchLatestBaileysVersion();
-      version = latest.version;
-    } catch {
-      version = void 0;
+    const version = await resolveLatestWaVersion();
+    if (myGen !== socketGeneration || manualDisconnect) {
+      return getWhatsAppStatus();
     }
     const sock = makeWASocket({
       ...version ? { version } : {},
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, silentLogger)
+      },
       logger: silentLogger,
-      browser: Browsers.macOS("Chrome"),
+      browser: Browsers.ubuntu("Chrome"),
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      printQRInTerminal: false
+      connectTimeoutMs: 25e3,
+      defaultQueryTimeoutMs: 25e3,
+      keepAliveIntervalMs: 25e3,
+      qrTimeout: 45e3
     });
     activeSocket = sock;
-    sock.ev.on("creds.update", async () => {
-      try {
-        await saveCreds();
-      } catch (err) {
+    sock.ev.on("creds.update", () => {
+      credsSaveChain = credsSaveChain.then(() => saveCreds()).catch((err) => {
         console.warn("[WhatsApp] saveCreds error:", err);
-      }
+      });
     });
     sock.ev.on("connection.update", async (update) => {
+      if (myGen !== socketGeneration) return;
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
+        if (connectingWatchdogTimer) {
+          clearTimeout(connectingWatchdogTimer);
+          connectingWatchdogTimer = null;
+        }
+        hasHadQrInAttempt = true;
         try {
           currentQrDataUrl = await QRCode.toDataURL(qr, {
             width: 280,
@@ -2944,77 +3055,176 @@ async function connectWhatsApp() {
             color: { dark: "#092147", light: "#FFFFFF" }
           });
           connectionStatus = "qr";
+          statusDetail = "Scan QR Code menggunakan WhatsApp di HP Admin Grup";
           lastError = null;
+          reconnectAttempts = 0;
         } catch (err) {
           console.warn("[WhatsApp] QR generation error:", err);
         }
       }
       if (connection === "open") {
+        clearAllTimers();
         connectionStatus = "connected";
+        statusDetail = "Terhubung";
         currentQrDataUrl = null;
         lastError = null;
         reconnectAttempts = 0;
+        hasHadQrInAttempt = false;
         const userId = sock.user?.id || "";
         connectedPhone = extractPhoneDigitsFromJid(userId) || null;
         connectedName = sock.user?.name || null;
+        console.log(`[WhatsApp] Connected as +${connectedPhone || "unknown"} (${connectedName || "-"})`);
       }
       if (connection === "close") {
+        if (connectingWatchdogTimer) {
+          clearTimeout(connectingWatchdogTimer);
+          connectingWatchdogTimer = null;
+        }
         const errObj = lastDisconnect?.error;
         const statusCode = errObj?.output?.statusCode ?? errObj?.data?.statusCode ?? errObj?.statusCode;
+        const errMessage = String(errObj?.message || "");
+        console.log(
+          `[WhatsApp] Connection closed (code=${statusCode ?? "unknown"}, msg="${errMessage}", registered=${Boolean(
+            state.creds.registered
+          )})`
+        );
         activeSocket = null;
         currentQrDataUrl = null;
         if (manualDisconnect) {
           connectionStatus = "disconnected";
+          statusDetail = null;
           connectedPhone = null;
           connectedName = null;
           return;
         }
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === DisconnectReason.badSession;
-        if (isLoggedOut) {
-          clearAuthDirectory();
-          connectionStatus = "disconnected";
-          connectedPhone = null;
-          connectedName = null;
-          lastError = "Sesi WhatsApp terputus atau logout dari perangkat. Silakan scan QR kembali.";
-          return;
-        }
-        const shouldAutoReconnect = statusCode === DisconnectReason.restartRequired || statusCode === 515 || reconnectAttempts < 5;
-        if (shouldAutoReconnect) {
-          reconnectAttempts += 1;
+        await credsSaveChain.catch(() => {
+        });
+        if (myGen !== socketGeneration || manualDisconnect) return;
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired || statusCode === 515;
+        if (isRestartRequired) {
+          reconnectAttempts = 0;
           connectionStatus = "connecting";
-          const delayMs = statusCode === 515 ? 800 : Math.min(5e3, reconnectAttempts * 1500);
+          statusDetail = "QR berhasil dipindai! Menyelesaikan penautan dengan WhatsApp...";
+          lastError = null;
+          startConnectingWatchdog(myGen);
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
-            connectWhatsApp().catch(() => {
+            if (myGen !== socketGeneration || manualDisconnect) return;
+            startSocketConnection({
+              isReconnect: true,
+              detailMessage: "Menyelesaikan penautan perangkat dengan WhatsApp..."
+            }).catch(() => {
+            });
+          }, 500);
+          return;
+        }
+        const isLoggedOutOrBadSession = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 405 || statusCode === DisconnectReason.badSession;
+        if (isLoggedOutOrBadSession) {
+          clearAuthDirectory();
+          connectionStatus = "disconnected";
+          statusDetail = null;
+          connectedPhone = null;
+          connectedName = null;
+          reconnectAttempts = 0;
+          lastError = statusCode === 405 ? 'Penautan ditolak oleh server WhatsApp (kode 405). Sesi lama telah dibersihkan \u2014 silakan klik "Tampilkan QR WhatsApp" dan scan ulang.' : 'Sesi WhatsApp terputus atau penautan dibatalkan dari HP. Silakan klik "Tampilkan QR WhatsApp" untuk scan ulang.';
+          return;
+        }
+        const isQrExpiredOrPairingTimeout = statusCode === DisconnectReason.timedOut || statusCode === 408 || /qr refs attempts ended|timed out/i.test(errMessage);
+        if (isQrExpiredOrPairingTimeout && (!state.creds.registered || hasHadQrInAttempt)) {
+          if (!isSavedSessionRegistered()) {
+            clearAuthDirectory();
+          }
+          connectionStatus = "disconnected";
+          statusDetail = null;
+          connectedPhone = null;
+          connectedName = null;
+          reconnectAttempts = 0;
+          lastError = 'QR Code kedaluwarsa atau penautan di HP gagal. Silakan klik "Tampilkan QR WhatsApp" untuk memuat QR baru.';
+          return;
+        }
+        const maxRetries = isSavedSessionRegistered() ? 3 : 1;
+        if (reconnectAttempts < maxRetries) {
+          reconnectAttempts += 1;
+          connectionStatus = "connecting";
+          statusDetail = `Menghubungkan ulang ke WhatsApp (percobaan ${reconnectAttempts}/${maxRetries})...`;
+          startConnectingWatchdog(myGen);
+          const delayMs = reconnectAttempts * 1500;
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            if (myGen !== socketGeneration || manualDisconnect) return;
+            startSocketConnection({
+              isReconnect: true,
+              detailMessage: `Menghubungkan ulang ke WhatsApp (${reconnectAttempts}/${maxRetries})...`
+            }).catch(() => {
             });
           }, delayMs);
         } else {
+          if (!isSavedSessionRegistered()) {
+            clearAuthDirectory();
+          }
           connectionStatus = "disconnected";
+          statusDetail = null;
           connectedPhone = null;
           connectedName = null;
-          lastError = errObj?.message || "Koneksi WhatsApp terputus. Silakan hubungkan ulang.";
+          reconnectAttempts = 0;
+          lastError = errMessage && errMessage !== "Connection Closed" ? `Koneksi WhatsApp gagal (${errMessage}). Silakan klik "Tampilkan QR WhatsApp" untuk mencoba lagi.` : 'Penautan WhatsApp gagal atau terputus. Silakan klik "Tampilkan QR WhatsApp" untuk mencoba lagi.';
         }
       }
     });
   } catch (err) {
+    clearAllTimers();
     connectionStatus = "disconnected";
+    statusDetail = null;
     activeSocket = null;
     currentQrDataUrl = null;
-    lastError = err?.message || "Gagal memulai koneksi WhatsApp.";
+    lastError = err?.message || "Gagal memulai koneksi WhatsApp. Silakan coba lagi.";
   } finally {
     isStarting = false;
   }
   return getWhatsAppStatus();
 }
+async function connectWhatsApp(options) {
+  const forceReset = Boolean(options?.forceReset);
+  if (!forceReset) {
+    if (connectionStatus === "connected" && activeSocket) {
+      return getWhatsAppStatus();
+    }
+    if ((isStarting || activeSocket) && (connectionStatus === "connecting" || connectionStatus === "qr")) {
+      return getWhatsAppStatus();
+    }
+  } else {
+    manualDisconnect = false;
+    clearAllTimers();
+    socketGeneration += 1;
+    if (activeSocket) {
+      const old = activeSocket;
+      activeSocket = null;
+      closeSocketQuietly(old);
+    }
+    isStarting = false;
+    reconnectAttempts = 0;
+    if (connectionStatus !== "connected") {
+      clearAuthDirectory();
+    }
+    connectionStatus = "disconnected";
+    statusDetail = null;
+    currentQrDataUrl = null;
+    lastError = null;
+  }
+  return startSocketConnection({
+    isReconnect: false,
+    detailMessage: "Menghubungkan ke server WhatsApp & menyiapkan QR Code..."
+  });
+}
 async function disconnectWhatsApp(logout = true) {
   manualDisconnect = true;
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  clearAllTimers();
+  socketGeneration += 1;
   const sock = activeSocket;
   activeSocket = null;
+  isStarting = false;
   connectionStatus = "disconnected";
+  statusDetail = null;
   currentQrDataUrl = null;
   connectedPhone = null;
   connectedName = null;
@@ -3025,13 +3235,10 @@ async function disconnectWhatsApp(logout = true) {
       if (logout) {
         await sock.logout();
       } else {
-        sock.end(void 0);
+        closeSocketQuietly(sock);
       }
     } catch {
-      try {
-        sock.end(void 0);
-      } catch {
-      }
+      closeSocketQuietly(sock);
     }
   }
   if (logout) {
@@ -3040,10 +3247,12 @@ async function disconnectWhatsApp(logout = true) {
   return getWhatsAppStatus();
 }
 function initWhatsAppIfSavedSession() {
-  if (hasSavedSessionFiles()) {
+  if (isSavedSessionRegistered()) {
     connectWhatsApp().catch((err) => {
       console.warn("[WhatsApp] Auto-resume session failed:", err?.message || err);
     });
+  } else if (hasSavedSessionFiles()) {
+    clearAuthDirectory();
   }
 }
 async function listAdminWhatsAppGroups() {
@@ -8204,9 +8413,10 @@ app.get("/api/whatsapp/status", (_req, res) => {
     }
   });
 });
-app.post("/api/whatsapp/connect", async (_req, res) => {
+app.post("/api/whatsapp/connect", async (req, res) => {
   try {
-    const status = await connectWhatsApp();
+    const forceReset = Boolean(req.body?.forceReset);
+    const status = await connectWhatsApp({ forceReset });
     res.json({
       success: true,
       data: {
