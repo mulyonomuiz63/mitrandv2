@@ -278,6 +278,7 @@ export default function App() {
   const [clientDeals, setClientDeals] = useState<ClientDeal[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [salesHistory, setSalesHistory] = useState<SalesHistoryMonth[]>([]);
+  const [pendingSphCount, setPendingSphCount] = useState<number>(0);
 
   // Modals state (synced with browser Back/Forward history)
   const [isRegisterOpen, setIsRegisterOpen] = useState(() => initialHashNav?.modal === 'register');
@@ -636,7 +637,7 @@ export default function App() {
   // Fetch initial data
   const fetchData = async () => {
     try {
-      const [resMitra, resTools, resComm, resClients, resNotif, resAnalytics, resSettings] = await Promise.allSettled([
+      const [resMitra, resTools, resComm, resClients, resNotif, resAnalytics, resSettings, resSph] = await Promise.allSettled([
         fetch('/api/mitra').then((r) => r.json()),
         fetch('/api/marketing-tools').then((r) => r.json()),
         fetch('/api/commissions').then((r) => r.json()),
@@ -644,6 +645,7 @@ export default function App() {
         fetch('/api/notifications').then((r) => r.json()),
         fetch('/api/analytics/monthly').then((r) => r.json()),
         fetch('/api/settings').then((r) => r.json()),
+        fetch('/api/sph?status=pending', { headers: { 'x-skip-crud-alert': 'true' } }).then((r) => r.json()),
       ]);
 
       if (resMitra.status === 'fulfilled' && resMitra.value?.data) {
@@ -669,6 +671,15 @@ export default function App() {
       }
       if (resSettings.status === 'fulfilled' && resSettings.value?.data) {
         setSettings(resSettings.value.data);
+      }
+      if (resSph.status === 'fulfilled' && resSph.value?.success) {
+        const pendingVal =
+          typeof resSph.value?.counts?.pending === 'number'
+            ? resSph.value.counts.pending
+            : Array.isArray(resSph.value?.data)
+            ? resSph.value.data.length
+            : 0;
+        setPendingSphCount(pendingVal);
       }
     } catch (err) {
       setIsMitrasLoaded(true);
@@ -1577,6 +1588,7 @@ export default function App() {
           logoUrl={settings?.logoUrl}
           pendingMitraCount={mitras.filter((m) => m.status === 'pending').length}
           pendingClientCount={clientDeals.filter((d) => d.status === 'pending_acc').length}
+          pendingSphCount={pendingSphCount}
           isProfileIncomplete={isMitraProfileIncomplete}
         />
 
@@ -1771,6 +1783,7 @@ export default function App() {
                 setVerifyMemberCode(memberCode);
                 setViewMode('mitra_verify');
               }}
+              onPendingSphCountChange={setPendingSphCount}
             />
           )}
 

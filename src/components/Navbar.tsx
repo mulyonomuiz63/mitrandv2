@@ -51,6 +51,7 @@ interface NavbarProps {
   logoUrl?: string;
   pendingMitraCount?: number;
   pendingClientCount?: number;
+  pendingSphCount?: number;
   isProfileIncomplete?: boolean;
 }
 
@@ -76,6 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
   pendingMitraCount,
   pendingClientCount = 0,
+  pendingSphCount = 0,
   isProfileIncomplete,
 }) => {
   const mitraIncomplete =
@@ -90,6 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       ? pendingMitraCount
       : (allMitras || []).filter((m) => m.status === 'pending').length;
   const resolvedPendingClientCount = pendingClientCount;
+  const resolvedPendingSphCount = pendingSphCount;
 
   const mitraAvatar = resolveAvatarUrl(
     activeMitra.avatarUrl,
@@ -702,7 +705,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       data-tour="tour-nav-prospects"
                       onClick={() => onTabChange('prospects')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                         activeTab === 'prospects'
                           ? 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -710,6 +713,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <FileText className="w-3.5 h-3.5 shrink-0" />
                       <span>Prospek</span>
+                      {resolvedPendingSphCount > 0 && (
+                        <span
+                          title={`${resolvedPendingSphCount} Pengajuan SPH menunggu persetujuan (Approve)`}
+                          className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-extrabold flex items-center justify-center shadow-sm ring-2 ring-white z-10 leading-none"
+                        >
+                          {resolvedPendingSphCount}
+                        </span>
+                      )}
                     </button>
                   )}
 
@@ -951,7 +962,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-tour="tour-nav-prospects"
                 onClick={() => onTabChange('prospects')}
-                className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
+                className={`relative flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all shrink-0 ${
                   activeTab === 'prospects'
                     ? 'text-blue-700 bg-blue-50 font-bold'
                     : 'text-slate-500 hover:text-slate-900'
@@ -959,6 +970,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <FileText className="w-4 h-4" />
                 <span className="text-[9px] sm:text-[10px] mt-0.5 truncate">Prospek</span>
+                {resolvedPendingSphCount > 0 && (
+                  <span
+                    title={`${resolvedPendingSphCount} Pengajuan SPH menunggu persetujuan (Approve)`}
+                    className="absolute top-0.5 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-mono font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white z-10 leading-none"
+                  >
+                    {resolvedPendingSphCount}
+                  </span>
+                )}
               </button>
             )}
 

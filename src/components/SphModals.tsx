@@ -888,7 +888,7 @@ export const SphPreviewModal: React.FC<SphPreviewModalProps> = ({
               </button>
             )}
 
-            {isAdminOrStaff && sph.status !== 'rejected' && onOpenReject && (
+            {isAdminOrStaff && sph.status === 'pending' && onOpenReject && (
               <button
                 type="button"
                 onClick={() => onOpenReject(sph)}
@@ -1245,7 +1245,7 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
                           </button>
                         )}
 
-                        {isAdminOrStaff && sph.status !== 'rejected' && (
+                        {isAdminOrStaff && sph.status === 'pending' && (
                           <button
                             type="button"
                             disabled={busyId === sph.id}

@@ -88,6 +88,7 @@ interface ProspectsHubProps {
   onSubTabChange?: (sub: ProspectsSubTab) => void;
   onOpenLetterVerify?: (verificationCode: string) => void;
   onOpenMitraVerify?: (memberCode: string) => void;
+  onPendingSphCountChange?: (count: number) => void;
 }
 
 const EMPTY_META: ServerDataTableMeta = {
@@ -153,6 +154,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   onSubTabChange,
   onOpenLetterVerify,
   onOpenMitraVerify,
+  onPendingSphCountChange,
 }) => {
   const confirm = useConfirm();
   const isStaff = userRole === 'admin' && currentUser?.roleCode === 'staff';
@@ -346,15 +348,15 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           map[sph.prospectLetterId] = cur;
         }
         setSphByLetterMap(map);
-        if (json.counts) {
-          setSphCounts(json.counts);
-        } else {
-          setSphCounts({
-            total: list.length,
-            pending: list.filter((s) => s.status === 'pending').length,
-            approved: list.filter((s) => s.status === 'approved').length,
-            rejected: list.filter((s) => s.status === 'rejected').length,
-          });
+        const nextCounts = json.counts || {
+          total: list.length,
+          pending: list.filter((s) => s.status === 'pending').length,
+          approved: list.filter((s) => s.status === 'approved').length,
+          rejected: list.filter((s) => s.status === 'rejected').length,
+        };
+        setSphCounts(nextCounts);
+        if (isAdminOrStaff) {
+          onPendingSphCountChange?.(Number(nextCounts.pending) || 0);
         }
       })
       .catch(() => {});
@@ -1165,8 +1167,8 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
               {isAdminOrStaff
                 ? 'Buat Surat untuk Mitra'
                 : mitraProfileIncomplete
-                ? 'Buat Surat Penawaran (Lengkapi Data Diri)'
-                : 'Buat Surat Penawaran'}
+                ? 'Tambah Prospek (Lengkapi Data Diri)'
+                : 'Tambah Prospek'}
             </span>
           </button>
         </div>
@@ -1270,15 +1272,11 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
             <span>Pengajuan SPH</span>
-            {sphCounts.pending > 0 ? (
+            {sphCounts.pending > 0 && (
               <span className="px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-slate-950 tabular-nums">
                 {sphCounts.pending}
               </span>
-            ) : sphCounts.total > 0 ? (
-              <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-slate-200 text-slate-700 tabular-nums">
-                {sphCounts.total}
-              </span>
-            ) : null}
+            )}
           </button>
         </div>
       ) : (
@@ -2071,7 +2069,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
                     ? `Edit Surat — ${editingLetter.letterNumber}`
                     : isAdminOrStaff
                     ? 'Buat Surat untuk Mitra'
-                    : 'Buat Surat Penawaran'}
+                    : 'Tambah Prospek'}
                 </h2>
               </div>
               <button
@@ -2630,7 +2628,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
         const canDownload = isAdminOrStaff || target.status === 'approved';
         const canEdit = isAdminOrStaff || target.status !== 'approved';
         const showApprove = isAdminOrStaff && target.status !== 'approved';
-        const showReject = isAdminOrStaff && target.status !== 'rejected';
+        const showReject = isAdminOrStaff && target.status === 'pending';
         return (
           <div
             style={{ top: openSphMenu.top, right: openSphMenu.right }}
