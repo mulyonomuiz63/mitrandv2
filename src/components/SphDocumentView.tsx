@@ -7,8 +7,8 @@ import {
   resolveProspectLetterContent,
 } from '../types';
 import {
-  buildDirectorQrUrl,
   buildMitraQrUrl,
+  buildSphDirectorQrUrl,
   formatIndonesianLetterDate,
   generateQrDataUrl,
   resolveInlineProspectLogo,
@@ -887,9 +887,9 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
       return;
     }
     let active = true;
-    const directorUrl = buildDirectorQrUrl({
-      id: sph.prospectLetterId || sph.id,
-      verificationCode: sph.prospectLetterId || sph.id,
+    const directorUrl = buildSphDirectorQrUrl({
+      id: sph.id,
+      sphNumber: sph.sphNumber,
     });
     const mitraUrl = buildMitraQrUrl(sph.mitraMemberCode);
     Promise.all([
@@ -905,7 +905,7 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
     return () => {
       active = false;
     };
-  }, [sph.status, sph.id, sph.prospectLetterId, sph.mitraMemberCode, barcodeLogoUrl]);
+  }, [sph.status, sph.id, sph.sphNumber, sph.mitraMemberCode, barcodeLogoUrl]);
 
   const content = resolveProspectLetterContent(undefined, masterTemplate);
   const formattedDate = formatIndonesianLetterDate(sph.sphDate || sph.createdAt);
@@ -1244,9 +1244,9 @@ export async function downloadSphPdfFromView(
     getCachedSphLogo(adminLogoUrl),
     isApproved
       ? generateQrDataUrl(
-          buildDirectorQrUrl({
-            id: sph.prospectLetterId || sph.id,
-            verificationCode: sph.prospectLetterId || sph.id,
+          buildSphDirectorQrUrl({
+            id: sph.id,
+            sphNumber: sph.sphNumber,
           }),
           barcodeLogoUrl
         )

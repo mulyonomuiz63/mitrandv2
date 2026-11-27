@@ -126,6 +126,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('verify-sph')) return 'sph_verify';
       if (urlParams.get('verify-surat')) return 'letter_verify';
       if (urlParams.get('verify')) return 'mitra_verify';
       if (urlParams.get('ref')) return 'client_register';
@@ -159,6 +160,12 @@ export default function App() {
   const [verifyLetterCode, setVerifyLetterCode] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return new URLSearchParams(window.location.search).get('verify-surat');
+    }
+    return null;
+  });
+  const [verifySphCode, setVerifySphCode] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('verify-sph');
     }
     return null;
   });
@@ -372,6 +379,7 @@ export default function App() {
       clientRefCode: viewMode === 'client_register' ? clientRefCode : null,
       verifyMemberCode: viewMode === 'mitra_verify' ? verifyMemberCode : null,
       verifyLetterCode: viewMode === 'letter_verify' ? verifyLetterCode : null,
+      verifySphCode: viewMode === 'sph_verify' ? verifySphCode : null,
     }),
     [
       viewMode,
@@ -386,6 +394,7 @@ export default function App() {
       clientRefCode,
       verifyMemberCode,
       verifyLetterCode,
+      verifySphCode,
     ]
   );
 
@@ -506,6 +515,8 @@ export default function App() {
         targetViewMode === 'mitra_verify' ? raw.verifyMemberCode || null : null;
       const targetVerifyLetterCode =
         targetViewMode === 'letter_verify' ? raw.verifyLetterCode || null : null;
+      const targetVerifySphCode =
+        targetViewMode === 'sph_verify' ? raw.verifySphCode || null : null;
 
       const normalized: AppHistoryState = {
         ndNav: true,
@@ -520,6 +531,7 @@ export default function App() {
         clientRefCode: targetClientRef,
         verifyMemberCode: targetVerifyCode,
         verifyLetterCode: targetVerifyLetterCode,
+        verifySphCode: targetVerifySphCode,
       };
 
       // Update key before React state updates so the sync effect won't push a duplicate entry
@@ -537,6 +549,9 @@ export default function App() {
       }
       if (targetViewMode === 'letter_verify') {
         setVerifyLetterCode(targetVerifyLetterCode);
+      }
+      if (targetViewMode === 'sph_verify') {
+        setVerifySphCode(targetVerifySphCode);
       }
       if (targetViewMode === 'portal') {
         setActiveTab(targetTab);
@@ -585,10 +600,17 @@ export default function App() {
       }
 
       const urlParams = new URLSearchParams(window.location.search);
+      const verifySph = urlParams.get('verify-sph');
       const verifySurat = urlParams.get('verify-surat');
       const verify = urlParams.get('verify');
       const ref = urlParams.get('ref');
-      if (verifySurat) {
+      if (verifySph) {
+        applyRestoredNavState({
+          ndNav: true,
+          viewMode: 'sph_verify',
+          verifySphCode: verifySph,
+        });
+      } else if (verifySurat) {
         applyRestoredNavState({
           ndNav: true,
           viewMode: 'letter_verify',
@@ -704,10 +726,14 @@ export default function App() {
     fetchData();
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      const verifySph = urlParams.get('verify-sph');
       const verifySurat = urlParams.get('verify-surat');
       const verify = urlParams.get('verify');
       const ref = urlParams.get('ref');
-      if (verifySurat) {
+      if (verifySph) {
+        setVerifySphCode(verifySph);
+        setViewMode('sph_verify');
+      } else if (verifySurat) {
         setVerifyLetterCode(verifySurat);
         setViewMode('letter_verify');
       } else if (verify) {
@@ -1520,7 +1546,30 @@ export default function App() {
   if (viewMode === 'letter_verify') {
     return (
       <ProspectLetterPublicVerifyView
+        documentType="prospect_letter"
         verifyCode={verifyLetterCode || ''}
+        logoUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
+        onBackToHome={() => {
+          if (currentUser) {
+            setViewMode('portal');
+          } else {
+            setViewMode('landing');
+          }
+        }}
+        onOpenMitraVerify={(memberCode) => {
+          setVerifyMemberCode(memberCode);
+          setViewMode('mitra_verify');
+        }}
+      />
+    );
+  }
+
+  // 1.4 Public QR Code Director SPH Verification View (Via ?verify-sph=...)
+  if (viewMode === 'sph_verify') {
+    return (
+      <ProspectLetterPublicVerifyView
+        documentType="sph"
+        verifyCode={verifySphCode || ''}
         logoUrl={settings?.logoHorizontalUrl || settings?.logoUrl}
         onBackToHome={() => {
           if (currentUser) {

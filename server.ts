@@ -11945,6 +11945,7 @@ app.get('/api/prospects/public-verify/:code', async (req: Request, res: Response
     success: true,
     verified: true,
     data: {
+      documentType: 'prospect_letter',
       id: found.id,
       letterNumber: found.letterNumber,
       verificationCode: found.verificationCode,
@@ -11961,6 +11962,89 @@ app.get('/api/prospects/public-verify/:code', async (req: Request, res: Response
       firmLegalBasis: 'SK Kemenkumham AHU-0068631-AH.01.14',
       supportPhone: appSettings.supportPhone || '021-86941220 / 0821-8074-4977',
       supportEmail: appSettings.supportEmail || 'business@ndtaxandlaw.com',
+      createdAt: found.createdAt,
+    },
+  });
+});
+
+app.get('/api/sph/public-verify/:code', async (req: Request, res: Response) => {
+  if (db) {
+    await syncFromMysql();
+  }
+  const rawCode = String(req.params.code || '').trim();
+  if (!rawCode) {
+    return res.status(404).json({
+      success: false,
+      verified: false,
+      message: 'Kode verifikasi Surat Penawaran Harga (SPH) tidak ditemukan.',
+    });
+  }
+  const normalized = rawCode.toLowerCase();
+  const found = sphDocuments.find(
+    (s) =>
+      (s.id || '').toLowerCase() === normalized ||
+      (s.sphNumber || '').toLowerCase() === normalized
+  );
+  if (!found) {
+    return res.status(404).json({
+      success: false,
+      verified: false,
+      message:
+        'Surat Penawaran Harga (SPH) dengan kode tersebut tidak terdaftar di sistem resmi ND TAX AND LAW.',
+    });
+  }
+  if (found.status !== 'approved') {
+    return res.status(403).json({
+      success: false,
+      verified: false,
+      message:
+        'Surat Penawaran Harga (SPH) ini belum divalidasi/disetujui oleh Admin ND TAX AND LAW.',
+    });
+  }
+
+  const effectiveContent = resolveProspectLetterContent(undefined, appSettings.prospectLetterTemplate);
+
+  return res.json({
+    success: true,
+    verified: true,
+    data: {
+      documentType: 'sph',
+      id: found.id,
+      sphNumber: found.sphNumber,
+      letterNumber: found.sphNumber,
+      verificationCode: found.sphNumber,
+      letterDate: found.sphDate || found.createdAt,
+      prospectLetterNumber: found.prospectLetterNumber || '',
+      companyName: found.companyName,
+      companyAddress: found.companyAddress,
+      businessField: found.businessField || '',
+      clientSignerName: found.clientSignerName || '',
+      clientSignerTitleId: found.clientSignerTitleId || '',
+      mitraName: found.mitraName,
+      mitraMemberCode: found.mitraMemberCode,
+      mitraPhone: found.mitraPhone,
+      mitraEmail: found.mitraEmail,
+      directorName:
+        found.directorName || effectiveContent.directorName || DEFAULT_PROSPECT_LETTER_CONTENT.directorName,
+      directorTitle:
+        found.directorTitleId || effectiveContent.directorTitle || DEFAULT_PROSPECT_LETTER_CONTENT.directorTitle,
+      firmName: effectiveContent.directorFirmLabel || 'ND TAX AND LAW',
+      firmLegalBasis: 'SK Kemenkumham AHU-0068631-AH.01.14',
+      supportPhone: appSettings.supportPhone || '021-86941220 / 0821-8074-4977',
+      supportEmail: appSettings.supportEmail || 'business@ndtaxandlaw.com',
+      services: (found.services || []).map((sv) => ({
+        serviceNameId: sv.serviceNameId,
+        serviceNameEn: sv.serviceNameEn,
+        tierLabel: sv.volumeLabelId || '',
+        turnoverLabel: sv.turnoverLabelId || '',
+        monthlyPrice: sv.monthlyPrice,
+      })),
+      normalTotalMonthly: found.normalTotalMonthly,
+      discountAmount: found.discountAmount,
+      finalTotalMonthly: found.finalTotalMonthly,
+      durationMonths: found.durationMonths,
+      approvedAt: found.approvedAt || found.updatedAt || found.createdAt,
+      approvedBy: found.approvedBy || 'Admin ND TAX AND LAW',
       createdAt: found.createdAt,
     },
   });

@@ -1,4 +1,4 @@
-export type ViewMode = 'landing' | 'portal' | 'auth' | 'client_register' | 'mitra_verify' | 'letter_verify';
+export type ViewMode = 'landing' | 'portal' | 'auth' | 'client_register' | 'mitra_verify' | 'letter_verify' | 'sph_verify';
 
 export type PortalModalKey =
   | 'register'
@@ -38,6 +38,7 @@ export interface AppHistoryState {
   clientRefCode?: string | null;
   verifyMemberCode?: string | null;
   verifyLetterCode?: string | null;
+  verifySphCode?: string | null;
 }
 
 const VALID_MODAL_KEYS: Set<string> = new Set([
@@ -81,6 +82,7 @@ export function serializeNavKey(state: AppHistoryState): string {
     state.viewMode === 'client_register' ? state.clientRefCode || '' : '',
     state.viewMode === 'mitra_verify' ? state.verifyMemberCode || '' : '',
     state.viewMode === 'letter_verify' ? state.verifyLetterCode || '' : '',
+    state.viewMode === 'sph_verify' ? state.verifySphCode || '' : '',
   ];
   return parts.join('|');
 }
@@ -88,6 +90,11 @@ export function serializeNavKey(state: AppHistoryState): string {
 export function buildNavUrl(state: AppHistoryState): string {
   if (typeof window === 'undefined') return '/';
   const pathname = window.location.pathname || '/';
+
+  if (state.viewMode === 'sph_verify') {
+    const code = state.verifySphCode || new URLSearchParams(window.location.search).get('verify-sph') || '';
+    return code ? `${pathname}?verify-sph=${encodeURIComponent(code)}` : `${pathname}#/verify-sph`;
+  }
 
   if (state.viewMode === 'letter_verify') {
     const code = state.verifyLetterCode || new URLSearchParams(window.location.search).get('verify-surat') || '';
@@ -205,6 +212,14 @@ export function parseHashToNavState(hash: string): Partial<AppHistoryState> | nu
       ndNav: true,
       viewMode: 'letter_verify',
       verifyLetterCode: params.get('code') || null,
+    };
+  }
+
+  if (head === 'verify-sph') {
+    return {
+      ndNav: true,
+      viewMode: 'sph_verify',
+      verifySphCode: params.get('code') || null,
     };
   }
 

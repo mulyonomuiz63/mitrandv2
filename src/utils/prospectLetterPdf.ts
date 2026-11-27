@@ -144,6 +144,15 @@ export function buildDirectorQrUrl(letter: Pick<ProspectLetter, 'verificationCod
   return `${origin}/?verify-surat=${encodeURIComponent(code)}`;
 }
 
+export function buildSphDirectorQrUrl(sph: { id?: string; sphNumber?: string }): string {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'https://mitra.ndtaxandlaw.com';
+  const code = sph.id || sph.sphNumber || '';
+  return `${origin}/?verify-sph=${encodeURIComponent(code)}`;
+}
+
 interface RasterizedLogo {
   dataUrl: string;
   width: number;
