@@ -28,7 +28,7 @@ import { ProspectsHub } from './components/ProspectsHub';
 import { OnboardingSpotlightTour } from './components/OnboardingSpotlightTour';
 import { RealtimeChatHub } from './components/RealtimeChatHub';
 import { PageLoadingSkeleton } from './components/SkeletonLoader';
-import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer, isMitraDataIncomplete } from './types';
+import { Mitra, MarketingTool, CommissionTransaction, NotificationItem, SalesHistoryMonth, BankDetails, AuthUser, ClientDeal, AppSettings, DEFAULT_STAFF_ALLOWED_MENUS, filterNotificationsForViewer, isMitraDataIncomplete, getMissingMitraFields } from './types';
 import { MALE_AVATAR_URL, resolveAvatarUrl } from './avatars';
 import {
   AppHistoryState,
@@ -55,7 +55,9 @@ import {
   Building2,
   FileCheck2,
   Award,
-  Globe
+  Globe,
+  Users,
+  ExternalLink
 } from 'lucide-react';
 
 const ADMIN_VALID_TABS = ['dashboard', 'admin-operations', 'verification', 'activity-logs', 'marketing-tools', 'commissions', 'prospects', 'ai-reports', 'idcard', 'staff-management', 'chat'];
@@ -878,8 +880,8 @@ export default function App() {
 
   const unreadNotifCount = visibleNotifications.filter((n) => !n.isRead).length;
 
-  // Check if logged-in Mitra still has incomplete profile / bank details (only after server data has loaded)
-  const isMitraProfileIncomplete = React.useMemo(() => {
+  // Check if logged-in Mitra still has incomplete profile / required custom fields / bank details
+  const missingMitraFields = React.useMemo(() => {
     if (
       !isMitrasLoaded ||
       currentRole !== 'mitra' ||
@@ -887,24 +889,42 @@ export default function App() {
       activeMitra.id === 'mitra-empty' ||
       activeMitra.isLoadingFallback
     ) {
-      return false;
+      return [];
     }
-    return isMitraDataIncomplete(activeMitra, settings);
+    return getMissingMitraFields(activeMitra, settings);
   }, [isMitrasLoaded, currentRole, activeMitra, settings]);
+
+  const isMitraProfileIncomplete = missingMitraFields.length > 0;
+  const incompleteAlertSignature = `${activeMitra.id}::${missingMitraFields.join('|')}::${activeMitra.profileCompletionNoticeAt || ''}`;
+  const hasAdminCompletionNotice = Boolean(
+    isMitrasLoaded &&
+      currentRole === 'mitra' &&
+      activeMitra &&
+      !activeMitra.isLoadingFallback &&
+      activeMitra.profileCompletionNotice
+  );
 
   useEffect(() => {
     if (
       isMitrasLoaded &&
       viewMode === 'portal' &&
       currentRole === 'mitra' &&
-      isMitraProfileIncomplete &&
-      dismissedProfileAlertForId !== activeMitra.id
+      (isMitraProfileIncomplete || hasAdminCompletionNotice) &&
+      dismissedProfileAlertForId !== incompleteAlertSignature
     ) {
       setIsIncompleteProfileAlertOpen(true);
-    } else if (!isMitraProfileIncomplete) {
+    } else if (!isMitraProfileIncomplete && !hasAdminCompletionNotice) {
       setIsIncompleteProfileAlertOpen(false);
     }
-  }, [isMitrasLoaded, viewMode, currentRole, isMitraProfileIncomplete, dismissedProfileAlertForId, activeMitra.id]);
+  }, [
+    isMitrasLoaded,
+    viewMode,
+    currentRole,
+    isMitraProfileIncomplete,
+    hasAdminCompletionNotice,
+    dismissedProfileAlertForId,
+    incompleteAlertSignature,
+  ]);
 
   // Auto-logout if currently logged-in Mitra account has been deactivated by Admin/Staff
   useEffect(() => {
@@ -976,7 +996,7 @@ export default function App() {
 
   const handleVerifyMitra = async (
     id: string,
-    status: 'verified' | 'rejected',
+    status: 'verified' | 'rejected' | 'pending',
     rejectionReason?: string,
     groupChatIds?: string[]
   ) => {
@@ -1414,6 +1434,7 @@ export default function App() {
           logoUrl={settings?.logoUrl}
           pendingMitraCount={mitras.filter((m) => m.status === 'pending').length}
           pendingClientCount={clientDeals.filter((d) => d.status === 'pending_acc').length}
+          isProfileIncomplete={isMitraProfileIncomplete}
         />
 
         {/* Executive Sub-Header / Persona Context Bar (Matched to Mitra ID Card Royal Navy & Gold Theme) */}
@@ -1438,23 +1459,61 @@ export default function App() {
                 </>
               )}
             </div>
+
+            {currentRole === 'mitra' &&
+              settings?.whatsappGroupLink &&
+              (activeMitra.whatsappGroupInvited || activeMitra.status === 'verified') && (
+                <a
+                  href={settings.whatsappGroupLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-white font-bold text-[11px] shadow-xs transition-colors shrink-0"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Gabung {settings.whatsappGroupName || 'Grup WhatsApp Mitra'}</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
           </div>
         </div>
 
-        {/* Persistent Incomplete Data Diri Banner for Mitra */}
-        {currentRole === 'mitra' && isMitraProfileIncomplete && (
+        {/* Persistent Incomplete Data Diri / Admin Reminder Banner for Mitra */}
+        {currentRole === 'mitra' && (isMitraProfileIncomplete || hasAdminCompletionNotice) && (
           <div className="bg-amber-50 border-b border-amber-300 py-3 px-3 sm:px-6 lg:px-8">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 text-xs text-amber-950">
-                <Lock className="w-4 h-4 text-amber-600 shrink-0" />
-                <span className="font-bold">Data Diri &amp; Berkas Verifikasi Anda Belum Lengkap.</span>
+              <div className="space-y-1 text-xs text-amber-950 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-bold">
+                    {isMitraProfileIncomplete
+                      ? 'Data Diri Wajib Anda Belum Lengkap — Beberapa Fitur Dikunci Sementara.'
+                      : 'Pemberitahuan Kelengkapan Data Diri dari Admin'}
+                  </span>
+                </div>
+                {activeMitra.profileCompletionNotice && (
+                  <p className="text-[11px] text-amber-900 pl-6 leading-relaxed">
+                    {activeMitra.profileCompletionNotice}
+                  </p>
+                )}
+                {missingMitraFields.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 pl-6 pt-0.5">
+                    {missingMitraFields.map((fieldLabel) => (
+                      <span
+                        key={fieldLabel}
+                        className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-[10px] font-bold text-amber-950"
+                      >
+                        • {fieldLabel}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => setIsProfileOpen(true)}
                 className="px-3.5 py-1.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-lg shadow-2xs shrink-0 self-start sm:self-auto cursor-pointer"
               >
-                Lengkapi Data Diri &amp; Upload KTP/NPWP
+                Lengkapi Data Diri Sekarang
               </button>
             </div>
           </div>
@@ -1493,6 +1552,7 @@ export default function App() {
               )}
               <ExclusiveIdCard
                 mitra={activeMitra}
+                settings={settings}
                 onEditProfile={() => setIsProfileOpen(true)}
                 onRequireCompleteProfile={() => setIsIncompleteProfileAlertOpen(true)}
                 onUpdateProfile={handleUpdateProfile}
@@ -1528,6 +1588,9 @@ export default function App() {
               tools={marketingTools}
               userRole={currentRole}
               activeMitra={activeMitra}
+              allMitras={mitras}
+              isProfileIncomplete={isMitraProfileIncomplete}
+              missingProfileFields={missingMitraFields}
               onEditProfile={() => setIsProfileOpen(true)}
               onAddTool={handleAddMarketingTool}
               onUpdateTool={handleUpdateMarketingTool}
@@ -1646,6 +1709,7 @@ export default function App() {
               onUpdateMitraProfile={handleUpdateProfile}
               onToggleMitraActive={handleToggleMitraActive}
               onDeleteMitra={handleDeleteMitra}
+              onRefreshData={fetchData}
               onSelectMitraPreview={(m) => {
                 setActiveMitraId(m.id);
                 setActiveTab('idcard');
@@ -1883,17 +1947,41 @@ export default function App() {
 
             <div className="p-6 space-y-4">
               <p className="text-xs text-slate-700 leading-relaxed">
-                Halo <strong>{activeMitra.fullName}</strong>, selamat datang di Portal Mitra NDTAXANDLAW!
+                Halo <strong>{activeMitra.fullName}</strong>, mohon periksa kelengkapan data diri Anda di Portal Mitra NDTAXANDLAW.
               </p>
-              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
-                Data diri, berkas verifikasi <strong>File KTP / NPWP (JPG, PNG, JPEG, atau PDF)</strong>, atau informasi rekening pencairan komisi Anda saat ini <strong>belum lengkap</strong>. Selama data diri dan unggahan berkas KTP/NPWP belum dilengkapi, Anda belum dapat melakukan <strong>penambahan klien</strong>, <strong>pembuatan surat penawaran</strong>, maupun <strong>menyalin dan membagikan tautan registrasi klien</strong>. Silakan lengkapi Data Diri &amp; unggah file KTP/NPWP Anda sekarang untuk mengaktifkan seluruh fitur kemitraan.
-              </div>
+
+              {activeMitra.profileCompletionNotice && (
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-950 leading-relaxed">
+                  <span className="font-bold block text-[10px] uppercase tracking-wider text-blue-800 mb-1">
+                    Pesan dari Admin:
+                  </span>
+                  {activeMitra.profileCompletionNotice}
+                </div>
+              )}
+
+              {missingMitraFields.length > 0 && (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed space-y-2">
+                  <p>
+                    Kolom <strong>Data Diri Wajib</strong> berikut belum dilengkapi. Selama belum dilengkapi, akses ke <strong>Input Klien</strong>, <strong>Surat Penawaran &amp; Tools Marketing</strong>, serta <strong>tautan registrasi klien</strong> dikunci sementara:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {missingMitraFields.map((fieldLabel) => (
+                      <span
+                        key={fieldLabel}
+                        className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-[11px] font-bold text-amber-950"
+                      >
+                        • {fieldLabel}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setDismissedProfileAlertForId(activeMitra.id);
+                    setDismissedProfileAlertForId(incompleteAlertSignature);
                     setIsIncompleteProfileAlertOpen(false);
                   }}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
@@ -1903,7 +1991,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setDismissedProfileAlertForId(activeMitra.id);
+                    setDismissedProfileAlertForId(incompleteAlertSignature);
                     setIsIncompleteProfileAlertOpen(false);
                     setIsProfileOpen(true);
                   }}

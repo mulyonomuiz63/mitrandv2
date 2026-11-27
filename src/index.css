@@ -5,7 +5,7 @@
   --font-sans: "Roboto", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
   --font-display: "Raleway", system-ui, -apple-system, sans-serif;
   --font-nav: "Poppins", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono: "Roboto", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
 }
 
 @layer base {
@@ -13,19 +13,21 @@
     overflow-x: hidden;
     max-width: 100vw;
     font-family: var(--default-font);
+    font-variant-numeric: lining-nums;
   }
   body {
     font-family: var(--default-font);
   }
   h1, h2, h3, h4, h5, h6, .font-display {
     font-family: var(--heading-font);
+    font-variant-numeric: lining-nums;
   }
   nav, nav a, nav button, .font-nav {
     font-family: var(--nav-font);
   }
   .font-mono, .tabular-nums {
-    font-family: 'JetBrains Mono', monospace;
-    font-variant-numeric: tabular-nums;
+    font-family: var(--default-font);
+    font-variant-numeric: tabular-nums lining-nums;
   }
 }
 

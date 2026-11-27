@@ -32,6 +32,8 @@ import {
   DEFAULT_PROSPECT_LETTER_CONTENT,
   resolveProspectLetterContent,
   isMitraDataIncomplete,
+  getMissingMitraFields,
+  resolveMitraFormFields,
   type ChatParticipant,
   type ChatRoom,
   type ChatMessage,
@@ -39,8 +41,14 @@ import {
   type ProspectLetter,
   type ProspectAddressParts,
   type ProspectLetterContent,
+  type ProposalTemplate,
+  type ProposalPdfVersion,
 } from './src/types.ts';
 import { checkProspectCompanyDuplicates } from './src/utils/prospectCompanyMatcher.ts';
+import {
+  stampMitraPartnerCardOnPdf,
+  getPdfPageCount,
+} from './server-utils/proposalPdfStamper.ts';
 
 dotenv.config();
 
@@ -228,6 +236,10 @@ export interface Mitra {
   deactivatedBy?: string;
   deactivatedReason?: string;
   customFields?: Record<string, string>;
+  profileCompletionNotice?: string;
+  profileCompletionNoticeAt?: string;
+  whatsappGroupInvited?: boolean;
+  whatsappGroupInvitedAt?: string;
 }
 
 export interface SpecializationOptionItem {
@@ -704,6 +716,8 @@ export interface AppSettings {
   clientCustomFields?: DynamicFormField[];
   mitraFieldsInitialized?: boolean;
   clientFieldsInitialized?: boolean;
+  whatsappGroupName?: string;
+  whatsappGroupLink?: string;
 }
 
 export interface EmailLogItem {
@@ -946,6 +960,37 @@ let mitras: Mitra[] = [
     emailVerified: true,
   },
 ];
+
+const PUBLIC_PROPOSALS_DIR = path.join(__dirname, 'public', 'proposals');
+
+const DEFAULT_PROPOSAL_TEMPLATES: ProposalTemplate[] = [
+  {
+    id: 'prop-fat-official',
+    title: 'Surat Penawaran Harga Jasa FAT (Financial, Accounting & Tax)',
+    description:
+      'Dokumen resmi penawaran harga jasa akuntansi & perpajakan ND Tax & Law. Kartu identitas Mitra (foto, nama, email, telepon) pada halaman cover & penutup otomatis menyesuaikan akun Mitra yang mengunduh.',
+    targetProduct: 'Jasa FAT (Financial, Accounting & Tax)',
+    stampMode: 'first_and_last',
+    pdfId: {
+      url: '/proposals/nd-proposal-fat-id.pdf',
+      fileName: 'ND Tax And Law - Penawaran Harga Jasa FAT (ID).pdf',
+      fileSize: '1.37 MB',
+      pageCount: 10,
+      updatedAt: '2026-11-26',
+    },
+    pdfEn: {
+      url: '/proposals/nd-proposal-fat-en.pdf',
+      fileName: 'ND Tax And Law - Service Fee Proposal FAT (EN).pdf',
+      fileSize: '1.36 MB',
+      pageCount: 10,
+      updatedAt: '2026-11-26',
+    },
+    createdAt: '2026-11-26',
+    updatedAt: '2026-11-26',
+  },
+];
+
+let proposalTemplates: ProposalTemplate[] = DEFAULT_PROPOSAL_TEMPLATES.map((p) => ({ ...p }));
 
 let marketingTools: MarketingTool[] = [
   {
@@ -2774,6 +2819,16 @@ const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
       m.deactivatedBy || bankMeta.__deactivatedBy || undefined;
     const deactivatedReason: string | undefined =
       m.deactivatedReason || bankMeta.__deactivatedReason || undefined;
+    const profileCompletionNotice: string | undefined =
+      m.profileCompletionNotice || bankMeta.__profileCompletionNotice || undefined;
+    const profileCompletionNoticeAt: string | undefined =
+      m.profileCompletionNoticeAt || bankMeta.__profileCompletionNoticeAt || undefined;
+    const whatsappGroupInvited: boolean =
+      typeof m.whatsappGroupInvited === 'boolean'
+        ? m.whatsappGroupInvited
+        : Boolean(bankMeta.__whatsappGroupInvited);
+    const whatsappGroupInvitedAt: string | undefined =
+      m.whatsappGroupInvitedAt || bankMeta.__whatsappGroupInvitedAt || undefined;
     return {
       ...m,
       memberCode: formatMitraMemberCode(m.memberCode, m.id),
@@ -2784,6 +2839,10 @@ const normalizeMitraAvatars = (list: Mitra[]): Mitra[] => {
       verificationTokenExpiry,
       rejectionReason: m.rejectionReason || bankMeta.__rejectionReason || undefined,
       rejectedAt: m.rejectedAt || bankMeta.__rejectedAt || undefined,
+      profileCompletionNotice,
+      profileCompletionNoticeAt,
+      whatsappGroupInvited,
+      whatsappGroupInvitedAt,
       isActive,
       deactivatedAt,
       deactivatedBy,
@@ -3012,6 +3071,7 @@ export const saveDatabase = () => {
       clientDeals,
       payoutRequests,
       marketingTools,
+      proposalTemplates,
       commissions,
       notifications,
       emailLogs,
@@ -3153,6 +3213,9 @@ export const loadDatabase = () => {
         if (Array.isArray(data.clientDeals)) clientDeals = normalizeClientDeals(data.clientDeals);
         if (Array.isArray(data.payoutRequests)) payoutRequests = data.payoutRequests;
         if (Array.isArray(data.marketingTools)) marketingTools = data.marketingTools;
+        if (Array.isArray(data.proposalTemplates) && data.proposalTemplates.length > 0) {
+          proposalTemplates = data.proposalTemplates;
+        }
         if (Array.isArray(data.commissions)) commissions = data.commissions;
         if (Array.isArray(data.notifications)) notifications = data.notifications;
         if (Array.isArray(data.prospectLetters)) prospectLetters = data.prospectLetters;
@@ -3421,6 +3484,15 @@ export const syncFromMysql = async () => {
                 }
               }
               marketingTools = Array.from(mergedToolsMap.values());
+            }
+          } catch {}
+          continue;
+        }
+        if (emailLower === '__sys_proposal_templates__@ndtaxlaw.internal') {
+          try {
+            const parsedProposals = JSON.parse(row.password);
+            if (Array.isArray(parsedProposals) && parsedProposals.length > 0) {
+              proposalTemplates = parsedProposals;
             }
           } catch {}
           continue;
@@ -5764,6 +5836,11 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
     return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan' });
   }
 
+  if (!['verified', 'rejected', 'pending'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Status verifikasi tidak valid.' });
+  }
+
+  const prevStatus = mitra.status;
   mitra.status = status;
   const todayStr = new Date().toISOString().split('T')[0];
   const joinedGroupNames: string[] = [];
@@ -5772,10 +5849,14 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
     mitra.memberCode = formatMitraMemberCode(mitra.memberCode, mitra.id);
     mitra.rejectionReason = undefined;
     mitra.rejectedAt = undefined;
+    mitra.profileCompletionNotice = undefined;
+    mitra.profileCompletionNoticeAt = undefined;
     if (mitra.bankDetails) {
       const cleanedBank: any = { ...mitra.bankDetails };
       delete cleanedBank.__rejectionReason;
       delete cleanedBank.__rejectedAt;
+      delete cleanedBank.__profileCompletionNotice;
+      delete cleanedBank.__profileCompletionNoticeAt;
       mitra.bankDetails = cleanedBank;
     }
 
@@ -5891,6 +5972,51 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
         console.warn('MySQL insert error', e);
       }
     }
+  } else if (status === 'pending') {
+    const revokeNote =
+      (rejectionReason && String(rejectionReason).trim().slice(0, 1000)) ||
+      'Status verifikasi akun Mitra Anda dibatalkan sementara oleh Admin untuk peninjauan ulang / kelengkapan data diri.';
+    const nowIso = new Date().toISOString();
+    mitra.rejectionReason = undefined;
+    mitra.rejectedAt = undefined;
+    mitra.profileCompletionNotice = revokeNote;
+    mitra.profileCompletionNoticeAt = nowIso;
+    const updatedBank: any = { ...(mitra.bankDetails || {}) };
+    delete updatedBank.__rejectionReason;
+    delete updatedBank.__rejectedAt;
+    updatedBank.__profileCompletionNotice = revokeNote;
+    updatedBank.__profileCompletionNoticeAt = nowIso;
+    mitra.bankDetails = updatedBank;
+
+    const notif: NotificationItem = {
+      id: `notif-mtr-${mitra.id}-${Date.now()}`,
+      title: 'Verifikasi Kemitraan Dibatalkan — Mohon Lengkapi Data',
+      message: `Admin membatalkan status verifikasi akun Mitra ${mitra.fullName} (dikembalikan ke Menunggu Verifikasi). Catatan Admin: "${revokeNote}". Silakan periksa & lengkapi data diri Anda di menu Profil.`,
+      type: 'verification',
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: 'mitra',
+      mitraId: mitra.id,
+    };
+    notifications.unshift(notif);
+
+    if (mitra.email) {
+      await sendSystemEmail({
+        recipient: mitra.email,
+        recipientName: mitra.fullName,
+        subject: `Pemberitahuan Pembatalan Verifikasi Mitra NDTAXANDLAW (${mitra.memberCode})`,
+        category: 'registration_verify',
+        previewSnippet: `Status verifikasi akun Mitra Anda (${mitra.fullName}) telah dibatalkan sementara oleh Admin dan dikembalikan ke status Menunggu Verifikasi.\n\nCatatan Admin:\n"${revokeNote}"\n\nSilakan masuk ke Portal Mitra untuk memeriksa dan melengkapi data diri Anda.`,
+      });
+    }
+
+    if (db) {
+      try {
+        await db.from('notifications').insert([toDbNotification(notif)]);
+      } catch (e) {
+        console.warn('MySQL insert error', e);
+      }
+    }
   }
 
   recordActivity({
@@ -5908,6 +6034,8 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
               ? ` dan memasukkan ke group chat: ${joinedGroupNames.join(', ')}.`
               : '.'
           }`
+        : status === 'pending'
+        ? `Admin membatalkan verifikasi Mitra "${mitra.fullName}" (dari ${prevStatus} ke pending). Catatan: "${mitra.profileCompletionNotice || '-'}".`
         : `Admin menolak verifikasi data Mitra "${mitra.fullName}". Alasan: "${mitra.rejectionReason}".`,
   });
 
@@ -5929,6 +6057,190 @@ app.put('/api/mitra/:id/verify', async (req: Request, res: Response) => {
   saveDatabase();
 
   res.json({ success: true, data: mitra, addedGroups: joinedGroupNames });
+});
+
+// Admin notifies Mitra to complete personal profile / documents
+app.post('/api/mitra/:id/notify-incomplete', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { message, missingItems } = req.body || {};
+
+  if (db) {
+    try {
+      const { data: dbMitras } = await db.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
+
+  const mitra = mitras.find((m) => m.id === id);
+  if (!mitra) {
+    return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan.' });
+  }
+
+  const cleanItems = Array.isArray(missingItems)
+    ? missingItems
+        .map((x: any) => String(x || '').trim())
+        .filter(Boolean)
+        .slice(0, 12)
+    : [];
+  const rawMsg = typeof message === 'string' ? message.trim().slice(0, 1000) : '';
+  const finalNotice =
+    rawMsg ||
+    (cleanItems.length > 0
+      ? `Mohon segera melengkapi data berikut pada Profil Mitra Anda: ${cleanItems.join(', ')}.`
+      : 'Mohon segera melengkapi data diri, berkas KTP/NPWP, foto profil, dan informasi rekening bank Anda di Portal Mitra.');
+
+  const nowIso = new Date().toISOString();
+  mitra.profileCompletionNotice = finalNotice;
+  mitra.profileCompletionNoticeAt = nowIso;
+  mitra.bankDetails = {
+    ...(mitra.bankDetails || ({} as any)),
+    __profileCompletionNotice: finalNotice,
+    __profileCompletionNoticeAt: nowIso,
+  } as any;
+
+  const notif: NotificationItem = {
+    id: `notif-mtr-inc-${mitra.id}-${Date.now()}`,
+    title: 'Permintaan Kelengkapan Data Diri dari Admin',
+    message: `${finalNotice}`,
+    type: 'verification',
+    timestamp: nowIso,
+    isRead: false,
+    targetAudience: 'mitra',
+    mitraId: mitra.id,
+  };
+  notifications.unshift(notif);
+
+  if (mitra.email) {
+    await sendSystemEmail({
+      recipient: mitra.email,
+      recipientName: mitra.fullName,
+      subject: `Mohon Lengkapi Data Diri Mitra NDTAXANDLAW (${mitra.memberCode})`,
+      category: 'registration_verify',
+      previewSnippet: `Halo ${mitra.fullName},\n\nAdmin NDTAXANDLAW menginformasikan agar Anda segera melengkapi data diri pada Portal Mitra:\n\n"${finalNotice}"\n\nSilakan login ke Portal Mitra dan perbarui data Anda melalui menu Profil.`,
+    });
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'mitra_verify',
+    operation: 'UPDATE',
+    targetEntity: 'Kelengkapan Data Mitra',
+    description: `Admin mengirim pemberitahuan kelengkapan data diri kepada Mitra "${mitra.fullName}": "${finalNotice}".`,
+  });
+
+  if (db) {
+    try {
+      await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', id);
+      await db.from('notifications').insert([toDbNotification(notif)]);
+    } catch (e) {
+      console.warn('MySQL notify-incomplete error', e);
+    }
+  }
+
+  saveDatabase();
+  res.json({ success: true, data: mitra, message: `Pemberitahuan kelengkapan data berhasil dikirim ke ${mitra.fullName}.` });
+});
+
+// Admin invites / adds Mitra to official WhatsApp Group
+app.post('/api/mitra/:id/whatsapp-group', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { groupName, groupLink, customMessage } = req.body || {};
+
+  if (db) {
+    try {
+      const { data: dbMitras } = await db.from('mitras').select('*');
+      if (Array.isArray(dbMitras)) mitras = normalizeMitraAvatars(dbMitras);
+    } catch {}
+  }
+
+  const mitra = mitras.find((m) => m.id === id);
+  if (!mitra) {
+    return res.status(404).json({ success: false, message: 'Mitra tidak ditemukan.' });
+  }
+
+  let resolvedLink = (appSettings.whatsappGroupLink || '').trim();
+  let resolvedName = (appSettings.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law').trim();
+
+  if (typeof groupLink === 'string' && groupLink.trim()) {
+    const trimmedLink = groupLink.trim();
+    try {
+      const parsed = new URL(trimmedLink);
+      if (parsed.protocol !== 'https:') {
+        return res.status(400).json({ success: false, message: 'Tautan Grup WhatsApp harus menggunakan protokol HTTPS.' });
+      }
+      resolvedLink = parsed.toString();
+      appSettings.whatsappGroupLink = resolvedLink;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Format tautan Grup WhatsApp tidak valid.' });
+    }
+  }
+
+  if (typeof groupName === 'string' && groupName.trim()) {
+    resolvedName = groupName.trim().slice(0, 120);
+    appSettings.whatsappGroupName = resolvedName;
+  }
+
+  const nowIso = new Date().toISOString();
+  mitra.whatsappGroupInvited = true;
+  mitra.whatsappGroupInvitedAt = nowIso;
+  mitra.bankDetails = {
+    ...(mitra.bankDetails || ({} as any)),
+    __whatsappGroupInvited: true,
+    __whatsappGroupInvitedAt: nowIso,
+  } as any;
+
+  const extraNote =
+    typeof customMessage === 'string' && customMessage.trim()
+      ? ` ${customMessage.trim().slice(0, 500)}`
+      : '';
+  const notifMsg = resolvedLink
+    ? `Admin mengundang Anda untuk bergabung ke ${resolvedName}. Klik tombol "Gabung Grup WhatsApp" di portal atau akses tautan resmi: ${resolvedLink}${extraNote}`
+    : `Admin telah menambahkan Anda ke daftar anggota ${resolvedName}.${extraNote}`;
+
+  const notif: NotificationItem = {
+    id: `notif-mtr-wa-${mitra.id}-${Date.now()}`,
+    title: `Undangan ${resolvedName}`,
+    message: notifMsg,
+    type: 'verification',
+    timestamp: nowIso,
+    isRead: false,
+    targetAudience: 'mitra',
+    mitraId: mitra.id,
+  };
+  notifications.unshift(notif);
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'mitra_verify',
+    operation: 'UPDATE',
+    targetEntity: 'Grup WhatsApp Mitra',
+    description: `Admin memasukkan / mengirim undangan "${resolvedName}" kepada Mitra "${mitra.fullName}" (${mitra.phone || '-'}).`,
+  });
+
+  if (db) {
+    try {
+      await db.from('mitras').update({ bankDetails: mitra.bankDetails }).eq('id', id);
+      await db.from('notifications').insert([toDbNotification(notif)]);
+    } catch (e) {
+      console.warn('MySQL whatsapp-group error', e);
+    }
+  }
+  await persistSettingsToMysql();
+  saveDatabase();
+
+  res.json({
+    success: true,
+    data: mitra,
+    whatsappGroupName: resolvedName,
+    whatsappGroupLink: resolvedLink,
+    message: `Mitra "${mitra.fullName}" telah ditandai masuk & dikirimi undangan ${resolvedName}.`,
+  });
 });
 
 // Toggle Mitra Active / Inactive status (Admin & Staff)
@@ -6331,6 +6643,20 @@ app.put('/api/mitra/:id/profile', async (req: Request, res: Response) => {
       delete mergedBank.__rejectedAt;
     }
     mitra.bankDetails = mergedBank;
+  }
+
+  if (!isAdminOrStaffEdit) {
+    const remainingMissing = getMissingMitraFields(mitra as any, appSettings as any);
+    if (remainingMissing.length === 0) {
+      mitra.profileCompletionNotice = undefined;
+      mitra.profileCompletionNoticeAt = undefined;
+      if (mitra.bankDetails) {
+        const cleanedBank: any = { ...mitra.bankDetails };
+        delete cleanedBank.__profileCompletionNotice;
+        delete cleanedBank.__profileCompletionNoticeAt;
+        mitra.bankDetails = cleanedBank;
+      }
+    }
   }
 
   if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim().length > 0) {
@@ -7044,6 +7370,9 @@ const isHostedUploadUrlStillReferenced = (targetNormalizedUrl: string): boolean 
   if (marketingTools.some((t) => matchesUrl(t.downloadUrl) || matchesUrl(t.thumbnailUrl))) {
     return true;
   }
+  if (proposalTemplates.some((p) => matchesUrl(p.pdfId?.url) || matchesUrl(p.pdfEn?.url))) {
+    return true;
+  }
   if (chatMessages.some((m) => !m.isDeleted && matchesUrl(m.imageUrl))) {
     return true;
   }
@@ -7744,6 +8073,472 @@ app.delete('/api/marketing-tools/:id', async (req: Request, res: Response) => {
   saveDatabase();
 
   res.json({ success: true, message: 'Materi berhasil dihapus' });
+});
+
+// ========================================================
+// 2.5 DYNAMIC PROPOSAL PENAWARAN PDF TEMPLATES (ID & EN)
+// ========================================================
+const persistProposalTemplatesToCloud = async () => {
+  if (!db) return;
+  try {
+    await db.from('user_passwords').upsert([
+      {
+        email: '__sys_proposal_templates__@ndtaxlaw.internal',
+        password: JSON.stringify(proposalTemplates),
+      },
+    ]);
+  } catch (e) {
+    console.warn('MySQL KV proposal_templates backup warning:', e);
+  }
+};
+
+// Strictly confined local/hosted file loader (ZERO outbound HTTP requests to prevent SSRF)
+const loadLocalOrHostedFileBuffer = async (rawUrl?: string | null): Promise<Buffer | null> => {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return null;
+
+  // 1. Inline base64 Data URL
+  if (trimmed.startsWith('data:')) {
+    const match = /^data:([^;]+);base64,(.+)$/i.exec(trimmed);
+    if (!match) return null;
+    try {
+      return Buffer.from(match[2], 'base64');
+    } catch {
+      return null;
+    }
+  }
+
+  // Strip query/hash for path inspection; reject external http(s) URLs except same-path /uploads/
+  let pathOnly = trimmed.split('?')[0].split('#')[0];
+  if (pathOnly.startsWith('http://') || pathOnly.startsWith('https://')) {
+    try {
+      const parsedUrl = new URL(pathOnly);
+      if (
+        !parsedUrl.pathname.startsWith('/uploads/') &&
+        !parsedUrl.pathname.startsWith('/proposals/') &&
+        !parsedUrl.pathname.startsWith('/assets/')
+      ) {
+        return null;
+      }
+      pathOnly = parsedUrl.pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  // 2. Seeded public proposals (/proposals/<file>)
+  if (pathOnly.startsWith('/proposals/')) {
+    const fileName = path.basename(decodeURIComponent(pathOnly.slice('/proposals/'.length)));
+    const confined = resolveConfinedFilePath(PUBLIC_PROPOSALS_DIR, fileName);
+    if (confined && fs.existsSync(confined) && fs.statSync(confined).isFile()) {
+      return fs.readFileSync(confined);
+    }
+    return null;
+  }
+
+  // 3. Hosted uploads (/uploads/marketing-tools/... or /uploads/chat/...)
+  const parsedUpload = parseHostedUploadUrl(pathOnly);
+  if (parsedUpload) {
+    const dirs = getUploadBucketDirs(parsedUpload.bucket);
+    for (const dir of [dirs.homeDir, dirs.dataDir, dirs.publicDir, dirs.legacyDistDir]) {
+      const confined = resolveConfinedFilePath(dir, parsedUpload.fileName);
+      if (confined && fs.existsSync(confined) && fs.statSync(confined).isFile()) {
+        return fs.readFileSync(confined);
+      }
+    }
+    // Self-heal read from MySQL Cloud backup if disk copy missing
+    if (db) {
+      try {
+        const lowerName = parsedUpload.fileName.toLowerCase();
+        const cloudKey = `${dirs.cloudKeyPrefix}${lowerName}__@ndtaxlaw.internal`;
+        const { data: rows } = await db
+          .from('user_passwords')
+          .select('password')
+          .eq('email', cloudKey)
+          .limit(1);
+        if (Array.isArray(rows) && rows[0]?.password) {
+          const parsedCloud = JSON.parse(rows[0].password);
+          if (parsedCloud?.base64) {
+            return Buffer.from(parsedCloud.base64, 'base64');
+          }
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  // 4. Static public assets (/assets/...)
+  if (pathOnly.startsWith('/assets/')) {
+    const publicAssetsRoot = path.resolve(__dirname, 'public', 'assets');
+    const relSub = decodeURIComponent(pathOnly.slice('/assets/'.length)).replace(/^\/+/, '');
+    const resolved = path.resolve(publicAssetsRoot, relSub);
+    if (
+      resolved.startsWith(publicAssetsRoot + path.sep) &&
+      fs.existsSync(resolved) &&
+      fs.statSync(resolved).isFile()
+    ) {
+      return fs.readFileSync(resolved);
+    }
+  }
+
+  return null;
+};
+
+app.get('/api/proposal-templates', async (req: Request, res: Response) => {
+  if (db) {
+    try {
+      const { data: kvData } = await db
+        .from('user_passwords')
+        .select('password')
+        .eq('email', '__sys_proposal_templates__@ndtaxlaw.internal')
+        .limit(1);
+      if (Array.isArray(kvData) && kvData[0]?.password) {
+        const parsed = JSON.parse(kvData[0].password);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          proposalTemplates = parsed;
+        }
+      }
+    } catch {}
+  }
+  res.json({ success: true, data: proposalTemplates });
+});
+
+app.post('/api/proposal-templates/upload', async (req: Request, res: Response) => {
+  try {
+    const { dataUrl, fileName } = req.body || {};
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      return res.status(400).json({ success: false, message: 'Data file PDF tidak valid.' });
+    }
+    const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
+    if (!match) {
+      return res.status(400).json({ success: false, message: 'Format unggahan PDF tidak dikenali.' });
+    }
+    const rawBuffer = Buffer.from(match[2], 'base64');
+    const MAX_PROPOSAL_PDF_BYTES = 35 * 1024 * 1024;
+    if (rawBuffer.length === 0 || rawBuffer.length > MAX_PROPOSAL_PDF_BYTES) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ukuran file PDF maksimal 35 MB dan tidak boleh kosong.',
+      });
+    }
+    // Validate PDF magic header (%PDF-)
+    if (rawBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      return res.status(400).json({
+        success: false,
+        message: 'File yang diunggah bukan dokumen PDF yang valid.',
+      });
+    }
+
+    const pageCount = await getPdfPageCount(rawBuffer);
+    if (pageCount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dokumen PDF tidak dapat dibaca atau rusak. Silakan periksa kembali file Anda.',
+      });
+    }
+
+    const cleanDisplayName =
+      String(fileName || 'Surat-Penawaran.pdf')
+        .replace(/[^\w\s().-]/g, '')
+        .trim()
+        .slice(0, 140) || 'Surat-Penawaran.pdf';
+
+    const saved = saveBufferToHostingServer(
+      rawBuffer,
+      cleanDisplayName,
+      'pdf',
+      'marketing-tools',
+      rawBuffer.length,
+      MAX_PROPOSAL_PDF_BYTES
+    );
+    if (!saved) {
+      return res.status(400).json({ success: false, message: 'Gagal menyimpan file PDF ke server.' });
+    }
+    if (saved.cloudSyncPromise) {
+      await saved.cloudSyncPromise;
+    }
+
+    const versionInfo: ProposalPdfVersion = {
+      url: saved.hostedUrl,
+      fileName: cleanDisplayName.toLowerCase().endsWith('.pdf')
+        ? cleanDisplayName
+        : `${cleanDisplayName}.pdf`,
+      fileSize: saved.formattedSize,
+      pageCount,
+      updatedAt: new Date().toISOString().split('T')[0],
+    };
+
+    return res.json({ success: true, data: versionInfo });
+  } catch (err) {
+    console.error('Upload proposal PDF error:', err);
+    return res.status(500).json({ success: false, message: 'Gagal memproses unggahan PDF surat penawaran.' });
+  }
+});
+
+app.post('/api/proposal-templates', async (req: Request, res: Response) => {
+  const { title, description, targetProduct, stampMode, pdfId, pdfEn } = req.body || {};
+  const cleanTitle = String(title || '').trim();
+  if (!cleanTitle) {
+    return res.status(400).json({ success: false, message: 'Judul surat penawaran wajib diisi.' });
+  }
+  if (!pdfId?.url && !pdfEn?.url) {
+    return res.status(400).json({
+      success: false,
+      message: 'Unggah minimal satu versi PDF (Bahasa Indonesia atau Bahasa Inggris).',
+    });
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const validStampMode =
+    stampMode === 'first_only' || stampMode === 'all_pages' ? stampMode : 'first_and_last';
+
+  const newProposal: ProposalTemplate = {
+    id: `prop-${Date.now()}`,
+    title: cleanTitle.slice(0, 180),
+    description: String(description || '').trim().slice(0, 600),
+    targetProduct: String(targetProduct || 'Layanan ND Tax & Law').trim().slice(0, 140),
+    stampMode: validStampMode,
+    pdfId: pdfId?.url ? pdfId : undefined,
+    pdfEn: pdfEn?.url ? pdfEn : undefined,
+    createdAt: todayStr,
+    updatedAt: todayStr,
+  };
+
+  proposalTemplates.unshift(newProposal);
+  await persistProposalTemplatesToCloud();
+  saveDatabase();
+
+  const notif: NotificationItem = {
+    id: `notif-prop-${Date.now()}`,
+    title: 'Surat Penawaran Baru Tersedia',
+    message: `Admin telah mengunggah Surat Penawaran baru: "${newProposal.title}". Mitra dapat langsung mengunduh versi Bahasa Indonesia & Inggris dengan identitas Mitra otomatis.`,
+    type: 'tools_update',
+    timestamp: new Date().toISOString(),
+    isRead: false,
+    targetAudience: 'mitra',
+  };
+  notifications.unshift(notif);
+  if (db) {
+    try {
+      await db.from('notifications').insert([toDbNotification(notif)]);
+    } catch {}
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'tool_create',
+    operation: 'CREATE',
+    targetEntity: 'Surat Penawaran PDF',
+    description: `Admin menambahkan Surat Penawaran dinamis: "${newProposal.title}".`,
+  });
+
+  res.status(201).json({ success: true, data: newProposal });
+});
+
+app.put('/api/proposal-templates/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const idx = proposalTemplates.findIndex((p) => p.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Surat penawaran tidak ditemukan.' });
+  }
+
+  const existing = proposalTemplates[idx];
+  const { title, description, targetProduct, stampMode, pdfId, pdfEn } = req.body || {};
+  const oldUrls = [existing.pdfId?.url, existing.pdfEn?.url].filter(Boolean) as string[];
+
+  const updated: ProposalTemplate = {
+    ...existing,
+    title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 180) : existing.title,
+    description:
+      typeof description === 'string' ? description.trim().slice(0, 600) : existing.description,
+    targetProduct:
+      typeof targetProduct === 'string' && targetProduct.trim()
+        ? targetProduct.trim().slice(0, 140)
+        : existing.targetProduct,
+    stampMode:
+      stampMode === 'first_only' || stampMode === 'all_pages' || stampMode === 'first_and_last'
+        ? stampMode
+        : existing.stampMode,
+    pdfId: pdfId === null ? undefined : pdfId?.url ? pdfId : existing.pdfId,
+    pdfEn: pdfEn === null ? undefined : pdfEn?.url ? pdfEn : existing.pdfEn,
+    updatedAt: new Date().toISOString().split('T')[0],
+  };
+
+  proposalTemplates[idx] = updated;
+  await persistProposalTemplatesToCloud();
+  saveDatabase();
+
+  // Clean up replaced hosted PDFs (never deletes static /proposals/ files)
+  for (const oldUrl of oldUrls) {
+    if (oldUrl !== updated.pdfId?.url && oldUrl !== updated.pdfEn?.url) {
+      await deleteHostedUploadFile(oldUrl);
+    }
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'tool_update',
+    operation: 'UPDATE',
+    targetEntity: 'Surat Penawaran PDF',
+    description: `Admin memperbarui Surat Penawaran dinamis: "${updated.title}".`,
+  });
+
+  res.json({ success: true, data: updated });
+});
+
+app.delete('/api/proposal-templates/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const target = proposalTemplates.find((p) => p.id === id);
+  if (!target) {
+    return res.status(404).json({ success: false, message: 'Surat penawaran tidak ditemukan.' });
+  }
+  proposalTemplates = proposalTemplates.filter((p) => p.id !== id);
+  await persistProposalTemplatesToCloud();
+  saveDatabase();
+
+  for (const oldUrl of [target.pdfId?.url, target.pdfEn?.url].filter(Boolean) as string[]) {
+    await deleteHostedUploadFile(oldUrl);
+  }
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'tool_delete',
+    operation: 'DELETE',
+    targetEntity: 'Surat Penawaran PDF',
+    description: `Admin menghapus Surat Penawaran dinamis: "${target.title}".`,
+  });
+
+  res.json({ success: true, message: 'Surat penawaran berhasil dihapus.' });
+});
+
+app.get('/api/proposal-templates/:id/download', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const langParam = String(req.query.lang || 'id').toLowerCase() === 'en' ? 'en' : 'id';
+    const mitraIdParam = String(req.query.mitraId || '').trim();
+    const isInline = String(req.query.inline || '') === '1';
+
+    const template = proposalTemplates.find((p) => p.id === id);
+    if (!template) {
+      return res.status(404).json({ success: false, message: 'Surat penawaran tidak ditemukan.' });
+    }
+
+    const version = langParam === 'en' ? template.pdfEn : template.pdfId;
+    if (!version || !version.url) {
+      return res.status(404).json({
+        success: false,
+        message:
+          langParam === 'en'
+            ? 'Versi Bahasa Inggris belum diunggah untuk surat penawaran ini.'
+            : 'Versi Bahasa Indonesia belum diunggah untuk surat penawaran ini.',
+      });
+    }
+
+    const pdfBuffer = await loadLocalOrHostedFileBuffer(version.url);
+    if (!pdfBuffer) {
+      return res.status(404).json({
+        success: false,
+        message: 'File PDF surat penawaran tidak ditemukan di server.',
+      });
+    }
+
+    let outputBytes: Uint8Array = pdfBuffer;
+    let mitraNameSlug = '';
+
+    if (mitraIdParam) {
+      // Refresh mitras from DB if needed so we always stamp up-to-date Mitra profile
+      let targetMitra = mitras.find((m) => m.id === mitraIdParam);
+      if (!targetMitra && db) {
+        try {
+          const { data: dbMitras } = await db.from('mitras').select('*');
+          if (Array.isArray(dbMitras)) {
+            mitras = normalizeMitraAvatars(dbMitras);
+            targetMitra = mitras.find((m) => m.id === mitraIdParam);
+          }
+        } catch {}
+      }
+
+      if (targetMitra) {
+        if (
+          String(req.query.enforceComplete || '') === '1' &&
+          (targetMitra.status !== 'verified' || isMitraDataIncomplete(targetMitra as any, appSettings as any))
+        ) {
+          const missing = getMissingMitraFields(targetMitra as any, appSettings as any);
+          return res.status(403).json({
+            success: false,
+            message:
+              missing.length > 0
+                ? `Mohon lengkapi data wajib berikut sebelum mengunduh surat penawaran: ${missing.join(', ')}.`
+                : 'Akun Mitra Anda belum terverifikasi atau data diri belum lengkap.',
+          });
+        }
+
+        let avatarBuffer: Buffer | null = null;
+        const avatarCandidate = (targetMitra.avatarUrl || '').trim();
+        // Skip SVG data URIs or external avatars; only embed real raster images from local/data sources
+        if (
+          avatarCandidate &&
+          !avatarCandidate.startsWith('data:image/svg') &&
+          !avatarCandidate.toLowerCase().endsWith('.svg')
+        ) {
+          avatarBuffer = await loadLocalOrHostedFileBuffer(avatarCandidate);
+        }
+
+        outputBytes = await stampMitraPartnerCardOnPdf(
+          pdfBuffer,
+          {
+            fullName: targetMitra.fullName || 'Mitra ND Tax & Law',
+            email: targetMitra.email || '',
+            phone: targetMitra.phone || '',
+            avatarBuffer,
+          },
+          {
+            lang: langParam,
+            stampMode: template.stampMode || 'first_and_last',
+            ffmpegBin: typeof ffmpegStatic === 'string' ? ffmpegStatic : null,
+          }
+        );
+
+        mitraNameSlug = targetMitra.fullName
+          .replace(/[^a-zA-Z0-9]+/g, '_')
+          .replace(/^_|_$/g, '')
+          .slice(0, 40);
+      }
+    }
+
+    const baseSafeTitle = (template.title || 'Surat_Penawaran_ND_Tax_And_Law')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 65);
+    const langTag = langParam === 'en' ? 'EN' : 'ID';
+    const downloadFileName = mitraNameSlug
+      ? `${baseSafeTitle}_${langTag}_${mitraNameSlug}.pdf`
+      : `${baseSafeTitle}_${langTag}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader(
+      'Content-Disposition',
+      `${isInline ? 'inline' : 'attachment'}; filename="${downloadFileName}"; filename*=UTF-8''${encodeURIComponent(downloadFileName)}`
+    );
+    return res.send(Buffer.from(outputBytes));
+  } catch (err) {
+    console.error('Download dynamic proposal PDF error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memproses dokumen surat penawaran PDF.',
+    });
+  }
 });
 
 // ========================================================
@@ -9416,12 +10211,71 @@ app.put('/api/settings', async (req: Request, res: Response) => {
     const saved = saveDataUrlToHostingServer(updates.logoBarcodeUrl, 'logo-barcode-nd', 'png');
     if (saved?.hostedUrl) updates.logoBarcodeUrl = saved.hostedUrl;
   }
+  const prevRequiredFieldKeys = new Set(
+    resolveMitraFormFields(appSettings as any)
+      .filter((f) => f.isActive !== false && f.required)
+      .map((f) => `${f.id}::${f.label.trim().toLowerCase()}`)
+  );
+
   const previousEnv = appSettings.appEnvironment;
   appSettings = { ...appSettings, ...updates };
   if (appSettings.activeLogoType === 'horizontal' && appSettings.logoHorizontalUrl) {
     appSettings.logoUrl = appSettings.logoHorizontalUrl;
   } else if (appSettings.activeLogoType === 'vertical' && appSettings.logoVerticalUrl) {
     appSettings.logoUrl = appSettings.logoVerticalUrl;
+  }
+
+  // Detect newly added / newly required Mitra profile columns and notify all Mitras automatically
+  const nextRequiredFields = resolveMitraFormFields(appSettings as any).filter(
+    (f) => f.isActive !== false && f.required
+  );
+  const newlyRequiredFields = nextRequiredFields.filter(
+    (f) => !prevRequiredFieldKeys.has(`${f.id}::${f.label.trim().toLowerCase()}`)
+  );
+
+  if (newlyRequiredFields.length > 0) {
+    const newFieldLabels = newlyRequiredFields.map((f) => f.label).join(', ');
+    const nowIso = new Date().toISOString();
+    const broadcastMsg = `Admin menambahkan kolom data diri wajib baru (${newFieldLabels}). Mohon segera melengkapi data diri Anda melalui menu Profil agar seluruh fitur kemitraan (Input Klien, Surat Penawaran, Tools Marketing & Tautan Referral) tetap dapat diakses.`;
+
+    const mitraRequiredNotif: NotificationItem = {
+      id: `notif-req-fields-${Date.now()}`,
+      title: 'Wajib Lengkapi Data Diri Terbaru',
+      message: broadcastMsg,
+      type: 'verification',
+      timestamp: nowIso,
+      isRead: false,
+      targetAudience: 'mitra',
+    };
+    notifications.unshift(mitraRequiredNotif);
+
+    if (db) {
+      try {
+        await db.from('notifications').insert([toDbNotification(mitraRequiredNotif)]);
+      } catch (e) {
+        console.warn('MySQL required-fields notification insert error', e);
+      }
+    }
+
+    // Also tag every Mitra who hasn't filled the newly required field(s)
+    for (const m of mitras) {
+      const missingList = getMissingMitraFields(m as any, appSettings as any);
+      if (missingList.length > 0) {
+        const personalNotice = `Mohon segera melengkapi kolom data diri wajib berikut: ${missingList.join(', ')}.`;
+        m.profileCompletionNotice = personalNotice;
+        m.profileCompletionNoticeAt = nowIso;
+        m.bankDetails = {
+          ...(m.bankDetails || ({} as any)),
+          __profileCompletionNotice: personalNotice,
+          __profileCompletionNoticeAt: nowIso,
+        } as any;
+        if (db) {
+          try {
+            await db.from('mitras').update({ bankDetails: m.bankDetails }).eq('id', m.id);
+          } catch {}
+        }
+      }
+    }
   }
 
   for (const oldLogoUrl of Array.from(new Set(prevLogoUrls))) {
@@ -9472,6 +10326,61 @@ app.put('/api/settings', async (req: Request, res: Response) => {
     smtpPassword: appSettings.smtpPassword ? '••••••••••••••••' : '',
   };
   res.json({ success: true, data: clientSafeSettings });
+});
+
+// Quick Admin endpoint to update official WhatsApp Group configuration
+app.put('/api/settings/whatsapp-group', async (req: Request, res: Response) => {
+  const { whatsappGroupName, whatsappGroupLink } = req.body || {};
+  const cleanName =
+    typeof whatsappGroupName === 'string' && whatsappGroupName.trim()
+      ? whatsappGroupName.trim().slice(0, 120)
+      : 'Grup WhatsApp Mitra ND Tax & Law';
+  const rawLink = typeof whatsappGroupLink === 'string' ? whatsappGroupLink.trim() : '';
+
+  let validatedLink = '';
+  if (rawLink) {
+    try {
+      const parsed = new URL(rawLink);
+      if (parsed.protocol !== 'https:') {
+        return res.status(400).json({
+          success: false,
+          message: 'Tautan Grup WhatsApp harus menggunakan protokol HTTPS (misal: https://chat.whatsapp.com/...).',
+        });
+      }
+      validatedLink = parsed.toString();
+    } catch {
+      return res.status(400).json({
+        success: false,
+        message: 'Format tautan Grup WhatsApp tidak valid.',
+      });
+    }
+  }
+
+  appSettings.whatsappGroupName = cleanName;
+  appSettings.whatsappGroupLink = validatedLink;
+
+  recordActivity({
+    actorRole: 'admin',
+    actorId: adminAccount.id,
+    actorName: adminAccount.name,
+    actorEmail: adminAccount.email,
+    actionType: 'settings_update',
+    operation: 'UPDATE',
+    targetEntity: 'Grup WhatsApp Mitra',
+    description: `Admin memperbarui konfigurasi Grup WhatsApp Mitra: "${cleanName}".`,
+  });
+
+  saveDatabase();
+  await persistSettingsToMysql();
+
+  res.json({
+    success: true,
+    data: {
+      whatsappGroupName: appSettings.whatsappGroupName,
+      whatsappGroupLink: appSettings.whatsappGroupLink,
+    },
+    message: 'Pengaturan Grup WhatsApp Mitra berhasil disimpan.',
+  });
 });
 
 // 3.9 SMTP Email Server & Dispatch Log Endpoints

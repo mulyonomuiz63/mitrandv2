@@ -20,9 +20,13 @@ import {
   Briefcase,
   ChevronDown,
   MoreVertical,
-  Pencil
+  Pencil,
+  RotateCcw,
+  BellRing,
+  Copy,
+  Link2,
 } from 'lucide-react';
-import { AppSettings, AuthUser, Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName } from '../types';
+import { AppSettings, AuthUser, Mitra, ChatRoom, ClientDeal, getMitraKtpFileUrl, getMitraKtpFileName, getMissingMitraFields } from '../types';
 import { getDefaultAvatar } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 import { compressAndUploadFile, isAllowedVerificationDocumentFile } from '../utils/fileCompressor';
@@ -43,7 +47,7 @@ interface MitraVerificationPanelProps {
   currentUser?: AuthUser | null;
   onVerifyMitra: (
     id: string,
-    status: 'verified' | 'rejected',
+    status: 'verified' | 'rejected' | 'pending',
     rejectionReason?: string,
     groupChatIds?: string[]
   ) => Promise<void>;
@@ -51,6 +55,7 @@ interface MitraVerificationPanelProps {
   onUpdateMitraProfile?: (id: string, data: Partial<Mitra> & Record<string, any>) => Promise<any>;
   onToggleMitraActive?: (id: string, isActive: boolean, reason?: string) => Promise<any>;
   onDeleteMitra?: (id: string) => Promise<any>;
+  onRefreshData?: () => void;
 }
 
 const REJECTION_REASON_PRESETS = [
@@ -59,6 +64,15 @@ const REJECTION_REASON_PRESETS = [
   'Nama pemilik rekening bank tidak sesuai dengan nama lengkap Mitra terdaftar.',
   'Nomor rekening bank pencairan tidak valid / belum lengkap.',
   'Nomor WhatsApp aktif atau data profil belum lengkap.',
+];
+
+const INCOMPLETE_DATA_CHECKLIST = [
+  'Foto Profil Resmi',
+  'Upload File KTP / NPWP',
+  'NIK KTP (16 Digit)',
+  'Nomor WhatsApp Aktif',
+  'Data Rekening Bank Pencairan',
+  'Kolom Data Diri Tambahan',
 ];
 
 export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
@@ -71,6 +85,7 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   onUpdateMitraProfile,
   onToggleMitraActive,
   onDeleteMitra,
+  onRefreshData,
 }) => {
   const confirm = useConfirm();
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified' | 'rejected' | 'inactive'>('all');
@@ -134,6 +149,219 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
   const [rejectionReasonInput, setRejectionReasonInput] = useState<string>(
     'Data rekening bank / NIK KTP belum sesuai dengan identitas pendaftaran. Silakan perbaiki data diri Anda dan ajukan ulang verifikasi.'
   );
+
+  // Revoke Verification Modal State (Batalkan Verifikasi)
+  const [mitraToRevoke, setMitraToRevoke] = useState<Mitra | null>(null);
+  const [revokeReasonInput, setRevokeReasonInput] = useState<string>('');
+
+  // Notify Incomplete Data Modal State (Info Lengkapi Data Diri)
+  const [mitraToNotifyIncomplete, setMitraToNotifyIncomplete] = useState<Mitra | null>(null);
+  const [selectedMissingItems, setSelectedMissingItems] = useState<string[]>([]);
+  const [incompleteMessageInput, setIncompleteMessageInput] = useState<string>('');
+  const [sendingIncompleteNotice, setSendingIncompleteNotice] = useState<boolean>(false);
+
+  // WhatsApp Group Invite & Config Modal State
+  const [mitraForWaGroup, setMitraForWaGroup] = useState<Mitra | null>(null);
+  const [waGroupNameInput, setWaGroupNameInput] = useState<string>(
+    settings?.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law'
+  );
+  const [waGroupLinkInput, setWaGroupLinkInput] = useState<string>(
+    settings?.whatsappGroupLink || ''
+  );
+  const [waCustomNoteInput, setWaCustomNoteInput] = useState<string>('');
+  const [isWaGroupConfigModalOpen, setIsWaGroupConfigModalOpen] = useState<boolean>(false);
+  const [savingWaGroup, setSavingWaGroup] = useState<boolean>(false);
+  const [copiedWaLink, setCopiedWaLink] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (settings?.whatsappGroupName) setWaGroupNameInput(settings.whatsappGroupName);
+    if (typeof settings?.whatsappGroupLink === 'string') setWaGroupLinkInput(settings.whatsappGroupLink);
+  }, [settings?.whatsappGroupName, settings?.whatsappGroupLink]);
+
+  const formatWaNumber = (rawPhone?: string) => {
+    const digits = String(rawPhone || '').replace(/\D/g, '');
+    if (!digits) return '';
+    return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
+  };
+
+  const openRevokeModal = (m: Mitra) => {
+    setMitraToRevoke(m);
+    const missing = getMissingMitraFields(m, settings);
+    setRevokeReasonInput(
+      missing.length > 0
+        ? `Status verifikasi dibatalkan sementara. Mohon lengkapi data berikut terlebih dahulu: ${missing.join(', ')}.`
+        : 'Status verifikasi dibatalkan sementara oleh Admin untuk peninjauan ulang / kelengkapan data diri.'
+    );
+  };
+
+  const handleConfirmRevokeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mitraToRevoke) return;
+    setActionLoadingId(mitraToRevoke.id);
+    setPanelFeedback(null);
+    try {
+      await onVerifyMitra(mitraToRevoke.id, 'pending', revokeReasonInput.trim());
+      if (selectedMitraDetail && selectedMitraDetail.id === mitraToRevoke.id) {
+        setSelectedMitraDetail(null);
+      }
+      setPanelFeedback({
+        type: 'success',
+        text: `Verifikasi Mitra "${mitraToRevoke.fullName}" berhasil dibatalkan dan dikembalikan ke status Pending Verifikasi.`,
+      });
+      setMitraToRevoke(null);
+      mitraDt.refresh();
+    } catch (err: any) {
+      setPanelFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal membatalkan verifikasi mitra.',
+      });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openNotifyIncompleteModal = (m: Mitra) => {
+    const autoMissing = getMissingMitraFields(m, settings);
+    setMitraToNotifyIncomplete(m);
+    setSelectedMissingItems(autoMissing);
+    setIncompleteMessageInput(
+      autoMissing.length > 0
+        ? `Halo ${m.fullName}, mohon segera melengkapi data diri wajib berikut di Portal Mitra ND Tax & Law: ${autoMissing.join(', ')}.`
+        : `Halo ${m.fullName}, mohon segera memeriksa dan melengkapi data diri serta dokumen verifikasi Anda di menu Profil Portal Mitra.`
+    );
+  };
+
+  const toggleMissingChecklistItem = (item: string) => {
+    setSelectedMissingItems((prev) => {
+      const next = prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item];
+      if (mitraToNotifyIncomplete) {
+        setIncompleteMessageInput(
+          next.length > 0
+            ? `Halo ${mitraToNotifyIncomplete.fullName}, mohon segera melengkapi data diri wajib berikut di Portal Mitra ND Tax & Law: ${next.join(', ')}.`
+            : `Halo ${mitraToNotifyIncomplete.fullName}, mohon segera melengkapi data diri Anda di menu Profil Portal Mitra.`
+        );
+      }
+      return next;
+    });
+  };
+
+  const handleSendIncompleteNoticeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mitraToNotifyIncomplete) return;
+    setSendingIncompleteNotice(true);
+    setPanelFeedback(null);
+    try {
+      const res = await fetch(`/api/mitra/${encodeURIComponent(mitraToNotifyIncomplete.id)}/notify-incomplete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: incompleteMessageInput.trim(),
+          missingItems: selectedMissingItems,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal mengirim pemberitahuan kelengkapan data.');
+      }
+      if (selectedMitraDetail && selectedMitraDetail.id === mitraToNotifyIncomplete.id && json.data) {
+        setSelectedMitraDetail(json.data);
+      }
+      setPanelFeedback({
+        type: 'success',
+        text: json.message || `Pemberitahuan kelengkapan data berhasil dikirim ke ${mitraToNotifyIncomplete.fullName}.`,
+      });
+      setMitraToNotifyIncomplete(null);
+      if (onRefreshData) onRefreshData();
+      mitraDt.refresh();
+    } catch (err: any) {
+      setPanelFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal mengirim pemberitahuan kelengkapan data.',
+      });
+    } finally {
+      setSendingIncompleteNotice(false);
+    }
+  };
+
+  const openWaGroupInviteModal = (m: Mitra) => {
+    setMitraForWaGroup(m);
+    setWaGroupNameInput(settings?.whatsappGroupName || 'Grup WhatsApp Mitra ND Tax & Law');
+    setWaGroupLinkInput(settings?.whatsappGroupLink || '');
+    setWaCustomNoteInput('');
+    setCopiedWaLink(false);
+  };
+
+  const handleSaveWaGroupConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingWaGroup(true);
+    setPanelFeedback(null);
+    try {
+      const res = await fetch('/api/settings/whatsapp-group', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          whatsappGroupName: waGroupNameInput.trim(),
+          whatsappGroupLink: waGroupLinkInput.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal menyimpan pengaturan Grup WhatsApp.');
+      }
+      setPanelFeedback({
+        type: 'success',
+        text: json.message || 'Pengaturan Grup WhatsApp Mitra berhasil disimpan.',
+      });
+      setIsWaGroupConfigModalOpen(false);
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      setPanelFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal menyimpan pengaturan Grup WhatsApp.',
+      });
+    } finally {
+      setSavingWaGroup(false);
+    }
+  };
+
+  const handleInviteMitraToWaGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mitraForWaGroup) return;
+    setSavingWaGroup(true);
+    setPanelFeedback(null);
+    try {
+      const res = await fetch(`/api/mitra/${encodeURIComponent(mitraForWaGroup.id)}/whatsapp-group`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupName: waGroupNameInput.trim(),
+          groupLink: waGroupLinkInput.trim(),
+          customMessage: waCustomNoteInput.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal mengirim undangan Grup WhatsApp.');
+      }
+      if (selectedMitraDetail && selectedMitraDetail.id === mitraForWaGroup.id && json.data) {
+        setSelectedMitraDetail(json.data);
+      }
+      setMitraForWaGroup(json.data || { ...mitraForWaGroup, whatsappGroupInvited: true });
+      setPanelFeedback({
+        type: 'success',
+        text: json.message || `Undangan Grup WhatsApp berhasil dikirim ke ${mitraForWaGroup.fullName}.`,
+      });
+      if (onRefreshData) onRefreshData();
+      mitraDt.refresh();
+    } catch (err: any) {
+      setPanelFeedback({
+        type: 'error',
+        text: err?.message || 'Gagal mengirim undangan Grup WhatsApp.',
+      });
+    } finally {
+      setSavingWaGroup(false);
+    }
+  };
 
   const clientCountByMitraId = React.useMemo(() => {
     const map = new Map<string, number>();
@@ -367,10 +595,10 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8 space-y-6">
-      {/* Title */}
+      {/* Title & WhatsApp Group Config Button */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-900 font-display flex items-center gap-2 flex-wrap">
             <span>Verifikasi &amp; Manajemen Data Mitra</span>
             {pendingCount > 0 && (
               <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
@@ -379,6 +607,14 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
             )}
           </h1>
         </div>
+        <button
+          type="button"
+          onClick={() => setIsWaGroupConfigModalOpen(true)}
+          className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl inline-flex items-center gap-2 self-start sm:self-auto cursor-pointer transition-colors shadow-2xs"
+        >
+          <Users className="w-4 h-4 text-[#25D366]" />
+          <span>Atur Grup WhatsApp Mitra</span>
+        </button>
       </div>
 
       {panelFeedback && (
@@ -572,6 +808,24 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                               <Briefcase className="w-3 h-3" />
                               <span>{mitraClientCount} Klien</span>
                             </span>
+                            {m.whatsappGroupInvited && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <Users className="w-3 h-3 text-[#25D366]" />
+                                <span>Grup WA ✓</span>
+                              </span>
+                            )}
+                            {(m.profileCompletionNotice || getMissingMitraFields(m, settings).length > 0) && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                                title={
+                                  m.profileCompletionNotice ||
+                                  `Data belum lengkap: ${getMissingMitraFields(m, settings).join(', ')}`
+                                }
+                              >
+                                <BellRing className="w-3 h-3" />
+                                <span>Perlu Lengkapi Data</span>
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -779,19 +1033,59 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                 )}
 
                 {target.status === 'verified' && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setOpenActionMenu(null);
-                      onSelectMitraPreview(target);
-                    }}
-                    className="w-full px-3 py-2 text-left text-blue-700 hover:bg-blue-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
-                  >
-                    <CreditCard className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span>Lihat ID Card</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenActionMenu(null);
+                        onSelectMitraPreview(target);
+                      }}
+                      className="w-full px-3 py-2 text-left text-blue-700 hover:bg-blue-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Lihat ID Card</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenActionMenu(null);
+                        openRevokeModal(target);
+                      }}
+                      className="w-full px-3 py-2 text-left text-orange-700 hover:bg-orange-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-orange-600 shrink-0" />
+                      <span>Batalkan Verifikasi</span>
+                    </button>
+                  </>
                 )}
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenActionMenu(null);
+                    openNotifyIncompleteModal(target);
+                  }}
+                  className="w-full px-3 py-2 text-left text-amber-800 hover:bg-amber-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                >
+                  <BellRing className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Info Lengkapi Data</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenActionMenu(null);
+                    openWaGroupInviteModal(target);
+                  }}
+                  className="w-full px-3 py-2 text-left text-emerald-700 hover:bg-emerald-50 flex items-center gap-2.5 font-semibold cursor-pointer transition-colors"
+                >
+                  <Users className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
+                  <span>{target.whatsappGroupInvited ? 'Kirim Ulang Grup WA' : 'Masukkan ke Grup WA'}</span>
+                </button>
               </div>
 
               {(onToggleMitraActive || onDeleteMitra) && (
@@ -1241,6 +1535,47 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
                   Tutup
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = selectedMitraDetail;
+                    setSelectedMitraDetail(null);
+                    openNotifyIncompleteModal(target);
+                  }}
+                  className="px-3 py-2 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <BellRing className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Info Lengkapi Data</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = selectedMitraDetail;
+                    setSelectedMitraDetail(null);
+                    openWaGroupInviteModal(target);
+                  }}
+                  className="px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Users className="w-3.5 h-3.5 text-[#25D366]" />
+                  <span>Grup WA</span>
+                </button>
+
+                {selectedMitraDetail.status === 'verified' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = selectedMitraDetail;
+                      setSelectedMitraDetail(null);
+                      openRevokeModal(target);
+                    }}
+                    className="px-3 py-2 text-xs font-semibold text-orange-800 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-orange-600" />
+                    <span>Batalkan Verifikasi</span>
+                  </button>
+                )}
+
                 {selectedMitraDetail.status !== 'verified' && (
                   <>
                     <button
@@ -1639,6 +1974,383 @@ export const MitraVerificationPanel: React.FC<MitraVerificationPanelProps> = ({
           return result;
         }}
       />
+
+      {/* Modal Batalkan Verifikasi Mitra */}
+      {mitraToRevoke && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-100 border border-orange-200 text-orange-700 flex items-center justify-center shrink-0">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-orange-50 text-orange-800 border border-orange-200">
+                    PEMBATALAN VERIFIKASI
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900 font-display mt-1">
+                    Batalkan Verifikasi Mitra
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMitraToRevoke(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmRevokeSubmit} className="p-5 space-y-4">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Status Mitra <strong>{mitraToRevoke.fullName}</strong> ({mitraToRevoke.memberCode}) akan dikembalikan ke{' '}
+                <strong className="text-amber-700">Menunggu Verifikasi (Pending)</strong>. Akses Input Klien, ID Card, dan Tools Marketing akan terkunci sementara hingga disetujui kembali.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Catatan / Alasan Pembatalan (Tampil di Portal &amp; Notifikasi Mitra)
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={revokeReasonInput}
+                  onChange={(e) => setRevokeReasonInput(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setMitraToRevoke(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoadingId === mitraToRevoke.id}
+                  className="px-4 py-2 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                >
+                  {actionLoadingId === mitraToRevoke.id ? 'Memproses...' : 'Ya, Batalkan Verifikasi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Info Lengkapi Data Diri Mitra */}
+      {mitraToNotifyIncomplete && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                  <BellRing className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-display">
+                    Informasikan Lengkapi Data Diri
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Kirim pengingat ke {mitraToNotifyIncomplete.fullName} ({mitraToNotifyIncomplete.memberCode})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMitraToNotifyIncomplete(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendIncompleteNoticeSubmit} className="p-5 overflow-y-auto flex-1 space-y-4">
+              <div>
+                <p className="text-xs font-bold text-slate-800 mb-2">Pilih Data yang Perlu Dilengkapi:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from(
+                    new Set([...getMissingMitraFields(mitraToNotifyIncomplete, settings), ...INCOMPLETE_DATA_CHECKLIST])
+                  ).map((item) => {
+                    const checked = selectedMissingItems.includes(item);
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => toggleMissingChecklistItem(item)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                          checked
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {checked ? '✓ ' : '+ '}
+                        {item}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Pesan Pemberitahuan untuk Mitra *
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={incompleteMessageInput}
+                  onChange={(e) => setIncompleteMessageInput(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Pesan akan tampil sebagai banner pengingat di Portal Mitra, masuk ke notifikasi aplikasi, dan dikirim ke email Mitra.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                {formatWaNumber(mitraToNotifyIncomplete.phone) ? (
+                  <a
+                    href={`https://wa.me/${formatWaNumber(mitraToNotifyIncomplete.phone)}?text=${encodeURIComponent(
+                      incompleteMessageInput.trim()
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl inline-flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Kirim juga via WhatsApp</span>
+                  </a>
+                ) : (
+                  <span />
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMitraToNotifyIncomplete(null)}
+                    className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sendingIncompleteNotice}
+                    className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                  >
+                    {sendingIncompleteNotice ? 'Mengirim...' : 'Kirim Pemberitahuan'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Masukkan Mitra ke Grup WhatsApp */}
+      {mitraForWaGroup && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5 text-[#25D366]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-display">
+                    Masukkan Mitra ke Grup WhatsApp
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {mitraForWaGroup.fullName} · {mitraForWaGroup.phone || 'Belum ada nomor WA'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMitraForWaGroup(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleInviteMitraToWaGroup} className="p-5 overflow-y-auto flex-1 space-y-4">
+              {mitraForWaGroup.whatsappGroupInvited && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Mitra ini sudah ditandai masuk / diundang ke Grup WhatsApp.</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">Nama Grup WhatsApp Resmi</label>
+                <input
+                  type="text"
+                  value={waGroupNameInput}
+                  onChange={(e) => setWaGroupNameInput(e.target.value)}
+                  placeholder="Grup WhatsApp Mitra ND Tax & Law"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Link Undangan Grup WhatsApp (https://chat.whatsapp.com/...)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="url"
+                    value={waGroupLinkInput}
+                    onChange={(e) => setWaGroupLinkInput(e.target.value)}
+                    placeholder="https://chat.whatsapp.com/xxxxxxxxxxxx"
+                    className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                  {waGroupLinkInput.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(waGroupLinkInput.trim());
+                        setCopiedWaLink(true);
+                        setTimeout(() => setCopiedWaLink(false), 2500);
+                      }}
+                      className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      {copiedWaLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedWaLink ? 'Disalin' : 'Salin'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">Catatan Tambahan (Opsional)</label>
+                <textarea
+                  rows={2}
+                  value={waCustomNoteInput}
+                  onChange={(e) => setWaCustomNoteInput(e.target.value)}
+                  placeholder="Silakan bergabung ke grup koordinasi resmi Mitra ND Tax & Law..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <p className="text-[11px] font-bold text-slate-700">Kirim Undangan Langsung ke WhatsApp Mitra:</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {formatWaNumber(mitraForWaGroup.phone) ? (
+                    <a
+                      href={`https://wa.me/${formatWaNumber(mitraForWaGroup.phone)}?text=${encodeURIComponent(
+                        `Halo ${mitraForWaGroup.fullName}, selamat bergabung di ${
+                          waGroupNameInput.trim() || 'Grup WhatsApp Mitra ND Tax & Law'
+                        }!${
+                          waGroupLinkInput.trim()
+                            ? `\n\nSilakan klik tautan resmi berikut untuk masuk ke grup:\n${waGroupLinkInput.trim()}`
+                            : ''
+                        }${waCustomNoteInput.trim() ? `\n\n${waCustomNoteInput.trim()}` : ''}`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-2 text-xs font-bold text-white bg-[#25D366] hover:bg-[#1ebe5d] rounded-xl inline-flex items-center gap-1.5 shadow-xs"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Kirim Link via WhatsApp ({mitraForWaGroup.phone})</span>
+                    </a>
+                  ) : (
+                    <span className="text-[11px] text-amber-700">Mitra belum mengisi nomor WhatsApp.</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setMitraForWaGroup(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingWaGroup}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                >
+                  {savingWaGroup ? 'Menyimpan...' : 'Simpan & Kirim Undangan di Portal'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pengaturan Grup WhatsApp Mitra */}
+      {isWaGroupConfigModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Link2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                    Pengaturan Grup WhatsApp Mitra
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Tautan grup resmi yang muncul saat Admin mengundang Mitra.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWaGroupConfigModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveWaGroupConfig} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">Nama Grup WhatsApp</label>
+                <input
+                  type="text"
+                  required
+                  value={waGroupNameInput}
+                  onChange={(e) => setWaGroupNameInput(e.target.value)}
+                  placeholder="Grup WhatsApp Mitra ND Tax & Law"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Tautan Undangan Grup (HTTPS)
+                </label>
+                <input
+                  type="url"
+                  value={waGroupLinkInput}
+                  onChange={(e) => setWaGroupLinkInput(e.target.value)}
+                  placeholder="https://chat.whatsapp.com/..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsWaGroupConfigModalOpen(false)}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingWaGroup}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                >
+                  {savingWaGroup ? 'Menyimpan...' : 'Simpan Pengaturan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -274,6 +274,10 @@ export interface Mitra {
   deactivatedAt?: string;
   deactivatedBy?: string;
   deactivatedReason?: string;
+  profileCompletionNotice?: string;
+  profileCompletionNoticeAt?: string;
+  whatsappGroupInvited?: boolean;
+  whatsappGroupInvitedAt?: string;
   customFields?: Record<string, string>;
   isLoadingFallback?: boolean;
 }
@@ -318,61 +322,91 @@ export function getMitraKtpFileName(mitra?: Mitra | null): string {
   return 'Dokumen_KTP_NPWP';
 }
 
-export function isMitraDataIncomplete(mitra?: Mitra | null, settings?: AppSettings | null): boolean {
-  if (!mitra || mitra.id === 'mitra-empty' || mitra.isLoadingFallback) return false;
+export function getMissingMitraFields(
+  mitra?: Mitra | null,
+  settings?: AppSettings | null
+): string[] {
+  if (!mitra || mitra.id === 'mitra-empty' || mitra.isLoadingFallback) return [];
   const fields = resolveMitraFormFields(settings);
-  const isFieldActive = (key: MitraSystemFieldKey) => {
-    const found = fields.find((f) => f.systemKey === key);
-    return found ? found.isActive !== false : true;
+  const missing: string[] = [];
+
+  const getField = (key: MitraSystemFieldKey) => fields.find((f) => f.systemKey === key);
+  const isFieldRequiredAndActive = (key: MitraSystemFieldKey, defaultRequired = true) => {
+    const found = getField(key);
+    if (!found) return defaultRequired;
+    return found.isActive !== false && found.required !== false;
   };
 
-  const missingBankNumber =
-    isFieldActive('accountNumber') &&
-    (!mitra.bankDetails?.accountNumber ||
-      mitra.bankDetails.accountNumber.trim() === '' ||
-      mitra.bankDetails.accountNumber.trim() === '-' ||
-      !/^\d+$/.test(mitra.bankDetails.accountNumber.trim()));
-  const missingBankName =
-    isFieldActive('bankName') &&
-    (!mitra.bankDetails?.bankName ||
-      mitra.bankDetails.bankName.trim() === '' ||
-      mitra.bankDetails.bankName.trim() === '-');
-  const missingBankHolder =
-    isFieldActive('accountHolder') &&
-    (!mitra.bankDetails?.accountHolder ||
-      mitra.bankDetails.accountHolder.trim() === '' ||
-      mitra.bankDetails.accountHolder.trim() === '-');
-  const missingBank = missingBankNumber || missingBankName || missingBankHolder;
-
-  const missingNik =
-    isFieldActive('nik') &&
+  if (
+    isFieldRequiredAndActive('nik') &&
     (!mitra.nik ||
       mitra.nik.trim() === '' ||
       mitra.nik.trim() === '-' ||
-      mitra.nik.trim() === '3201000000000000');
-  const missingPhone =
-    isFieldActive('phone') &&
-    (!mitra.phone ||
-      mitra.phone.trim() === '' ||
-      mitra.phone.trim() === '-');
+      mitra.nik.trim() === '3201000000000000')
+  ) {
+    missing.push(getField('nik')?.label || 'NIK KTP (16 Digit)');
+  }
 
-  const ktpField = fields.find((f) => f.systemKey === 'ktpFile');
-  const isKtpRequiredAndActive = ktpField
-    ? ktpField.isActive !== false && ktpField.required !== false
-    : true;
-  const missingKtpFile = isKtpRequiredAndActive && !getMitraKtpFileUrl(mitra);
+  if (
+    isFieldRequiredAndActive('phone') &&
+    (!mitra.phone || mitra.phone.trim() === '' || mitra.phone.trim() === '-')
+  ) {
+    missing.push(getField('phone')?.label || 'Nomor WhatsApp');
+  }
 
-  const missingRequiredCustomFile = fields.some((f) => {
-    if (f.systemKey || f.isActive === false || !f.required || f.type !== 'file') return false;
+  if (
+    isFieldRequiredAndActive('ktpFile') &&
+    !getMitraKtpFileUrl(mitra)
+  ) {
+    missing.push(getField('ktpFile')?.label || 'Upload File KTP / NPWP');
+  }
+
+  if (
+    isFieldRequiredAndActive('bankName') &&
+    (!mitra.bankDetails?.bankName ||
+      mitra.bankDetails.bankName.trim() === '' ||
+      mitra.bankDetails.bankName.trim() === '-')
+  ) {
+    missing.push(getField('bankName')?.label || 'Nama Bank');
+  }
+
+  if (
+    isFieldRequiredAndActive('accountNumber') &&
+    (!mitra.bankDetails?.accountNumber ||
+      mitra.bankDetails.accountNumber.trim() === '' ||
+      mitra.bankDetails.accountNumber.trim() === '-' ||
+      !/^\d+$/.test(mitra.bankDetails.accountNumber.trim()))
+  ) {
+    missing.push(getField('accountNumber')?.label || 'Nomor Rekening');
+  }
+
+  if (
+    isFieldRequiredAndActive('accountHolder') &&
+    (!mitra.bankDetails?.accountHolder ||
+      mitra.bankDetails.accountHolder.trim() === '' ||
+      mitra.bankDetails.accountHolder.trim() === '-')
+  ) {
+    missing.push(getField('accountHolder')?.label || 'Nama Pemilik Rekening');
+  }
+
+  // Check ALL active required custom fields (text, number, tel, email, textarea, select, date, file)
+  for (const f of fields) {
+    if (f.systemKey || f.isActive === false || !f.required) continue;
     const val =
       mitra.customFields?.[f.label] ||
       mitra.customFields?.[f.id] ||
       mitra.bankDetails?.customBankFields?.[f.label] ||
       mitra.bankDetails?.customBankFields?.[f.id];
-    return !val || String(val).trim() === '' || String(val).trim() === '-';
-  });
+    if (!val || String(val).trim() === '' || String(val).trim() === '-') {
+      missing.push(f.label);
+    }
+  }
 
-  return missingBank || missingNik || missingPhone || missingKtpFile || missingRequiredCustomFile;
+  return missing;
+}
+
+export function isMitraDataIncomplete(mitra?: Mitra | null, settings?: AppSettings | null): boolean {
+  return getMissingMitraFields(mitra, settings).length > 0;
 }
 
 
@@ -834,6 +868,10 @@ export interface AppSettings {
   // Live Chat Feature Toggle (Managed by Admin: if false, hidden for Mitra & Staf)
   chatEnabled?: boolean;
 
+  // Official Mitra WhatsApp Group Invite Settings (Managed by Admin)
+  whatsappGroupName?: string;
+  whatsappGroupLink?: string;
+
   // Dynamic Mitra Specialization & Custom Form Fields Configuration
   specializationEnabled?: boolean;
   specializationLabel?: string;
@@ -932,6 +970,26 @@ export interface MarketingTool {
   createdAt: string;
   updatedAt?: string;
   targetProduct: string;
+}
+
+export interface ProposalPdfVersion {
+  url: string;
+  fileName: string;
+  fileSize: string;
+  pageCount?: number;
+  updatedAt?: string;
+}
+
+export interface ProposalTemplate {
+  id: string;
+  title: string;
+  description: string;
+  targetProduct: string;
+  stampMode: 'first_and_last' | 'first_only' | 'all_pages';
+  pdfId?: ProposalPdfVersion;
+  pdfEn?: ProposalPdfVersion;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CommissionTransaction {

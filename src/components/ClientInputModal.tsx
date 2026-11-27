@@ -13,6 +13,7 @@ import {
   OFFICIAL_ND_SERVICES,
   resolveServicePricingType,
   isMitraDataIncomplete,
+  getMissingMitraFields,
 } from '../types';
 import { MonthYearPicker, MONTH_NAMES_ID } from './MonthYearPicker';
 import { useConfirm } from './ConfirmDialogModal';
@@ -317,21 +318,33 @@ export const ClientInputModal: React.FC<ClientInputModalProps> = ({
                 </button>
               </div>
             </div>
-          ) : isMitraDataIncomplete(currentMitra) ? (
+          ) : isMitraDataIncomplete(currentMitra, dynamicSettings || settings) ? (
             <div className="flex-1 overflow-y-auto p-8 text-center space-y-4">
               <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
                 <ShieldCheck className="w-8 h-8" />
               </div>
               <div className="space-y-2 max-w-md mx-auto">
                 <span className="inline-block px-3 py-1 text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded-full">
-                  Data Diri Belum Lengkap
+                  Data Diri Wajib Belum Lengkap
                 </span>
                 <h3 className="text-lg font-bold text-slate-900">
                   Lengkapi Data Diri Terlebih Dahulu
                 </h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Sebelum dapat melakukan penambahan klien maupun menyalin dan membagikan tautan registrasi klien, silakan lengkapi <strong>Data Diri</strong> (NIK KTP, Upload File KTP/NPWP, Nomor WhatsApp, serta Rekening Bank Pencairan Komisi) terlebih dahulu.
+                  Sebelum dapat melakukan penambahan klien maupun menyalin dan membagikan tautan registrasi klien, silakan lengkapi seluruh kolom <strong>Data Diri Wajib</strong> berikut pada profil Anda:
                 </p>
+                {getMissingMitraFields(currentMitra, dynamicSettings || settings).length > 0 && (
+                  <div className="pt-1 flex flex-wrap items-center justify-center gap-1.5">
+                    {getMissingMitraFields(currentMitra, dynamicSettings || settings).map((label) => (
+                      <span
+                        key={label}
+                        className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold"
+                      >
+                        • {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="pt-2 flex items-center justify-center gap-2.5">
                 <button

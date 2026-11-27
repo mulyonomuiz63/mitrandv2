@@ -15,7 +15,7 @@ import {
   Camera,
   Lock
 } from 'lucide-react';
-import { Mitra, isMitraDataIncomplete } from '../types';
+import { Mitra, AppSettings, isMitraDataIncomplete } from '../types';
 import { useConfirm } from './ConfirmDialogModal';
 import { Skeleton, ImageWithSkeleton } from './SkeletonLoader';
 
@@ -106,6 +106,7 @@ interface ExclusiveIdCardProps {
   logoUrl?: string;
   logoHorizontalUrl?: string;
   logoBarcodeUrl?: string;
+  settings?: AppSettings | null;
 }
 
 export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
@@ -122,6 +123,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
   logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
   logoHorizontalUrl,
   logoBarcodeUrl,
+  settings,
 }) => {
   const confirm = useConfirm();
   const [isFlipped, setIsFlipped] = useState(false);
@@ -227,7 +229,7 @@ export const ExclusiveIdCard: React.FC<ExclusiveIdCardProps> = ({
     });
   };
 
-  const isDataIncomplete = isMitraDataIncomplete(mitra);
+  const isDataIncomplete = isMitraDataIncomplete(mitra, settings);
 
   const handleCopyClientLink = () => {
     if (isDataIncomplete) {

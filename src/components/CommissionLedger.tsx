@@ -1164,14 +1164,14 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 ? mitra.status === 'rejected'
                   ? `Data verifikasi ditolak: ${mitra.rejectionReason || 'Silakan perbaiki data diri dan ajukan ulang.'}`
                   : 'Akun Anda masih dalam proses verifikasi Admin. Input klien baru dapat dilakukan setelah akun di-approve Admin.'
-                : isMitraDataIncomplete(mitra)
-                ? 'Lengkapi Data Diri terlebih dahulu sebelum menginput klien baru.'
+                : isMitraDataIncomplete(mitra, settings)
+                ? 'Lengkapi Data Diri wajib terlebih dahulu sebelum menginput klien baru.'
                 : 'Input Klien Baru (Referral)'
             }
             className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 text-xs font-bold rounded-xl shadow-sm transition-all w-full lg:w-auto shrink-0 cursor-pointer ${
               mitra.status !== 'verified'
                 ? 'text-slate-400 bg-slate-200 cursor-not-allowed'
-                : isMitraDataIncomplete(mitra)
+                : isMitraDataIncomplete(mitra, settings)
                 ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
                 : 'text-white bg-blue-700 hover:bg-blue-800'
             }`}
@@ -1182,7 +1182,7 @@ export const CommissionLedger: React.FC<CommissionLedgerProps> = ({
                 ? mitra.status === 'rejected'
                   ? '🔒 Input Klien Baru (Data Ditolak)'
                   : '🔒 Input Klien Baru (Menunggu Approve)'
-                : isMitraDataIncomplete(mitra)
+                : isMitraDataIncomplete(mitra, settings)
                 ? '🔒 Input Klien Baru (Lengkapi Data Diri)'
                 : 'Input Klien Baru (Referral)'}
             </span>

@@ -51,6 +51,7 @@ interface NavbarProps {
   logoUrl?: string;
   pendingMitraCount?: number;
   pendingClientCount?: number;
+  isProfileIncomplete?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -75,7 +76,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   logoUrl = '/assets/aistudio/logo_nd_vertikal.svg',
   pendingMitraCount,
   pendingClientCount = 0,
+  isProfileIncomplete,
 }) => {
+  const mitraIncomplete =
+    typeof isProfileIncomplete === 'boolean'
+      ? isProfileIncomplete
+      : isMitraDataIncomplete(activeMitra);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -179,14 +185,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title={
                     activeMitra.status !== 'verified'
                       ? 'Akun Anda sedang dalam verifikasi Admin. Input klien baru aktif setelah di-approve Admin.'
-                      : isMitraDataIncomplete(activeMitra)
-                      ? 'Lengkapi Data Diri terlebih dahulu untuk menginput klien baru.'
+                      : mitraIncomplete
+                      ? 'Lengkapi Data Diri wajib terlebih dahulu untuk menginput klien baru.'
                       : 'Input Data Klien Baru'
                   }
                   className={`hidden md:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap shadow-xs cursor-pointer ${
                     activeMitra.status !== 'verified'
                       ? 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed'
-                      : isMitraDataIncomplete(activeMitra)
+                      : mitraIncomplete
                       ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
                       : 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40 hover:brightness-110'
                   }`}
@@ -194,7 +200,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>
                     {activeMitra.status !== 'verified'
                       ? '🔒 Input Klien'
-                      : isMitraDataIncomplete(activeMitra)
+                      : mitraIncomplete
                       ? '🔒 Input Klien (Lengkapi Data)'
                       : '+ Input Klien'}
                   </span>
@@ -400,7 +406,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           className={`w-full px-3 py-2 text-xs font-bold rounded-xl flex items-center gap-2.5 text-left ${
                             activeMitra.status !== 'verified'
                               ? 'text-slate-400 bg-slate-50 cursor-not-allowed'
-                              : isMitraDataIncomplete(activeMitra)
+                              : mitraIncomplete
                               ? 'bg-amber-100 text-amber-900 border border-amber-300'
                               : 'bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-amber-300 border border-amber-400/40'
                           }`}
@@ -409,7 +415,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <span>
                             {activeMitra.status !== 'verified'
                               ? '🔒 Input Klien (Menunggu ACC)'
-                              : isMitraDataIncomplete(activeMitra)
+                              : mitraIncomplete
                               ? '🔒 Input Klien (Lengkapi Data)'
                               : '+ Input Klien Baru'}
                           </span>

@@ -21,8 +21,15 @@ import {
   Lock,
   LayoutGrid,
   Table as TableIcon,
+  Globe,
+  Sparkles,
+  UserCheck,
+  Mail,
+  Phone,
+  Loader2,
 } from 'lucide-react';
-import { MarketingTool, Mitra } from '../types';
+import { MarketingTool, Mitra, ProposalTemplate, ProposalPdfVersion } from '../types';
+import { getDefaultAvatar } from '../avatars';
 import { useConfirm } from './ConfirmDialogModal';
 import {
   useServerDataTable,
@@ -36,6 +43,9 @@ interface MarketingToolsHubProps {
   tools: MarketingTool[];
   userRole: 'admin' | 'mitra';
   activeMitra?: Mitra;
+  allMitras?: Mitra[];
+  isProfileIncomplete?: boolean;
+  missingProfileFields?: string[];
   onEditProfile?: () => void;
   onAddTool: (tool: Partial<MarketingTool>) => Promise<void>;
   onUpdateTool?: (id: string, updates: Partial<MarketingTool>) => Promise<void>;
@@ -46,6 +56,9 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   tools,
   userRole,
   activeMitra,
+  allMitras = [],
+  isProfileIncomplete = false,
+  missingProfileFields = [],
   onEditProfile,
   onAddTool,
   onUpdateTool,
@@ -82,6 +95,278 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
   const [isCompressingFile, setIsCompressingFile] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Dynamic Proposal Penawaran PDF (ID & EN) State
+  const [proposalTemplates, setProposalTemplates] = useState<ProposalTemplate[]>([]);
+  const [loadingProposals, setLoadingProposals] = useState<boolean>(true);
+  const [adminPreviewMitraId, setAdminPreviewMitraId] = useState<string>('');
+  const [previewProposalPdf, setPreviewProposalPdf] = useState<{
+    title: string;
+    lang: 'id' | 'en';
+    inlineUrl: string;
+    downloadUrl: string;
+  } | null>(null);
+  const [downloadingProposalKey, setDownloadingProposalKey] = useState<string | null>(null);
+  const [isProposalModalOpen, setIsProposalModalOpen] = useState<boolean>(false);
+  const [editingProposalId, setEditingProposalId] = useState<string | null>(null);
+  const [propTitle, setPropTitle] = useState('');
+  const [propTargetProduct, setPropTargetProduct] = useState('');
+  const [propDescription, setPropDescription] = useState('');
+  const [propStampMode, setPropStampMode] = useState<'first_and_last' | 'first_only' | 'all_pages'>('first_and_last');
+  const [propPdfId, setPropPdfId] = useState<ProposalPdfVersion | null>(null);
+  const [propPdfEn, setPropPdfEn] = useState<ProposalPdfVersion | null>(null);
+  const [uploadingPropLang, setUploadingPropLang] = useState<'id' | 'en' | null>(null);
+  const [propFormError, setPropFormError] = useState<string | null>(null);
+  const [isSavingProposal, setIsSavingProposal] = useState<boolean>(false);
+  const [quickReplaceKey, setQuickReplaceKey] = useState<string | null>(null);
+
+  const fetchProposalTemplates = React.useCallback(async () => {
+    setLoadingProposals(true);
+    try {
+      const res = await fetch('/api/proposal-templates');
+      const json = await res.json();
+      if (json?.success && Array.isArray(json.data)) {
+        setProposalTemplates(json.data);
+      }
+    } catch (err) {
+      console.error('Failed to load proposal templates:', err);
+    } finally {
+      setLoadingProposals(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchProposalTemplates();
+  }, [fetchProposalTemplates]);
+
+  React.useEffect(() => {
+    if (userRole === 'admin' && !adminPreviewMitraId && allMitras.length > 0) {
+      const preferred = allMitras.find((m) => m.status === 'verified') || allMitras[0];
+      if (preferred) setAdminPreviewMitraId(preferred.id);
+    }
+  }, [userRole, allMitras, adminPreviewMitraId]);
+
+  const effectiveMitraForProposal: Mitra | undefined = React.useMemo(() => {
+    if (userRole === 'mitra') return activeMitra;
+    if (adminPreviewMitraId) {
+      return allMitras.find((m) => m.id === adminPreviewMitraId);
+    }
+    return undefined;
+  }, [userRole, activeMitra, allMitras, adminPreviewMitraId]);
+
+  const buildProposalUrl = (proposalId: string, lang: 'id' | 'en', inline: boolean): string => {
+    const params = new URLSearchParams({ lang });
+    if (effectiveMitraForProposal?.id) {
+      params.set('mitraId', effectiveMitraForProposal.id);
+    }
+    if (userRole === 'mitra') {
+      params.set('enforceComplete', '1');
+    }
+    if (inline) params.set('inline', '1');
+    return `/api/proposal-templates/${encodeURIComponent(proposalId)}/download?${params.toString()}`;
+  };
+
+  const handleDownloadProposalPdf = async (proposal: ProposalTemplate, lang: 'id' | 'en') => {
+    const key = `${proposal.id}-${lang}`;
+    setDownloadingProposalKey(key);
+    try {
+      const url = buildProposalUrl(proposal.id, lang, false);
+      const res = await fetch(url);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        showToast(errJson?.message || 'Gagal mengunduh surat penawaran PDF.');
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      const safeTitle = proposal.title.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_') || 'Surat_Penawaran';
+      const mitraSlug = effectiveMitraForProposal?.fullName
+        ? `_${effectiveMitraForProposal.fullName.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '')}`
+        : '';
+      link.download = `${safeTitle}_${lang.toUpperCase()}${mitraSlug}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+      showToast(
+        `Surat Penawaran (${lang === 'id' ? 'Bahasa Indonesia' : 'English'}) berhasil diunduh${
+          effectiveMitraForProposal ? ` atas nama ${effectiveMitraForProposal.fullName}` : ''
+        }.`
+      );
+    } catch (err) {
+      console.error('Download proposal error:', err);
+      showToast('Terjadi kendala saat mengunduh surat penawaran.');
+    } finally {
+      setDownloadingProposalKey(null);
+    }
+  };
+
+  const uploadSingleProposalPdfFile = async (file: File): Promise<ProposalPdfVersion> => {
+    if (file.size > 35 * 1024 * 1024) {
+      throw new Error(`Ukuran PDF terlalu besar (${formatBytes(file.size)}). Maksimal 35 MB.`);
+    }
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      throw new Error('Hanya file berformat .PDF yang diperbolehkan.');
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => reject(new Error('Gagal membaca file PDF.'));
+      reader.readAsDataURL(file);
+    });
+    const res = await fetch('/api/proposal-templates/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl, fileName: file.name }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success || !json?.data) {
+      throw new Error(json?.message || 'Gagal mengunggah file PDF ke server.');
+    }
+    return json.data as ProposalPdfVersion;
+  };
+
+  const resetProposalForm = () => {
+    setEditingProposalId(null);
+    setPropTitle('');
+    setPropTargetProduct('Jasa Konsultasi Pajak & Hukum');
+    setPropDescription('');
+    setPropStampMode('first_and_last');
+    setPropPdfId(null);
+    setPropPdfEn(null);
+    setPropFormError(null);
+  };
+
+  const openEditProposalModal = (p: ProposalTemplate) => {
+    setEditingProposalId(p.id);
+    setPropTitle(p.title);
+    setPropTargetProduct(p.targetProduct || '');
+    setPropDescription(p.description || '');
+    setPropStampMode(p.stampMode || 'first_and_last');
+    setPropPdfId(p.pdfId || null);
+    setPropPdfEn(p.pdfEn || null);
+    setPropFormError(null);
+    setIsProposalModalOpen(true);
+  };
+
+  const handleProposalFileSelect = async (lang: 'id' | 'en', e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPropFormError(null);
+    setUploadingPropLang(lang);
+    try {
+      const uploaded = await uploadSingleProposalPdfFile(file);
+      if (lang === 'id') setPropPdfId(uploaded);
+      else setPropPdfEn(uploaded);
+    } catch (err: any) {
+      setPropFormError(err?.message || 'Gagal mengunggah file PDF.');
+    } finally {
+      setUploadingPropLang(null);
+    }
+  };
+
+  const handleQuickReplaceProposalPdf = async (
+    proposal: ProposalTemplate,
+    lang: 'id' | 'en',
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const key = `${proposal.id}-${lang}`;
+    setQuickReplaceKey(key);
+    try {
+      const uploaded = await uploadSingleProposalPdfFile(file);
+      const res = await fetch(`/api/proposal-templates/${encodeURIComponent(proposal.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(lang === 'id' ? { pdfId: uploaded } : { pdfEn: uploaded }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal menyimpan file PDF terbaru.');
+      }
+      await fetchProposalTemplates();
+      showToast(`PDF ${lang === 'id' ? 'Bahasa Indonesia' : 'Bahasa Inggris'} berhasil diperbarui!`);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal memperbarui PDF.');
+    } finally {
+      setQuickReplaceKey(null);
+    }
+  };
+
+  const handleSaveProposalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPropFormError(null);
+    if (!propTitle.trim()) {
+      setPropFormError('Judul surat penawaran wajib diisi.');
+      return;
+    }
+    if (!propPdfId && !propPdfEn) {
+      setPropFormError('Unggah minimal satu versi PDF (Bahasa Indonesia atau Bahasa Inggris).');
+      return;
+    }
+    setIsSavingProposal(true);
+    try {
+      const endpoint = editingProposalId
+        ? `/api/proposal-templates/${encodeURIComponent(editingProposalId)}`
+        : '/api/proposal-templates';
+      const res = await fetch(endpoint, {
+        method: editingProposalId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: propTitle.trim(),
+          targetProduct: propTargetProduct.trim(),
+          description: propDescription.trim(),
+          stampMode: propStampMode,
+          pdfId: propPdfId,
+          pdfEn: propPdfEn,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || 'Gagal menyimpan surat penawaran.');
+      }
+      await fetchProposalTemplates();
+      setIsProposalModalOpen(false);
+      resetProposalForm();
+      showToast(
+        editingProposalId
+          ? 'Surat Penawaran berhasil diperbarui!'
+          : 'Surat Penawaran baru berhasil diunggah & tersedia untuk seluruh Mitra!'
+      );
+    } catch (err: any) {
+      setPropFormError(err?.message || 'Gagal menyimpan surat penawaran.');
+    } finally {
+      setIsSavingProposal(false);
+    }
+  };
+
+  const handleDeleteProposal = async (proposal: ProposalTemplate) => {
+    const ok = await confirm({
+      title: 'Hapus Surat Penawaran',
+      message: `Apakah Anda yakin ingin menghapus "${proposal.title}"?`,
+      confirmText: 'Ya, Hapus',
+      cancelText: 'Batalkan',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/proposal-templates/${encodeURIComponent(proposal.id)}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json();
+      if (res.ok && json?.success) {
+        await fetchProposalTemplates();
+        showToast('Surat Penawaran berhasil dihapus.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const categories = [
     { id: 'all', label: 'Semua Materi' },
@@ -612,6 +897,60 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
     );
   }
 
+  // Lock Marketing Tools & Surat Penawaran when a verified Mitra has missing required profile columns
+  if (userRole === 'mitra' && activeMitra && isProfileIncomplete) {
+    return (
+      <div className="max-w-7xl mx-auto py-5 sm:py-6 px-3 sm:px-6 lg:px-8 space-y-6">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-display">
+            Tools Marketing &amp; Surat Penawaran
+          </h1>
+        </div>
+
+        <div className="bg-white border-2 border-amber-300 rounded-2xl p-6 sm:p-8 text-center space-y-4 shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div className="space-y-2 max-w-lg mx-auto">
+            <span className="inline-block px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-amber-100 text-amber-900 border border-amber-200">
+              Akses Terkunci — Data Diri Wajib Belum Lengkap
+            </span>
+            <h3 className="text-base font-bold text-slate-900 font-display">
+              Lengkapi Kolom Data Diri Wajib Terlebih Dahulu
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Akses ke <strong>Surat Penawaran PDF Dinamis</strong> dan katalog <strong>Tools Marketing</strong> dikunci sementara hingga seluruh kolom data diri wajib di profil Anda dilengkapi.
+            </p>
+            {missingProfileFields.length > 0 && (
+              <div className="pt-2 flex flex-wrap items-center justify-center gap-1.5">
+                {missingProfileFields.map((label) => (
+                  <span
+                    key={label}
+                    className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold"
+                  >
+                    • {label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {onEditProfile && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={onEditProfile}
+                className="px-5 py-2.5 text-xs font-bold text-amber-300 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 border border-amber-400/40 rounded-xl shadow-sm inline-flex items-center gap-2 cursor-pointer"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Lengkapi Data Diri Sekarang</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-3 sm:px-6 lg:px-8">
       {/* Toast Notification */}
@@ -631,17 +970,301 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
         </div>
 
         {userRole === 'admin' && (
-          <button
-            onClick={() => {
-              resetToolForm();
-              setIsAddModalOpen(true);
-            }}
-            className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 self-start md:self-auto cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Tambah Tools / Video Baru</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <button
+              type="button"
+              onClick={() => {
+                resetProposalForm();
+                setIsProposalModalOpen(true);
+              }}
+              className="px-4 py-2 text-xs font-semibold text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload Surat Penawaran (ID / EN)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetToolForm();
+                setIsAddModalOpen(true);
+              }}
+              className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center gap-2 shadow-xs shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tambah Tools / Video Baru</span>
+            </button>
+          </div>
         )}
+      </div>
+
+      {/* Dynamic Official Proposal Penawaran PDF Section (Bahasa Indonesia & English) */}
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+        <div className="bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] px-5 py-4 text-white flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-amber-400/30">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                <Sparkles className="w-3 h-3" />
+                <span>Kartu Mitra Dinamis Otomatis</span>
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 text-slate-200 text-[10px] font-semibold">
+                <Globe className="w-3 h-3 text-amber-300" />
+                <span>Bahasa Indonesia &amp; English</span>
+              </span>
+            </div>
+            <h2 className="text-base sm:text-lg font-bold font-display text-white">
+              Surat Penawaran Harga Jasa Resmi (PDF)
+            </h2>
+            <p className="text-xs text-slate-200/90 max-w-2xl">
+              {userRole === 'admin'
+                ? 'Unggah atau ganti template PDF Bahasa Indonesia & Inggris. Setiap kali Mitra mengunduh, foto, nama, email, dan nomor telepon pada kartu Mitra di dalam PDF otomatis disesuaikan dengan akun Mitra tersebut.'
+                : 'Setiap surat penawaran PDF yang Anda unduh otomatis menampilkan foto profil, nama, email, dan nomor telepon Anda sebagai ND Strategic Partner.'}
+            </p>
+          </div>
+
+          {/* Live Dynamic Partner Card Preview (Mitra own profile or Admin selected test Mitra) */}
+          <div className="shrink-0 flex flex-col gap-2">
+            {userRole === 'admin' && allMitras.length > 0 && (
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="text-amber-200 font-semibold whitespace-nowrap">Pratinjau Mitra:</span>
+                <select
+                  value={adminPreviewMitraId}
+                  onChange={(e) => setAdminPreviewMitraId(e.target.value)}
+                  className="bg-slate-900/80 border border-amber-400/40 text-white text-xs rounded-lg px-2.5 py-1 focus:outline-hidden focus:ring-2 focus:ring-amber-400 max-w-[230px]"
+                >
+                  <option value="">Tanpa Identitas Mitra (Master PDF)</option>
+                  {allMitras.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.fullName} ({m.memberCode})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {effectiveMitraForProposal && (
+              <div className="flex items-center gap-3 rounded-xl bg-[#0E1218] border border-[#C9A45C]/50 pl-2.5 pr-3.5 py-2 shadow-md relative overflow-hidden">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#C9A45C]" />
+                <img
+                  src={
+                    effectiveMitraForProposal.avatarUrl ||
+                    getDefaultAvatar(effectiveMitraForProposal.gender, effectiveMitraForProposal.fullName)
+                  }
+                  alt={effectiveMitraForProposal.fullName}
+                  className="w-11 h-11 rounded-lg object-cover border border-[#C9A45C]/80 shrink-0 bg-slate-800"
+                />
+                <div className="min-w-0 text-[11px] leading-tight">
+                  <p className="text-[9px] font-bold tracking-[0.16em] text-[#C9A45C] uppercase">
+                    ND STRATEGIC PARTNER
+                  </p>
+                  <p className="font-bold text-white truncate max-w-[190px] mt-0.5 flex items-center gap-1">
+                    <UserCheck className="w-3 h-3 text-[#C9A45C] shrink-0" />
+                    <span className="truncate">{effectiveMitraForProposal.fullName}</span>
+                  </p>
+                  <p className="text-slate-300 truncate max-w-[190px] flex items-center gap-1 mt-0.5">
+                    <Mail className="w-2.5 h-2.5 text-[#C9A45C] shrink-0" />
+                    <span className="truncate">{effectiveMitraForProposal.email}</span>
+                  </p>
+                  <p className="text-slate-300 truncate max-w-[190px] flex items-center gap-1 mt-0.5">
+                    <Phone className="w-2.5 h-2.5 text-[#C9A45C] shrink-0" />
+                    <span className="truncate">{effectiveMitraForProposal.phone || '-'}</span>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-4 bg-slate-50/50">
+          {loadingProposals ? (
+            <div className="py-8 flex items-center justify-center gap-2 text-xs text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-700" />
+              <span>Memuat surat penawaran resmi...</span>
+            </div>
+          ) : proposalTemplates.length === 0 ? (
+            <div className="py-8 text-center bg-white rounded-xl border border-dashed border-slate-300 p-6">
+              <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-xs font-semibold text-slate-700">Belum ada surat penawaran PDF yang diunggah.</p>
+              {userRole === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetProposalForm();
+                    setIsProposalModalOpen(true);
+                  }}
+                  className="mt-3 px-3.5 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload Surat Penawaran Pertama</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            proposalTemplates.map((proposal) => (
+              <div
+                key={proposal.id}
+                className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 sm:p-5 space-y-4"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900 font-display">
+                        {proposal.title}
+                      </h3>
+                      {proposal.targetProduct && (
+                        <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-bold">
+                          {proposal.targetProduct}
+                        </span>
+                      )}
+                    </div>
+                    {proposal.description && (
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">{proposal.description}</p>
+                    )}
+                  </div>
+
+                  {userRole === 'admin' && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditProposalModal(proposal)}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProposal(proposal)}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Hapus</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Dual-Language PDF Cards: Indonesia (ID) & English (EN) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {(['id', 'en'] as const).map((lang) => {
+                    const ver = lang === 'id' ? proposal.pdfId : proposal.pdfEn;
+                    const isId = lang === 'id';
+                    const key = `${proposal.id}-${lang}`;
+                    const isDownloading = downloadingProposalKey === key;
+                    const isReplacing = quickReplaceKey === key;
+
+                    return (
+                      <div
+                        key={lang}
+                        className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 transition-colors ${
+                          ver
+                            ? isId
+                              ? 'bg-red-50/30 border-slate-200 hover:border-blue-300'
+                              : 'bg-blue-50/30 border-slate-200 hover:border-blue-300'
+                            : 'bg-slate-50 border-dashed border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <div
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 border ${
+                                isId
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200'
+                              }`}
+                            >
+                              {isId ? 'ID' : 'EN'}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-bold text-slate-900">
+                                  {isId ? 'Versi Bahasa Indonesia' : 'English Version'}
+                                </span>
+                                {ver && (
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    PDF Siap
+                                  </span>
+                                )}
+                              </div>
+                              {ver ? (
+                                <>
+                                  <p className="text-[11px] text-slate-600 truncate mt-0.5" title={ver.fileName}>
+                                    {ver.fileName}
+                                  </p>
+                                  <p className="text-[10px] font-mono text-slate-500 mt-0.5">
+                                    {ver.fileSize}
+                                    {ver.pageCount ? ` · ${ver.pageCount} halaman` : ''}
+                                    {ver.updatedAt ? ` · Update ${ver.updatedAt}` : ''}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  Belum ada file PDF untuk bahasa ini.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/70">
+                          {ver && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreviewProposalPdf({
+                                    title: `${proposal.title} (${isId ? 'Bahasa Indonesia' : 'English'})`,
+                                    lang,
+                                    inlineUrl: buildProposalUrl(proposal.id, lang, true),
+                                    downloadUrl: buildProposalUrl(proposal.id, lang, false),
+                                  })
+                                }
+                                className="flex-1 min-w-[95px] px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Pratinjau</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isDownloading}
+                                onClick={() => handleDownloadProposalPdf(proposal, lang)}
+                                className="flex-1 min-w-[115px] px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] hover:brightness-110 disabled:opacity-60 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                              >
+                                {isDownloading ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5 text-amber-300" />
+                                )}
+                                <span>{isDownloading ? 'Memproses...' : 'Unduh PDF'}</span>
+                              </button>
+                            </>
+                          )}
+
+                          {userRole === 'admin' && (
+                            <label className="px-2.5 py-1.5 text-xs font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg inline-flex items-center gap-1.5 cursor-pointer transition-colors">
+                              {isReplacing ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Upload className="w-3.5 h-3.5" />
+                              )}
+                              <span>{isReplacing ? 'Mengunggah...' : ver ? 'Ganti PDF' : 'Upload PDF'}</span>
+                              <input
+                                type="file"
+                                accept=".pdf,application/pdf"
+                                disabled={isReplacing}
+                                onChange={(e) => handleQuickReplaceProposalPdf(proposal, lang, e)}
+                                className="hidden"
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Search, Category Filter & Server-Side DataTables Controls */}
@@ -724,12 +1347,9 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
       {toolsDt.isLoading && displayLayout === 'grid' ? (
         <CardGridSkeleton count={toolsDt.perPage > 6 ? 6 : toolsDt.perPage} />
       ) : filteredTools.length === 0 && !toolsDt.isLoading ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-slate-200 p-6">
+        <div className="text-center py-14 bg-white rounded-xl border border-slate-200 p-6">
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-slate-800">Materi Tidak Ditemukan</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-            Tidak ada dokumen atau video yang sesuai dengan kata kunci pencarian Anda. Coba ubah filter kategori.
-          </p>
         </div>
       ) : displayLayout === 'table' ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
@@ -1427,6 +2047,240 @@ export const MarketingToolsHub: React.FC<MarketingToolsHubProps> = ({
                     : editingToolId
                     ? 'Simpan Perubahan'
                     : 'Publikasikan ke Mitra'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pratinjau PDF Surat Penawaran Dinamis */}
+      {previewProposalPdf && (
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
+            <div className="px-5 py-3.5 bg-gradient-to-r from-[#092147] via-[#113872] to-[#061835] text-white flex items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold truncate font-display">{previewProposalPdf.title}</h3>
+                {effectiveMitraForProposal && (
+                  <p className="text-[11px] text-amber-300 truncate">
+                    Kartu Mitra Aktif: {effectiveMitraForProposal.fullName} · {effectiveMitraForProposal.email} ·{' '}
+                    {effectiveMitraForProposal.phone || '-'}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={previewProposalPdf.downloadUrl}
+                  download
+                  className="px-3 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh PDF</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewProposalPdf(null)}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  aria-label="Tutup pratinjau"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-100">
+              <iframe
+                src={previewProposalPdf.inlineUrl}
+                title={previewProposalPdf.title}
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Admin Upload / Edit Surat Penawaran PDF (Bahasa Indonesia & English) */}
+      {isProposalModalOpen && userRole === 'admin' && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 font-display">
+                  {editingProposalId ? 'Edit Surat Penawaran PDF (ID & EN)' : 'Upload Surat Penawaran PDF Baru'}
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Kartu identitas Mitra di sudut kiri bawah PDF otomatis diganti sesuai akun Mitra yang mengunduh.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsProposalModalOpen(false);
+                  resetProposalForm();
+                }}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProposalSubmit} className="p-5 overflow-y-auto flex-1 space-y-4">
+              {propFormError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{propFormError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Judul Surat Penawaran *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Surat Penawaran Harga Jasa FAT (Financial, Accounting & Tax)"
+                  value={propTitle}
+                  onChange={(e) => setPropTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Target Layanan / Produk
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Jasa FAT / Tax Advisory"
+                    value={propTargetProduct}
+                    onChange={(e) => setPropTargetProduct(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Posisi Kartu Mitra Dinamis
+                  </label>
+                  <select
+                    value={propStampMode}
+                    onChange={(e) =>
+                      setPropStampMode(e.target.value as 'first_and_last' | 'first_only' | 'all_pages')
+                    }
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                  >
+                    <option value="first_and_last">Halaman 1 &amp; Halaman Terakhir (Rekomendasi)</option>
+                    <option value="first_only">Halaman 1 (Cover) Saja</option>
+                    <option value="all_pages">Semua Halaman</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Deskripsi Singkat
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Keterangan singkat surat penawaran..."
+                  value={propDescription}
+                  onChange={(e) => setPropDescription(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Dual PDF Uploaders */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {(['id', 'en'] as const).map((lang) => {
+                  const ver = lang === 'id' ? propPdfId : propPdfEn;
+                  const isUploading = uploadingPropLang === lang;
+                  return (
+                    <div
+                      key={lang}
+                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">
+                          {lang === 'id' ? 'PDF Bahasa Indonesia (ID)' : 'PDF English Version (EN)'}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-mono text-[10px] font-bold">
+                          {lang.toUpperCase()}
+                        </span>
+                      </div>
+
+                      {isUploading ? (
+                        <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center gap-2 text-xs font-semibold text-blue-800">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Mengunggah PDF...</span>
+                        </div>
+                      ) : ver ? (
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+                          <p className="text-xs font-bold text-emerald-950 truncate" title={ver.fileName}>
+                            {ver.fileName}
+                          </p>
+                          <p className="text-[11px] font-mono text-emerald-700">
+                            {ver.fileSize} · {ver.pageCount || '-'} hal.
+                          </p>
+                          <div className="flex items-center gap-2 pt-1">
+                            <label className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-white border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50">
+                              Ganti PDF
+                              <input
+                                type="file"
+                                accept=".pdf,application/pdf"
+                                onChange={(e) => handleProposalFileSelect(lang, e)}
+                                className="hidden"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => (lang === 'id' ? setPropPdfId(null) : setPropPdfEn(null))}
+                              className="px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center gap-1.5 p-4 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl bg-white cursor-pointer text-center transition-colors">
+                          <Upload className="w-5 h-5 text-blue-700" />
+                          <span className="text-xs font-bold text-blue-800">
+                            Pilih File PDF ({lang.toUpperCase()})
+                          </span>
+                          <span className="text-[10px] text-slate-500">Maksimal 35 MB</span>
+                          <input
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            onChange={(e) => handleProposalFileSelect(lang, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProposalModalOpen(false);
+                    resetProposalForm();
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProposal || uploadingPropLang !== null}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg disabled:opacity-50 shadow-xs cursor-pointer"
+                >
+                  {isSavingProposal
+                    ? 'Menyimpan...'
+                    : editingProposalId
+                    ? 'Simpan Perubahan'
+                    : 'Publikasikan Surat Penawaran'}
                 </button>
               </div>
             </form>
