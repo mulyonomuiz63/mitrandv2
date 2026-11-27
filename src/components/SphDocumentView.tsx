@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import {
   ProspectLetterContent,
@@ -265,62 +265,10 @@ const SphA4PageFrame: React.FC<{
   );
 };
 
-const BilingualScopeSection: React.FC<{
-  service: SphServiceSelection;
-  letterPrefix?: string;
-  compact?: boolean;
-}> = ({ service, letterPrefix, compact = false }) => {
-  const fontSize = compact ? '8.7pt' : '9.5pt';
-  const rowGap = compact ? '1.1mm' : '1.5mm';
-  return (
-    <div style={{ marginBottom: compact ? '3.5mm' : '4.5mm' }}>
-      {letterPrefix && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            columnGap: '8mm',
-            fontWeight: 700,
-            fontSize: compact ? '9.3pt' : '9.8pt',
-            marginBottom: '1.6mm',
-          }}
-        >
-          <div style={{ color: '#000000' }}>
-            {letterPrefix}. {service.serviceNameId}
-          </div>
-          <div style={{ color: '#111111' }}>
-            {letterPrefix}. {service.serviceNameEn}
-          </div>
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: rowGap }}>
-        {service.scopeItems.map((item, idx) => (
-          <div
-            key={idx}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              columnGap: '8mm',
-              fontSize,
-              lineHeight: 1.32,
-            }}
-          >
-            <div style={{ display: 'flex', color: '#000000' }}>
-              <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
-              <span style={{ flex: 1 }}>{item.idText}</span>
-            </div>
-            <div style={{ display: 'flex', color: '#4B5563' }}>
-              <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
-              <span style={{ flex: 1 }}>{item.enText}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const SphFeeTable: React.FC<{ sph: SphDocument }> = ({ sph }) => {
+function buildSphFeeTableParts(sph: SphDocument): {
+  thead: React.ReactNode;
+  rows: Array<{ key: string; render: (blockIdx?: number) => React.ReactNode }>;
+} {
   const isMulti = sph.services.length > 1;
   const hasDiscount = sph.discountAmount > 0 && sph.finalTotalMonthly < sph.normalTotalMonthly;
   const headerCellStyle: React.CSSProperties = {
@@ -358,244 +306,278 @@ const SphFeeTable: React.FC<{ sph: SphDocument }> = ({ sph }) => {
           ? 'Service scheme'
           : 'Average monthly transactions';
 
-    return (
-      <div style={{ marginBottom: '5mm' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            columnGap: '8mm',
-            fontWeight: 700,
-            fontSize: '10pt',
-            marginBottom: '2mm',
-          }}
-        >
-          <div style={{ color: '#000000' }}>II. Harga Jasa</div>
-          <div style={{ color: '#111111' }}>II. Service Fee</div>
-        </div>
-
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ ...headerCellStyle, width: '38%' }}>
-                <div style={{ fontWeight: 700 }}>Uraian</div>
-                <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Description</div>
-              </th>
-              <th style={{ ...headerCellStyle, width: '62%' }}>
-                <div style={{ fontWeight: 700 }}>Keterangan</div>
-                <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Details</div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000' }}>Omset rata-rata per tahun</div>
-                <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Average annual turnover</div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000' }}>{svc?.turnoverLabelId || '-'}</div>
-                <div style={{ color: '#4B5563' }}>{svc?.turnoverLabelEn || '-'}</div>
-              </td>
-            </tr>
-            <tr style={{ backgroundColor: '#F9FAFB' }}>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000' }}>{volumeTitleId}</div>
-                <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{volumeTitleEn}</div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000' }}>{svc?.volumeLabelId || '-'}</div>
-                <div style={{ color: '#4B5563' }}>{svc?.volumeLabelEn || '-'}</div>
-              </td>
-            </tr>
-            {hasDiscount && (
-              <>
-                <tr>
-                  <td style={cellStyle}>
-                    <div style={{ color: '#000000' }}>Harga normal per bulan</div>
-                    <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Regular monthly fee</div>
-                  </td>
-                  <td style={cellStyle}>
-                    <div style={{ color: '#4B5563', textDecoration: 'line-through' }}>
-                      {formatSphCurrencyId(sph.normalTotalMonthly)}
-                    </div>
-                    <div style={{ color: '#6B7280', textDecoration: 'line-through' }}>
-                      {formatSphCurrencyEn(sph.normalTotalMonthly)}
-                    </div>
-                  </td>
-                </tr>
-                <tr style={{ backgroundColor: '#F9FAFB' }}>
-                  <td style={cellStyle}>
-                    <div style={{ color: '#000000' }}>Diskon penawaran</div>
-                    <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Special discount</div>
-                  </td>
-                  <td style={cellStyle}>
-                    <div style={{ fontWeight: 600, color: '#065F46' }}>
-                      - {formatSphCurrencyId(sph.discountAmount)}
-                      {sph.normalTotalMonthly > 0
-                        ? ` (${Math.round((sph.discountAmount / sph.normalTotalMonthly) * 1000) / 10}%)`
-                        : ''}
-                    </div>
-                    <div style={{ color: '#047857' }}>- {formatSphCurrencyEn(sph.discountAmount)}</div>
-                  </td>
-                </tr>
-              </>
-            )}
-            <tr style={{ backgroundColor: '#F3F4F6' }}>
-              <td style={cellStyle}>
-                <div style={{ fontWeight: 700, color: '#000000' }}>
-                  {hasDiscount ? 'Harga jasa spesial per bulan' : 'Harga jasa per bulan'}
-                </div>
-                <div style={{ fontStyle: 'italic', color: '#4B5563' }}>
-                  {hasDiscount ? 'Special monthly service fee' : 'Monthly service fee'}
-                </div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ fontWeight: 700, color: '#000000' }}>
-                  {formatSphCurrencyId(sph.finalTotalMonthly)} ({terbilangRupiahId(sph.finalTotalMonthly)})
-                </div>
-                <div style={{ color: '#374151', marginTop: '0.5mm' }}>
-                  {formatSphCurrencyEn(sph.finalTotalMonthly)} ({terbilangRupiahEn(sph.finalTotalMonthly)})
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td style={cellStyle}>
-                <div style={{ fontWeight: 700, color: '#000000' }}>Catatan</div>
-                <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Notes</div>
-              </td>
-              <td style={{ ...cellStyle, minHeight: '11mm' }}>
-                <div style={{ color: '#111827', whiteSpace: 'pre-wrap' }}>{sph.notes?.trim() || ' '}</div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    const thead = (
+      <thead data-fee-thead="1">
+        <tr>
+          <th style={{ ...headerCellStyle, width: '38%' }}>
+            <div style={{ fontWeight: 700 }}>Uraian</div>
+            <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Description</div>
+          </th>
+          <th style={{ ...headerCellStyle, width: '62%' }}>
+            <div style={{ fontWeight: 700 }}>Keterangan</div>
+            <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Details</div>
+          </th>
+        </tr>
+      </thead>
     );
-  }
 
-  // Multi-service 3-column table (exact match to Draf_SPH_Bilingual_-_Jasa_Akuntansi_dan_Perpajakan_Bulanan.pdf)
-  return (
-    <div style={{ marginBottom: '5mm' }}>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          columnGap: '8mm',
-          fontWeight: 700,
-          fontSize: '10pt',
-          marginBottom: '2mm',
-        }}
-      >
-        <div style={{ color: '#000000' }}>II. Harga Jasa</div>
-        <div style={{ color: '#111111' }}>II. Service Fee</div>
-      </div>
-
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={{ ...headerCellStyle, width: '24%' }}>
-              <div style={{ fontWeight: 700 }}>Layanan</div>
-              <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Service</div>
-            </th>
-            <th style={{ ...headerCellStyle, width: '48%' }}>
-              <div style={{ fontWeight: 700 }}>Dasar Perhitungan</div>
-              <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>
-                Basis of Calculation
-              </div>
-            </th>
-            <th style={{ ...headerCellStyle, width: '28%' }}>
-              <div style={{ fontWeight: 700 }}>Harga per Bulan</div>
-              <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Monthly Fee</div>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {sph.services.map((svc, idx) => (
-            <tr key={`${svc.serviceKey}-${idx}`} style={{ backgroundColor: idx % 2 === 1 ? '#F9FAFB' : '#FFFFFF' }}>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000', fontWeight: 600 }}>{svc.serviceNameId}</div>
-                <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{svc.serviceNameEn}</div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000' }}>
-                  Omset {svc.turnoverLabelId}, {svc.volumeLabelId}
-                </div>
-                <div style={{ color: '#4B5563' }}>
-                  Turnover {svc.turnoverLabelEn}, {svc.volumeLabelEn}
-                </div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ color: '#000000', fontWeight: 600 }}>{formatSphCurrencyId(svc.monthlyPrice)}</div>
-                <div style={{ color: '#4B5563' }}>{formatSphCurrencyEn(svc.monthlyPrice)}</div>
-              </td>
-            </tr>
-          ))}
-          <tr>
+    const rows: Array<{ key: string; render: (blockIdx?: number) => React.ReactNode }> = [
+      {
+        key: 'single-turnover',
+        render: (blockIdx) => (
+          <tr key="single-turnover" data-block-idx={blockIdx}>
             <td style={cellStyle}>
-              <div style={{ fontWeight: 700, color: '#000000' }}>Jumlah harga normal</div>
-              <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Total regular price</div>
+              <div style={{ color: '#000000' }}>Omset rata-rata per tahun</div>
+              <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Average annual turnover</div>
             </td>
-            <td style={cellStyle} />
             <td style={cellStyle}>
-              <div
-                style={{
-                  fontWeight: 700,
-                  color: hasDiscount ? '#6B7280' : '#000000',
-                  textDecoration: hasDiscount ? 'line-through' : 'none',
-                }}
-              >
+              <div style={{ color: '#000000' }}>{svc?.turnoverLabelId || '-'}</div>
+              <div style={{ color: '#4B5563' }}>{svc?.turnoverLabelEn || '-'}</div>
+            </td>
+          </tr>
+        ),
+      },
+      {
+        key: 'single-volume',
+        render: (blockIdx) => (
+          <tr key="single-volume" data-block-idx={blockIdx} style={{ backgroundColor: '#F9FAFB' }}>
+            <td style={cellStyle}>
+              <div style={{ color: '#000000' }}>{volumeTitleId}</div>
+              <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{volumeTitleEn}</div>
+            </td>
+            <td style={cellStyle}>
+              <div style={{ color: '#000000' }}>{svc?.volumeLabelId || '-'}</div>
+              <div style={{ color: '#4B5563' }}>{svc?.volumeLabelEn || '-'}</div>
+            </td>
+          </tr>
+        ),
+      },
+    ];
+
+    if (hasDiscount) {
+      rows.push({
+        key: 'single-normal-fee',
+        render: (blockIdx) => (
+          <tr key="single-normal-fee" data-block-idx={blockIdx}>
+            <td style={cellStyle}>
+              <div style={{ color: '#000000' }}>Harga normal per bulan</div>
+              <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Regular monthly fee</div>
+            </td>
+            <td style={cellStyle}>
+              <div style={{ color: '#4B5563', textDecoration: 'line-through' }}>
                 {formatSphCurrencyId(sph.normalTotalMonthly)}
               </div>
-              <div style={{ color: '#4B5563', textDecoration: hasDiscount ? 'line-through' : 'none' }}>
+              <div style={{ color: '#6B7280', textDecoration: 'line-through' }}>
                 {formatSphCurrencyEn(sph.normalTotalMonthly)}
               </div>
             </td>
           </tr>
-          {hasDiscount && (
-            <tr style={{ backgroundColor: '#F3F4F6' }}>
-              <td style={cellStyle}>
-                <div style={{ fontWeight: 700, color: '#000000' }}>Harga paket spesial</div>
-                <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Special package price</div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ color: '#065F46', fontWeight: 600 }}>
-                  Hemat {formatSphCurrencyId(sph.discountAmount)}
-                  {sph.normalTotalMonthly > 0
-                    ? ` (${Math.round((sph.discountAmount / sph.normalTotalMonthly) * 1000) / 10}%)`
-                    : ''}
-                </div>
-                <div style={{ color: '#047857', fontSize: '8.4pt' }}>
-                  Save {formatSphCurrencyEn(sph.discountAmount)} ({terbilangRupiahId(sph.finalTotalMonthly)})
-                </div>
-              </td>
-              <td style={cellStyle}>
-                <div style={{ fontWeight: 700, color: '#000000' }}>
-                  {formatSphCurrencyId(sph.finalTotalMonthly)}
-                </div>
-                <div style={{ color: '#374151' }}>{formatSphCurrencyEn(sph.finalTotalMonthly)}</div>
-              </td>
-            </tr>
-          )}
-          <tr>
+        ),
+      });
+      rows.push({
+        key: 'single-discount',
+        render: (blockIdx) => (
+          <tr key="single-discount" data-block-idx={blockIdx} style={{ backgroundColor: '#F9FAFB' }}>
             <td style={cellStyle}>
-              <div style={{ fontWeight: 700, color: '#000000' }}>Catatan</div>
-              <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Notes</div>
+              <div style={{ color: '#000000' }}>Diskon penawaran</div>
+              <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Special discount</div>
             </td>
-            <td colSpan={2} style={{ ...cellStyle, minHeight: '10mm' }}>
-              <div style={{ color: '#111827', whiteSpace: 'pre-wrap' }}>{sph.notes?.trim() || ' '}</div>
+            <td style={cellStyle}>
+              <div style={{ fontWeight: 600, color: '#065F46' }}>
+                - {formatSphCurrencyId(sph.discountAmount)}
+                {sph.normalTotalMonthly > 0
+                  ? ` (${Math.round((sph.discountAmount / sph.normalTotalMonthly) * 1000) / 10}%)`
+                  : ''}
+              </div>
+              <div style={{ color: '#047857' }}>- {formatSphCurrencyEn(sph.discountAmount)}</div>
             </td>
           </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-};
+        ),
+      });
+    }
 
-const SphTermsBlock: React.FC<{ sph: SphDocument; includeThankYou?: boolean }> = ({
-  sph,
-  includeThankYou = false,
-}) => {
+    rows.push({
+      key: 'single-final-fee',
+      render: (blockIdx) => (
+        <tr key="single-final-fee" data-block-idx={blockIdx} style={{ backgroundColor: '#F3F4F6' }}>
+          <td style={cellStyle}>
+            <div style={{ fontWeight: 700, color: '#000000' }}>
+              {hasDiscount ? 'Harga jasa spesial per bulan' : 'Harga jasa per bulan'}
+            </div>
+            <div style={{ fontStyle: 'italic', color: '#4B5563' }}>
+              {hasDiscount ? 'Special monthly service fee' : 'Monthly service fee'}
+            </div>
+          </td>
+          <td style={cellStyle}>
+            <div style={{ fontWeight: 700, color: '#000000' }}>
+              {formatSphCurrencyId(sph.finalTotalMonthly)} ({terbilangRupiahId(sph.finalTotalMonthly)})
+            </div>
+            <div style={{ color: '#374151', marginTop: '0.5mm' }}>
+              {formatSphCurrencyEn(sph.finalTotalMonthly)} ({terbilangRupiahEn(sph.finalTotalMonthly)})
+            </div>
+          </td>
+        </tr>
+      ),
+    });
+
+    rows.push({
+      key: 'single-notes',
+      render: (blockIdx) => (
+        <tr key="single-notes" data-block-idx={blockIdx}>
+          <td style={cellStyle}>
+            <div style={{ fontWeight: 700, color: '#000000' }}>Catatan</div>
+            <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Notes</div>
+          </td>
+          <td style={{ ...cellStyle, minHeight: '11mm' }}>
+            <div style={{ color: '#111827', whiteSpace: 'pre-wrap' }}>{sph.notes?.trim() || ' '}</div>
+          </td>
+        </tr>
+      ),
+    });
+
+    return { thead, rows };
+  }
+
+  // Multi-service 3-column table
+  const thead = (
+    <thead data-fee-thead="1">
+      <tr>
+        <th style={{ ...headerCellStyle, width: '24%' }}>
+          <div style={{ fontWeight: 700 }}>Layanan</div>
+          <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Service</div>
+        </th>
+        <th style={{ ...headerCellStyle, width: '48%' }}>
+          <div style={{ fontWeight: 700 }}>Dasar Perhitungan</div>
+          <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>
+            Basis of Calculation
+          </div>
+        </th>
+        <th style={{ ...headerCellStyle, width: '28%' }}>
+          <div style={{ fontWeight: 700 }}>Harga per Bulan</div>
+          <div style={{ fontWeight: 400, fontStyle: 'italic', color: '#E5E7EB' }}>Monthly Fee</div>
+        </th>
+      </tr>
+    </thead>
+  );
+
+  const rows: Array<{ key: string; render: (blockIdx?: number) => React.ReactNode }> =
+    sph.services.map((svc, idx) => ({
+      key: `multi-svc-${svc.serviceKey}-${idx}`,
+      render: (blockIdx) => (
+        <tr
+          key={`multi-svc-${svc.serviceKey}-${idx}`}
+          data-block-idx={blockIdx}
+          style={{ backgroundColor: idx % 2 === 1 ? '#F9FAFB' : '#FFFFFF' }}
+        >
+          <td style={cellStyle}>
+            <div style={{ color: '#000000', fontWeight: 600 }}>{svc.serviceNameId}</div>
+            <div style={{ fontStyle: 'italic', color: '#4B5563' }}>{svc.serviceNameEn}</div>
+          </td>
+          <td style={cellStyle}>
+            <div style={{ color: '#000000' }}>
+              Omset {svc.turnoverLabelId}, {svc.volumeLabelId}
+            </div>
+            <div style={{ color: '#4B5563' }}>
+              Turnover {svc.turnoverLabelEn}, {svc.volumeLabelEn}
+            </div>
+          </td>
+          <td style={cellStyle}>
+            <div style={{ color: '#000000', fontWeight: 600 }}>
+              {formatSphCurrencyId(svc.monthlyPrice)}
+            </div>
+            <div style={{ color: '#4B5563' }}>{formatSphCurrencyEn(svc.monthlyPrice)}</div>
+          </td>
+        </tr>
+      ),
+    }));
+
+  rows.push({
+    key: 'multi-regular-total',
+    render: (blockIdx) => (
+      <tr key="multi-regular-total" data-block-idx={blockIdx}>
+        <td style={cellStyle}>
+          <div style={{ fontWeight: 700, color: '#000000' }}>Jumlah harga normal</div>
+          <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Total regular price</div>
+        </td>
+        <td style={cellStyle} />
+        <td style={cellStyle}>
+          <div
+            style={{
+              fontWeight: 700,
+              color: hasDiscount ? '#6B7280' : '#000000',
+              textDecoration: hasDiscount ? 'line-through' : 'none',
+            }}
+          >
+            {formatSphCurrencyId(sph.normalTotalMonthly)}
+          </div>
+          <div
+            style={{
+              color: '#4B5563',
+              textDecoration: hasDiscount ? 'line-through' : 'none',
+            }}
+          >
+            {formatSphCurrencyEn(sph.normalTotalMonthly)}
+          </div>
+        </td>
+      </tr>
+    ),
+  });
+
+  if (hasDiscount) {
+    rows.push({
+      key: 'multi-special-package',
+      render: (blockIdx) => (
+        <tr
+          key="multi-special-package"
+          data-block-idx={blockIdx}
+          style={{ backgroundColor: '#F3F4F6' }}
+        >
+          <td style={cellStyle}>
+            <div style={{ fontWeight: 700, color: '#000000' }}>Harga paket spesial</div>
+            <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Special package price</div>
+          </td>
+          <td style={cellStyle}>
+            <div style={{ color: '#065F46', fontWeight: 600 }}>
+              Hemat {formatSphCurrencyId(sph.discountAmount)}
+              {sph.normalTotalMonthly > 0
+                ? ` (${Math.round((sph.discountAmount / sph.normalTotalMonthly) * 1000) / 10}%)`
+                : ''}
+            </div>
+            <div style={{ color: '#047857', fontSize: '8.4pt' }}>
+              Save {formatSphCurrencyEn(sph.discountAmount)} (
+              {terbilangRupiahId(sph.finalTotalMonthly)})
+            </div>
+          </td>
+          <td style={cellStyle}>
+            <div style={{ fontWeight: 700, color: '#000000' }}>
+              {formatSphCurrencyId(sph.finalTotalMonthly)}
+            </div>
+            <div style={{ color: '#374151' }}>{formatSphCurrencyEn(sph.finalTotalMonthly)}</div>
+          </td>
+        </tr>
+      ),
+    });
+  }
+
+  rows.push({
+    key: 'multi-notes',
+    render: (blockIdx) => (
+      <tr key="multi-notes" data-block-idx={blockIdx}>
+        <td style={cellStyle}>
+          <div style={{ fontWeight: 700, color: '#000000' }}>Catatan</div>
+          <div style={{ fontStyle: 'italic', color: '#4B5563' }}>Notes</div>
+        </td>
+        <td colSpan={2} style={{ ...cellStyle, minHeight: '10mm' }}>
+          <div style={{ color: '#111827', whiteSpace: 'pre-wrap' }}>{sph.notes?.trim() || ' '}</div>
+        </td>
+      </tr>
+    ),
+  });
+
+  return { thead, rows };
+}
+
+function buildSphTermsList(sph: SphDocument): Array<{ id: string; en: string }> {
   const isMulti = sph.services.length > 1;
   const hasJournal = sph.services.some((s) => s.unitType === 'journal');
   const hasTransaction = sph.services.some((s) => s.unitType === 'transaction');
@@ -650,89 +632,86 @@ const SphTermsBlock: React.FC<{ sph: SphDocument; includeThankYou?: boolean }> =
     en: 'This offer is valid for 30 (thirty) days from the date of this letter.',
   });
 
-  return (
-    <div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          columnGap: '8mm',
-          fontWeight: 700,
-          fontSize: '10pt',
-          marginBottom: '2mm',
-        }}
-      >
-        <div style={{ color: '#000000' }}>III. Ketentuan Penawaran</div>
-        <div style={{ color: '#111111' }}>III. Terms of Offer</div>
-      </div>
+  return terms;
+}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '2mm', marginBottom: '4mm' }}>
-        {terms.map((t, i) => (
-          <div
-            key={i}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              columnGap: '8mm',
-              fontSize: '9.3pt',
-              lineHeight: 1.38,
-            }}
-          >
-            <div style={{ display: 'flex', color: '#000000' }}>
-              <span style={{ width: '5.5mm', flexShrink: 0 }}>{i + 1}.</span>
-              <span style={{ flex: 1 }}>{t.id}</span>
-            </div>
-            <div style={{ display: 'flex', color: '#4B5563' }}>
-              <span style={{ width: '5.5mm', flexShrink: 0 }}>{i + 1}.</span>
-              <span style={{ flex: 1 }}>{t.en}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+interface SphFlowBlock {
+  key: string;
+  kind: 'normal' | 'fee_row';
+  keepWithNext?: boolean;
+  isSpacer?: boolean;
+  node?: React.ReactNode;
+  renderRow?: (blockIdx?: number) => React.ReactNode;
+}
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          columnGap: '8mm',
-          fontSize: '9.3pt',
-          lineHeight: 1.4,
-          marginBottom: includeThankYou ? '3.5mm' : '0',
-        }}
-      >
-        <div style={{ color: '#000000' }}>
-          Demikian surat penawaran ini kami sampaikan. Apabila Bapak/Ibu menyetujui penawaran ini,
-          mohon menandatangani kolom persetujuan di bawah dan mengirimkannya kembali kepada kami.
-          Untuk pertanyaan lebih lanjut, Bapak/Ibu dapat menghubungi kami melalui WhatsApp
-          0821-8074-4977 atau email business@ndtaxandlaw.com.
-        </div>
-        <div style={{ color: '#4B5563' }}>
-          We hereby submit this quotation. Should you agree to this offer, please sign the approval
-          column below and return it to us. For further inquiries, please contact us via WhatsApp at
-          0821-8074-4977 or by email at business@ndtaxandlaw.com.
-        </div>
-      </div>
+function paginateSphFlowBlocks(
+  blocks: SphFlowBlock[],
+  heights: number[],
+  feeTheadHeight: number,
+  maxPageHeightPx: number
+): number[][] {
+  const pages: number[][] = [[]];
+  let currentY = 0;
+  let inFeeTableOnPage = false;
 
-      {includeThankYou && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            columnGap: '8mm',
-            fontSize: '9.3pt',
-            lineHeight: 1.4,
-            marginBottom: '6mm',
-          }}
-        >
-          <div style={{ color: '#000000' }}>
-            Atas perhatian dan kerja sama Bapak/Ibu, kami ucapkan terima kasih.
-          </div>
-          <div style={{ color: '#4B5563' }}>Thank you for your attention and cooperation.</div>
-        </div>
-      )}
-    </div>
-  );
-};
+  const startNewPage = () => {
+    pages.push([]);
+    currentY = 0;
+    inFeeTableOnPage = false;
+  };
+
+  for (let i = 0; i < blocks.length; i++) {
+    const blk = blocks[i];
+    const h = heights[i] || 0;
+
+    if (blk.isSpacer) {
+      if (currentY === 0) continue;
+      if (currentY + h > maxPageHeightPx) continue;
+      pages[pages.length - 1].push(i);
+      currentY += h;
+      inFeeTableOnPage = false;
+      continue;
+    }
+
+    if (blk.keepWithNext && i + 1 < blocks.length) {
+      let groupH = h;
+      let j = i + 1;
+      let groupStartsFeeTable = false;
+      while (j < blocks.length) {
+        const nextBlk = blocks[j];
+        if (nextBlk.kind === 'fee_row' && !inFeeTableOnPage && !groupStartsFeeTable) {
+          groupH += feeTheadHeight + 2;
+          groupStartsFeeTable = true;
+        }
+        groupH += heights[j] || 0;
+        if (!nextBlk.keepWithNext) break;
+        j++;
+      }
+      if (currentY > 0 && currentY + groupH > maxPageHeightPx) {
+        startNewPage();
+      }
+    } else {
+      const neededH = blk.kind === 'fee_row' && !inFeeTableOnPage ? feeTheadHeight + h + 2 : h;
+      if (currentY > 0 && currentY + neededH > maxPageHeightPx) {
+        startNewPage();
+      }
+    }
+
+    pages[pages.length - 1].push(i);
+    if (blk.kind === 'fee_row') {
+      if (!inFeeTableOnPage) {
+        currentY += feeTheadHeight + 2;
+        inFeeTableOnPage = true;
+      }
+      currentY += h;
+    } else {
+      inFeeTableOnPage = false;
+      currentY += h;
+    }
+  }
+
+  return pages.filter((p) => p.length > 0);
+}
 
 const SphSignatureBlock: React.FC<{
   sph: SphDocument;
@@ -907,10 +886,13 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
     };
   }, [sph.status, sph.id, sph.sphNumber, sph.mitraMemberCode, barcodeLogoUrl]);
 
-  const content = resolveProspectLetterContent(undefined, masterTemplate);
+  const content = useMemo(
+    () => resolveProspectLetterContent(undefined, masterTemplate),
+    [masterTemplate]
+  );
   const formattedDate = formatIndonesianLetterDate(sph.sphDate || sph.createdAt);
   const city = content.city || 'Jakarta';
-  const titles = composeSphBilingualTitles(sph.services);
+  const titles = useMemo(() => composeSphBilingualTitles(sph.services), [sph.services]);
 
   const marginLeftMm = 23;
   const marginRightMm = 23;
@@ -928,15 +910,19 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
 
   const services = sph.services || [];
   const isSingle = services.length <= 1;
-  const isTwo = services.length === 2;
   const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const feeTableParts = useMemo(() => buildSphFeeTableParts(sph), [sph]);
+  const termsList = useMemo(() => buildSphTermsList(sph), [sph]);
 
-  return (
-    <div className={mode === 'preview' ? 'space-y-6' : ''}>
-      {/* PAGE 1: Header + Meta + Recipient + Opening + First Scope of Work */}
-      <SphA4PageFrame mode={mode}>
-        <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-        <div style={bodyBoxStyle}>
+  const flowBlocks: SphFlowBlock[] = useMemo(() => {
+    const list: SphFlowBlock[] = [];
+
+    // 1. Opening header: date, metadata, recipient, bilingual intro
+    list.push({
+      key: 'letter-top',
+      kind: 'normal',
+      node: (
+        <div style={{ paddingBottom: '4.5mm' }}>
           <div style={{ textAlign: 'right', fontSize: '9.5pt', marginBottom: '2.5mm' }}>
             {city}, {formattedDate}
           </div>
@@ -996,7 +982,6 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
               columnGap: '8mm',
               fontSize: '9.4pt',
               lineHeight: 1.4,
-              marginBottom: '4.5mm',
             }}
           >
             <div>
@@ -1016,161 +1001,415 @@ export const SphDocumentView: React.FC<SphDocumentViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      ),
+    });
 
+    // 2. Section I: Ruang Lingkup Pekerjaan (flows item-by-item across pages without clipping)
+    list.push({
+      key: 'scope-main-heading',
+      kind: 'normal',
+      keepWithNext: true,
+      node: (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            columnGap: '8mm',
+            fontWeight: 700,
+            fontSize: '10pt',
+            paddingBottom: '2.2mm',
+          }}
+        >
+          <div>I. Ruang Lingkup Pekerjaan</div>
+          <div>I. Scope of Work</div>
+        </div>
+      ),
+    });
+
+    services.forEach((svc: SphServiceSelection, sIdx: number) => {
+      const compact = !isSingle || svc.scopeItems.length >= 10;
+      const fontSize = compact ? '8.8pt' : '9.4pt';
+      const itemPadBottom = compact ? '1.2mm' : '1.6mm';
+      if (!isSingle) {
+        const prefix = letters[sIdx] || String(sIdx + 1);
+        list.push({
+          key: `scope-svc-heading-${sIdx}`,
+          kind: 'normal',
+          keepWithNext: true,
+          node: (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                columnGap: '8mm',
+                fontWeight: 700,
+                fontSize: compact ? '9.3pt' : '9.8pt',
+                paddingBottom: '1.6mm',
+              }}
+            >
+              <div style={{ color: '#000000' }}>
+                {prefix}. {svc.serviceNameId}
+              </div>
+              <div style={{ color: '#111111' }}>
+                {prefix}. {svc.serviceNameEn}
+              </div>
+            </div>
+          ),
+        });
+      }
+
+      svc.scopeItems.forEach((item, idx) => {
+        list.push({
+          key: `scope-item-${sIdx}-${idx}`,
+          kind: 'normal',
+          node: (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                columnGap: '8mm',
+                fontSize,
+                lineHeight: 1.32,
+                paddingBottom: itemPadBottom,
+              }}
+            >
+              <div style={{ display: 'flex', color: '#000000' }}>
+                <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
+                <span style={{ flex: 1 }}>{item.idText}</span>
+              </div>
+              <div style={{ display: 'flex', color: '#4B5563' }}>
+                <span style={{ width: '6mm', flexShrink: 0 }}>{idx + 1}.</span>
+                <span style={{ flex: 1 }}>{item.enText}</span>
+              </div>
+            </div>
+          ),
+        });
+      });
+
+      list.push({
+        key: `scope-svc-gap-${sIdx}`,
+        kind: 'normal',
+        isSpacer: true,
+        node: <div style={{ height: compact ? '2.5mm' : '3.5mm' }} />,
+      });
+    });
+
+    // 3. Section II: Harga Jasa (table splits cleanly row-by-row with repeated header if needed)
+    list.push({
+      key: 'fee-heading',
+      kind: 'normal',
+      keepWithNext: true,
+      node: (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            columnGap: '8mm',
+            fontWeight: 700,
+            fontSize: '10pt',
+            paddingBottom: '2mm',
+          }}
+        >
+          <div style={{ color: '#000000' }}>II. Harga Jasa</div>
+          <div style={{ color: '#111111' }}>II. Service Fee</div>
+        </div>
+      ),
+    });
+
+    feeTableParts.rows.forEach((row) => {
+      list.push({
+        key: `fee-row-${row.key}`,
+        kind: 'fee_row',
+        renderRow: row.render,
+      });
+    });
+
+    list.push({
+      key: 'fee-after-gap',
+      kind: 'normal',
+      isSpacer: true,
+      node: <div style={{ height: '5mm' }} />,
+    });
+
+    // 4. Section III: Ketentuan Penawaran (flows term-by-term across pages without clipping)
+    list.push({
+      key: 'terms-heading',
+      kind: 'normal',
+      keepWithNext: true,
+      node: (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            columnGap: '8mm',
+            fontWeight: 700,
+            fontSize: '10pt',
+            paddingBottom: '2mm',
+          }}
+        >
+          <div style={{ color: '#000000' }}>III. Ketentuan Penawaran</div>
+          <div style={{ color: '#111111' }}>III. Terms of Offer</div>
+        </div>
+      ),
+    });
+
+    termsList.forEach((t, i) => {
+      list.push({
+        key: `term-item-${i}`,
+        kind: 'normal',
+        node: (
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               columnGap: '8mm',
-              fontWeight: 700,
-              fontSize: '10pt',
-              marginBottom: '2.2mm',
+              fontSize: '9.3pt',
+              lineHeight: 1.38,
+              paddingBottom: '2mm',
             }}
           >
-            <div>I. Ruang Lingkup Pekerjaan</div>
-            <div>I. Scope of Work</div>
+            <div style={{ display: 'flex', color: '#000000' }}>
+              <span style={{ width: '5.5mm', flexShrink: 0 }}>{i + 1}.</span>
+              <span style={{ flex: 1 }}>{t.id}</span>
+            </div>
+            <div style={{ display: 'flex', color: '#4B5563' }}>
+              <span style={{ width: '5.5mm', flexShrink: 0 }}>{i + 1}.</span>
+              <span style={{ flex: 1 }}>{t.en}</span>
+            </div>
           </div>
+        ),
+      });
+    });
 
-          {services[0] && (
-            <BilingualScopeSection
-              service={services[0]}
-              letterPrefix={isSingle ? undefined : 'A'}
-              compact={services[0].scopeItems.length >= 10}
-            />
-          )}
+    list.push({
+      key: 'terms-after-gap',
+      kind: 'normal',
+      isSpacer: true,
+      node: <div style={{ height: '2mm' }} />,
+    });
+
+    // 5. Closing contact paragraph
+    list.push({
+      key: 'closing-contact',
+      kind: 'normal',
+      node: (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            columnGap: '8mm',
+            fontSize: '9.3pt',
+            lineHeight: 1.4,
+            paddingBottom: '4mm',
+          }}
+        >
+          <div style={{ color: '#000000' }}>
+            Demikian surat penawaran ini kami sampaikan. Apabila Bapak/Ibu menyetujui penawaran ini,
+            mohon menandatangani kolom persetujuan di bawah dan mengirimkannya kembali kepada kami.
+            Untuk pertanyaan lebih lanjut, Bapak/Ibu dapat menghubungi kami melalui WhatsApp
+            0821-8074-4977 atau email business@ndtaxandlaw.com.
+          </div>
+          <div style={{ color: '#4B5563' }}>
+            We hereby submit this quotation. Should you agree to this offer, please sign the
+            approval column below and return it to us. For further inquiries, please contact us via
+            WhatsApp at 0821-8074-4977 or by email at business@ndtaxandlaw.com.
+          </div>
         </div>
-        <SphLetterFooter content={content} />
-      </SphA4PageFrame>
+      ),
+    });
 
-      {/* SINGLE SERVICE LAYOUT: Page 2 (Fee + Terms), Page 3 (Thank you + Signatures) */}
-      {isSingle && (
-        <>
-          <SphA4PageFrame mode={mode}>
-            <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-            <div style={bodyBoxStyle}>
-              <SphFeeTable sph={sph} />
-              <SphTermsBlock sph={sph} />
+    // 6. Thank you + 3-column signature block (kept together as one atomic block)
+    list.push({
+      key: 'thankyou-and-signature',
+      kind: 'normal',
+      node: (
+        <div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              columnGap: '8mm',
+              fontSize: '9.4pt',
+              lineHeight: 1.42,
+              paddingBottom: '7mm',
+            }}
+          >
+            <div style={{ color: '#000000' }}>
+              Atas perhatian dan kerja sama Bapak/Ibu, kami ucapkan terima kasih.
             </div>
-            <SphLetterFooter content={content} />
-          </SphA4PageFrame>
+            <div style={{ color: '#4B5563' }}>Thank you for your attention and cooperation.</div>
+          </div>
+          <SphSignatureBlock
+            sph={sph}
+            content={content}
+            directorQr={directorQr}
+            mitraQr={mitraQr}
+          />
+        </div>
+      ),
+    });
 
-          <SphA4PageFrame mode={mode}>
-            <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-            <div style={bodyBoxStyle}>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  columnGap: '8mm',
-                  fontSize: '9.5pt',
-                  lineHeight: 1.45,
-                  marginBottom: '10mm',
-                }}
-              >
-                <div style={{ color: '#000000' }}>
-                  Atas perhatian dan kerja sama Bapak/Ibu, kami ucapkan terima kasih.
+    return list;
+  }, [sph, city, formattedDate, titles, services, isSingle, feeTableParts, termsList, content, directorQr, mitraQr]);
+
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [pages, setPages] = useState<number[][]>(() => [flowBlocks.map((_, idx) => idx)]);
+
+  useLayoutEffect(() => {
+    const container = measureRef.current;
+    if (!container) return;
+
+    const recomputePages = () => {
+      const host = measureRef.current;
+      if (!host) return;
+      const scaleFactor =
+        host.offsetWidth > 0 ? host.getBoundingClientRect().width / host.offsetWidth : 1;
+      const safeScale = scaleFactor > 0.05 ? scaleFactor : 1;
+
+      const rulerEl = host.querySelector('[data-page-height-ruler="1"]') as HTMLElement | null;
+      const maxPageHeightPx = rulerEl
+        ? Math.floor(rulerEl.getBoundingClientRect().height / safeScale)
+        : 828;
+
+      const theadEl = host.querySelector('[data-fee-thead="1"]') as HTMLElement | null;
+      const feeTheadHeight = theadEl
+        ? Math.ceil(theadEl.getBoundingClientRect().height / safeScale)
+        : 40;
+
+      const heights: number[] = flowBlocks.map((_, idx) => {
+        const el = host.querySelector(`[data-block-idx="${idx}"]`) as HTMLElement | null;
+        if (!el) return 0;
+        return Math.ceil(el.getBoundingClientRect().height / safeScale);
+      });
+
+      const nextPages = paginateSphFlowBlocks(
+        flowBlocks,
+        heights,
+        feeTheadHeight,
+        Math.max(500, maxPageHeightPx)
+      );
+      setPages(nextPages.length > 0 ? nextPages : [flowBlocks.map((_, idx) => idx)]);
+    };
+
+    recomputePages();
+
+    let cancelled = false;
+    const fontsReady = (document as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts
+      ?.ready;
+    if (fontsReady) {
+      fontsReady.then(() => {
+        if (!cancelled) recomputePages();
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [flowBlocks]);
+
+  const renderPageBlocks = (indices: number[]) => {
+    const output: React.ReactNode[] = [];
+    let k = 0;
+    while (k < indices.length) {
+      const idx = indices[k];
+      const blk = flowBlocks[idx];
+      if (!blk) {
+        k++;
+        continue;
+      }
+      if (blk.kind === 'fee_row') {
+        const rowGroup: SphFlowBlock[] = [];
+        while (k < indices.length && flowBlocks[indices[k]]?.kind === 'fee_row') {
+          rowGroup.push(flowBlocks[indices[k]]);
+          k++;
+        }
+        output.push(
+          <table
+            key={`fee-table-${rowGroup[0]?.key || k}`}
+            style={{ width: '100%', borderCollapse: 'collapse' }}
+          >
+            {feeTableParts.thead}
+            <tbody>{rowGroup.map((r) => r.renderRow?.())}</tbody>
+          </table>
+        );
+      } else {
+        output.push(<React.Fragment key={blk.key}>{blk.node}</React.Fragment>);
+        k++;
+      }
+    }
+    return output;
+  };
+
+  return (
+    <div className={mode === 'preview' ? 'space-y-6' : ''}>
+      {/* Hidden 1:1 unscaled A4 body measurement staging container for exact auto-pagination */}
+      <div
+        ref={measureRef}
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: '-10000px',
+          top: 0,
+          width: `${210 - marginLeftMm - marginRightMm}mm`,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontSize: '9.6pt',
+          color: '#000000',
+          boxSizing: 'border-box',
+          WebkitTextSizeAdjust: 'none',
+          textSizeAdjust: 'none',
+        }}
+      >
+        {/* 220mm safe printable body height (A4 297mm - 36mm top - 36mm bottom - 5mm safety buffer above footer) */}
+        <div
+          data-page-height-ruler="1"
+          style={{ position: 'absolute', top: 0, left: 0, width: '1px', height: '220mm' }}
+        />
+        {(() => {
+          const staged: React.ReactNode[] = [];
+          let k = 0;
+          while (k < flowBlocks.length) {
+            const blk = flowBlocks[k];
+            if (blk.kind === 'fee_row') {
+              const rowIndices: number[] = [];
+              while (k < flowBlocks.length && flowBlocks[k].kind === 'fee_row') {
+                rowIndices.push(k);
+                k++;
+              }
+              staged.push(
+                <table
+                  key={`measure-fee-table-${rowIndices[0]}`}
+                  style={{ width: '100%', borderCollapse: 'collapse' }}
+                >
+                  {feeTableParts.thead}
+                  <tbody>
+                    {rowIndices.map((rIdx) => flowBlocks[rIdx].renderRow?.(rIdx))}
+                  </tbody>
+                </table>
+              );
+            } else {
+              staged.push(
+                <div key={`measure-${blk.key}`} data-block-idx={k}>
+                  {blk.node}
                 </div>
-                <div style={{ color: '#4B5563' }}>Thank you for your attention and cooperation.</div>
-              </div>
-              <SphSignatureBlock sph={sph} content={content} directorQr={directorQr} mitraQr={mitraQr} />
-            </div>
-            <SphLetterFooter content={content} />
-          </SphA4PageFrame>
-        </>
-      )}
+              );
+              k++;
+            }
+          }
+          return staged;
+        })()}
+      </div>
 
-      {/* TWO SERVICES LAYOUT: Page 2 (Scope B + Fee Table), Page 3 (Terms + Thank you + Signatures) */}
-      {isTwo && (
-        <>
-          <SphA4PageFrame mode={mode}>
-            <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-            <div style={bodyBoxStyle}>
-              {services[1] && (
-                <BilingualScopeSection service={services[1]} letterPrefix="B" compact />
-              )}
-              <SphFeeTable sph={sph} />
-            </div>
-            <SphLetterFooter content={content} />
-          </SphA4PageFrame>
-
-          <SphA4PageFrame mode={mode}>
-            <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-            <div style={bodyBoxStyle}>
-              <SphTermsBlock sph={sph} includeThankYou />
-              <SphSignatureBlock sph={sph} content={content} directorQr={directorQr} mitraQr={mitraQr} />
-            </div>
-            <SphLetterFooter content={content} />
-          </SphA4PageFrame>
-        </>
-      )}
-
-      {/* 3+ SERVICES LAYOUT: Extra scope pages (2 per page), then Fee + Terms page, then Signatures page */}
-      {!isSingle && !isTwo && (
-        <>
-          {Array.from({ length: Math.ceil((services.length - 1) / 2) }).map((_, chunkIdx) => {
-            const firstIdx = 1 + chunkIdx * 2;
-            const secondIdx = firstIdx + 1;
-            return (
-              <SphA4PageFrame key={`scope-page-${chunkIdx}`} mode={mode}>
-                <SphLetterHeader
-                  logoUrl={logoUrl}
-                  inlineLogo={inlineLogo}
-                  marginLeftMm={marginLeftMm}
-                />
-                <div style={bodyBoxStyle}>
-                  {services[firstIdx] && (
-                    <BilingualScopeSection
-                      service={services[firstIdx]}
-                      letterPrefix={letters[firstIdx] || String(firstIdx + 1)}
-                      compact
-                    />
-                  )}
-                  {services[secondIdx] && (
-                    <BilingualScopeSection
-                      service={services[secondIdx]}
-                      letterPrefix={letters[secondIdx] || String(secondIdx + 1)}
-                      compact
-                    />
-                  )}
-                </div>
-                <SphLetterFooter content={content} />
-              </SphA4PageFrame>
-            );
-          })}
-
-          <SphA4PageFrame mode={mode}>
-            <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-            <div style={bodyBoxStyle}>
-              <SphFeeTable sph={sph} />
-              <SphTermsBlock sph={sph} />
-            </div>
-            <SphLetterFooter content={content} />
-          </SphA4PageFrame>
-
-          <SphA4PageFrame mode={mode}>
-            <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
-            <div style={bodyBoxStyle}>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  columnGap: '8mm',
-                  fontSize: '9.5pt',
-                  lineHeight: 1.45,
-                  marginBottom: '10mm',
-                }}
-              >
-                <div style={{ color: '#000000' }}>
-                  Atas perhatian dan kerja sama Bapak/Ibu, kami ucapkan terima kasih.
-                </div>
-                <div style={{ color: '#4B5563' }}>Thank you for your attention and cooperation.</div>
-              </div>
-              <SphSignatureBlock sph={sph} content={content} directorQr={directorQr} mitraQr={mitraQr} />
-            </div>
-            <SphLetterFooter content={content} />
-          </SphA4PageFrame>
-        </>
-      )}
+      {/* Rendered A4 Pages */}
+      {pages.map((pageIndices, pageIdx) => (
+        <SphA4PageFrame key={`sph-page-${pageIdx}`} mode={mode}>
+          <SphLetterHeader logoUrl={logoUrl} inlineLogo={inlineLogo} marginLeftMm={marginLeftMm} />
+          <div style={bodyBoxStyle}>{renderPageBlocks(pageIndices)}</div>
+          <SphLetterFooter content={content} />
+        </SphA4PageFrame>
+      ))}
     </div>
   );
 };
@@ -1389,7 +1628,7 @@ export async function downloadSphPdfFromView(
   };
 
   const drawBilingualHeading = (leftText: string, rightText: string, fontSize = 10, gapAfter = 2.6) => {
-    ensureSpace(12);
+    ensureSpace(22);
     setFontStyle(fontSize, 'bold', COLOR_BLACK);
     const lLines: string[] = doc.splitTextToSize(leftText, COL_W);
     setFontStyle(fontSize, 'bold', COLOR_DARK);
@@ -2038,7 +2277,7 @@ export async function downloadSphPdfFromView(
   const compSigLines: string[] = doc.splitTextToSize(sph.companyName || '', sigColW);
   const topHeaderHeight = sigStep * 2 + 1 + Math.max(1, compSigLines.length) * sigStep;
   const sigMiddleH = isApproved ? 30 : 22;
-  const sigTotalNeeded = 11 + topHeaderHeight + sigMiddleH + 16;
+  const sigTotalNeeded = 12 + topHeaderHeight + sigMiddleH + 24;
   ensureSpace(sigTotalNeeded);
 
   drawBilingualParagraph(
