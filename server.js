@@ -14126,6 +14126,12 @@ app.delete("/api/sph/:id", async (req, res) => {
         message: "Anda hanya dapat menghapus SPH milik Anda sendiri."
       });
     }
+    if (actorRoleRaw === "mitra" && existing.status === "approved") {
+      return res.status(403).json({
+        success: false,
+        message: "SPH yang sudah disetujui Admin tidak dapat dihapus oleh Mitra."
+      });
+    }
     reconcileSphSequenceState();
     sphDocuments.splice(idx, 1);
     saveDatabase();

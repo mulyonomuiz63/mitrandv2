@@ -1025,6 +1025,7 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
   };
 
   const handleDelete = async (sph: SphDocument) => {
+    if (!isAdminOrStaff && sph.status === 'approved') return;
     const ok = await confirm({
       title: 'Hapus SPH?',
       message: `SPH ${sph.sphNumber} untuk ${sph.companyName} akan dihapus permanen.`,
@@ -1110,6 +1111,7 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
                 const badge = getSphStatusBadge(sph.status);
                 const canDownload = isAdminOrStaff || sph.status === 'approved';
                 const canEdit = isAdminOrStaff || sph.status !== 'approved';
+                const canDelete = isAdminOrStaff || sph.status !== 'approved';
                 return (
                   <div
                     key={sph.id}
@@ -1241,15 +1243,17 @@ export const SphManagerModal: React.FC<SphManagerModalProps> = ({
                           </button>
                         )}
 
-                        <button
-                          type="button"
-                          disabled={busyId === sph.id}
-                          onClick={() => handleDelete(sph)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                          title="Hapus SPH"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            disabled={busyId === sph.id}
+                            onClick={() => handleDelete(sph)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                            title="Hapus SPH"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 

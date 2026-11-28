@@ -692,6 +692,7 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
   };
 
   const handleDeleteSphDirect = async (sph: SphDocument) => {
+    if (!isAdminOrStaff && sph.status === 'approved') return;
     const ok = await confirm({
       title: 'Hapus SPH?',
       message: `SPH ${sph.sphNumber} untuk ${sph.companyName} akan dihapus permanen.`,
@@ -2716,7 +2717,9 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
               </button>
             )}
 
-            <div className="my-1 border-t border-slate-100" />
+            {(canEdit || isAdminOrStaff || target.status !== 'approved') && (
+              <div className="my-1 border-t border-slate-100" />
+            )}
 
             {canEdit && (
               <button
@@ -2732,22 +2735,24 @@ export const ProspectsHub: React.FC<ProspectsHubProps> = ({
               </button>
             )}
 
-            <button
-              type="button"
-              disabled={sphBusyId === target.id}
-              onClick={() => {
-                setOpenSphMenu(null);
-                void handleDeleteSphDirect(target);
-              }}
-              className="w-full px-3.5 py-2 text-left font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
-            >
-              {sphBusyId === target.id ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="w-3.5 h-3.5" />
-              )}
-              <span>Hapus</span>
-            </button>
+            {(isAdminOrStaff || target.status !== 'approved') && (
+              <button
+                type="button"
+                disabled={sphBusyId === target.id}
+                onClick={() => {
+                  setOpenSphMenu(null);
+                  void handleDeleteSphDirect(target);
+                }}
+                className="w-full px-3.5 py-2 text-left font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 disabled:opacity-50 cursor-pointer"
+              >
+                {sphBusyId === target.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>Hapus</span>
+              </button>
+            )}
           </div>
         );
       })()}
