@@ -100,7 +100,7 @@ export default function App() {
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(() => {
     try {
       if (localStorage.getItem('nd_auth_user') && isStoredSessionExpired()) {
-        return 'Sesi Anda telah berakhir otomatis karena tidak ada aktivitas selama 10 menit. Silakan login kembali.';
+        return 'Sesi anda telah berakhir, silahkan login kembali';
       }
     } catch {}
     return null;
@@ -1364,7 +1364,7 @@ export default function App() {
     setCurrentUser(null);
     if (options?.expiredByIdle) {
       setSessionExpiredMessage(
-        'Sesi Anda telah berakhir otomatis karena tidak ada aktivitas selama 10 menit. Silakan login kembali.'
+        'Sesi anda telah berakhir, silahkan login kembali'
       );
       setAuthInitialMode('login');
       setViewMode('auth');
